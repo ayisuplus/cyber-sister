@@ -1,18 +1,31 @@
-// AI 妆教 - 主应用入口
-// 状态机: idle → loading_model → ready → analyzing → analysis_done → ...
+// 妆语 - 主应用入口
+// 状态机: idle → loading_model → ready → analyzing → analysis_done
 //        → recommending → looks_ready → tutorial_step → tutorial_done → result / error
 
-import { useReducer, useRef, useState, type ChangeEvent } from 'react';
-import type { FaceFeatures, MakeupLook } from '../shared/types';
+import { useEffect, useReducer, useRef, useState, type ChangeEvent } from 'react';
+import type { FaceFeatures, MakeupLook, MakeupStep } from '../shared/types';
+import { loadModel } from './face/loader';
+import { extractLandmarks, NoFaceError, type LandmarkPoint } from './face/landmarks';
+import { analyzeFeatures, type Landmark } from '../shared/faceFeatures';
+import { track, startTimer } from '../shared/analytics';
+import MakeupCanvas from './tutorial/MakeupCanvas';
+import TutorialPanel from './tutorial/TutorialPanel';
+import ResultCard from './result/ResultCard';
 
 // ---------- 状态机 ----------
 
 type AppState =
   | { stage: 'idle' }
   | { stage: 'loading_model'; progress: number }
-  | { stage: 'ready'; imageData: ImageData; previewUrl: string }
+  | {
+      stage: 'ready';
+      imageData: ImageData;
+      previewUrl: string;
+      imageWidth: number;
+      imageHeight: number;
+    }
   | { stage: 'analyzing' }
-  | { stage: 'analysis_done'; features: FaceFeatures }
+  | { stage: 'analysis_done'; features: FaceFeatures; warnings: string[] }
   | { stage: 'recommending' }
   | { stage: 'looks_ready'; looks: MakeupLook[]; selected: number }
   | { stage: 'tutorial_step'; look: MakeupLook; stepIndex: number }
@@ -23,10 +36,9 @@ type AppState =
 type Action =
   | { type: 'START_LOAD_MODEL' }
   | { type: 'MODEL_PROGRESS'; progress: number }
-  | { type: 'MODEL_READY' }
-  | { type: 'IMAGE_SELECTED'; imageData: ImageData; previewUrl: string }
+  | { type: 'MODEL_READY'; imageData: ImageData; previewUrl: string; imageWidth: number; imageHeight: number }
   | { type: 'START_ANALYZE' }
-  | { type: 'ANALYSIS_DONE'; features: FaceFeatures }
+  | { type: 'ANALYSIS_DONE'; features: FaceFeatures; warnings: string[] }
   | { type: 'START_RECOMMEND' }
   | { type: 'LOOKS_READY'; looks: MakeupLook[]; selected: number }
   | { type: 'SELECT_LOOK'; index: number }
@@ -35,7 +47,7 @@ type Action =
   | { type: 'PREV_STEP' }
   | { type: 'GOTO_STEP'; index: number }
   | { type: 'TUTORIAL_DONE' }
-  | { type: 'SHOW_RESULT' }
+  | { type: 'ENTER_RESULT'; look: MakeupLook; features: FaceFeatures }
   | { type: 'ERROR'; message: string; recoverable: boolean }
   | { type: 'RESET' };
 
@@ -49,17 +61,21 @@ function reducer(state: AppState, action: Action): AppState {
       if (state.stage !== 'loading_model') return state;
       return { stage: 'loading_model', progress: action.progress };
     case 'MODEL_READY':
-      // 保留已选图,直接回 ready
-      if (state.stage === 'loading_model') {
-        return { stage: 'idle' }; // 没有图,回到 idle 等用户操作
-      }
-      return state;
-    case 'IMAGE_SELECTED':
-      return { stage: 'ready', imageData: action.imageData, previewUrl: action.previewUrl };
+      return {
+        stage: 'ready',
+        imageData: action.imageData,
+        previewUrl: action.previewUrl,
+        imageWidth: action.imageWidth,
+        imageHeight: action.imageHeight,
+      };
     case 'START_ANALYZE':
       return { stage: 'analyzing' };
     case 'ANALYSIS_DONE':
-      return { stage: 'analysis_done', features: action.features };
+      return {
+        stage: 'analysis_done',
+        features: action.features,
+        warnings: action.warnings,
+      };
     case 'START_RECOMMEND':
       return { stage: 'recommending' };
     case 'LOOKS_READY':
@@ -69,7 +85,11 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, selected: action.index };
     case 'START_TUTORIAL':
       if (state.stage !== 'looks_ready') return state;
-      return { stage: 'tutorial_step', look: state.looks[state.selected], stepIndex: 0 };
+      return {
+        stage: 'tutorial_step',
+        look: state.looks[state.selected]!,
+        stepIndex: 0,
+      };
     case 'NEXT_STEP':
       if (state.stage !== 'tutorial_step') return state;
       {
@@ -88,10 +108,8 @@ function reducer(state: AppState, action: Action): AppState {
     case 'TUTORIAL_DONE':
       if (state.stage !== 'tutorial_step') return state;
       return { stage: 'tutorial_done', look: state.look };
-    case 'SHOW_RESULT':
-      if (state.stage !== 'tutorial_done') return state;
-      // features 来自 analysis_done,这里需要从更早状态拿 — 简化:由上层组件注入
-      return state;
+    case 'ENTER_RESULT':
+      return { stage: 'result', look: action.look, features: action.features };
     case 'ERROR':
       return { stage: 'error', message: action.message, recoverable: action.recoverable };
     case 'RESET':
@@ -104,16 +122,146 @@ function reducer(state: AppState, action: Action): AppState {
 // ---------- 常量 ----------
 
 const ACCEPT_TYPES = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // ---------- 主组件 ----------
 
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const imageDataRef = useRef<ImageData | null>(null);
+  const landmarksRef = useRef<Landmark[] | null>(null);
+  const featuresRef = useRef<FaceFeatures | null>(null);
+  const tutorialStartRef = useRef<number | null>(null);
+
+  // app_open
+  useEffect(() => {
+    track('app_open');
+  }, []);
+
+  // analyzing 阶段
+  useEffect(() => {
+    if (state.stage !== 'analyzing') return;
+    const imageData = imageDataRef.current;
+    if (!imageData) {
+      dispatch({ type: 'ERROR', message: '图片数据丢失，请重新上传', recoverable: true });
+      return;
+    }
+    const elapsed = startTimer();
+    let cancelled = false;
+    (async () => {
+      try {
+        const landmarker = await loadModel(() => {});
+        const canvas = new OffscreenCanvas(imageData.width, imageData.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas 2D context unavailable');
+        ctx.putImageData(imageData, 0, 0);
+        const landmarkPoints: LandmarkPoint[] = extractLandmarks(landmarker, canvas);
+        if (cancelled) return;
+        const features = analyzeFeatures(landmarkPoints, {
+          data: imageData.data,
+          width: imageData.width,
+          height: imageData.height,
+        });
+        if (cancelled) return;
+        landmarksRef.current = landmarkPoints as unknown as Landmark[];
+        featuresRef.current = features;
+        const warnings: string[] =
+          features.confidence < 0.5 ? ['照片质量一般，分析结果仅供参考'] : [];
+        track('analysis_complete', {
+          confidence: features.confidence,
+          duration_ms: elapsed(),
+        });
+        track('selfie_diagnosis', {
+          confidence: features.confidence,
+          warnings: warnings.length,
+        });
+        dispatch({ type: 'ANALYSIS_DONE', features, warnings });
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof NoFaceError) {
+          dispatch({ type: 'ERROR', message: '请上传清晰的正面照 📷', recoverable: true });
+        } else if (err instanceof Error) {
+          dispatch({ type: 'ERROR', message: `分析失败：${err.message}`, recoverable: true });
+        } else {
+          dispatch({ type: 'ERROR', message: '分析失败，稍后再试', recoverable: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.stage]);
+
+  // analysis_done → recommending 自动跳
+  useEffect(() => {
+    if (state.stage !== 'analysis_done') return;
+    const features = featuresRef.current;
+    if (!features) return;
+    dispatch({ type: 'START_RECOMMEND' });
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch('/api/recommend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(features),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { looks: MakeupLook[] };
+        track('recommend_view', { count: data.looks.length });
+        dispatch({ type: 'LOOKS_READY', looks: data.looks, selected: 0 });
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        const msg = err instanceof Error ? `推荐失败：${err.message}` : '推荐失败';
+        dispatch({ type: 'ERROR', message: msg, recoverable: true });
+      }
+    })();
+    return () => ctrl.abort();
+  }, [state.stage]);
+
+  // tutorial_step 变化时埋点 + 启动计时
+  useEffect(() => {
+    if (state.stage === 'tutorial_step') {
+      const step: MakeupStep | undefined = state.look.steps[state.stepIndex];
+      track('tutorial_step', {
+        step_index: state.stepIndex,
+        area: step?.area ?? 'unknown',
+        look_id: state.look.id,
+      });
+      if (tutorialStartRef.current === null) {
+        tutorialStartRef.current = Date.now();
+      }
+    }
+  }, [state.stage, state.stepIndex, state.look]);
+
+  // tutorial_done: 展示 1.8s "恭喜完成",再进 result
+  useEffect(() => {
+    if (state.stage !== 'tutorial_done') return;
+    const elapsed = tutorialStartRef.current
+      ? Date.now() - tutorialStartRef.current
+      : 0;
+    track('tutorial_complete', {
+      look_id: state.look.id,
+      total_duration_ms: elapsed,
+    });
+    tutorialStartRef.current = null;
+    const features = featuresRef.current;
+    if (!features) {
+      dispatch({ type: 'ERROR', message: '分析结果丢失', recoverable: true });
+      return;
+    }
+    const t = setTimeout(() => {
+      dispatch({ type: 'ENTER_RESULT', look: state.look, features });
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [state.stage, state.look]);
+
+  // ---------- 渲染 ----------
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6 py-10">
-      <section className="max-w-xl w-full bg-white rounded-card shadow-soft p-8 text-center">
+    <main className="min-h-screen flex items-center justify-center px-4 py-6">
+      <section className="max-w-xl w-full bg-white rounded-card shadow-soft p-6 sm:p-8 text-center">
         <h1 className="font-hand text-5xl text-accent mb-4">妆语</h1>
 
         {state.stage === 'idle' && <OnboardingView onImagePicked={onPick} />}
@@ -121,31 +269,86 @@ function App() {
         {state.stage === 'ready' && (
           <ReadyView
             previewUrl={state.previewUrl}
-            onRetake={() => dispatch({ type: 'RESET' })}
-            onAnalyze={() => dispatch({ type: 'START_ANALYZE' })}
+            onRetake={() => {
+              imageDataRef.current = null;
+              landmarksRef.current = null;
+              featuresRef.current = null;
+              dispatch({ type: 'RESET' });
+            }}
+            onAnalyze={() => {
+              imageDataRef.current = state.imageData;
+              dispatch({ type: 'START_ANALYZE' });
+            }}
           />
         )}
         {state.stage === 'analyzing' && <AnalyzingView />}
-        {state.stage === 'analysis_done' && <AnalysisDoneView features={state.features} />}
+        {state.stage === 'analysis_done' && (
+          <AnalysisDoneView
+            features={state.features}
+            warnings={state.warnings}
+            onContinue={() => dispatch({ type: 'START_RECOMMEND' })}
+          />
+        )}
+        {state.stage === 'recommending' && <RecommendingView />}
+        {state.stage === 'looks_ready' && (
+          <LooksReadyView
+            looks={state.looks}
+            selected={state.selected}
+            onSelect={(i) => {
+              track('look_select', { look_id: state.looks[i]?.id, index: i });
+              dispatch({ type: 'SELECT_LOOK', index: i });
+            }}
+            onStart={() => dispatch({ type: 'START_TUTORIAL' })}
+            onRetake={() => {
+              imageDataRef.current = null;
+              landmarksRef.current = null;
+              featuresRef.current = null;
+              dispatch({ type: 'RESET' });
+            }}
+          />
+        )}
+        {state.stage === 'tutorial_step' && (
+          <TutorialView
+            look={state.look}
+            stepIndex={state.stepIndex}
+            previewUrl={state.previewUrl}
+            imageWidth={state.imageWidth}
+            imageHeight={state.imageHeight}
+            landmarks={landmarksRef.current}
+            onPrev={() => dispatch({ type: 'PREV_STEP' })}
+            onNext={() => dispatch({ type: 'NEXT_STEP' })}
+            onRestart={() => {
+              tutorialStartRef.current = Date.now();
+              dispatch({ type: 'GOTO_STEP', index: 0 });
+            }}
+            onFinish={() => dispatch({ type: 'TUTORIAL_DONE' })}
+          />
+        )}
+        {state.stage === 'tutorial_done' && (
+          <TutorialDoneView lookName={state.look.name} />
+        )}
+        {state.stage === 'result' && (
+          <ResultCard features={state.features} look={state.look} />
+        )}
         {state.stage === 'error' && (
           <ErrorView
             message={state.message}
             recoverable={state.recoverable}
-            onRetry={() => dispatch({ type: 'RESET' })}
+            onRetry={() => {
+              imageDataRef.current = null;
+              landmarksRef.current = null;
+              featuresRef.current = null;
+              dispatch({ type: 'RESET' });
+            }}
           />
         )}
-        {/* 后续阶段先放占位 */}
-        {(state.stage === 'recommending' ||
-          state.stage === 'looks_ready' ||
-          state.stage === 'tutorial_step' ||
-          state.stage === 'tutorial_done' ||
-          state.stage === 'result') && <ComingSoonView stage={state.stage} />}
       </section>
     </main>
   );
 
-  // 选图后保存到 ImageData + objectURL
+  // 选图
   function onPick(file: File) {
+    track('upload_start', { size: file.size, type: file.type });
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
@@ -154,22 +357,43 @@ function App() {
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
+        URL.revokeObjectURL(url);
         dispatch({ type: 'ERROR', message: '浏览器不支持画布', recoverable: false });
         return;
       }
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      dispatch({ type: 'IMAGE_SELECTED', imageData, previewUrl: url });
+      const t = startTimer();
+      dispatch({ type: 'START_LOAD_MODEL' });
+      loadModel((p) => dispatch({ type: 'MODEL_PROGRESS', progress: p }))
+        .then(() => {
+          track('model_load', { duration_ms: t() });
+          dispatch({
+            type: 'MODEL_READY',
+            imageData,
+            previewUrl: url,
+            imageWidth: img.naturalWidth,
+            imageHeight: img.naturalHeight,
+          });
+        })
+        .catch((err) => {
+          URL.revokeObjectURL(url);
+          track('model_load_fail', { error: err instanceof Error ? err.message : 'unknown' });
+          const msg =
+            err instanceof Error ? `模型加载失败：${err.message}` : '模型加载失败';
+          dispatch({ type: 'ERROR', message: msg, recoverable: true });
+        });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      dispatch({ type: 'ERROR', message: '图片加载失败,请换一张试试', recoverable: true });
+      track('upload_reject', { reason: 'image_load_failed' });
+      dispatch({ type: 'ERROR', message: '图片加载失败，请换一张试试', recoverable: true });
     };
     img.src = url;
   }
 }
 
-// ---------- 视图: 引导页 (idle) ----------
+// ---------- 视图: 引导页 ----------
 
 function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void }) {
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -179,7 +403,8 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
   function pick(file: File | undefined) {
     if (!file) return;
     if (file.size > MAX_FILE_SIZE) {
-      setError('图片太大啦,换个 10MB 以内的吧～');
+      track('upload_reject', { reason: 'too_large', size: file.size });
+      setError('图片太大啦，换个 10MB 以内的吧～');
       return;
     }
     const ok =
@@ -189,6 +414,7 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
       file.type === 'image/webp' ||
       /\.(jpe?g|png|webp)$/i.test(file.name);
     if (!ok) {
+      track('upload_reject', { reason: 'wrong_type', type: file.type });
       setError('只支持 JPG / PNG / WebP 哦');
       return;
     }
@@ -198,7 +424,7 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
 
   function onChange(e: ChangeEvent<HTMLInputElement>) {
     pick(e.target.files?.[0]);
-    e.target.value = ''; // 允许重选同一张
+    e.target.value = '';
   }
 
   return (
@@ -207,9 +433,9 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
       <p className="text-ink/70 mb-8">三步拥有你的专属妆容方案</p>
 
       <ol className="space-y-4 text-left mb-8">
-        <Step n={1} title="拍一张正面照" desc="光线充足、表情自然,效果最好" />
-        <Step n={2} title="AI 分析你的脸型" desc="三庭五眼、肤色、轮廓,一键读取" />
-        <Step n={3} title="手把手教你画" desc="从底妆到唇色,跟着步骤一步步来" />
+        <Step n={1} title="拍一张正面照" desc="光线充足、表情自然，效果最好" />
+        <Step n={2} title="AI 分析你的脸型" desc="三庭五眼、肤色、轮廓，一键读取" />
+        <Step n={3} title="手把手教你画" desc="从底妆到唇色，跟着步骤一步步来" />
       </ol>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -247,7 +473,7 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
 
       {error && <p className="mt-4 text-sm text-accent">{error}</p>}
 
-      <p className="mt-6 text-xs text-ink/50">图片仅在浏览器内分析,不会上传到服务器</p>
+      <p className="mt-6 text-xs text-ink/50">图片仅在浏览器内分析，不会上传到服务器</p>
     </div>
   );
 }
@@ -266,8 +492,6 @@ function Step({ n, title, desc }: { n: number; title: string; desc: string }) {
   );
 }
 
-// ---------- 视图: 加载模型 ----------
-
 function LoadingModelView({ progress }: { progress: number }) {
   return (
     <div>
@@ -283,8 +507,6 @@ function LoadingModelView({ progress }: { progress: number }) {
     </div>
   );
 }
-
-// ---------- 视图: 待分析 ----------
 
 function ReadyView({
   previewUrl,
@@ -322,8 +544,6 @@ function ReadyView({
   );
 }
 
-// ---------- 视图: 分析中 ----------
-
 function AnalyzingView() {
   return (
     <div>
@@ -333,35 +553,174 @@ function AnalyzingView() {
   );
 }
 
-// ---------- 视图: 分析完成 (T6 完善后会更详细) ----------
-
-function AnalysisDoneView({ features }: { features: FaceFeatures }) {
+function AnalysisDoneView({
+  features,
+  warnings,
+  onContinue,
+}: {
+  features: FaceFeatures;
+  warnings: string[];
+  onContinue: () => void;
+}) {
   return (
     <div className="text-left">
-      <h2 className="text-xl font-semibold text-ink mb-3">分析完成</h2>
+      <h2 className="text-xl font-semibold text-ink mb-3">分析完成 ✨</h2>
       <dl className="text-sm space-y-1 text-ink/80">
-        <Row k="脸型" v={features.faceShape} />
-        <Row k="肤色" v={features.skinTone} />
-        <Row k="眼型" v={features.eyeType} />
+        <Row k="脸型" v={cnFaceShape(features.faceShape)} />
+        <Row k="肤色" v={cnSkinTone(features.skinTone)} />
+        <Row k="眼型" v={cnEyeType(features.eyeType)} />
         <Row k="鼻型" v={features.noseType} />
-        <Row k="三庭" v={`${features.upperThirdRatio.toFixed(2)} / ${features.middleThirdRatio.toFixed(2)} / ${features.lowerThirdRatio.toFixed(2)}`} />
+        <Row
+          k="三庭"
+          v={`${features.upperThirdRatio.toFixed(2)} / ${features.middleThirdRatio.toFixed(2)} / ${features.lowerThirdRatio.toFixed(2)}`}
+        />
         <Row k="五眼" v={features.fiveEyeFit.toFixed(2)} />
         <Row k="置信度" v={features.confidence.toFixed(2)} />
       </dl>
+      {warnings.length > 0 && (
+        <ul className="mt-3 text-xs text-accent bg-accent/5 rounded-xl p-2 space-y-1">
+          {warnings.map((w, i) => (
+            <li key={i}>⚠️ {w}</li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        onClick={onContinue}
+        className="mt-6 w-full bg-gradient-to-r from-primary to-accent text-white font-medium px-6 py-3 rounded-full shadow-soft"
+      >
+        查看推荐妆容 →
+      </button>
     </div>
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+function RecommendingView() {
   return (
-    <div className="flex justify-between border-b border-secondary/40 py-1">
-      <dt className="text-ink/60">{k}</dt>
-      <dd className="font-medium text-ink">{v}</dd>
+    <div>
+      <div className="text-4xl mb-4 animate-spin">🌸</div>
+      <p className="text-lg text-ink">正在为你挑选妆容...</p>
     </div>
   );
 }
 
-// ---------- 视图: 错误 ----------
+function LooksReadyView({
+  looks,
+  selected,
+  onSelect,
+  onStart,
+  onRetake,
+}: {
+  looks: MakeupLook[];
+  selected: number;
+  onSelect: (i: number) => void;
+  onStart: () => void;
+  onRetake: () => void;
+}) {
+  return (
+    <div>
+      <h2 className="text-xl font-semibold text-ink mb-3 text-left">为你推荐 3 套妆容</h2>
+      <div className="space-y-2 text-left">
+        {looks.map((look, i) => (
+          <button
+            key={look.id}
+            type="button"
+            onClick={() => onSelect(i)}
+            className={`w-full text-left p-3 rounded-2xl border-2 transition-colors ${
+              i === selected
+                ? 'border-accent bg-accent/5'
+                : 'border-secondary/40 bg-white hover:border-accent/50'
+            }`}
+          >
+            <div className="flex justify-between items-baseline">
+              <span className="font-medium text-ink">{look.name}</span>
+              <span className="text-xs text-ink/60">{look.scenario}</span>
+            </div>
+            <p className="text-sm text-ink/70 mt-1">{look.reason}</p>
+          </button>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+        <button
+          type="button"
+          onClick={onRetake}
+          className="bg-white border-2 border-primary text-accent hover:bg-secondary/30 font-medium px-4 py-2.5 rounded-full text-sm"
+        >
+          换一张
+        </button>
+        <button
+          type="button"
+          onClick={onStart}
+          className="flex-1 bg-gradient-to-r from-primary to-accent text-white font-medium px-6 py-2.5 rounded-full shadow-soft"
+        >
+          开始跟妆教程 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TutorialView({
+  look,
+  stepIndex,
+  previewUrl,
+  imageWidth,
+  imageHeight,
+  landmarks,
+  onPrev,
+  onNext,
+  onRestart,
+  onFinish,
+}: {
+  look: MakeupLook;
+  stepIndex: number;
+  previewUrl: string;
+  imageWidth: number;
+  imageHeight: number;
+  landmarks: Landmark[] | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onRestart: () => void;
+  onFinish: () => void;
+}) {
+  const step = look.steps[stepIndex];
+  return (
+    <div className="space-y-3">
+      {landmarks && landmarks.length === 478 ? (
+        <MakeupCanvas
+          imageSrc={previewUrl}
+          imageWidth={imageWidth}
+          imageHeight={imageHeight}
+          landmarks={landmarks}
+          currentZones={step?.overlayZones ?? []}
+          brushDirection={step?.brushDirection}
+        />
+      ) : (
+        <div className="w-full h-64 bg-secondary/30 rounded-card flex items-center justify-center text-ink/50 text-sm">
+          关键点不可用，分区预览略过
+        </div>
+      )}
+      <TutorialPanel
+        look={look}
+        stepIndex={stepIndex}
+        onPrev={onPrev}
+        onNext={onNext}
+        onRestart={onRestart}
+        onFinish={onFinish}
+      />
+    </div>
+  );
+}
+
+function TutorialDoneView({ lookName }: { lookName: string }) {
+  return (
+    <div className="py-8">
+      <div className="text-5xl mb-4">🎉</div>
+      <h2 className="text-2xl font-semibold text-ink mb-2">恭喜完成 {lookName}！</h2>
+      <p className="text-ink/70">正在准备你的专属分享卡...</p>
+    </div>
+  );
+}
 
 function ErrorView({
   message,
@@ -389,15 +748,53 @@ function ErrorView({
   );
 }
 
-// ---------- 视图: 占位 (后续 task 填充) ----------
-
-function ComingSoonView({ stage }: { stage: string }) {
+function Row({ k, v }: { k: string; v: string }) {
   return (
-    <div>
-      <div className="text-4xl mb-4">🚧</div>
-      <p className="text-lg text-ink mb-2">即将上线</p>
-      <p className="text-sm text-ink/60">当前阶段: {stage}</p>
+    <div className="flex justify-between border-b border-secondary/40 py-1">
+      <dt className="text-ink/60">{k}</dt>
+      <dd className="font-medium text-ink">{v}</dd>
     </div>
+  );
+}
+
+function cnFaceShape(s: string): string {
+  return (
+    ({
+      oval: '椭圆脸',
+      round: '圆脸',
+      square: '方脸',
+      heart: '心形脸',
+      long: '长脸',
+      diamond: '菱形脸',
+    } as Record<string, string>)[s] ?? s
+  );
+}
+function cnSkinTone(s: string): string {
+  return (
+    ({
+      cool_fair: '冷白皮',
+      cool_medium: '冷黄一白',
+      neutral_fair: '中性一白',
+      neutral_medium: '中性二白',
+      warm_fair: '暖白皮',
+      warm_medium: '暖黄一白',
+      warm_deep: '暖黄二白',
+      warm_deep_dark: '暖深色',
+    } as Record<string, string>)[s] ?? s
+  );
+}
+function cnEyeType(s: string): string {
+  return (
+    ({
+      almond: '杏眼',
+      round: '圆眼',
+      hooded: '肿泡眼',
+      monolid: '单眼皮',
+      downturned: '下垂眼',
+      upturned: '上挑眼',
+      close_set: '眼距近',
+      wide_set: '眼距远',
+    } as Record<string, string>)[s] ?? s
   );
 }
 
