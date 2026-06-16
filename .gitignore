@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+
+# MediaPipe model binaries (download separately)
+public/mp-models/*.task
