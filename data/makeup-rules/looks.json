@@ -127,7 +127,7 @@
       "id": "look_peach_date",
       "name": "蜜桃约会妆",
       "scenario": "约会甜美",
-      "suitableFor": ["heart", "oval", "round", "warm_fair", "warm_medium", "neutral_fair", "almond", "round"],
+      "suitableFor": ["heart", "oval", "round", "warm_fair", "warm_medium", "neutral_fair", "almond"],
       "avoidFor": ["square", "long"],
       "reason": "蜜桃色调甜美可爱,适合约会、闺蜜聚会、初次见面。元气满满,显气色好,适合暖调或中性偏暖的肤色。",
       "steps": [
