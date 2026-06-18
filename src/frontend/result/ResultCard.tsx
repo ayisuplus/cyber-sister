@@ -50,10 +50,14 @@ const EYE_CN: Record<string, string> = {
 export default function ResultCard({ features, look }: Props) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
+  // 闺蜜种草文案专用复制反馈,跟原 copied 区分避免互相覆盖
+  const [copiedXhs, setCopiedXhs] = useState(false);
 
   const tips = pickTopTips(look.steps, 3);
   const summary = `${FACE_SHAPE_CN[features.faceShape] ?? '未知'} + ${SKIN_TONE_CN[features.skinTone] ?? '未知'} + ${EYE_CN[features.eyeType] ?? '未知'}`;
   const shareText = buildShareText(summary, look, tips);
+  // 闺蜜口吻的小红书/朋友圈种草文案
+  const xhsText = buildXiaohongshuText(features, look, tips);
 
   // copied state 自动消失
   useEffect(() => {
@@ -61,6 +65,12 @@ export default function ResultCard({ features, look }: Props) {
     const t = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(t);
   }, [copied]);
+
+  useEffect(() => {
+    if (!copiedXhs) return;
+    const t = setTimeout(() => setCopiedXhs(false), 2000);
+    return () => clearTimeout(t);
+  }, [copiedXhs]);
 
   async function onSaveImage() {
     track('result_share', { method: 'image' });
@@ -81,29 +91,46 @@ export default function ResultCard({ features, look }: Props) {
     }
   }
 
-  async function onCopyText() {
-    track('result_share', { method: 'copy' });
+  // 复制函数封装:支持 navigator.clipboard 不可用时降级到 textarea + execCommand
+  async function copyToClipboard(text: string): Promise<boolean> {
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(shareText);
-        setCopied(true);
-        return;
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
       }
     } catch {
       // fall through
     }
-    // 降级:用 textarea 选中
-    const ta = document.createElement('textarea');
-    ta.value = shareText;
-    document.body.appendChild(ta);
-    ta.select();
-    try {
-      document.execCommand('copy');
-      setCopied(true);
-    } catch {
-      /* ignore */
+    // 降级方案:用 textarea 选中再 execCommand
+    if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        return true;
+      } catch {
+        return false;
+      } finally {
+        document.body.removeChild(ta);
+      }
     }
-    document.body.removeChild(ta);
+    return false;
+  }
+
+  async function onCopyText() {
+    track('result_share', { method: 'copy' });
+    const ok = await copyToClipboard(shareText);
+    if (ok) setCopied(true);
+  }
+
+  async function onCopyXhsText() {
+    track('result_share', { method: 'copy_xhs' });
+    const ok = await copyToClipboard(xhsText);
+    if (ok) setCopiedXhs(true);
   }
 
   return (
@@ -142,6 +169,9 @@ export default function ResultCard({ features, look }: Props) {
         <div className="text-center text-[10px] text-ink/40 mt-4">
           妆语 · 让 AI 教你画自己的脸
         </div>
+
+        {/* 二维码占位:扫码回看教程. 当前阶段用静态占位 SVG,留好接口由后端 /api/share/qrcode 后续替换. */}
+        <QrPlaceholder lookId={look.id} />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -159,6 +189,76 @@ export default function ResultCard({ features, look }: Props) {
         >
           {copied ? '✓ 已复制' : '📋 复制文案'}
         </button>
+      </div>
+
+      {/* 闺蜜种草文案区:小红书/朋友圈口吻,一键复制 */}
+      <div className="bg-white/70 rounded-2xl p-4 border border-primary/30 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-ink/70 font-medium">📝 闺蜜种草文案</div>
+          <button
+            type="button"
+            onClick={onCopyXhsText}
+            data-testid="copy-xhs-btn"
+            className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-accent"
+          >
+            {copiedXhs ? '✓ 已复制' : '一键复制'}
+          </button>
+        </div>
+        <pre
+          data-testid="xhs-preview"
+          className="whitespace-pre-wrap text-xs text-ink/85 leading-relaxed font-sans"
+        >
+          {xhsText}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 二维码占位组件 ----------
+// 当前阶段渲染一个内联 SVG 占位图(灰底 + "QR" 字样).
+// 后续接 /api/share/qrcode?lookId=xxx 返回真实 PNG/SVG dataURL 时,只需替换 <QrPlaceholder /> 内部实现,
+// 其它调用方不受影响.
+
+function QrPlaceholder({ lookId }: { lookId: string }) {
+  return (
+    <div
+      data-testid="qr-placeholder"
+      data-look-id={lookId}
+      className="mt-4 bg-white/80 rounded-2xl p-3 flex items-center gap-3 border border-dashed border-primary/40"
+    >
+      {/* 静态 SVG 占位:96x96 像素,后续由后端接口替换 */}
+      <svg
+        width="72"
+        height="72"
+        viewBox="0 0 72 72"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="QR placeholder"
+        role="img"
+      >
+        <rect x="0" y="0" width="72" height="72" rx="8" fill="#F4F4F4" />
+        {/* 三个定位角标 */}
+        <rect x="6" y="6" width="16" height="16" fill="#3F2A2E" />
+        <rect x="50" y="6" width="16" height="16" fill="#3F2A2E" />
+        <rect x="6" y="50" width="16" height="16" fill="#3F2A2E" />
+        <rect x="10" y="10" width="8" height="8" fill="#F4F4F4" />
+        <rect x="54" y="10" width="8" height="8" fill="#F4F4F4" />
+        <rect x="10" y="54" width="8" height="8" fill="#F4F4F4" />
+        <text
+          x="36"
+          y="42"
+          textAnchor="middle"
+          fontSize="9"
+          fill="#3F2A2E"
+          fontFamily="sans-serif"
+        >
+          QR
+        </text>
+      </svg>
+      <div className="flex-1 text-xs text-ink/70">
+        <div className="font-medium text-ink/90">📱 扫码回看教程</div>
+        <div className="mt-0.5">打开微信扫一扫,跟着视频一步步画</div>
+        <div className="mt-0.5 text-ink/40">lookId: {lookId} (后端接口待接入)</div>
       </div>
     </div>
   );
@@ -183,6 +283,69 @@ function pickTopTips(steps: MakeupStep[], n: number): string[] {
     if (x.s.toolHint) parts.push(`工具: ${x.s.toolHint}`);
     return parts.join(' · ');
   });
+}
+
+// ---------- 闺蜜种草文案 (小红书/朋友圈) ----------
+// 格式:
+//   标题行: emoji + 妆容名 + 适合脸型
+//   正文:   3-5 行闺蜜口吻 (用 "姐妹/宝宝/家人们" 等口语词),包含关键特征和化妆技巧
+//   标签:   #妆语 #妆容推荐 等
+
+interface XhsInput {
+  features: FaceFeatures;
+  look: MakeupLook;
+  tips: string[];
+}
+
+const XHS_OPENERS = ['姐妹们', '宝宝们', '家人们', '集美们', '宝子们'];
+
+/**
+ * 生成小红书风格的种草文案.
+ * - 标题: 1 行,emoji + 妆容名 + 适合脸型
+ * - 正文: 3-5 行, 闺蜜口吻, 包含特征描述 + 化妆技巧
+ * - 标签: 末尾 #妆语 #妆容推荐 + 妆容场景 tag
+ */
+export function buildXiaohongshuText(
+  features: FaceFeatures,
+  look: MakeupLook,
+  tips?: string[]
+): string {
+  const faceCn = FACE_SHAPE_CN[features.faceShape] ?? '百搭脸型';
+  const skinCn = SKIN_TONE_CN[features.skinTone] ?? '自然肤色';
+  const eyeCn = EYE_CN[features.eyeType] ?? '灵动眼型';
+  // 标题行:用粉底液 emoji + 妆容名 + "适合 xxx 脸" 句式
+  const title = `💄 ${look.name} · 适合${faceCn}`;
+
+  // 闺蜜口吻开场
+  const opener = XHS_OPENERS[Math.abs(hashStr(look.id)) % XHS_OPENERS.length] ?? '姐妹们';
+
+  // 正文 3-5 行,根据 features 动态拼
+  const bodyLines: string[] = [];
+  bodyLines.push(`${opener}挖到宝了! AI 测出来我是 ${faceCn} + ${skinCn} + ${eyeCn}。`);
+  bodyLines.push(`这套「${look.name}」真的太适合 ${look.scenario} 了,新手也能驾驭。`);
+
+  // 拼化妆技巧(最多 2 条,优先带 toolHint/brushDirection 的)
+  const usedTips = (tips ?? pickTopTips(look.steps, 3)).slice(0, 2);
+  if (usedTips.length > 0) {
+    bodyLines.push(`几个小心得:${usedTips.map((t) => `「${t}」`).join('、')}。`);
+  } else {
+    bodyLines.push('整体妆面干净不挑皮,通勤约会都能 hold 住。');
+  }
+  bodyLines.push('想看完整教程就扫卡片上的二维码回看,姐妹们冲!');
+
+  // 标签
+  const tags = ['#妆语', '#妆容推荐', `#${look.scenario.replace(/\s+/g, '')}`, `#${faceCn}`];
+
+  return [title, '', ...bodyLines, '', tags.join(' ')].join('\n');
+}
+
+// 简单字符串 hash,用于从 lookId 选 opener (确定性)
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return h;
 }
 
 function buildShareText(
