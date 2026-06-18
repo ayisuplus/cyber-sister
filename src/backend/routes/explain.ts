@@ -84,14 +84,17 @@ explainRouter.post('/explain', async (req, res) => {
     res.status(400).json({ error: 'missing features or look' });
     return;
   }
-  const safe: FaceFeatures = {
-    upperThirdRatio: 0, middleThirdRatio: 0, lowerThirdRatio: 0,
-    fiveEyeFit: 0, faceShape: 'unknown', skinTone: 'unknown',
-    eyeType: 'unknown', noseType: 'unknown', eyeDistanceRatio: 0,
-    faceWidthHeightRatio: 0, lipFullnessRatio: 0, browArchAngle: 0,
-    noseBridgeWidth: 0, confidence: 0,
-    ...features,
-  };
+  // 兜底:与 recommend.ts 同款,改用 Object.assign 规避 TS 6.0 重复键检查
+  const safe: FaceFeatures = Object.assign(
+    {
+      upperThirdRatio: 0, middleThirdRatio: 0, lowerThirdRatio: 0,
+      fiveEyeFit: 0, faceShape: 'unknown' as const, skinTone: 'unknown' as const,
+      eyeType: 'unknown' as const, noseType: 'unknown' as const, eyeDistanceRatio: 0,
+      faceWidthHeightRatio: 0, lipFullnessRatio: 0, browArchAngle: 0,
+      noseBridgeWidth: 0, confidence: 0,
+    },
+    features
+  );
   const prompt = buildPrompt(safe, look);
   const llmText = await callLlm(prompt);
   const explanation = llmText ?? deterministicReason(safe, look);

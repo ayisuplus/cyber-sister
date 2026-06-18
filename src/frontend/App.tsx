@@ -28,7 +28,14 @@ type AppState =
   | { stage: 'analysis_done'; features: FaceFeatures; warnings: string[] }
   | { stage: 'recommending' }
   | { stage: 'looks_ready'; looks: MakeupLook[]; selected: number }
-  | { stage: 'tutorial_step'; look: MakeupLook; stepIndex: number }
+  | {
+      stage: 'tutorial_step';
+      look: MakeupLook;
+      stepIndex: number;
+      previewUrl: string;
+      imageWidth: number;
+      imageHeight: number;
+    }
   | { stage: 'tutorial_done'; look: MakeupLook }
   | { stage: 'result'; look: MakeupLook; features: FaceFeatures }
   | { stage: 'error'; message: string; recoverable: boolean };
@@ -42,7 +49,7 @@ type Action =
   | { type: 'START_RECOMMEND' }
   | { type: 'LOOKS_READY'; looks: MakeupLook[]; selected: number }
   | { type: 'SELECT_LOOK'; index: number }
-  | { type: 'START_TUTORIAL' }
+  | { type: 'START_TUTORIAL'; previewUrl: string; imageWidth: number; imageHeight: number }
   | { type: 'NEXT_STEP' }
   | { type: 'PREV_STEP' }
   | { type: 'GOTO_STEP'; index: number }
@@ -89,6 +96,9 @@ function reducer(state: AppState, action: Action): AppState {
         stage: 'tutorial_step',
         look: state.looks[state.selected]!,
         stepIndex: 0,
+        previewUrl: action.previewUrl,
+        imageWidth: action.imageWidth,
+        imageHeight: action.imageHeight,
       };
     case 'NEXT_STEP':
       if (state.stage !== 'tutorial_step') return state;
@@ -132,6 +142,9 @@ function App() {
   const landmarksRef = useRef<Landmark[] | null>(null);
   const featuresRef = useRef<FaceFeatures | null>(null);
   const tutorialStartRef = useRef<number | null>(null);
+  // 跨阶段保留 ready 的图片信息 (previewUrl/尺寸),tutorial 阶段需要用
+  const previewUrlRef = useRef<string>('');
+  const imageSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
 
   // app_open
   useEffect(() => {
@@ -151,7 +164,11 @@ function App() {
     (async () => {
       try {
         const landmarker = await loadModel(() => {});
-        const canvas = new OffscreenCanvas(imageData.width, imageData.height);
+        // 用普通 HTMLCanvasElement,MediaPipe 的 detect 接受 HTMLCanvasElement
+        // (OffscreenCanvas 不在签名里,会被 TS 6.0 拒)
+        const canvas = document.createElement('canvas');
+        canvas.width = imageData.width;
+        canvas.height = imageData.height;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Canvas 2D context unavailable');
         ctx.putImageData(imageData, 0, 0);
@@ -222,27 +239,33 @@ function App() {
 
   // tutorial_step 变化时埋点 + 启动计时
   useEffect(() => {
-    if (state.stage === 'tutorial_step') {
-      const step: MakeupStep | undefined = state.look.steps[state.stepIndex];
-      track('tutorial_step', {
-        step_index: state.stepIndex,
-        area: step?.area ?? 'unknown',
-        look_id: state.look.id,
-      });
-      if (tutorialStartRef.current === null) {
-        tutorialStartRef.current = Date.now();
-      }
+    if (state.stage !== 'tutorial_step') return;
+    const step: MakeupStep | undefined = state.look.steps[state.stepIndex];
+    track('tutorial_step', {
+      step_index: state.stepIndex,
+      area: step?.area ?? 'unknown',
+      look_id: state.look.id,
+    });
+    if (tutorialStartRef.current === null) {
+      tutorialStartRef.current = Date.now();
     }
-  }, [state.stage, state.stepIndex, state.look]);
+    // deps: 只在 narrow 后读 state.stepIndex/look,TS 6.0 严格模式下
+    // 顶层 deps 数组不允许访问判别式属性,所以用三元式保持 narrow.
+  }, [
+    state.stage,
+    state.stage === 'tutorial_step' ? state.stepIndex : 0,
+    state.stage === 'tutorial_step' ? state.look.id : '',
+  ]);
 
   // tutorial_done: 展示 1.8s "恭喜完成",再进 result
   useEffect(() => {
     if (state.stage !== 'tutorial_done') return;
+    const currentLook = state.look;
     const elapsed = tutorialStartRef.current
       ? Date.now() - tutorialStartRef.current
       : 0;
     track('tutorial_complete', {
-      look_id: state.look.id,
+      look_id: currentLook.id,
       total_duration_ms: elapsed,
     });
     tutorialStartRef.current = null;
@@ -252,10 +275,10 @@ function App() {
       return;
     }
     const t = setTimeout(() => {
-      dispatch({ type: 'ENTER_RESULT', look: state.look, features });
+      dispatch({ type: 'ENTER_RESULT', look: currentLook, features });
     }, 1800);
     return () => clearTimeout(t);
-  }, [state.stage, state.look]);
+  }, [state.stage, state.stage === 'tutorial_done' ? state.look.id : '']);
 
   // ---------- 渲染 ----------
 
@@ -298,7 +321,14 @@ function App() {
               track('look_select', { look_id: state.looks[i]?.id, index: i });
               dispatch({ type: 'SELECT_LOOK', index: i });
             }}
-            onStart={() => dispatch({ type: 'START_TUTORIAL' })}
+            onStart={() =>
+              dispatch({
+                type: 'START_TUTORIAL',
+                previewUrl: previewUrlRef.current,
+                imageWidth: imageSizeRef.current.width,
+                imageHeight: imageSizeRef.current.height,
+              })
+            }
             onRetake={() => {
               imageDataRef.current = null;
               landmarksRef.current = null;
@@ -368,6 +398,9 @@ function App() {
       loadModel((p) => dispatch({ type: 'MODEL_PROGRESS', progress: p }))
         .then(() => {
           track('model_load', { duration_ms: t() });
+          // 把图片信息存到 ref,跨阶段供 tutorial 使用
+          previewUrlRef.current = url;
+          imageSizeRef.current = { width: img.naturalWidth, height: img.naturalHeight };
           dispatch({
             type: 'MODEL_READY',
             imageData,

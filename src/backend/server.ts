@@ -1,34 +1,116 @@
 // 妆语 backend — Express 5 + CORS + recommend / explain / analytics 三个核心路由.
+// 同时托管 Vite 构建产物 (dist/) 作为前端静态站点,支持 SPA fallback.
 
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
 import { recommendRouter } from './routes/recommend';
 import { explainRouter } from './routes/explain';
 import { analyticsRouter } from './routes/analytics';
 
-const app = express();
+// ---------- 路径与配置 ----------
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// dist 在 backend 同级的 ../../dist;tsx 启动时 __dirname = src/backend,目标 = <root>/dist
+const DIST_DIR = resolve(__dirname, '..', '..', 'dist');
 const PORT = Number(process.env.PORT ?? 3001);
 
-// CORS: 允许前端 dev server (Vite 默认 5173)
+// ---------- 应用 ----------
+
+const app = express();
+
+// 代理信任(便于部署在 nginx/cloudflare 后面时获取真实 client IP)
+app.set('trust proxy', 1);
+
+// CORS: 允许前端 dev server (Vite 默认 5173) + 任何 localhost 变体
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      /^https?:\/\/localhost(:\d+)?$/,
+    ],
     credentials: true,
   })
 );
 app.use(express.json({ limit: '2mb' }));
 
-// 健康检查
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', name: '妆语 MakeupWhisper' });
+// 简易请求日志(开发期有用,生产可换 morgan/pino)
+app.use((req, _res, next) => {
+  // eslint-disable-next-line no-console
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
 });
 
-// 业务路由
+// ---------- 健康检查 ----------
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    name: '妆语 MakeupWhisper',
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+  });
+});
+
+// ---------- 业务路由 ----------
+
 app.use('/api', recommendRouter);
 app.use('/api', explainRouter);
 app.use('/api', analyticsRouter);
 
+// ---------- 静态文件服务 (Vite build 产物) ----------
+
+if (existsSync(DIST_DIR)) {
+  // express.static 把 dist 里的文件直接挂到 /
+  app.use(
+    express.static(DIST_DIR, {
+      index: false, // SPA fallback 自己处理 index.html
+      maxAge: '1h',
+      extensions: ['html'],
+    })
+  );
+
+  // SPA fallback:任何非 /api 的 GET 都返回 index.html,前端 router 接管路由
+  app.get(/^\/(?!api\/).*/, (_req, res, next) => {
+    const indexHtml = join(DIST_DIR, 'index.html');
+    if (!existsSync(indexHtml)) return next();
+    res.sendFile(indexHtml);
+  });
+} else {
+  // dev 模式:dist 还没构建,只跑后端
+  // eslint-disable-next-line no-console
+  console.warn(`[妆语] dist/ 不存在 (${DIST_DIR}),跳过静态文件服务`);
+}
+
+// ---------- 错误处理 ----------
+
+// 404:所有未匹配的请求
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.url,
+    method: req.method,
+  });
+});
+
+// 通用错误中间件(4 参数签名才会被 Express 识别为 error handler)
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  // eslint-disable-next-line no-console
+  console.error('[妆语] unhandled error:', err);
+  const message = err instanceof Error ? err.message : 'Internal Server Error';
+  res.status(500).json({ error: message });
+});
+
+// ---------- 启动 ----------
+
 app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`[妆语] backend listening on http://localhost:${PORT}`);
+  if (existsSync(DIST_DIR)) {
+    // eslint-disable-next-line no-console
+    console.log(`[妆语] static site: ${DIST_DIR}`);
+  }
 });

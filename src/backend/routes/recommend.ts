@@ -133,23 +133,26 @@ recommendRouter.post('/recommend', (req, res) => {
     return;
   }
   // 兜底:缺少字段时用 unknown,确保不会抛
-  const safe: FaceFeatures = {
-    upperThirdRatio: 0,
-    middleThirdRatio: 0,
-    lowerThirdRatio: 0,
-    fiveEyeFit: 0,
-    faceShape: 'unknown',
-    skinTone: 'unknown',
-    eyeType: 'unknown',
-    noseType: 'unknown',
-    eyeDistanceRatio: 0,
-    faceWidthHeightRatio: 0,
-    lipFullnessRatio: 0,
-    browArchAngle: 0,
-    noseBridgeWidth: 0,
-    confidence: 0,
-    ...features,
-  };
+  // 用 Object.assign 避免 TS 6.0 把 spread 与字面量键视为"显式重复"
+  const safe: FaceFeatures = Object.assign(
+    {
+      upperThirdRatio: 0,
+      middleThirdRatio: 0,
+      lowerThirdRatio: 0,
+      fiveEyeFit: 0,
+      faceShape: 'unknown' as const,
+      skinTone: 'unknown' as const,
+      eyeType: 'unknown' as const,
+      noseType: 'unknown' as const,
+      eyeDistanceRatio: 0,
+      faceWidthHeightRatio: 0,
+      lipFullnessRatio: 0,
+      browArchAngle: 0,
+      noseBridgeWidth: 0,
+      confidence: 0,
+    },
+    features
+  );
   const results = recommendLooks(safe, 3);
   res.json({
     looks: results.map((r) => r.look),
