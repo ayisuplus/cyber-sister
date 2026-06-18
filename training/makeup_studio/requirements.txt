@@ -1,0 +1,6 @@
+gradio>=4.0
+llamafactory[metrics]
+qwen-vl-utils
+modelscope
+oss2
+pyyaml

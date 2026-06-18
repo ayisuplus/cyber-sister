@@ -3,6 +3,7 @@
 // 2) 推荐妆容 + 3 条关键技巧
 // 3) 保存图片 (canvas → PNG 下载)
 // 4) 复制文案 (Clipboard API)
+// 5) 闺蜜种草文案 一键复制
 
 import { useEffect, useRef, useState } from 'react';
 import type { FaceFeatures, MakeupLook, MakeupStep } from '../../shared/types';
@@ -135,38 +136,80 @@ export default function ResultCard({ features, look }: Props) {
 
   return (
     <div className="text-left space-y-4">
+      {/* 主分享卡 */}
       <div
         ref={cardRef}
-        className="bg-gradient-to-br from-primary/30 to-accent/20 border-2 border-white rounded-card p-6 shadow-soft"
-        style={{ fontFamily: '"PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
+        className="rounded-[28px] p-6 relative overflow-hidden"
+        style={{
+          fontFamily: '"PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+          background:
+            'linear-gradient(135deg, rgba(253,242,243,0.95), rgba(234,182,188,0.45))',
+          border: '1.5px solid rgba(255,255,255,0.7)',
+          boxShadow:
+            '0 16px 40px rgba(200,107,119,0.18), inset 0 1px 0 rgba(255,255,255,0.6)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+        }}
       >
-        <div className="text-center mb-4">
-          <div className="text-xs text-ink/60 tracking-widest">妆语 AI 妆教</div>
-          <div className="font-hand text-3xl text-accent mt-1">我的脸型报告</div>
+        {/* 装饰:卡片右上角小光球 */}
+        <div
+          className="absolute -top-8 -right-8 w-32 h-32 rounded-full pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)',
+            filter: 'blur(4px)',
+          }}
+        />
+
+        <div className="text-center mb-4 relative">
+          <div className="text-[10px] text-ink-soft/70 tracking-[0.4em] uppercase">
+            妆语 AI 妆教
+          </div>
+          <div className="font-hand text-3xl text-primary mt-1">我的脸型报告</div>
         </div>
 
-        <div className="bg-white/80 rounded-2xl p-4 mb-3">
-          <div className="text-sm text-ink/70">✨ 我的五官</div>
-          <div className="text-lg text-ink font-semibold mt-1">{summary}</div>
-          <div className="text-xs text-ink/50 mt-1">三庭 {format3(features)} · 五眼 {features.fiveEyeFit.toFixed(2)} · 置信度 {features.confidence.toFixed(2)}</div>
+        <div className="card-soft p-4 mb-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-sm">✨</span>
+            <div className="text-sm text-ink-soft/80 font-medium">我的五官</div>
+          </div>
+          <div className="font-serif text-lg text-ink font-bold">{summary}</div>
+          <div className="text-xs text-ink-soft/60 mt-1.5">
+            三庭 {format3(features)} · 五眼 {features.fiveEyeFit.toFixed(2)} · 置信度 {features.confidence.toFixed(2)}
+          </div>
         </div>
 
-        <div className="bg-white/80 rounded-2xl p-4 mb-3">
-          <div className="text-sm text-ink/70">💄 推荐妆容</div>
-          <div className="text-lg text-ink font-semibold mt-1">{look.name}</div>
-          <div className="text-xs text-ink/60 mt-1">{look.scenario}</div>
+        <div className="card-soft p-4 mb-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-sm">💄</span>
+            <div className="text-sm text-ink-soft/80 font-medium">推荐妆容</div>
+            <div className="chip-tag ml-auto">{look.scenario}</div>
+          </div>
+          <div className="font-serif text-lg text-ink font-bold mt-1">{look.name}</div>
         </div>
 
-        <div className="bg-white/80 rounded-2xl p-4">
-          <div className="text-sm text-ink/70">💡 3 个关键技巧</div>
-          <ol className="mt-2 space-y-1 text-sm text-ink/90 list-decimal list-inside">
+        <div className="card-soft p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm">💡</span>
+            <div className="text-sm text-ink-soft/80 font-medium">3 个关键技巧</div>
+          </div>
+          <ol className="space-y-2 text-sm text-ink/90">
             {tips.map((t, i) => (
-              <li key={i}>{t}</li>
+              <li key={i} className="flex gap-2">
+                <span
+                  className="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-bold text-white flex items-center justify-center mt-0.5"
+                  style={{
+                    background: 'linear-gradient(135deg,#EAB6BC,#C86B77)',
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span className="leading-relaxed">{t}</span>
+              </li>
             ))}
           </ol>
         </div>
 
-        <div className="text-center text-[10px] text-ink/40 mt-4">
+        <div className="text-center text-[10px] text-ink-soft/50 mt-4 tracking-widest">
           妆语 · 让 AI 教你画自己的脸
         </div>
 
@@ -174,39 +217,74 @@ export default function ResultCard({ features, look }: Props) {
         <QrPlaceholder lookId={look.id} />
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2">
-        <button
-          type="button"
-          onClick={onSaveImage}
-          className="flex-1 bg-gradient-to-r from-primary to-accent text-white font-medium px-4 py-2.5 rounded-full shadow-soft"
-        >
-          🖼️ 保存图片
-        </button>
-        <button
-          type="button"
-          onClick={onCopyText}
-          className="flex-1 bg-white border-2 border-primary text-accent hover:bg-secondary/30 font-medium px-4 py-2.5 rounded-full"
-        >
-          {copied ? '✓ 已复制' : '📋 复制文案'}
-        </button>
+      {/* 主操作按钮组 */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onSaveImage}
+            className="btn-primary flex-1 flex items-center justify-center gap-1.5"
+          >
+            <span>🖼️</span>
+            <span>保存图片</span>
+          </button>
+          <button
+            type="button"
+            onClick={onCopyText}
+            className="btn-secondary flex-1 flex items-center justify-center gap-1.5"
+          >
+            {copied ? (
+              <>
+                <span>✓</span>
+                <span>已复制</span>
+              </>
+            ) : (
+              <>
+                <span>📋</span>
+                <span>复制文案</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* 闺蜜种草文案区:小红书/朋友圈口吻,一键复制 */}
-      <div className="bg-white/70 rounded-2xl p-4 border border-primary/30 space-y-2">
+      <div
+        className="rounded-3xl p-4 space-y-2.5"
+        style={{
+          background: 'rgba(255,255,255,0.7)',
+          backdropFilter: 'blur(16px)',
+          border: '1.5px solid rgba(234,182,188,0.5)',
+          boxShadow: '0 6px 20px rgba(200,107,119,0.08)',
+        }}
+      >
         <div className="flex items-center justify-between">
-          <div className="text-sm text-ink/70 font-medium">📝 闺蜜种草文案</div>
+          <div className="text-sm text-ink font-semibold flex items-center gap-1.5">
+            <span>📝</span>
+            <span>闺蜜种草文案</span>
+          </div>
           <button
             type="button"
             onClick={onCopyXhsText}
             data-testid="copy-xhs-btn"
-            className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-accent"
+            className="text-xs px-3 py-1.5 rounded-full font-medium transition-all"
+            style={{
+              background: copiedXhs
+                ? 'linear-gradient(135deg,#EAB6BC,#C86B77)'
+                : 'rgba(234,182,188,0.3)',
+              color: copiedXhs ? '#fff' : '#C86B77',
+              boxShadow: copiedXhs
+                ? '0 4px 12px rgba(200,107,119,0.3)'
+                : 'none',
+            }}
           >
             {copiedXhs ? '✓ 已复制' : '一键复制'}
           </button>
         </div>
         <pre
           data-testid="xhs-preview"
-          className="whitespace-pre-wrap text-xs text-ink/85 leading-relaxed font-sans"
+          className="whitespace-pre-wrap text-xs text-ink/85 leading-relaxed font-sans m-0"
+          style={{ fontFamily: 'inherit' }}
         >
           {xhsText}
         </pre>
@@ -225,7 +303,12 @@ function QrPlaceholder({ lookId }: { lookId: string }) {
     <div
       data-testid="qr-placeholder"
       data-look-id={lookId}
-      className="mt-4 bg-white/80 rounded-2xl p-3 flex items-center gap-3 border border-dashed border-primary/40"
+      className="mt-4 rounded-2xl p-3 flex items-center gap-3"
+      style={{
+        background: 'rgba(255,255,255,0.85)',
+        border: '1.5px dashed rgba(200,107,119,0.4)',
+        backdropFilter: 'blur(8px)',
+      }}
     >
       {/* 静态 SVG 占位:96x96 像素,后续由后端接口替换 */}
       <svg
@@ -236,29 +319,36 @@ function QrPlaceholder({ lookId }: { lookId: string }) {
         aria-label="QR placeholder"
         role="img"
       >
-        <rect x="0" y="0" width="72" height="72" rx="8" fill="#F4F4F4" />
+        <defs>
+          <linearGradient id="qrBg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#FDF2F3" />
+            <stop offset="100%" stopColor="#EAB6BC" />
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="72" height="72" rx="12" fill="url(#qrBg)" />
         {/* 三个定位角标 */}
-        <rect x="6" y="6" width="16" height="16" fill="#3F2A2E" />
-        <rect x="50" y="6" width="16" height="16" fill="#3F2A2E" />
-        <rect x="6" y="50" width="16" height="16" fill="#3F2A2E" />
-        <rect x="10" y="10" width="8" height="8" fill="#F4F4F4" />
-        <rect x="54" y="10" width="8" height="8" fill="#F4F4F4" />
-        <rect x="10" y="54" width="8" height="8" fill="#F4F4F4" />
+        <rect x="6" y="6" width="16" height="16" rx="3" fill="#C86B77" />
+        <rect x="50" y="6" width="16" height="16" rx="3" fill="#C86B77" />
+        <rect x="6" y="50" width="16" height="16" rx="3" fill="#C86B77" />
+        <rect x="10" y="10" width="8" height="8" rx="1" fill="#FFFFFF" />
+        <rect x="54" y="10" width="8" height="8" rx="1" fill="#FFFFFF" />
+        <rect x="10" y="54" width="8" height="8" rx="1" fill="#FFFFFF" />
         <text
           x="36"
           y="42"
           textAnchor="middle"
           fontSize="9"
-          fill="#3F2A2E"
+          fill="#C86B77"
           fontFamily="sans-serif"
+          fontWeight="bold"
         >
           QR
         </text>
       </svg>
-      <div className="flex-1 text-xs text-ink/70">
-        <div className="font-medium text-ink/90">📱 扫码回看教程</div>
+      <div className="flex-1 text-xs text-ink-soft/80">
+        <div className="font-semibold text-ink">📱 扫码回看教程</div>
         <div className="mt-0.5">打开微信扫一扫,跟着视频一步步画</div>
-        <div className="mt-0.5 text-ink/40">lookId: {lookId} (后端接口待接入)</div>
+        <div className="mt-0.5 text-ink-soft/50">lookId: {lookId} (后端接口待接入)</div>
       </div>
     </div>
   );
@@ -382,8 +472,9 @@ function renderCardToPng(
 
   // 背景:粉渐变
   const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#FFE4EC');
-  grad.addColorStop(1, '#FFD1DC');
+  grad.addColorStop(0, '#FFF5F6');
+  grad.addColorStop(0.5, '#FDF2F3');
+  grad.addColorStop(1, '#EAB6BC');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
@@ -392,26 +483,26 @@ function renderCardToPng(
   const padY = 60;
   const cardW = W - padX * 2;
   const cardH = H - padY * 2;
-  roundRect(ctx, padX, padY, cardW, cardH, 24);
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  roundRect(ctx, padX, padY, cardW, cardH, 28);
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.fill();
   ctx.strokeStyle = '#FFFFFF';
   ctx.lineWidth = 4;
   ctx.stroke();
 
   // 标题
-  ctx.fillStyle = '#FF69B4';
+  ctx.fillStyle = '#C86B77';
   ctx.font = 'bold 36px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('妆语 AI 妆教', W / 2, padY + 60);
-  ctx.font = '28px "Ma Shan Zheng", "PingFang SC", cursive';
-  ctx.fillStyle = '#FF69B4';
+  ctx.font = '32px "Ma Shan Zheng", "PingFang SC", cursive';
+  ctx.fillStyle = '#C86B77';
   ctx.fillText('我的脸型报告', W / 2, padY + 110);
 
   // 五官
   ctx.textAlign = 'left';
   let y = padY + 170;
-  ctx.fillStyle = '#7A6A6E';
+  ctx.fillStyle = '#A8505D';
   ctx.font = '16px sans-serif';
   ctx.fillText('✨ 我的五官', padX + 30, y);
   ctx.fillStyle = '#3F2A2E';
@@ -420,7 +511,7 @@ function renderCardToPng(
 
   // 妆容
   y += 100;
-  ctx.fillStyle = '#7A6A6E';
+  ctx.fillStyle = '#A8505D';
   ctx.font = '16px sans-serif';
   ctx.fillText('💄 推荐妆容', padX + 30, y);
   ctx.fillStyle = '#3F2A2E';
@@ -429,7 +520,7 @@ function renderCardToPng(
 
   // 技巧
   y += 90;
-  ctx.fillStyle = '#7A6A6E';
+  ctx.fillStyle = '#A8505D';
   ctx.font = '16px sans-serif';
   ctx.fillText('💡 关键技巧', padX + 30, y);
   ctx.font = '18px sans-serif';

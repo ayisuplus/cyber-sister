@@ -9,3 +9,17 @@ coverage/
 
 # MediaPipe model binaries (download separately)
 public/mp-models/*.task
+
+# Data (too large for git)
+data/
+training/makeup_dataset/images/
+training/makeup_images.zip
+
+# Dead environments
+venv_train/
+.omo/
+
+# Large assets (download separately)
+models/
+LLaMA-Factory/
+tools/

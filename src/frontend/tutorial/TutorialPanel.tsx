@@ -1,4 +1,5 @@
 // 分步教学面板:显示当前妆容 + 步骤指令 + 上一步/下一步/重新开始按钮 + 进度条.
+// 视觉层:粉系毛玻璃卡片 + 渐变按钮 + 大圆角 chip 标签
 
 import type { MakeupLook, MakeupStep } from '../../shared/types';
 
@@ -30,7 +31,9 @@ export default function TutorialPanel({
 
   if (!step) {
     return (
-      <div className="text-sm text-ink/60">该妆容暂无教学步骤。</div>
+      <div className="text-sm text-ink-soft/60 text-center py-4">
+        该妆容暂无教学步骤。
+      </div>
     );
   }
 
@@ -38,34 +41,74 @@ export default function TutorialPanel({
 
   return (
     <div className="text-left space-y-4">
+      {/* 妆容头信息 */}
       <div>
-        <div className="text-xs text-accent font-medium uppercase tracking-wide">
-          {look.scenario}
-        </div>
-        <h2 className="text-2xl font-semibold text-ink mt-1">{look.name}</h2>
-        <p className="text-sm text-ink/70 mt-1">{look.reason}</p>
+        <div className="chip-tag mb-1.5">{look.scenario}</div>
+        <h2 className="font-serif text-2xl font-bold text-ink mt-1">
+          {look.name}
+        </h2>
+        <p className="text-sm text-ink-soft/70 mt-1">{look.reason}</p>
       </div>
 
+      {/* 进度条 */}
       <div>
-        <div className="flex justify-between text-xs text-ink/60 mb-1">
-          <span>
+        <div className="flex justify-between text-xs text-ink-soft/70 mb-1.5">
+          <span className="font-medium">
             步骤 {stepIndex + 1} / {total}
           </span>
-          <span>{step.title}</span>
+          <span className="truncate ml-2">{step.title}</span>
         </div>
-        <div className="w-full h-2 bg-secondary/40 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="progress-track">
+          <div className="progress-fill" style={{ width: `${progress}%` }} />
+        </div>
+        {/* 步骤小圆点 */}
+        <div className="flex justify-between mt-3 px-1">
+          {steps.map((_, i) => (
+            <div
+              key={i}
+              className="transition-all rounded-full"
+              style={{
+                width: i === stepIndex ? 14 : 6,
+                height: 6,
+                background:
+                  i <= stepIndex
+                    ? 'linear-gradient(90deg,#EAB6BC,#C86B77)'
+                    : 'rgba(234,182,188,0.4)',
+              }}
+            />
+          ))}
         </div>
       </div>
 
-      <div className="bg-white border-2 border-secondary rounded-2xl p-4 space-y-3">
-        <div className="font-semibold text-ink text-lg">{step.title}</div>
-        <p className="text-ink/80 leading-relaxed text-sm">{step.instruction}</p>
+      {/* 步骤主卡 */}
+      <div
+        className="rounded-3xl p-5 space-y-3"
+        style={{
+          background:
+            'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(253,242,243,0.7))',
+          border: '1.5px solid rgba(234,182,188,0.4)',
+          boxShadow: '0 8px 24px rgba(200,107,119,0.1)',
+          backdropFilter: 'blur(16px)',
+        }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-bold text-white"
+            style={{
+              background: 'linear-gradient(135deg,#EAB6BC,#C86B77)',
+              boxShadow: '0 4px 12px rgba(200,107,119,0.3)',
+            }}
+          >
+            {stepIndex + 1}
+          </div>
+          <div className="font-serif font-bold text-ink text-lg">
+            {step.title}
+          </div>
+        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+        <p className="text-ink/85 leading-relaxed text-sm">{step.instruction}</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {step.brushDirection && (
             <Tag label="方向" value={step.brushDirection} />
           )}
@@ -74,23 +117,34 @@ export default function TutorialPanel({
         </div>
 
         {(step.warnings && step.warnings.length > 0) || (warnings && warnings.length > 0) ? (
-          <ul className="text-xs text-accent bg-accent/5 border border-accent/20 rounded-xl p-2 space-y-1">
+          <div
+            className="rounded-2xl p-3 space-y-1"
+            style={{
+              background: 'rgba(234,182,188,0.18)',
+              border: '1px dashed rgba(200,107,119,0.3)',
+            }}
+          >
             {[...(step.warnings ?? []), ...(warnings ?? [])].map((w, i) => (
-              <li key={i}>⚠️ {w}</li>
+              <div key={i} className="text-xs text-primary-deep">
+                ⚠️ {w}
+              </div>
             ))}
-          </ul>
+          </div>
         ) : null}
 
         {look.productHints && look.productHints.length > 0 && (
-          <div className="pt-2 border-t border-secondary/60">
-            <div className="text-xs text-ink/60 mb-1">推荐产品 (CPS 占位)</div>
-            <ul className="text-xs text-ink/70 space-y-0.5">
+          <div className="pt-3 border-t border-dashed" style={{ borderColor: 'rgba(200,107,119,0.2)' }}>
+            <div className="text-[10px] text-ink-soft/60 mb-1.5 uppercase tracking-wide">
+              推荐产品 (CPS 占位)
+            </div>
+            <ul className="space-y-1">
               {look.productHints
                 .filter((p) => matchesArea(p.category, step.area))
                 .slice(0, 2)
                 .map((p, i) => (
-                  <li key={i}>
-                    <span className="font-medium text-ink">{p.category}</span> · {p.shadeFamily}
+                  <li key={i} className="text-xs text-ink-soft/85">
+                    <span className="chip-rose mr-1.5">{p.category}</span>
+                    <span className="text-ink">{p.shadeFamily}</span>
                     {p.finishType ? ` · ${p.finishType}` : ''}
                     {p.priceRange ? ` · ${p.priceRange}` : ''}
                   </li>
@@ -100,11 +154,12 @@ export default function TutorialPanel({
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2 justify-between">
+      {/* 操作按钮组 */}
+      <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={onRestart}
-          className="text-sm text-ink/60 hover:text-ink px-3 py-1.5 rounded-full"
+          className="btn-ghost text-sm"
         >
           ↺ 重新开始
         </button>
@@ -113,7 +168,7 @@ export default function TutorialPanel({
             type="button"
             onClick={onPrev}
             disabled={isFirst}
-            className="bg-white border-2 border-primary text-accent hover:bg-secondary/30 disabled:opacity-40 disabled:cursor-not-allowed font-medium px-4 py-1.5 rounded-full text-sm"
+            className="btn-secondary text-sm py-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             ← 上一步
           </button>
@@ -121,7 +176,8 @@ export default function TutorialPanel({
             <button
               type="button"
               onClick={onFinish}
-              className="bg-gradient-to-r from-primary to-accent text-white font-medium px-4 py-1.5 rounded-full text-sm shadow-soft"
+              className="btn-primary text-sm py-2"
+              data-finish-button
             >
               完成 →
             </button>
@@ -129,7 +185,7 @@ export default function TutorialPanel({
             <button
               type="button"
               onClick={onNext}
-              className="bg-gradient-to-r from-primary to-accent text-white font-medium px-4 py-1.5 rounded-full text-sm shadow-soft"
+              className="btn-primary text-sm py-2"
             >
               下一步 →
             </button>
@@ -142,9 +198,17 @@ export default function TutorialPanel({
 
 function Tag({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-secondary/30 rounded-xl px-3 py-2">
-      <div className="text-ink/50 text-[10px] uppercase tracking-wide">{label}</div>
-      <div className="text-ink font-medium">{value}</div>
+    <div
+      className="rounded-2xl px-3 py-2"
+      style={{
+        background: 'linear-gradient(135deg, rgba(253,242,243,0.9), rgba(234,182,188,0.3))',
+        border: '1px solid rgba(234,182,188,0.4)',
+      }}
+    >
+      <div className="text-[10px] text-ink-soft/60 uppercase tracking-wide">
+        {label}
+      </div>
+      <div className="text-ink font-semibold text-sm">{value}</div>
     </div>
   );
 }
