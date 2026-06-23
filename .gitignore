@@ -1,25 +1,44 @@
+# ---------- Dependencies ----------
 node_modules/
+.pnpm-store/
+
+# ---------- Build outputs ----------
 dist/
 .vite/
+public/app.js
+public/app.js.map
+
+# ---------- MediaPipe model binaries (download separately) ----------
+public/mp-models/*.task
+public/mp-models/wasm/
+
+# ---------- Data (too large for git) ----------
+data/
+training/
+training_by_style/
+training_packages/
+lora/
+_deprecated_backup/
+
+# ---------- Test outputs ----------
+coverage/
+
+# ---------- Editor / OS ----------
 *.log
 .env
 .env.local
+.env.*.local
 .DS_Store
-coverage/
+.vscode/
+.idea/
+*.swp
 
-# MediaPipe model binaries (download separately)
-public/mp-models/*.task
-
-# Data (too large for git)
-data/
-training/makeup_dataset/images/
-training/makeup_images.zip
-
-# Dead environments
+# ---------- Dead environments ----------
 venv_train/
 .omo/
+.mavis/
 
-# Large assets (download separately)
+# ---------- Large assets (download separately) ----------
 models/
 LLaMA-Factory/
 tools/
