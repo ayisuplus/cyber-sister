@@ -52,7 +52,7 @@ describe('recommendLooks — 冷调肤色 → 莓果/梅子色而非橙色', () 
   it('cool_fair 肤色的 top 推荐不应是 "气场御姐妆" (暖调为主)', () => {
     const features = baseFeatures({ skinTone: 'cool_fair', faceShape: 'oval' });
     const results = recommendLooks(features, 3);
-    const topId = results[0].look.id;
+    const topId = results[0]?.look.id;
     // 清冷白开水妆 suitableFor 含 cool_fair,应胜出
     expect(topId).toBe('look_cool_water');
   });
@@ -60,7 +60,8 @@ describe('recommendLooks — 冷调肤色 → 莓果/梅子色而非橙色', () 
   it('cool_fair 肤色的 look 步骤里出现 cool/rose/berry 色系,不是 orange/peach', () => {
     const features = baseFeatures({ skinTone: 'cool_fair', faceShape: 'oval' });
     const results = recommendLooks(features, 1);
-    const look = results[0].look;
+    const look = results[0]?.look;
+    if (!look) throw new Error('expected at least one result');
     const allColors = [
       look.name,
       look.reason,

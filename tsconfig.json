@@ -21,11 +21,10 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@frontend/*": ["src/frontend/*"],
-      "@backend/*": ["src/backend/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@frontend/*": ["./src/frontend/*"],
+      "@backend/*": ["./src/backend/*"]
     },
     "types": ["vite/client", "node"]
   },

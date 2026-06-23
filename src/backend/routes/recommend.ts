@@ -12,11 +12,12 @@ import type { FaceFeatures, MakeupLook } from '../../shared/types';
 // ---------- 数据加载 (启动时读一次,缓存到内存) ----------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, '..', '..', '..', 'data', 'makeup-rules');
+// 编译后 dist/backend/routes/recommend.js → src/shared/data/looks.json
+const DATA_DIR = join(__dirname, '..', '..', 'shared', 'data');
 
 function loadLooks(): MakeupLook[] {
   const raw = JSON.parse(
-    readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8')
+    readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'),
   ) as { looks: MakeupLook[] };
   return raw.looks;
 }

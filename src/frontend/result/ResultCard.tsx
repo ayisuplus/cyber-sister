@@ -380,12 +380,6 @@ function pickTopTips(steps: MakeupStep[], n: number): string[] {
 //   正文:   3-5 行闺蜜口吻 (用 "姐妹/宝宝/家人们" 等口语词),包含关键特征和化妆技巧
 //   标签:   #妆语 #妆容推荐 等
 
-interface XhsInput {
-  features: FaceFeatures;
-  look: MakeupLook;
-  tips: string[];
-}
-
 const XHS_OPENERS = ['姐妹们', '宝宝们', '家人们', '集美们', '宝子们'];
 
 /**

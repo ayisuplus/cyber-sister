@@ -30,8 +30,10 @@ function toLandmarkPoints(landmarks: NormalizedLandmark[]): LandmarkPoint[] {
  * MediaPipe 没有直接给 bbox,这里用所有点的 min/max 估算.
  */
 function pickLargestFace(faces: NormalizedLandmark[][]): NormalizedLandmark[] {
-  if (faces.length === 1) return faces[0];
-  let best = faces[0];
+  const first = faces[0];
+  if (!first) return [];
+  if (faces.length === 1) return first;
+  let best: NormalizedLandmark[] = first;
   let bestArea = 0;
   for (const face of faces) {
     let minX = 1, minY = 1, maxX = 0, maxY = 0;

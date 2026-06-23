@@ -124,10 +124,12 @@ export default function MakeupCanvas({
       const def = firstZone ? getZoneDef(firstZone) : null;
       if (def) {
         const centerIdx = def.center ?? def.landmarks[0];
-        const c = landmarks[centerIdx];
-        if (c) {
-          const center = mapLandmarkToCanvas(c, layout);
-          drawArrow(ctx, center, brushDirection, layout);
+        if (centerIdx !== undefined) {
+          const c = landmarks[centerIdx];
+          if (c) {
+            const center = mapLandmarkToCanvas(c, layout);
+            drawArrow(ctx, center, brushDirection, layout);
+          }
         }
       }
     }

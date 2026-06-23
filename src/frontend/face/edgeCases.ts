@@ -153,8 +153,10 @@ function clamp01(v: number): number {
 }
 
 function pickLargestFace(faces: Landmark[][]): Landmark[] {
-  if (faces.length === 1) return faces[0];
-  let best = faces[0];
+  const first = faces[0];
+  if (!first) return [];
+  if (faces.length === 1) return first;
+  let best: Landmark[] = first;
   let bestArea = 0;
   for (const face of faces) {
     const area = faceAreaRatio(face);
@@ -234,7 +236,9 @@ function medianCheekLightness(pixels: PixelBuffer, face: Landmark[]): number {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const R = data[i], G = data[i + 1], B = data[i + 2];
+      const R = data[i] ?? 0;
+      const G = data[i + 1] ?? 0;
+      const B = data[i + 2] ?? 0;
       // 简化亮度 (sRGB 0..255)
       L.push(0.299 * R + 0.587 * G + 0.114 * B);
     }
@@ -257,7 +261,10 @@ function estimateBlur(pixels: PixelBuffer): number {
   for (let y = 1; y < height - 1; y += step) {
     for (let x = 1; x < width - 1; x += step) {
       const i = (y * width + x) * 4;
-      gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      gray.push(0.299 * r + 0.587 * g + 0.114 * b);
     }
   }
   if (gray.length < 9) return 0;
@@ -267,12 +274,12 @@ function estimateBlur(pixels: PixelBuffer): number {
   const w = Math.floor((width - 2) / step);
   for (let y = 1; y < gray.length / w - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
-      const c = gray[y * w + x];
+      const c = gray[y * w + x] ?? 0;
       const sum =
-        gray[(y - 1) * w + x] +
-        gray[(y + 1) * w + x] +
-        gray[y * w + (x - 1)] +
-        gray[y * w + (x + 1)] -
+        (gray[(y - 1) * w + x] ?? 0) +
+        (gray[(y + 1) * w + x] ?? 0) +
+        (gray[y * w + (x - 1)] ?? 0) +
+        (gray[y * w + (x + 1)] ?? 0) -
         4 * c;
       lap.push(sum);
     }
@@ -304,7 +311,9 @@ function hasGlasses(pixels: PixelBuffer, face: Landmark[]): boolean {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const R = data[i], G = data[i + 1], B = data[i + 2];
+      const R = data[i] ?? 0;
+      const G = data[i + 1] ?? 0;
+      const B = data[i + 2] ?? 0;
       total++;
       // 简单肤色判别:R > G > B 且 R > 95 — 否则视为非肤色(深色镜框/镜面高光)
       if (!(R > G && G > B && R > 95)) nonSkin++;
@@ -334,7 +343,9 @@ function foreheadCovered(pixels: PixelBuffer, face: Landmark[]): boolean {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const R = data[i], G = data[i + 1], B = data[i + 2];
+      const R = data[i] ?? 0;
+      const G = data[i + 1] ?? 0;
+      const B = data[i + 2] ?? 0;
       total++;
       // 头发通常是深色:亮度低 + R/G/B 接近
       const lum = 0.299 * R + 0.587 * G + 0.114 * B;
@@ -364,7 +375,9 @@ function isHeavyMakeup(pixels: PixelBuffer, face: Landmark[]): boolean {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const R = data[i] / 255, G = data[i + 1] / 255, B = data[i + 2] / 255;
+      const R = (data[i] ?? 0) / 255;
+      const G = (data[i + 1] ?? 0) / 255;
+      const B = (data[i + 2] ?? 0) / 255;
       const max = Math.max(R, G, B);
       const min = Math.min(R, G, B);
       const s = max === 0 ? 0 : (max - min) / max; // 0..1
@@ -380,9 +393,12 @@ function median(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid];
+  if (sorted.length % 2 === 0) {
+    const a = sorted[mid - 1] ?? 0;
+    const b = sorted[mid] ?? 0;
+    return (a + b) / 2;
+  }
+  return sorted[mid] ?? 0;
 }
 
 // ---------- EXIF 旋转校正工具 ----------

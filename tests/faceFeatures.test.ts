@@ -40,11 +40,9 @@ function buildOvalFace(opts: {
   // 三庭
   const upper = opts.upperRatio ?? 1 / 3;
   const middle = opts.middleRatio ?? 1 / 3;
-  const lower = opts.lowerRatio ?? 1 / 3;
   // 实际距离比例
   const upperDist = upper * faceH;
   const middleDist = middle * faceH;
-  // lowerDist = lower * faceH
 
   const yBrow = yTop + upperDist;
   const yNose = yBrow + middleDist;

@@ -291,9 +291,9 @@ function sampleCheekLab(
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
       const [L_, a, b2] = rgbToLab(r, g, b);
       // 过滤阴影/高光/异常红黄
       if (L_ < 30 || L_ > 95) continue;
@@ -317,11 +317,13 @@ function sampleCheekLab(
 }
 
 function median(arr: number[]): number {
+  if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid];
+  if (sorted.length % 2 === 0) {
+    return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+  }
+  return sorted[mid] ?? 0;
 }
 
 /** 暖冷判断 + 深度 → 8 类 SkinTone. */
@@ -369,7 +371,7 @@ function estimateLightingQuality(
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
-      const [L] = rgbToLab(data[i], data[i + 1], data[i + 2]);
+      const [L] = rgbToLab(data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0);
       Ls.push(L);
     }
   }

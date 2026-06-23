@@ -6,8 +6,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-// 用 vi.mock 注入 DATA_DIR,这样不需要改 analytics.ts 的硬编码路径.
-import { vi } from 'vitest';
+// 测试注入 DATA_DIR via process.env,这样不需要改 analytics.ts 的硬编码路径.
 
 const TMP = join(tmpdir(), `analytics-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const TEST_DATA_DIR = join(TMP, 'data');
