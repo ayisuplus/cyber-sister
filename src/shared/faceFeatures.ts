@@ -128,38 +128,26 @@ function computeFiveEyeFit(landmarks: Landmark[]): number {
 
 // ---------- 脸型分类 ----------
 
-function classifyFaceShape(
-  landmarks: Landmark[],
-  ratios: { widthHeight: number }
-): FaceShape {
+function classifyFaceShape(landmarks: Landmark[]): FaceShape {
   const faceWidth = dist(
     safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple)
+    safeGet(landmarks, LM.rightTemple),
   );
   const totalHeight = dist(
     safeGet(landmarks, LM.hairline),
-    safeGet(landmarks, LM.chin)
+    safeGet(landmarks, LM.chin),
   );
   if (faceWidth === 0 || totalHeight === 0) return 'unknown';
 
-  const foreheadWidth = dist(
-    safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple)
-  );
-  const jawWidth = dist(
-    safeGet(landmarks, LM.leftJaw),
-    safeGet(landmarks, LM.rightJaw)
-  );
+  const jawWidth = dist(safeGet(landmarks, LM.leftJaw), safeGet(landmarks, LM.rightJaw));
   const cheekWidth = dist(
     safeGet(landmarks, 132), // 左颧骨
-    safeGet(landmarks, 361) // 右颧骨
+    safeGet(landmarks, 361), // 右颧骨
   );
-  void foreheadWidth; // 当前用不到,留作后续特征
 
   const wh = faceWidth / totalHeight;
   const jawToFace = jawWidth / faceWidth;
   const cheekToFace = cheekWidth / faceWidth;
-  void ratios;
 
   // long: 脸明显长
   if (wh < 0.62) return 'long';
@@ -192,13 +180,12 @@ function classifyEyeType(landmarks: Landmark[]): EyeType {
   // 内眼角-外眼角 上下差异 → tilt
   const dy = outer.y - inner.y;
   const tilt = dy / eyeWidth; // 正=外眼角下垂
-  void tilt; // 留作后续
 
   // 眼距
   const rightInner = safeGet(landmarks, LM.rightEyeInner);
   const faceWidth = dist(
     safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple)
+    safeGet(landmarks, LM.rightTemple),
   );
   const interPupil = dist(inner, rightInner);
   if (faceWidth === 0) return 'unknown';
@@ -217,33 +204,20 @@ function classifyEyeType(landmarks: Landmark[]): EyeType {
 // ---------- 鼻型 ----------
 
 function classifyNoseType(landmarks: Landmark[]): NoseType {
-  const bridgeTop = safeGet(landmarks, LM.noseBridgeTop);
   const bridgeMid = safeGet(landmarks, LM.noseBridgeMid);
   const tip = safeGet(landmarks, LM.noseTip);
   const leftAlar = safeGet(landmarks, LM.noseLeftAlar);
   const rightAlar = safeGet(landmarks, LM.noseRightAlar);
-  const lip = safeGet(landmarks, LM.upperLipTop);
 
   const faceWidth = dist(
     safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple)
+    safeGet(landmarks, LM.rightTemple),
   );
   if (faceWidth === 0) return 'unknown';
 
   // 鼻梁宽度(鼻翼间距)/ 脸宽
   const alarWidth = dist(leftAlar, rightAlar);
   const bridgeRatio = alarWidth / faceWidth;
-
-  // 鼻尖形状: 鼻尖到鼻底距离 vs 鼻梁长度
-  const bridgeLen = dist(bridgeTop, tip);
-  const tipProtrusion = dist(tip, safeGet(landmarks, LM.noseBottom));
-  void tipProtrusion;
-
-  // 鼻唇角: 鼻小柱-鼻底-唇红 估算,这里用 (noseBottom → lip) 替代
-  const nasolabial = dist(safeGet(landmarks, LM.noseBottom), lip);
-  void nasolabial;
-
-  void bridgeLen;
 
   // bulbous: 鼻翼 / 鼻梁宽 比值高
   if (bridgeRatio > 0.32) return 'bulbus_tip';
@@ -523,7 +497,7 @@ export function analyzeFeatures(
   const noseBridgeWidth = faceWidth > 0 ? alarWidth / faceWidth : 0;
 
   // 分类
-  const faceShape = classifyFaceShape(landmarks, { widthHeight: faceWidthHeightRatio });
+  const faceShape = classifyFaceShape(landmarks);
   const eyeType = classifyEyeType(landmarks);
   const noseType = classifyNoseType(landmarks);
 
@@ -567,34 +541,4 @@ export function analyzeFeatures(
     noseBridgeWidth,
     confidence,
   };
-}
-
-/**
- * Helper used by the recommender and explainer to compare against the
- * catalog rules without having to special-case 'unknown' everywhere.
- */
-export function isUnknownFeature(features: FaceFeatures): boolean {
-  return (
-    features.faceShape === 'unknown' &&
-    features.eyeType === 'unknown' &&
-    features.noseType === 'unknown' &&
-    features.skinTone === 'unknown' &&
-    features.confidence === 0
-  );
-}
-
-export function isKnownShape(value: FaceShape): value is Exclude<FaceShape, 'unknown'> {
-  return value !== 'unknown';
-}
-
-export function isKnownEyeType(value: EyeType): value is Exclude<EyeType, 'unknown'> {
-  return value !== 'unknown';
-}
-
-export function isKnownNoseType(value: NoseType): value is Exclude<NoseType, 'unknown'> {
-  return value !== 'unknown';
-}
-
-export function isKnownSkinTone(value: SkinTone): value is Exclude<SkinTone, 'unknown'> {
-  return value !== 'unknown';
 }

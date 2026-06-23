@@ -13,8 +13,7 @@ export function track(event: string, props?: AnalyticsProps): void {
   };
   // 开发模式方便肉眼看到
   if (typeof console !== 'undefined') {
-    // eslint-disable-next-line no-console
-    console.log('[analytics]', event, props ?? {});
+    console.debug('[analytics]', event, props ?? {});
   }
   if (typeof fetch === 'undefined') return;
   try {

@@ -11,11 +11,14 @@ export default defineConfig({
   root: path.join(projectRoot, 'public'),
   resolve: {
     alias: {
-      '/src': path.join(projectRoot, 'src'),
+      '@shared': path.join(projectRoot, 'src/shared'),
+      '@frontend': path.join(projectRoot, 'src/frontend'),
+      '@backend': path.join(projectRoot, 'src/backend'),
     },
   },
   server: {
     port: 5173,
+    strictPort: false,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -25,7 +28,8 @@ export default defineConfig({
   },
   build: {
     outDir: path.join(projectRoot, 'dist'),
-    emptyOutDir: true,
+    emptyOutDir: false, // keep server.js if present
     sourcemap: true,
+    target: 'es2020',
   },
 });

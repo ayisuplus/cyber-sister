@@ -87,7 +87,6 @@ export default function ResultCard({ features, look }: Props) {
       a.download = `妆语-${look.name}.png`;
       a.click();
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('save image failed', err);
     }
   }

@@ -136,14 +136,12 @@ analyticsRouter.post('/analytics', (req, res) => {
     // 每行一个 JSON,以 \n 结尾
     appendFileSync(JSONL_PATH, JSON.stringify(row) + '\n', 'utf-8');
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error('[analytics] write failed:', err);
     res.status(500).json({ error: 'write failed' });
     return;
   }
 
-  // eslint-disable-next-line no-console
-  console.log('[analytics]', row.event, row.props);
+  console.info('[analytics]', row.event, row.props);
   res.json({ ok: true });
 });
 

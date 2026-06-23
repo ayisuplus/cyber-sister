@@ -39,8 +39,7 @@ app.use(express.json({ limit: '2mb' }));
 
 // 简易请求日志(开发期有用,生产可换 morgan/pino)
 app.use((req, _res, next) => {
-  // eslint-disable-next-line no-console
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -81,7 +80,6 @@ if (existsSync(DIST_DIR)) {
   });
 } else {
   // dev 模式:dist 还没构建,只跑后端
-  // eslint-disable-next-line no-console
   console.warn(`[妆语] dist/ 不存在 (${DIST_DIR}),跳过静态文件服务`);
 }
 
@@ -98,7 +96,6 @@ app.use((req, res) => {
 
 // 通用错误中间件(4 参数签名才会被 Express 识别为 error handler)
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  // eslint-disable-next-line no-console
   console.error('[妆语] unhandled error:', err);
   const message = err instanceof Error ? err.message : 'Internal Server Error';
   res.status(500).json({ error: message });
@@ -107,10 +104,8 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // ---------- 启动 ----------
 
 app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[妆语] backend listening on http://localhost:${PORT}`);
+  console.info(`[妆语] backend listening on http://localhost:${PORT}`);
   if (existsSync(DIST_DIR)) {
-    // eslint-disable-next-line no-console
-    console.log(`[妆语] static site: ${DIST_DIR}`);
+    console.info(`[妆语] static site: ${DIST_DIR}`);
   }
 });

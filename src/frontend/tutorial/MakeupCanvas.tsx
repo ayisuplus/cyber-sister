@@ -100,14 +100,10 @@ export default function MakeupCanvas({
       layout.imageHeight
     );
 
-    // 2) 覆盖区
+    // 2) 覆盖区 — 当前高亮 + 其他已注册区(其他用低透明度淡显)
     const currentSet = new Set(currentZones);
-    const allZones = new Set<OverlayZone>([
-      ...currentZones,
-      ...collectNonCurrentZones(landmarks, currentSet),
-    ]);
 
-    for (const zone of allZones) {
+    for (const zone of currentZones) {
       const def = getZoneDef(zone);
       if (!def) continue;
       const pts = def.landmarks
@@ -249,16 +245,6 @@ export default function MakeupCanvas({
 }
 
 // ---------- 内部绘制函数 ----------
-
-function collectNonCurrentZones(
-  _landmarks: Landmark[],
-  currentSet: Set<OverlayZone>
-): OverlayZone[] {
-  // 仅显示当前高亮 + 已注册的所有.其他全 0.05.此处返回空,由 draw 时统一处理.
-  void _landmarks;
-  void currentSet;
-  return [];
-}
 
 function drawZone(
   ctx: CanvasRenderingContext2D,
