@@ -8,31 +8,31 @@ import type { PixelBuffer } from '../../shared/faceFeatures';
 
 export interface SelfieDiagnosis {
   canProceed: boolean;
-  warnings: string[];            // 非阻塞提示
-  blocked: boolean;              // true = 完全不能分析
-  blockedReason?: string;        // 仅 blocked=true 时有值
-  adjustedConfidence: number;    // 0..1,基于质量的置信度调整
-  skippedFeatures: string[];     // 需要跳过的特征
+  warnings: string[]; // 非阻塞提示
+  blocked: boolean; // true = 完全不能分析
+  blockedReason?: string; // 仅 blocked=true 时有值
+  adjustedConfidence: number; // 0..1,基于质量的置信度调整
+  skippedFeatures: string[]; // 需要跳过的特征
 }
 
 // 诊断所需的全部输入打包,避免长参数列表.
 export interface DiagnosisInput {
-  faces: Landmark[][];           // landmarker 返回的多个脸;空数组=无人脸
-  pixels?: PixelBuffer;          // 图像 RGBA + 宽高;可选但越多检查越准
-  exifOrientation?: number;      // 1-8;默认 1 (无旋转)
-  baseConfidence: number;        // 来自 faceFeatures 的整体置信度
+  faces: Landmark[][]; // landmarker 返回的多个脸;空数组=无人脸
+  pixels?: PixelBuffer; // 图像 RGBA + 宽高;可选但越多检查越准
+  exifOrientation?: number; // 1-8;默认 1 (无旋转)
+  baseConfidence: number; // 来自 faceFeatures 的整体置信度
 }
 
 // 阈值常量集中放置,便于测试与调整.
 export const THRESHOLDS = {
-  yawPitchDeg: 30,               // >30° 算偏转过大
-  darkLightL: 40,                // 脸颊中位 L < 40 算暗光
-  glassNonSkinRatio: 0.25,       // 鼻梁区非肤色像素占比 > 25% 视为戴眼镜
-  bangsSkinRatio: 0.3,           // 前额 ROI 有效肤色像素 < 30% 视为刘海遮额
-  heavyMakeupSat: 60,            // 脸颊饱和度阈值 (HSV S × 100)
-  blurLaplacian: 80,             // Laplacian 方差下限,低于即视为模糊
-  roiSize: 20,                   // 通用 ROI 半边长
-  minFaceArea: 0.005,            // 关键点 bbox 占图比 < 0.5% 视为过小
+  yawPitchDeg: 30, // >30° 算偏转过大
+  darkLightL: 40, // 脸颊中位 L < 40 算暗光
+  glassNonSkinRatio: 0.25, // 鼻梁区非肤色像素占比 > 25% 视为戴眼镜
+  bangsSkinRatio: 0.3, // 前额 ROI 有效肤色像素 < 30% 视为刘海遮额
+  heavyMakeupSat: 60, // 脸颊饱和度阈值 (HSV S × 100)
+  blurLaplacian: 80, // Laplacian 方差下限,低于即视为模糊
+  roiSize: 20, // 通用 ROI 半边长
+  minFaceArea: 0.005, // 关键点 bbox 占图比 < 0.5% 视为过小
 } as const;
 
 // ---------- 主入口 ----------
@@ -170,7 +170,10 @@ function pickLargestFace(faces: Landmark[][]): Landmark[] {
 
 function faceAreaRatio(face: Landmark[]): number {
   if (!face || face.length === 0) return 0;
-  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  let minX = 1,
+    minY = 1,
+    maxX = 0,
+    maxY = 0;
   let seen = false;
   for (const lm of face) {
     if (lm.x === 0 && lm.y === 0) continue;
@@ -190,8 +193,7 @@ function faceAreaRatio(face: Landmark[]): number {
  * 简化: |左脸颊.x - 右脸颊.x| / 脸宽 偏离 0.5 越多 = 越偏.
  */
 function estimateYawPitch(face: Landmark[]): number {
-  const safe = (i: number): Landmark =>
-    face[i] ?? { x: 0, y: 0, z: 0 };
+  const safe = (i: number): Landmark => face[i] ?? { x: 0, y: 0, z: 0 };
 
   // 关键点: 左脸颊 117, 右脸颊 346, 鼻尖 1, 下巴 152, 眉心 168
   const leftCheek = safe(117);
@@ -307,7 +309,8 @@ function hasGlasses(pixels: PixelBuffer, face: Landmark[]): boolean {
   const y1 = Math.min(height, cy + r);
   if (x1 <= x0 || y1 <= y0) return false;
 
-  let total = 0, nonSkin = 0;
+  let total = 0,
+    nonSkin = 0;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
@@ -339,7 +342,8 @@ function foreheadCovered(pixels: PixelBuffer, face: Landmark[]): boolean {
   const y1 = Math.min(height, cy + r);
   if (x1 <= x0 || y1 <= y0) return false;
 
-  let total = 0, skin = 0;
+  let total = 0,
+    skin = 0;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * width + x) * 4;
@@ -410,15 +414,24 @@ function median(arr: number[]): number {
  */
 export function exifToTransform(orientation: number): { rotation: number; flipX: boolean } {
   switch (orientation) {
-    case 1: return { rotation: 0, flipX: false };
-    case 2: return { rotation: 0, flipX: true };
-    case 3: return { rotation: 180, flipX: false };
-    case 4: return { rotation: 180, flipX: true };
-    case 5: return { rotation: 90, flipX: true };
-    case 6: return { rotation: 90, flipX: false };
-    case 7: return { rotation: 270, flipX: true };
-    case 8: return { rotation: 270, flipX: false };
-    default: return { rotation: 0, flipX: false };
+    case 1:
+      return { rotation: 0, flipX: false };
+    case 2:
+      return { rotation: 0, flipX: true };
+    case 3:
+      return { rotation: 180, flipX: false };
+    case 4:
+      return { rotation: 180, flipX: true };
+    case 5:
+      return { rotation: 90, flipX: true };
+    case 6:
+      return { rotation: 90, flipX: false };
+    case 7:
+      return { rotation: 270, flipX: true };
+    case 8:
+      return { rotation: 270, flipX: false };
+    default:
+      return { rotation: 0, flipX: false };
   }
 }
 
@@ -443,10 +456,7 @@ export async function readExifOrientation(file: File): Promise<number> {
       // APP1 (EXIF)
       if (marker === 0xe1) {
         // "Exif\0\0"
-        if (
-          view.getUint32(offset + 4) === 0x45786966 &&
-          view.getUint16(offset + 8) === 0
-        ) {
+        if (view.getUint32(offset + 4) === 0x45786966 && view.getUint16(offset + 8) === 0) {
           const tiff = offset + 10;
           // TIFF header: 0x002A (little) or 0x2A00 (big)
           const little = view.getUint16(tiff) === 0x002a;
@@ -478,7 +488,7 @@ export async function readExifOrientation(file: File): Promise<number> {
  */
 export async function applyExifToImageData(
   imageData: ImageData,
-  orientation: number
+  orientation: number,
 ): Promise<ImageData> {
   if (!orientation || orientation === 1) return imageData;
   const { rotation, flipX } = exifToTransform(orientation);

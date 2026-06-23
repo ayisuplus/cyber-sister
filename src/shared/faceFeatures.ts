@@ -2,13 +2,7 @@
 // 输入 MediaPipe 478 关键点 (+ 可选像素),输出 FaceFeatures 摘要.
 // 算法:三庭五眼 + 脸型/眼型/鼻型几何分类 + LAB 肤色 + 置信度合成.
 
-import type {
-  EyeType,
-  FaceFeatures,
-  FaceShape,
-  NoseType,
-  SkinTone,
-} from './types';
+import type { EyeType, FaceFeatures, FaceShape, NoseType, SkinTone } from './types';
 
 /** 归一化坐标 (0..1) 的关键点. */
 export interface Landmark {
@@ -129,14 +123,8 @@ function computeFiveEyeFit(landmarks: Landmark[]): number {
 // ---------- 脸型分类 ----------
 
 function classifyFaceShape(landmarks: Landmark[]): FaceShape {
-  const faceWidth = dist(
-    safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple),
-  );
-  const totalHeight = dist(
-    safeGet(landmarks, LM.hairline),
-    safeGet(landmarks, LM.chin),
-  );
+  const faceWidth = dist(safeGet(landmarks, LM.leftTemple), safeGet(landmarks, LM.rightTemple));
+  const totalHeight = dist(safeGet(landmarks, LM.hairline), safeGet(landmarks, LM.chin));
   if (faceWidth === 0 || totalHeight === 0) return 'unknown';
 
   const jawWidth = dist(safeGet(landmarks, LM.leftJaw), safeGet(landmarks, LM.rightJaw));
@@ -183,10 +171,7 @@ function classifyEyeType(landmarks: Landmark[]): EyeType {
 
   // 眼距
   const rightInner = safeGet(landmarks, LM.rightEyeInner);
-  const faceWidth = dist(
-    safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple),
-  );
+  const faceWidth = dist(safeGet(landmarks, LM.leftTemple), safeGet(landmarks, LM.rightTemple));
   const interPupil = dist(inner, rightInner);
   if (faceWidth === 0) return 'unknown';
   const interPupilRatio = interPupil / faceWidth;
@@ -209,10 +194,7 @@ function classifyNoseType(landmarks: Landmark[]): NoseType {
   const leftAlar = safeGet(landmarks, LM.noseLeftAlar);
   const rightAlar = safeGet(landmarks, LM.noseRightAlar);
 
-  const faceWidth = dist(
-    safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple),
-  );
+  const faceWidth = dist(safeGet(landmarks, LM.leftTemple), safeGet(landmarks, LM.rightTemple));
   if (faceWidth === 0) return 'unknown';
 
   // 鼻梁宽度(鼻翼间距)/ 脸宽
@@ -252,7 +234,9 @@ function rgbToXyz(r: number, g: number, b: number): [number, number, number] {
 
 /** XYZ → LAB (D65 reference white). */
 function xyzToLab(x: number, y: number, z: number): [number, number, number] {
-  const xn = 0.95047, yn = 1.0, zn = 1.08883;
+  const xn = 0.95047,
+    yn = 1.0,
+    zn = 1.08883;
   const fx = labF(x / xn);
   const fy = labF(y / yn);
   const fz = labF(z / zn);
@@ -261,9 +245,7 @@ function xyzToLab(x: number, y: number, z: number): [number, number, number] {
 
 function labF(t: number): number {
   const delta = 6 / 29;
-  return t > delta * delta * delta
-    ? Math.cbrt(t)
-    : t / (3 * delta * delta) + 4 / 29;
+  return t > delta * delta * delta ? Math.cbrt(t) : t / (3 * delta * delta) + 4 / 29;
 }
 
 function rgbToLab(r: number, g: number, b: number): [number, number, number] {
@@ -275,7 +257,7 @@ function rgbToLab(r: number, g: number, b: number): [number, number, number] {
 function sampleCheekLab(
   pixels: PixelBuffer,
   centerX: number,
-  centerY: number
+  centerY: number,
 ): { medianL: number; medianA: number; medianB: number; validRatio: number } {
   const { data, width, height } = pixels;
   const roi = 15; // 30/2
@@ -327,9 +309,12 @@ function median(arr: number[]): number {
 }
 
 /** 暖冷判断 + 深度 → 8 类 SkinTone. */
-function classifySkinTone(
-  lab: { medianL: number; medianA: number; medianB: number; validRatio: number }
-): SkinTone {
+function classifySkinTone(lab: {
+  medianL: number;
+  medianA: number;
+  medianB: number;
+  validRatio: number;
+}): SkinTone {
   const { medianL, medianA, medianB, validRatio } = lab;
   if (validRatio < 0.2 || medianL === 0) return 'unknown';
 
@@ -347,20 +332,31 @@ function classifySkinTone(
   else depth = 'deep_dark';
 
   const table: Record<typeof temp, Record<typeof depth, SkinTone>> = {
-    warm: { fair: 'warm_fair', medium: 'warm_medium', deep: 'warm_deep', deep_dark: 'warm_deep_dark' },
-    cool: { fair: 'cool_fair', medium: 'cool_medium', deep: 'warm_deep', deep_dark: 'warm_deep_dark' },
-    neutral: { fair: 'neutral_fair', medium: 'neutral_medium', deep: 'warm_deep', deep_dark: 'warm_deep_dark' },
+    warm: {
+      fair: 'warm_fair',
+      medium: 'warm_medium',
+      deep: 'warm_deep',
+      deep_dark: 'warm_deep_dark',
+    },
+    cool: {
+      fair: 'cool_fair',
+      medium: 'cool_medium',
+      deep: 'warm_deep',
+      deep_dark: 'warm_deep_dark',
+    },
+    neutral: {
+      fair: 'neutral_fair',
+      medium: 'neutral_medium',
+      deep: 'warm_deep',
+      deep_dark: 'warm_deep_dark',
+    },
   };
   return table[temp][depth];
 }
 
 // ---------- 光照质量: ROI 内 L 通道直方图集中度 ----------
 
-function estimateLightingQuality(
-  pixels: PixelBuffer,
-  centerX: number,
-  centerY: number
-): number {
+function estimateLightingQuality(pixels: PixelBuffer, centerX: number, centerY: number): number {
   const { data, width, height } = pixels;
   const roi = 20;
   const x0 = Math.max(0, Math.floor(centerX - roi));
@@ -397,14 +393,24 @@ function computeConfidence(args: {
   skinValidRatio: number;
 }): number {
   const required = [
-    LM.hairline, LM.browCenter, LM.chin, LM.noseBase,
-    LM.leftEyeInner, LM.leftEyeOuter, LM.rightEyeInner, LM.rightEyeOuter,
-    LM.leftTemple, LM.rightTemple,
-    LM.upperLipTop, LM.upperLipRight, LM.lowerLipBottom, LM.lowerLipLeft,
+    LM.hairline,
+    LM.browCenter,
+    LM.chin,
+    LM.noseBase,
+    LM.leftEyeInner,
+    LM.leftEyeOuter,
+    LM.rightEyeInner,
+    LM.rightEyeOuter,
+    LM.leftTemple,
+    LM.rightTemple,
+    LM.upperLipTop,
+    LM.upperLipRight,
+    LM.lowerLipBottom,
+    LM.lowerLipLeft,
   ];
   const completeness = landmarkComplete(args.landmarks, required);
 
-  let lighting = 0;
+  let lighting: number;
   if (args.pixels) {
     lighting = estimateLightingQuality(args.pixels, args.cheekX, args.cheekY);
   } else {
@@ -439,10 +445,7 @@ const UNKNOWN_FEATURES: FaceFeatures = {
  * 关键点 + 像素 → FaceFeatures 摘要.
  * 关键点坐标需在 [0..1] 归一化平面.
  */
-export function analyzeFeatures(
-  landmarks: Landmark[],
-  pixels?: PixelBuffer
-): FaceFeatures {
+export function analyzeFeatures(landmarks: Landmark[], pixels?: PixelBuffer): FaceFeatures {
   if (!landmarks || landmarks.length === 0) {
     return { ...UNKNOWN_FEATURES };
   }
@@ -452,14 +455,8 @@ export function analyzeFeatures(
   const fiveEyeFit = computeFiveEyeFit(landmarks);
 
   // 基础比值
-  const faceWidth = dist(
-    safeGet(landmarks, LM.leftTemple),
-    safeGet(landmarks, LM.rightTemple)
-  );
-  const faceHeight = dist(
-    safeGet(landmarks, LM.hairline),
-    safeGet(landmarks, LM.chin)
-  );
+  const faceWidth = dist(safeGet(landmarks, LM.leftTemple), safeGet(landmarks, LM.rightTemple));
+  const faceHeight = dist(safeGet(landmarks, LM.hairline), safeGet(landmarks, LM.chin));
   const faceWidthHeightRatio = faceHeight > 0 ? faceWidth / faceHeight : 0;
 
   // 眼距比
@@ -469,14 +466,8 @@ export function analyzeFeatures(
   const eyeDistanceRatio = faceWidth > 0 ? interPupilDist / faceWidth : 0;
 
   // 唇饱满度
-  const lipHeight = dist(
-    safeGet(landmarks, LM.upperLipTop),
-    safeGet(landmarks, LM.lowerLipBottom)
-  );
-  const lipWidth = dist(
-    safeGet(landmarks, LM.upperLipRight),
-    safeGet(landmarks, LM.lowerLipLeft)
-  );
+  const lipHeight = dist(safeGet(landmarks, LM.upperLipTop), safeGet(landmarks, LM.lowerLipBottom));
+  const lipWidth = dist(safeGet(landmarks, LM.upperLipRight), safeGet(landmarks, LM.lowerLipLeft));
   const lipFullnessRatio = lipWidth > 0 ? lipHeight / lipWidth : 0;
 
   // 眉峰角度
@@ -487,15 +478,13 @@ export function analyzeFeatures(
     browInner && browPeak && browTail
       ? Math.abs(
           Math.atan2(browPeak.y - browInner.y, browPeak.x - browInner.x) -
-            Math.atan2(browTail.y - browInner.y, browTail.x - browInner.x)
-        ) * (180 / Math.PI)
+            Math.atan2(browTail.y - browInner.y, browTail.x - browInner.x),
+        ) *
+        (180 / Math.PI)
       : 0;
 
   // 鼻梁宽
-  const alarWidth = dist(
-    safeGet(landmarks, LM.noseLeftAlar),
-    safeGet(landmarks, LM.noseRightAlar)
-  );
+  const alarWidth = dist(safeGet(landmarks, LM.noseLeftAlar), safeGet(landmarks, LM.noseRightAlar));
   const noseBridgeWidth = faceWidth > 0 ? alarWidth / faceWidth : 0;
 
   // 分类

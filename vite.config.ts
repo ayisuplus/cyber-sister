@@ -11,6 +11,8 @@ export default defineConfig({
   root: path.join(projectRoot, 'public'),
   resolve: {
     alias: {
+      // Used by public/index.html <script src="/src/frontend/main.tsx">
+      '/src': path.join(projectRoot, 'src'),
       '@shared': path.join(projectRoot, 'src/shared'),
       '@frontend': path.join(projectRoot, 'src/frontend'),
       '@backend': path.join(projectRoot, 'src/backend'),

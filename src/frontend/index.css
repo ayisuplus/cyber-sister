@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* =========================================================================
    妆语 · 主题色板
@@ -6,28 +6,29 @@
    阴影统一用粉色调,绝不用灰色阴影
    ========================================================================= */
 @theme {
-  --color-primary: #C86B77;
-  --color-primary-soft: #EAB6BC;
-  --color-primary-deep: #A8505D;
-  --color-secondary: #EAB6BC;
-  --color-accent: #C86B77;
-  --color-ink: #3F2A2E;
-  --color-ink-soft: #6B4F54;
-  --color-bg: #FFF5F6;
-  --color-bg-soft: #FDF2F3;
-  --color-card: #FFFFFF;
-  --color-rose-50: #FFF5F6;
-  --color-rose-100: #FDF2F3;
-  --color-rose-200: #F8DDE0;
-  --color-rose-300: #EAB6BC;
-  --color-rose-400: #D88891;
-  --color-rose-500: #C86B77;
-  --color-rose-600: #A8505D;
+  --color-primary: #c86b77;
+  --color-primary-soft: #eab6bc;
+  --color-primary-deep: #a8505d;
+  --color-secondary: #eab6bc;
+  --color-accent: #c86b77;
+  --color-ink: #3f2a2e;
+  --color-ink-soft: #6b4f54;
+  --color-bg: #fff5f6;
+  --color-bg-soft: #fdf2f3;
+  --color-card: #ffffff;
+  --color-rose-50: #fff5f6;
+  --color-rose-100: #fdf2f3;
+  --color-rose-200: #f8dde0;
+  --color-rose-300: #eab6bc;
+  --color-rose-400: #d88891;
+  --color-rose-500: #c86b77;
+  --color-rose-600: #a8505d;
 
-  --font-hand: "Ma Shan Zheng", "ZCOOL XiaoWei", "Long Cang", "PingFang SC", cursive;
-  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
-  --font-sans: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", system-ui, sans-serif;
+  --font-hand: 'Ma Shan Zheng', 'ZCOOL XiaoWei', 'Long Cang', 'PingFang SC', cursive;
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+  --font-sans:
+    'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    sans-serif;
 
   --radius-card: 24px;
   --radius-card-lg: 32px;
@@ -39,16 +40,15 @@
   --shadow-pink-glow: 0 0 32px rgba(234, 182, 188, 0.4);
 
   /* Neumorphism 凹凸阴影对 */
-  --shadow-neu-out: 8px 8px 20px rgba(200, 107, 119, 0.15),
-    -8px -8px 20px rgba(255, 255, 255, 0.9);
-  --shadow-neu-in: inset 4px 4px 10px rgba(200, 107, 119, 0.12),
-    inset -4px -4px 10px rgba(255, 255, 255, 0.85);
+  --shadow-neu-out: 8px 8px 20px rgba(200, 107, 119, 0.15), -8px -8px 20px rgba(255, 255, 255, 0.9);
+  --shadow-neu-in:
+    inset 4px 4px 10px rgba(200, 107, 119, 0.12), inset -4px -4px 10px rgba(255, 255, 255, 0.85);
 }
 
 /* =========================================================================
    字体引入
    ========================================================================= */
-@import url("https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600;700&family=Long+Cang&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600;700&family=Long+Cang&display=swap');
 
 /* =========================================================================
    基础 reset
@@ -118,11 +118,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.6);
   }
   .glass-rose {
-    background: linear-gradient(
-      135deg,
-      rgba(253, 242, 243, 0.7),
-      rgba(234, 182, 188, 0.45)
-    );
+    background: linear-gradient(135deg, rgba(253, 242, 243, 0.7), rgba(234, 182, 188, 0.45));
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border: 1px solid rgba(234, 182, 188, 0.4);
@@ -130,12 +126,13 @@ body {
 
   /* 粉系渐变按钮 */
   .btn-primary {
-    background: linear-gradient(135deg, #EAB6BC 0%, #C86B77 100%);
+    background: linear-gradient(135deg, #eab6bc 0%, #c86b77 100%);
     color: #ffffff;
     font-weight: 600;
     padding: 0.875rem 2rem;
     border-radius: 9999px;
-    box-shadow: 0 8px 20px rgba(200, 107, 119, 0.3),
+    box-shadow:
+      0 8px 20px rgba(200, 107, 119, 0.3),
       0 2px 6px rgba(200, 107, 119, 0.2);
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     border: none;
@@ -144,7 +141,8 @@ body {
   }
   .btn-primary:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 12px 28px rgba(200, 107, 119, 0.4),
+    box-shadow:
+      0 12px 28px rgba(200, 107, 119, 0.4),
       0 4px 8px rgba(200, 107, 119, 0.25);
   }
   .btn-primary:active:not(:disabled) {
@@ -196,7 +194,8 @@ body {
   .card-soft {
     background: #ffffff;
     border-radius: 24px;
-    box-shadow: 0 8px 24px rgba(200, 107, 119, 0.1),
+    box-shadow:
+      0 8px 24px rgba(200, 107, 119, 0.1),
       0 2px 6px rgba(200, 107, 119, 0.05);
     border: 1px solid rgba(234, 182, 188, 0.3);
   }
@@ -216,11 +215,7 @@ body {
     gap: 0.25rem;
     padding: 0.25rem 0.75rem;
     border-radius: 9999px;
-    background: linear-gradient(
-      135deg,
-      rgba(253, 242, 243, 0.9),
-      rgba(234, 182, 188, 0.5)
-    );
+    background: linear-gradient(135deg, rgba(253, 242, 243, 0.9), rgba(234, 182, 188, 0.5));
     color: var(--color-primary);
     font-size: 0.75rem;
     font-weight: 500;
@@ -232,7 +227,7 @@ body {
     gap: 0.25rem;
     padding: 0.25rem 0.75rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #EAB6BC, #C86B77);
+    background: linear-gradient(135deg, #eab6bc, #c86b77);
     color: #ffffff;
     font-size: 0.75rem;
     font-weight: 600;
@@ -255,13 +250,14 @@ body {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #EAB6BC, #C86B77);
+    background: linear-gradient(135deg, #eab6bc, #c86b77);
     color: #ffffff;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(200, 107, 119, 0.3),
+    box-shadow:
+      0 4px 12px rgba(200, 107, 119, 0.3),
       inset 0 1px 2px rgba(255, 255, 255, 0.4);
   }
 
@@ -280,7 +276,7 @@ body {
   }
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #EAB6BC, #C86B77);
+    background: linear-gradient(90deg, #eab6bc, #c86b77);
     border-radius: 9999px;
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 0 8px rgba(200, 107, 119, 0.4);
@@ -290,11 +286,7 @@ body {
   .float-orb {
     position: absolute;
     border-radius: 9999px;
-    background: radial-gradient(
-      circle,
-      rgba(234, 182, 188, 0.5),
-      rgba(234, 182, 188, 0.05)
-    );
+    background: radial-gradient(circle, rgba(234, 182, 188, 0.5), rgba(234, 182, 188, 0.05));
     pointer-events: none;
     filter: blur(8px);
     z-index: 0;
@@ -327,7 +319,7 @@ body {
     border-radius: 9999px;
   }
   .scroll-pink::-webkit-scrollbar-thumb {
-    background: linear-gradient(90deg, #EAB6BC, #C86B77);
+    background: linear-gradient(90deg, #eab6bc, #c86b77);
     border-radius: 9999px;
   }
 
@@ -345,7 +337,8 @@ body {
    动画
    ========================================================================= */
 @keyframes orb-float-a {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(0, 0) scale(1);
   }
   50% {
@@ -353,7 +346,8 @@ body {
   }
 }
 @keyframes orb-float-b {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(0, 0) scale(1);
   }
   50% {
@@ -361,7 +355,8 @@ body {
   }
 }
 @keyframes orb-float-c {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(0, 0) scale(1);
   }
   50% {
@@ -369,7 +364,8 @@ body {
   }
 }
 @keyframes pulse-soft {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 1;
   }
@@ -402,7 +398,8 @@ body {
   }
 }
 @keyframes glow-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 20px rgba(234, 182, 188, 0.4);
   }
   50% {

@@ -8,16 +8,16 @@
 
 ## 1. 技术栈
 
-| 层 | 选择 | 理由 |
-| --- | --- | --- |
-| 构建工具 | **Vite 8** + esbuild（后端） | Vite 处理前端 HMR；esbuild 单文件打包 Node 后端 |
-| 前端框架 | **React 19 + TypeScript** | Hooks + useReducer 实现状态机 |
-| 样式 | **Tailwind CSS 4**（CSS-first） | 无 JS config，主题在 `index.css` 的 `@theme` 块中 |
-| 后端 | **Express 5 + TypeScript** | 单进程既托管 SPA 也提供 `/api` 路由 |
-| 人脸检测 | **`@mediapipe/tasks-vision` 0.10** | 浏览器侧 478 关键点，模型本地托管 |
-| 测试 | **Vitest 4** | 与 Vite 同生态，启动 < 1s |
-| Lint / Format | **ESLint 9 flat config + Prettier 3** | 统一代码风格，零样式争议 |
-| 包管理 | **pnpm** | 严格、快、原生 monorepo 支持 |
+| 层            | 选择                                  | 理由                                              |
+| ------------- | ------------------------------------- | ------------------------------------------------- |
+| 构建工具      | **Vite 8** + esbuild（后端）          | Vite 处理前端 HMR；esbuild 单文件打包 Node 后端   |
+| 前端框架      | **React 19 + TypeScript**             | Hooks + useReducer 实现状态机                     |
+| 样式          | **Tailwind CSS 4**（CSS-first）       | 无 JS config，主题在 `index.css` 的 `@theme` 块中 |
+| 后端          | **Express 5 + TypeScript**            | 单进程既托管 SPA 也提供 `/api` 路由               |
+| 人脸检测      | **`@mediapipe/tasks-vision` 0.10**    | 浏览器侧 478 关键点，模型本地托管                 |
+| 测试          | **Vitest 4**                          | 与 Vite 同生态，启动 < 1s                         |
+| Lint / Format | **ESLint 9 flat config + Prettier 3** | 统一代码风格，零样式争议                          |
+| 包管理        | **pnpm**                              | 严格、快、原生 monorepo 支持                      |
 
 ## 2. 仓库结构
 
@@ -78,22 +78,22 @@ pnpm dev
 
 ## 4. 命令一览
 
-| 命令 | 作用 |
-| --- | --- |
-| `pnpm dev` | 并发启动 Vite (5173) + tsx watch (3001) |
-| `pnpm dev:frontend` | 仅前端 HMR |
-| `pnpm dev:server` | 仅后端热重载 |
-| `pnpm build` | 前端 `vite build` + 后端 esbuild → `dist/` |
-| `pnpm preview` | 运行生产构建产物 |
-| `pnpm start` | 同 `pnpm preview`（CI / 部署用） |
-| `pnpm test` | Vitest 单次运行 |
-| `pnpm test:watch` | Vitest 监听 |
-| `pnpm test:coverage` | Vitest + c8 覆盖率 |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | ESLint 全量扫描 |
-| `pnpm lint:fix` | ESLint 自动修复 |
-| `pnpm format` | Prettier 全量格式化 |
-| `pnpm format:check` | Prettier 校验（CI 用） |
+| 命令                 | 作用                                       |
+| -------------------- | ------------------------------------------ |
+| `pnpm dev`           | 并发启动 Vite (5173) + tsx watch (3001)    |
+| `pnpm dev:frontend`  | 仅前端 HMR                                 |
+| `pnpm dev:server`    | 仅后端热重载                               |
+| `pnpm build`         | 前端 `vite build` + 后端 esbuild → `dist/` |
+| `pnpm preview`       | 运行生产构建产物                           |
+| `pnpm start`         | 同 `pnpm preview`（CI / 部署用）           |
+| `pnpm test`          | Vitest 单次运行                            |
+| `pnpm test:watch`    | Vitest 监听                                |
+| `pnpm test:coverage` | Vitest + c8 覆盖率                         |
+| `pnpm typecheck`     | `tsc --noEmit`                             |
+| `pnpm lint`          | ESLint 全量扫描                            |
+| `pnpm lint:fix`      | ESLint 自动修复                            |
+| `pnpm format`        | Prettier 全量格式化                        |
+| `pnpm format:check`  | Prettier 校验（CI 用）                     |
 
 ## 5. 架构
 
@@ -140,6 +140,7 @@ pnpm test:watch     # 监听
 ```
 
 测试覆盖：
+
 - `faceFeatures.test.ts` — 三庭五眼 / 脸型分类 / 肤色 LAB 分类 / 鼻型 / 置信度
 - `edgeCases.test.ts` — 没人脸 / 多人脸 / 侧脸 / 暗光 / 模糊 / 戴眼镜 / 刘海 / 浓妆 / EXIF
 - `recommend.test.ts` — 评分确定性 / 未知特征兜底 / 避免项惩罚 / HTTP 路由

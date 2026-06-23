@@ -96,11 +96,9 @@ function buildOvalFace(opts: {
 }
 
 // 构造 30x30 RGBA 像素缓冲,中心填指定 RGB
-function buildCheekPixels(
-  centerRGB: [number, number, number],
-  size = 32
-): PixelBuffer {
-  const w = size, h = size;
+function buildCheekPixels(centerRGB: [number, number, number], size = 32): PixelBuffer {
+  const w = size,
+    h = size;
   const data = new Uint8ClampedArray(w * h * 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -174,7 +172,8 @@ describe('analyzeFeatures - 肤色 LAB 分类', () => {
     // 先把 landmarks 摆好使脸颊坐标落在像素中心
     const lm = buildOvalFace({ widthHeightRatio: 0.8 });
     // 构造 100x100 像素,脸颊在 (50,50) — 调整像素中心与 landmark 投影一致
-    const w = 100, h = 100;
+    const w = 100,
+      h = 100;
     const data = new Uint8ClampedArray(w * h * 4);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -192,7 +191,8 @@ describe('analyzeFeatures - 肤色 LAB 分类', () => {
 
   it('冷色调浅肤色 (cool_fair): RGB ≈ (240, 210, 215) (粉调)', () => {
     const lm = buildOvalFace({ widthHeightRatio: 0.8 });
-    const w = 100, h = 100;
+    const w = 100,
+      h = 100;
     const data = new Uint8ClampedArray(w * h * 4);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -209,7 +209,8 @@ describe('analyzeFeatures - 肤色 LAB 分类', () => {
 
   it('深肤色 (warm_deep): RGB ≈ (110, 80, 55)', () => {
     const lm = buildOvalFace({ widthHeightRatio: 0.8 });
-    const w = 100, h = 100;
+    const w = 100,
+      h = 100;
     const data = new Uint8ClampedArray(w * h * 4);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {

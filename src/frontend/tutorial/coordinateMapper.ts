@@ -30,7 +30,7 @@ export function computeCanvasLayout(
   imageWidth: number,
   imageHeight: number,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
 ): CanvasLayout {
   if (imageWidth <= 0 || imageHeight <= 0 || canvasWidth <= 0 || canvasHeight <= 0) {
     return {
@@ -62,7 +62,7 @@ export function computeCanvasLayout(
  */
 export function mapLandmarkToCanvas(
   landmark: { x: number; y: number },
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): { x: number; y: number } {
   return {
     x: layout.imageX + landmark.x * layout.imageWidth,
@@ -75,7 +75,7 @@ export function mapLandmarkToCanvas(
  */
 export function mapLandmarksToCanvas(
   landmarks: ReadonlyArray<{ x: number; y: number }>,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): Array<{ x: number; y: number }> {
   return landmarks.map((lm) => mapLandmarkToCanvas(lm, layout));
 }
@@ -108,7 +108,7 @@ export function getZoneLandmarkIndices(zone: OverlayZone): number[] | null {
 export function mapZoneToCanvas(
   zone: OverlayZone,
   landmarks: NormalizedLandmarks,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): Array<{ x: number; y: number }> | null {
   const indices = getZoneLandmarkIndices(zone);
   if (!indices) return null;
@@ -129,7 +129,7 @@ export function mapZoneToCanvas(
 export function getZoneCenterOnCanvas(
   zone: OverlayZone,
   landmarks: NormalizedLandmarks,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): { x: number; y: number } | null {
   const def = getZoneDef(zone);
   if (!def) return null;
@@ -165,7 +165,7 @@ export function getZoneRadiusOnCanvas(
   zone: OverlayZone,
   landmarks: NormalizedLandmarks,
   layout: CanvasLayout,
-  radiusFactorOverride?: number
+  radiusFactorOverride?: number,
 ): { rx: number; ry: number } | null {
   const def = getZoneDef(zone);
   if (!def || def.shape !== 'ellipse') return null;
@@ -212,7 +212,7 @@ export interface ZoneDrawInfo {
 export function getZoneDrawInfo(
   zone: OverlayZone,
   landmarks: NormalizedLandmarks,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): ZoneDrawInfo | null {
   const def = getZoneDef(zone);
   if (!def) return null;
@@ -223,10 +223,7 @@ export function getZoneDrawInfo(
     definition: def,
     shape: def.shape,
     points,
-    radius:
-      def.shape === 'ellipse'
-        ? getZoneRadiusOnCanvas(zone, landmarks, layout)
-        : null,
+    radius: def.shape === 'ellipse' ? getZoneRadiusOnCanvas(zone, landmarks, layout) : null,
     color: def.color,
   };
 }
@@ -238,7 +235,7 @@ export function getZoneDrawInfo(
 export function mapZonesToDrawInfo(
   zones: ReadonlyArray<OverlayZone>,
   landmarks: NormalizedLandmarks,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ): ZoneDrawInfo[] {
   const result: ZoneDrawInfo[] = [];
   for (const z of zones) {

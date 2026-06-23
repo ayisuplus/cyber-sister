@@ -68,9 +68,7 @@ export default function MakeupCanvas({
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
       if (imgEl) {
-        setLayout(
-          computeCanvasLayout(imageWidth, imageHeight, canvas.width, canvas.height)
-        );
+        setLayout(computeCanvasLayout(imageWidth, imageHeight, canvas.width, canvas.height));
       }
     });
     ro.observe(canvas);
@@ -92,13 +90,7 @@ export default function MakeupCanvas({
     ctx.scale(transform.scale, transform.scale);
 
     // 1) 底层图
-    ctx.drawImage(
-      imgEl,
-      layout.imageX,
-      layout.imageY,
-      layout.imageWidth,
-      layout.imageHeight
-    );
+    ctx.drawImage(imgEl, layout.imageX, layout.imageY, layout.imageWidth, layout.imageHeight);
 
     // 2) 覆盖区 — 当前高亮 + 其他已注册区(其他用低透明度淡显)
     const currentSet = new Set(currentZones);
@@ -254,7 +246,7 @@ function drawZone(
   pts: Array<{ x: number; y: number }>,
   baseColor: string,
   fillAlpha: number,
-  strokeAlpha: number
+  strokeAlpha: number,
 ) {
   if (!def) return;
   ctx.save();
@@ -283,10 +275,7 @@ function drawZone(
   ctx.restore();
 }
 
-function drawBezierPolygon(
-  ctx: CanvasRenderingContext2D,
-  pts: Array<{ x: number; y: number }>
-) {
+function drawBezierPolygon(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: number }>) {
   if (pts.length < 2) return;
   ctx.beginPath();
   ctx.moveTo(pts[0]!.x, pts[0]!.y);
@@ -305,7 +294,7 @@ function drawBezierPolygon(
 
 function computeEllipseRadius(
   pts: Array<{ x: number; y: number }>,
-  center: { x: number; y: number }
+  center: { x: number; y: number },
 ): number {
   if (pts.length === 0) return 0;
   let sum = 0;
@@ -330,7 +319,7 @@ function drawArrow(
   ctx: CanvasRenderingContext2D,
   from: { x: number; y: number },
   direction: string,
-  layout: CanvasLayout
+  layout: CanvasLayout,
 ) {
   // 把中文方向关键词映射到箭头向量;未匹配时默认向右
   const dir = directionArrow(direction);
@@ -355,11 +344,11 @@ function drawArrow(
   ctx.moveTo(to.x, to.y);
   ctx.lineTo(
     to.x - headLen * Math.cos(angle - Math.PI / 6),
-    to.y - headLen * Math.sin(angle - Math.PI / 6)
+    to.y - headLen * Math.sin(angle - Math.PI / 6),
   );
   ctx.lineTo(
     to.x - headLen * Math.cos(angle + Math.PI / 6),
-    to.y - headLen * Math.sin(angle + Math.PI / 6)
+    to.y - headLen * Math.sin(angle + Math.PI / 6),
   );
   ctx.closePath();
   ctx.fill();

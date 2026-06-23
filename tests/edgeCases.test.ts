@@ -24,17 +24,17 @@ function set(landmarks: Landmark[], idx: number, x: number, y: number, z = 0) {
 function buildFrontalFace(): Landmark[] {
   const lm = blankLandmarks();
   // 脸轮廓
-  set(lm, 10, 0.5, 0.1);  // hairline
+  set(lm, 10, 0.5, 0.1); // hairline
   set(lm, 151, 0.5, 0.13); // forehead
   set(lm, 105, 0.5, 0.28); // brow center
-  set(lm, 2, 0.5, 0.5);   // nose base
+  set(lm, 2, 0.5, 0.5); // nose base
   set(lm, 152, 0.5, 0.85); // chin
   set(lm, 234, 0.15, 0.3); // left temple
   set(lm, 454, 0.85, 0.3); // right temple
   set(lm, 172, 0.3, 0.78); // left jaw
   set(lm, 397, 0.7, 0.78); // right jaw
-  set(lm, 132, 0.2, 0.4);  // left cheekbone
-  set(lm, 361, 0.8, 0.4);  // right cheekbone
+  set(lm, 132, 0.2, 0.4); // left cheekbone
+  set(lm, 361, 0.8, 0.4); // right cheekbone
   // 眼睛
   set(lm, 33, 0.35, 0.32);
   set(lm, 133, 0.45, 0.32);
@@ -57,8 +57,8 @@ function buildFrontalFace(): Landmark[] {
 // 合成"侧脸" — 鼻尖大幅偏移到一边
 function buildSideFace(): Landmark[] {
   const lm = buildFrontalFace();
-  set(lm, 1, 0.7, 0.48);   // 鼻尖偏到右边
-  set(lm, 2, 0.7, 0.5);    // 鼻底也偏
+  set(lm, 1, 0.7, 0.48); // 鼻尖偏到右边
+  set(lm, 2, 0.7, 0.5); // 鼻底也偏
   set(lm, 152, 0.65, 0.85); // 下巴偏
   return lm;
 }
@@ -258,12 +258,8 @@ describe('diagnoseSelfie — 文案温度 + 可降级', () => {
   });
 
   it('没人脸 / 严重侧脸时确实阻止', () => {
-    expect(
-      diagnoseSelfie({ faces: [], baseConfidence: 0.9 }).blocked
-    ).toBe(true);
-    expect(
-      diagnoseSelfie({ faces: [buildSideFace()], baseConfidence: 0.9 }).blocked
-    ).toBe(true);
+    expect(diagnoseSelfie({ faces: [], baseConfidence: 0.9 }).blocked).toBe(true);
+    expect(diagnoseSelfie({ faces: [buildSideFace()], baseConfidence: 0.9 }).blocked).toBe(true);
   });
 });
 
@@ -314,13 +310,21 @@ describe('readExifOrientation', () => {
 describe('applyExifToImageData', () => {
   it('orientation=1 → 返回原图 (canvas 不可用时也是同样行为)', async () => {
     // 不依赖 DOM:用对象 stub 模拟 ImageData,Node 环境 OffscreenCanvas 不存在,函数会 early return
-    const stub = { width: 10, height: 10, data: new Uint8ClampedArray(10 * 10 * 4) } as unknown as ImageData;
+    const stub = {
+      width: 10,
+      height: 10,
+      data: new Uint8ClampedArray(10 * 10 * 4),
+    } as unknown as ImageData;
     const r = await applyExifToImageData(stub, 1);
     expect(r).toBe(stub);
   });
 
   it('orientation=6 在无 OffscreenCanvas 环境 → 原样返回 (实际旋转需浏览器)', async () => {
-    const stub = { width: 20, height: 10, data: new Uint8ClampedArray(200 * 4) } as unknown as ImageData;
+    const stub = {
+      width: 20,
+      height: 10,
+      data: new Uint8ClampedArray(200 * 4),
+    } as unknown as ImageData;
     const r = await applyExifToImageData(stub, 6);
     // Node 环境没有 OffscreenCanvas,函数直接返回原图(浏览器中会旋转)
     expect(r.width).toBe(20);

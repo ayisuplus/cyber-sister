@@ -1,14 +1,7 @@
 // Shared domain types used by both frontend and backend.
 // Keep this file dependency-free — no React, no Node-only modules.
 
-export type FaceShape =
-  | 'oval'
-  | 'round'
-  | 'square'
-  | 'heart'
-  | 'long'
-  | 'diamond'
-  | 'unknown';
+export type FaceShape = 'oval' | 'round' | 'square' | 'heart' | 'long' | 'diamond' | 'unknown';
 
 export type SkinTone =
   | 'cool_fair'

@@ -21,10 +21,7 @@ const { analyticsRouter } = await import('../src/backend/routes/analytics');
 
 function getLayer(method: 'post' | 'get', path: string) {
   const stack = (analyticsRouter as any).stack as any[];
-  const layer = stack.find(
-    (l: any) =>
-      l.route && l.route.path === path && l.route.methods[method]
-  );
+  const layer = stack.find((l: any) => l.route && l.route.path === path && l.route.methods[method]);
   if (!layer) throw new Error(`route ${method.toUpperCase()} ${path} not found`);
   return layer.route.stack[0].handle;
 }
@@ -32,7 +29,7 @@ function getLayer(method: 'post' | 'get', path: string) {
 function callHandler(
   method: 'post' | 'get',
   path: string,
-  opts: { body?: any; headers?: Record<string, string> } = {}
+  opts: { body?: any; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; json: any }> {
   return new Promise((resolve) => {
     const handler = getLayer(method, path);

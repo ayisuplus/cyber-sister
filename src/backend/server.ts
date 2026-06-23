@@ -27,13 +27,9 @@ app.set('trust proxy', 1);
 // CORS: 允许前端 dev server (Vite 默认 5173) + 任何 localhost 变体
 app.use(
   cors({
-    origin: [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      /^https?:\/\/localhost(:\d+)?$/,
-    ],
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', /^https?:\/\/localhost(:\d+)?$/],
     credentials: true,
-  })
+  }),
 );
 app.use(express.json({ limit: '2mb' }));
 
@@ -69,7 +65,7 @@ if (existsSync(DIST_DIR)) {
       index: false, // SPA fallback 自己处理 index.html
       maxAge: '1h',
       extensions: ['html'],
-    })
+    }),
   );
 
   // SPA fallback:任何非 /api 的 GET 都返回 index.html,前端 router 接管路由

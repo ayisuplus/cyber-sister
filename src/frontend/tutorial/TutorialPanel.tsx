@@ -30,11 +30,7 @@ export default function TutorialPanel({
   const isLast = stepIndex === total - 1;
 
   if (!step) {
-    return (
-      <div className="text-sm text-ink-soft/60 text-center py-4">
-        该妆容暂无教学步骤。
-      </div>
-    );
+    return <div className="text-sm text-ink-soft/60 text-center py-4">该妆容暂无教学步骤。</div>;
   }
 
   const progress = ((stepIndex + 1) / total) * 100;
@@ -44,9 +40,7 @@ export default function TutorialPanel({
       {/* 妆容头信息 */}
       <div>
         <div className="chip-tag mb-1.5">{look.scenario}</div>
-        <h2 className="font-serif text-2xl font-bold text-ink mt-1">
-          {look.name}
-        </h2>
+        <h2 className="font-serif text-2xl font-bold text-ink mt-1">{look.name}</h2>
         <p className="text-sm text-ink-soft/70 mt-1">{look.reason}</p>
       </div>
 
@@ -84,8 +78,7 @@ export default function TutorialPanel({
       <div
         className="rounded-3xl p-5 space-y-3"
         style={{
-          background:
-            'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(253,242,243,0.7))',
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(253,242,243,0.7))',
           border: '1.5px solid rgba(234,182,188,0.4)',
           boxShadow: '0 8px 24px rgba(200,107,119,0.1)',
           backdropFilter: 'blur(16px)',
@@ -101,17 +94,13 @@ export default function TutorialPanel({
           >
             {stepIndex + 1}
           </div>
-          <div className="font-serif font-bold text-ink text-lg">
-            {step.title}
-          </div>
+          <div className="font-serif font-bold text-ink text-lg">{step.title}</div>
         </div>
 
         <p className="text-ink/85 leading-relaxed text-sm">{step.instruction}</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {step.brushDirection && (
-            <Tag label="方向" value={step.brushDirection} />
-          )}
+          {step.brushDirection && <Tag label="方向" value={step.brushDirection} />}
           {step.toolHint && <Tag label="工具" value={step.toolHint} />}
           {step.colorFamily && <Tag label="色系" value={step.colorFamily} />}
         </div>
@@ -133,7 +122,10 @@ export default function TutorialPanel({
         ) : null}
 
         {look.productHints && look.productHints.length > 0 && (
-          <div className="pt-3 border-t border-dashed" style={{ borderColor: 'rgba(200,107,119,0.2)' }}>
+          <div
+            className="pt-3 border-t border-dashed"
+            style={{ borderColor: 'rgba(200,107,119,0.2)' }}
+          >
             <div className="text-[10px] text-ink-soft/60 mb-1.5 uppercase tracking-wide">
               推荐产品 (CPS 占位)
             </div>
@@ -156,11 +148,7 @@ export default function TutorialPanel({
 
       {/* 操作按钮组 */}
       <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onRestart}
-          className="btn-ghost text-sm"
-        >
+        <button type="button" onClick={onRestart} className="btn-ghost text-sm">
           ↺ 重新开始
         </button>
         <div className="flex gap-2">
@@ -182,11 +170,7 @@ export default function TutorialPanel({
               完成 →
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={onNext}
-              className="btn-primary text-sm py-2"
-            >
+            <button type="button" onClick={onNext} className="btn-primary text-sm py-2">
               下一步 →
             </button>
           )}
@@ -205,9 +189,7 @@ function Tag({ label, value }: { label: string; value: string }) {
         border: '1px solid rgba(234,182,188,0.4)',
       }}
     >
-      <div className="text-[10px] text-ink-soft/60 uppercase tracking-wide">
-        {label}
-      </div>
+      <div className="text-[10px] text-ink-soft/60 uppercase tracking-wide">{label}</div>
       <div className="text-ink font-semibold text-sm">{value}</div>
     </div>
   );

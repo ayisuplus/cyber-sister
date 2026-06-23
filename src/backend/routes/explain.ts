@@ -18,18 +18,28 @@ const PROMPT = `你是一位温柔的美妆老师。根据用户的脸型和肤�
 脸型：{faceShape}，肤色：{skinTone}，妆容：{lookName}`;
 
 const FACE_CN: Record<string, string> = {
-  oval: '椭圆脸', round: '圆脸', square: '方脸', heart: '心形脸',
-  long: '长脸', diamond: '菱形脸', unknown: '未知',
+  oval: '椭圆脸',
+  round: '圆脸',
+  square: '方脸',
+  heart: '心形脸',
+  long: '长脸',
+  diamond: '菱形脸',
+  unknown: '未知',
 };
 const TONE_CN: Record<string, string> = {
-  cool_fair: '冷白皮', cool_medium: '冷调肤色', neutral_fair: '中性一白',
-  neutral_medium: '中性肤色', warm_fair: '暖白皮', warm_medium: '暖黄皮',
-  warm_deep: '暖深色', warm_deep_dark: '暖深色', unknown: '未知',
+  cool_fair: '冷白皮',
+  cool_medium: '冷调肤色',
+  neutral_fair: '中性一白',
+  neutral_medium: '中性肤色',
+  warm_fair: '暖白皮',
+  warm_medium: '暖黄皮',
+  warm_deep: '暖深色',
+  warm_deep_dark: '暖深色',
+  unknown: '未知',
 };
 
 function buildPrompt(features: FaceFeatures, look: MakeupLook): string {
-  return PROMPT
-    .replace('{faceShape}', FACE_CN[features.faceShape] ?? '未知')
+  return PROMPT.replace('{faceShape}', FACE_CN[features.faceShape] ?? '未知')
     .replace('{skinTone}', TONE_CN[features.skinTone] ?? '未知')
     .replace('{lookName}', look.name);
 }
@@ -87,13 +97,22 @@ explainRouter.post('/explain', async (req, res) => {
   // 兜底:与 recommend.ts 同款,改用 Object.assign 规避 TS 6.0 重复键检查
   const safe: FaceFeatures = Object.assign(
     {
-      upperThirdRatio: 0, middleThirdRatio: 0, lowerThirdRatio: 0,
-      fiveEyeFit: 0, faceShape: 'unknown' as const, skinTone: 'unknown' as const,
-      eyeType: 'unknown' as const, noseType: 'unknown' as const, eyeDistanceRatio: 0,
-      faceWidthHeightRatio: 0, lipFullnessRatio: 0, browArchAngle: 0,
-      noseBridgeWidth: 0, confidence: 0,
+      upperThirdRatio: 0,
+      middleThirdRatio: 0,
+      lowerThirdRatio: 0,
+      fiveEyeFit: 0,
+      faceShape: 'unknown' as const,
+      skinTone: 'unknown' as const,
+      eyeType: 'unknown' as const,
+      noseType: 'unknown' as const,
+      eyeDistanceRatio: 0,
+      faceWidthHeightRatio: 0,
+      lipFullnessRatio: 0,
+      browArchAngle: 0,
+      noseBridgeWidth: 0,
+      confidence: 0,
     },
-    features
+    features,
   );
   const prompt = buildPrompt(safe, look);
   const llmText = await callLlm(prompt);

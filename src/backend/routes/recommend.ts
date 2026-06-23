@@ -16,9 +16,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', '..', 'shared', 'data');
 
 function loadLooks(): MakeupLook[] {
-  const raw = JSON.parse(
-    readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'),
-  ) as { looks: MakeupLook[] };
+  const raw = JSON.parse(readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8')) as {
+    looks: MakeupLook[];
+  };
   return raw.looks;
 }
 
@@ -90,7 +90,7 @@ function buildReason(
   look: MakeupLook,
   features: FaceFeatures,
   matched: string[],
-  avoid: string[]
+  avoid: string[],
 ): string {
   // 兜底:任何特征都是 unknown
   const allUnknown =
@@ -152,7 +152,7 @@ recommendRouter.post('/recommend', (req, res) => {
       noseBridgeWidth: 0,
       confidence: 0,
     },
-    features
+    features,
   );
   const results = recommendLooks(safe, 3);
   res.json({

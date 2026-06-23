@@ -36,7 +36,10 @@ function pickLargestFace(faces: NormalizedLandmark[][]): NormalizedLandmark[] {
   let best: NormalizedLandmark[] = first;
   let bestArea = 0;
   for (const face of faces) {
-    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    let minX = 1,
+      minY = 1,
+      maxX = 0,
+      maxY = 0;
     for (const lm of face) {
       if (lm.x < minX) minX = lm.x;
       if (lm.x > maxX) maxX = lm.x;
@@ -61,7 +64,7 @@ function pickLargestFace(faces: NormalizedLandmark[][]): NormalizedLandmark[] {
  */
 export function extractLandmarks(
   landmarker: FaceLandmarker,
-  imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap
+  imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
 ): LandmarkPoint[] {
   const result = landmarker.detect(imageElement);
   if (!result.faceLandmarks || result.faceLandmarks.length === 0) {

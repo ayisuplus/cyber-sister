@@ -141,11 +141,9 @@ export default function ResultCard({ features, look }: Props) {
         className="rounded-[28px] p-6 relative overflow-hidden"
         style={{
           fontFamily: '"PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
-          background:
-            'linear-gradient(135deg, rgba(253,242,243,0.95), rgba(234,182,188,0.45))',
+          background: 'linear-gradient(135deg, rgba(253,242,243,0.95), rgba(234,182,188,0.45))',
           border: '1.5px solid rgba(255,255,255,0.7)',
-          boxShadow:
-            '0 16px 40px rgba(200,107,119,0.18), inset 0 1px 0 rgba(255,255,255,0.6)',
+          boxShadow: '0 16px 40px rgba(200,107,119,0.18), inset 0 1px 0 rgba(255,255,255,0.6)',
           backdropFilter: 'blur(20px) saturate(180%)',
         }}
       >
@@ -153,8 +151,7 @@ export default function ResultCard({ features, look }: Props) {
         <div
           className="absolute -top-8 -right-8 w-32 h-32 rounded-full pointer-events-none"
           style={{
-            background:
-              'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)',
+            background: 'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)',
             filter: 'blur(4px)',
           }}
         />
@@ -173,7 +170,8 @@ export default function ResultCard({ features, look }: Props) {
           </div>
           <div className="font-serif text-lg text-ink font-bold">{summary}</div>
           <div className="text-xs text-ink-soft/60 mt-1.5">
-            三庭 {format3(features)} · 五眼 {features.fiveEyeFit.toFixed(2)} · 置信度 {features.confidence.toFixed(2)}
+            三庭 {format3(features)} · 五眼 {features.fiveEyeFit.toFixed(2)} · 置信度{' '}
+            {features.confidence.toFixed(2)}
           </div>
         </div>
 
@@ -272,9 +270,7 @@ export default function ResultCard({ features, look }: Props) {
                 ? 'linear-gradient(135deg,#EAB6BC,#C86B77)'
                 : 'rgba(234,182,188,0.3)',
               color: copiedXhs ? '#fff' : '#C86B77',
-              boxShadow: copiedXhs
-                ? '0 4px 12px rgba(200,107,119,0.3)'
-                : 'none',
+              boxShadow: copiedXhs ? '0 4px 12px rgba(200,107,119,0.3)' : 'none',
             }}
           >
             {copiedXhs ? '✓ 已复制' : '一键复制'}
@@ -363,7 +359,8 @@ function pickTopTips(steps: MakeupStep[], n: number): string[] {
   // 优先取有 brushDirection 或 toolHint 的步骤作为"技巧"展示.
   const scored = steps.map((s) => ({
     s,
-    score: (s.brushDirection ? 2 : 0) + (s.toolHint ? 1 : 0) + (s.warnings && s.warnings.length ? 1 : 0),
+    score:
+      (s.brushDirection ? 2 : 0) + (s.toolHint ? 1 : 0) + (s.warnings && s.warnings.length ? 1 : 0),
   }));
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, n).map((x) => {
@@ -391,7 +388,7 @@ const XHS_OPENERS = ['姐妹们', '宝宝们', '家人们', '集美们', '宝子
 export function buildXiaohongshuText(
   features: FaceFeatures,
   look: MakeupLook,
-  tips?: string[]
+  tips?: string[],
 ): string {
   const faceCn = FACE_SHAPE_CN[features.faceShape] ?? '百搭脸型';
   const skinCn = SKIN_TONE_CN[features.skinTone] ?? '自然肤色';
@@ -431,11 +428,7 @@ function hashStr(s: string): number {
   return h;
 }
 
-function buildShareText(
-  summary: string,
-  look: MakeupLook,
-  tips: string[]
-): string {
+function buildShareText(summary: string, look: MakeupLook, tips: string[]): string {
   return [
     '🌸 妆语 AI 妆教 — 我的脸型报告',
     `✨ 五官：${summary}`,
@@ -453,7 +446,7 @@ function renderCardToPng(
   _card: HTMLElement,
   summary: string,
   look: MakeupLook,
-  tips: string[]
+  tips: string[],
 ): string | null {
   const canvas = document.createElement('canvas');
   const W = 720;
@@ -543,7 +536,7 @@ function roundRect(
   y: number,
   w: number,
   h: number,
-  r: number
+  r: number,
 ) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -558,7 +551,7 @@ function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-  _fontSize: number
+  _fontSize: number,
 ): string[] {
   // 按字符截断 (中文不按空格分词)
   const lines: string[] = [];

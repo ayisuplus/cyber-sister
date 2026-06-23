@@ -15,9 +15,7 @@ const MODEL_PATH = '/mp-models/face_landmarker.task';
  * @param onProgress 进度回调,值域 0..1
  * @throws 模型加载失败时抛出原始错误 (网络/WASM 不支持等)
  */
-export async function loadModel(
-  onProgress: (pct: number) => void
-): Promise<FaceLandmarker> {
+export async function loadModel(onProgress: (pct: number) => void): Promise<FaceLandmarker> {
   if (landmarker) {
     onProgress(1);
     return landmarker;
@@ -44,8 +42,7 @@ export async function loadModel(
       return landmarker;
     } catch (err) {
       // GPU 失败常见于 iOS Safari/部分 Android. 降级 CPU 重试一次.
-      const isGpuError =
-        err instanceof Error && /gpu|webgl/i.test(err.message);
+      const isGpuError = err instanceof Error && /gpu|webgl/i.test(err.message);
       if (isGpuError && landmarker === null) {
         loadPromise = null;
         onProgress(0.05);

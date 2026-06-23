@@ -93,7 +93,7 @@ describe('buildXiaohongshuText — 闺蜜种草文案', () => {
   it('unknown 特征时不抛错,仍输出可分享文案', () => {
     const text = buildXiaohongshuText(
       baseFeatures({ faceShape: 'unknown', skinTone: 'unknown', eyeType: 'unknown' }),
-      baseLook()
+      baseLook(),
     );
     expect(text.length).toBeGreaterThan(20);
     expect(text).toContain('#妆语');

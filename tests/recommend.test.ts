@@ -34,9 +34,7 @@ describe('recommendLooks — 圆脸 + 修容引导', () => {
     const results = recommendLooks(features, 3);
     expect(results.length).toBe(3);
     // 至少有一个结果含 contour 步骤
-    const hasContour = results.some((r) =>
-      r.look.steps.some((s) => s.area === 'contour')
-    );
+    const hasContour = results.some((r) => r.look.steps.some((s) => s.area === 'contour'));
     expect(hasContour).toBe(true);
   });
 
@@ -62,11 +60,7 @@ describe('recommendLooks — 冷调肤色 → 莓果/梅子色而非橙色', () 
     const results = recommendLooks(features, 1);
     const look = results[0]?.look;
     if (!look) throw new Error('expected at least one result');
-    const allColors = [
-      look.name,
-      look.reason,
-      ...look.steps.map((s) => s.colorFamily ?? ''),
-    ]
+    const allColors = [look.name, look.reason, ...look.steps.map((s) => s.colorFamily ?? '')]
       .join(' ')
       .toLowerCase();
     // 不应出现暖橘提示
@@ -87,9 +81,7 @@ describe('recommendLooks — 未知特征 → 仍返回安全初学者妆容', (
 
   it('全部 unknown 时 reason 应提及 "新手"/"入门"', () => {
     const results = recommendLooks(baseFeatures(), 3);
-    const hasBeginner = results.some((r) =>
-      /新手|入门|通用|初学/.test(r.reason)
-    );
+    const hasBeginner = results.some((r) => /新手|入门|通用|初学/.test(r.reason));
     expect(hasBeginner).toBe(true);
   });
 });
@@ -142,7 +134,7 @@ function callRouter(body: unknown): { status: number; json: any } {
     const router = recommendRouter;
     const stack = (router as any).stack;
     const layer = stack.find(
-      (l: any) => l.route && l.route.path === '/recommend' && l.route.methods.post
+      (l: any) => l.route && l.route.path === '/recommend' && l.route.methods.post,
     );
     if (!layer) throw new Error('no /recommend route');
     const req = { body };

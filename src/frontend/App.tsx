@@ -44,7 +44,13 @@ type AppState =
 type Action =
   | { type: 'START_LOAD_MODEL' }
   | { type: 'MODEL_PROGRESS'; progress: number }
-  | { type: 'MODEL_READY'; imageData: ImageData; previewUrl: string; imageWidth: number; imageHeight: number }
+  | {
+      type: 'MODEL_READY';
+      imageData: ImageData;
+      previewUrl: string;
+      imageWidth: number;
+      imageHeight: number;
+    }
   | { type: 'START_ANALYZE' }
   | { type: 'ANALYSIS_DONE'; features: FaceFeatures; warnings: string[] }
   | { type: 'START_RECOMMEND' }
@@ -273,9 +279,12 @@ function App() {
     }
     // deps: 只在 narrow 后读 state.stepIndex/look,TS 6.0 严格模式下
     // 顶层 deps 数组不允许访问判别式属性,所以用三元式保持 narrow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     state.stage,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     state.stage === 'tutorial_step' ? state.stepIndex : 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     state.stage === 'tutorial_step' ? state.look.id : '',
   ]);
 
@@ -283,9 +292,7 @@ function App() {
   useEffect(() => {
     if (state.stage !== 'tutorial_done') return;
     const currentLook = state.look;
-    const elapsed = tutorialStartRef.current
-      ? Date.now() - tutorialStartRef.current
-      : 0;
+    const elapsed = tutorialStartRef.current ? Date.now() - tutorialStartRef.current : 0;
     track('tutorial_complete', {
       look_id: currentLook.id,
       total_duration_ms: elapsed,
@@ -300,6 +307,7 @@ function App() {
       dispatch({ type: 'ENTER_RESULT', look: currentLook, features });
     }, 1800);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.stage, state.stage === 'tutorial_done' ? state.look.id : '']);
 
   // ---------- 渲染 ----------
@@ -311,9 +319,7 @@ function App() {
         <div className="card-glass p-6 sm:p-8">
           <header className="text-center mb-6">
             <h1 className="font-hand text-5xl text-primary">妆语</h1>
-            <div className="mt-1 text-[10px] tracking-[0.4em] text-ink-soft/70">
-              ZHUANG · YU
-            </div>
+            <div className="mt-1 text-[10px] tracking-[0.4em] text-ink-soft/70">ZHUANG · YU</div>
           </header>
 
           {state.stage === 'idle' && <OnboardingView onImagePicked={onPick} />}
@@ -383,12 +389,8 @@ function App() {
               onFinish={() => dispatch({ type: 'TUTORIAL_DONE' })}
             />
           )}
-          {state.stage === 'tutorial_done' && (
-            <TutorialDoneView lookName={state.look.name} />
-          )}
-          {state.stage === 'result' && (
-            <ResultCard features={state.features} look={state.look} />
-          )}
+          {state.stage === 'tutorial_done' && <TutorialDoneView lookName={state.look.name} />}
+          {state.stage === 'result' && <ResultCard features={state.features} look={state.look} />}
           {state.stage === 'error' && (
             <ErrorView
               message={state.message}
@@ -442,8 +444,7 @@ function App() {
         .catch((err) => {
           URL.revokeObjectURL(url);
           track('model_load_fail', { error: err instanceof Error ? err.message : 'unknown' });
-          const msg =
-            err instanceof Error ? `模型加载失败：${err.message}` : '模型加载失败';
+          const msg = err instanceof Error ? `模型加载失败：${err.message}` : '模型加载失败';
           dispatch({ type: 'ERROR', message: msg, recoverable: true });
         });
     };
@@ -494,34 +495,18 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
     <div>
       {/* Hero */}
       <div className="text-center mb-8">
-        <div className="inline-flex chip-rose-solid mb-4 animate-pulse-soft">
-          ✨ AI 智能美妆
-        </div>
+        <div className="inline-flex chip-rose-solid mb-4 animate-pulse-soft">✨ AI 智能美妆</div>
         <h2 className="font-serif text-[28px] sm:text-[32px] font-bold text-ink leading-tight">
           找到最适合你的妆容
         </h2>
-        <p className="text-ink-soft/80 mt-2 text-sm">
-          三步拥有你的专属妆容方案
-        </p>
+        <p className="text-ink-soft/80 mt-2 text-sm">三步拥有你的专属妆容方案</p>
       </div>
 
       {/* 三步骤预览 */}
       <ol className="space-y-4 mb-8">
-        <Step
-          n={1}
-          title="拍一张正面照"
-          desc="光线充足、表情自然，效果最好"
-        />
-        <Step
-          n={2}
-          title="AI 分析你的脸型"
-          desc="三庭五眼、肤色、轮廓，一键读取"
-        />
-        <Step
-          n={3}
-          title="手把手教你画"
-          desc="从底妆到唇色，跟着步骤一步步来"
-        />
+        <Step n={1} title="拍一张正面照" desc="光线充足、表情自然，效果最好" />
+        <Step n={2} title="AI 分析你的脸型" desc="三庭五眼、肤色、轮廓，一键读取" />
+        <Step n={3} title="手把手教你画" desc="从底妆到唇色，跟着步骤一步步来" />
       </ol>
 
       {/* 上传按钮 */}
@@ -609,14 +594,9 @@ function LoadingModelView({ progress }: { progress: number }) {
       <p className="font-serif text-xl text-ink mb-2">正在准备化妆台…</p>
       <p className="text-xs text-ink-soft/60 mb-6">首次加载会下载 AI 模型,请稍等</p>
       <div className="progress-track">
-        <div
-          className="progress-fill"
-          style={{ width: `${Math.round(progress * 100)}%` }}
-        />
+        <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
-      <p className="text-xs text-primary mt-2 font-medium">
-        {Math.round(progress * 100)}%
-      </p>
+      <p className="text-xs text-primary mt-2 font-medium">{Math.round(progress * 100)}%</p>
     </div>
   );
 }
@@ -654,11 +634,7 @@ function ReadyView({
           <span>开始分析</span>
           <span>✨</span>
         </button>
-        <button
-          type="button"
-          onClick={onRetake}
-          className="btn-secondary w-full"
-        >
+        <button type="button" onClick={onRetake} className="btn-secondary w-full">
           重选一张
         </button>
       </div>
@@ -673,8 +649,7 @@ function AnalyzingView() {
         <div
           className="absolute inset-0 rounded-full animate-spin-slow"
           style={{
-            background:
-              'conic-gradient(from 0deg, #EAB6BC, #C86B77, #EAB6BC)',
+            background: 'conic-gradient(from 0deg, #EAB6BC, #C86B77, #EAB6BC)',
             mask: 'radial-gradient(circle, transparent 55%, black 56%)',
             WebkitMask: 'radial-gradient(circle, transparent 55%, black 56%)',
           }}
@@ -713,7 +688,10 @@ function AnalysisDoneView({
           <FeatureChip label="鼻型" value={features.noseType} color="pink" />
         </div>
 
-        <div className="mt-4 pt-4 border-t border-dashed" style={{ borderColor: 'rgba(200,107,119,0.2)' }}>
+        <div
+          className="mt-4 pt-4 border-t border-dashed"
+          style={{ borderColor: 'rgba(200,107,119,0.2)' }}
+        >
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <div className="text-[10px] text-ink-soft/60">上庭</div>
@@ -742,7 +720,10 @@ function AnalysisDoneView({
       </div>
 
       {warnings.length > 0 && (
-        <div className="rounded-2xl p-3 mb-4 space-y-1" style={{ background: 'rgba(234,182,188,0.2)' }}>
+        <div
+          className="rounded-2xl p-3 mb-4 space-y-1"
+          style={{ background: 'rgba(234,182,188,0.2)' }}
+        >
           {warnings.map((w, i) => (
             <div key={i} className="text-xs text-primary-deep">
               ⚠️ {w}
@@ -751,11 +732,7 @@ function AnalysisDoneView({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={onContinue}
-        className="btn-primary w-full"
-      >
+      <button type="button" onClick={onContinue} className="btn-primary w-full">
         查看推荐妆容 →
       </button>
     </div>
@@ -782,9 +759,7 @@ function FeatureChip({
         border: '1px solid rgba(234,182,188,0.4)',
       }}
     >
-      <div className="text-[10px] text-ink-soft/60 uppercase tracking-wide">
-        {label}
-      </div>
+      <div className="text-[10px] text-ink-soft/60 uppercase tracking-wide">{label}</div>
       <div className="font-semibold text-primary text-sm mt-0.5">{value}</div>
     </div>
   );
@@ -797,8 +772,7 @@ function RecommendingView() {
         <div
           className="absolute inset-0 rounded-full animate-spin-slow"
           style={{
-            background:
-              'conic-gradient(from 0deg, #C86B77, #EAB6BC, #C86B77)',
+            background: 'conic-gradient(from 0deg, #C86B77, #EAB6BC, #C86B77)',
             mask: 'radial-gradient(circle, transparent 55%, black 56%)',
             WebkitMask: 'radial-gradient(circle, transparent 55%, black 56%)',
           }}
@@ -853,27 +827,17 @@ function LooksReadyView({
             style={{
               width: i === selected ? 24 : 6,
               background:
-                i === selected
-                  ? 'linear-gradient(90deg,#EAB6BC,#C86B77)'
-                  : 'rgba(234,182,188,0.4)',
+                i === selected ? 'linear-gradient(90deg,#EAB6BC,#C86B77)' : 'rgba(234,182,188,0.4)',
             }}
           />
         ))}
       </div>
 
       <div className="space-y-2">
-        <button
-          type="button"
-          onClick={onStart}
-          className="btn-primary w-full"
-        >
+        <button type="button" onClick={onStart} className="btn-primary w-full">
           开始跟妆教程 →
         </button>
-        <button
-          type="button"
-          onClick={onRetake}
-          className="btn-secondary w-full text-sm py-2"
-        >
+        <button type="button" onClick={onRetake} className="btn-secondary w-full text-sm py-2">
           换一张照片
         </button>
       </div>
@@ -896,12 +860,8 @@ function LookCard({
       onClick={onClick}
       className="text-left flex-shrink-0 w-[260px] rounded-3xl p-4 transition-all"
       style={{
-        background: selected
-          ? 'linear-gradient(135deg,#FFFFFF,#FDF2F3)'
-          : 'rgba(255,255,255,0.6)',
-        border: selected
-          ? '2px solid #C86B77'
-          : '1.5px solid rgba(234,182,188,0.4)',
+        background: selected ? 'linear-gradient(135deg,#FFFFFF,#FDF2F3)' : 'rgba(255,255,255,0.6)',
+        border: selected ? '2px solid #C86B77' : '1.5px solid rgba(234,182,188,0.4)',
         boxShadow: selected
           ? '0 12px 32px rgba(200,107,119,0.18)'
           : '0 4px 12px rgba(200,107,119,0.06)',
@@ -929,9 +889,7 @@ function LookCard({
           </div>
         )}
       </div>
-      <p className="text-sm text-ink-soft/80 leading-relaxed mt-2 line-clamp-3">
-        {look.reason}
-      </p>
+      <p className="text-sm text-ink-soft/80 leading-relaxed mt-2 line-clamp-3">{look.reason}</p>
     </button>
   );
 }
@@ -999,16 +957,13 @@ function TutorialDoneView({ lookName }: { lookName: string }) {
       >
         🎉
       </div>
-      <h2 className="font-serif text-2xl font-bold text-ink mb-2">
-        恭喜完成 {lookName}！
-      </h2>
+      <h2 className="font-serif text-2xl font-bold text-ink mb-2">恭喜完成 {lookName}！</h2>
       <p className="text-ink-soft/70">正在准备你的专属分享卡…</p>
       <div className="mt-6 mx-auto w-32 progress-track">
         <div
           className="progress-fill animate-shimmer"
           style={{
-            background:
-              'linear-gradient(90deg,#EAB6BC 0%,#C86B77 50%,#EAB6BC 100%)',
+            background: 'linear-gradient(90deg,#EAB6BC 0%,#C86B77 50%,#EAB6BC 100%)',
             backgroundSize: '200% 100%',
             width: '100%',
           }}
@@ -1037,11 +992,7 @@ function ErrorView({
       </div>
       <p className="font-serif text-lg text-ink mb-6 px-4">{message}</p>
       {recoverable && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="btn-primary"
-        >
+        <button type="button" onClick={onRetry} className="btn-primary">
           再试一次
         </button>
       )}
@@ -1051,42 +1002,48 @@ function ErrorView({
 
 function cnFaceShape(s: string): string {
   return (
-    ({
-      oval: '椭圆脸',
-      round: '圆脸',
-      square: '方脸',
-      heart: '心形脸',
-      long: '长脸',
-      diamond: '菱形脸',
-    } as Record<string, string>)[s] ?? s
+    (
+      {
+        oval: '椭圆脸',
+        round: '圆脸',
+        square: '方脸',
+        heart: '心形脸',
+        long: '长脸',
+        diamond: '菱形脸',
+      } as Record<string, string>
+    )[s] ?? s
   );
 }
 function cnSkinTone(s: string): string {
   return (
-    ({
-      cool_fair: '冷白皮',
-      cool_medium: '冷黄一白',
-      neutral_fair: '中性一白',
-      neutral_medium: '中性二白',
-      warm_fair: '暖白皮',
-      warm_medium: '暖黄一白',
-      warm_deep: '暖黄二白',
-      warm_deep_dark: '暖深色',
-    } as Record<string, string>)[s] ?? s
+    (
+      {
+        cool_fair: '冷白皮',
+        cool_medium: '冷黄一白',
+        neutral_fair: '中性一白',
+        neutral_medium: '中性二白',
+        warm_fair: '暖白皮',
+        warm_medium: '暖黄一白',
+        warm_deep: '暖黄二白',
+        warm_deep_dark: '暖深色',
+      } as Record<string, string>
+    )[s] ?? s
   );
 }
 function cnEyeType(s: string): string {
   return (
-    ({
-      almond: '杏眼',
-      round: '圆眼',
-      hooded: '肿泡眼',
-      monolid: '单眼皮',
-      downturned: '下垂眼',
-      upturned: '上挑眼',
-      close_set: '眼距近',
-      wide_set: '眼距远',
-    } as Record<string, string>)[s] ?? s
+    (
+      {
+        almond: '杏眼',
+        round: '圆眼',
+        hooded: '肿泡眼',
+        monolid: '单眼皮',
+        downturned: '下垂眼',
+        upturned: '上挑眼',
+        close_set: '眼距近',
+        wide_set: '眼距远',
+      } as Record<string, string>
+    )[s] ?? s
   );
 }
 

@@ -67,7 +67,7 @@ function ensureFile(): void {
  */
 function extractSessionId(
   headerVal: string | string[] | undefined,
-  bodyVal: unknown
+  bodyVal: unknown,
 ): string | null {
   if (typeof bodyVal === 'string' && bodyVal.length > 0) return bodyVal;
   if (typeof headerVal === 'string' && headerVal.length > 0) return headerVal;
@@ -125,10 +125,7 @@ analyticsRouter.post('/analytics', (req, res) => {
     event: body.event,
     props: body.props ?? {},
     timestamp: typeof body.timestamp === 'number' ? body.timestamp : Date.now(),
-    sessionId: extractSessionId(
-      req.headers['x-session-id'],
-      body.sessionId
-    ),
+    sessionId: extractSessionId(req.headers['x-session-id'], body.sessionId),
   };
 
   try {
