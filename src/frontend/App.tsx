@@ -12,6 +12,8 @@ import { track, startTimer } from '../shared/analytics';
 import MakeupCanvas from './tutorial/MakeupCanvas';
 import TutorialPanel from './tutorial/TutorialPanel';
 import ResultCard from './result/ResultCard';
+import GeneratingView from './generate/GeneratingView';
+import { useGeneration } from './hooks/useGeneration';
 
 // ---------- 状态机 ----------
 
@@ -352,6 +354,8 @@ function App() {
             <LooksReadyView
               looks={state.looks}
               selected={state.selected}
+              previewUrl={previewUrlRef.current}
+              features={featuresRef.current ?? undefined}
               onSelect={(i) => {
                 track('look_select', { look_id: state.looks[i]?.id, index: i });
                 dispatch({ type: 'SELECT_LOOK', index: i });
@@ -790,16 +794,36 @@ function RecommendingView() {
 function LooksReadyView({
   looks,
   selected,
+  previewUrl,
+  features,
   onSelect,
   onStart,
   onRetake,
 }: {
   looks: MakeupLook[];
   selected: number;
+  previewUrl: string;
+  features?: FaceFeatures;
   onSelect: (i: number) => void;
   onStart: () => void;
   onRetake: () => void;
 }) {
+  const selectedLook = looks[selected] ?? null;
+  const gen = useGeneration();
+
+  function handleStart() {
+    if (!previewUrl || !selectedLook) return;
+    void gen
+      .start({
+        imageDataUrl: previewUrl,
+        style: selectedLook.id,
+        features,
+      })
+      .catch(() => {
+        /* error already in gen.error */
+      });
+  }
+
   return (
     <div>
       <div className="text-center mb-5">
@@ -819,7 +843,7 @@ function LooksReadyView({
         ))}
       </div>
 
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-5">
         {looks.map((_, i) => (
           <div
             key={i}
@@ -831,6 +855,28 @@ function LooksReadyView({
             }}
           />
         ))}
+      </div>
+
+      {/* 大模型试妆 (optional) */}
+      <div className="mb-5">
+        <GeneratingView
+          look={selectedLook}
+          imageId={gen.imageId}
+          status={gen.status ?? 'idle'}
+          resultUrl={gen.resultUrl}
+          error={gen.isPolling ? null : gen.error}
+          elapsedMs={gen.elapsedMs}
+          onStart={handleStart}
+          onCancel={() => void gen.cancel()}
+          onRetry={() => {
+            gen.reset();
+            handleStart();
+          }}
+          onUse={() => {
+            // 占位:未来把生成图嵌入 result 视图
+            track('generate_use', { jobId: gen.jobId });
+          }}
+        />
       </div>
 
       <div className="space-y-2">

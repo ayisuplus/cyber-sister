@@ -1,21 +1,32 @@
-// 妆语 backend — Express 5 + CORS + recommend / explain / analytics 三个核心路由.
+// 妆语 backend — Express 5 + CORS + upload / recommend / explain /
+// generate / analytics 五个核心路由.
 // 同时托管 Vite 构建产物 (dist/) 作为前端静态站点,支持 SPA fallback.
 
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { recommendRouter } from './routes/recommend';
 import { explainRouter } from './routes/explain';
 import { analyticsRouter } from './routes/analytics';
+import { uploadRouter } from './routes/upload';
+import { generateRouter } from './routes/generate';
+import { config } from './config.js';
 
 // ---------- 路径与配置 ----------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // dist 在 backend 同级的 ../../dist;tsx 启动时 __dirname = src/backend,目标 = <root>/dist
 const DIST_DIR = resolve(__dirname, '..', '..', 'dist');
-const PORT = Number(process.env.PORT ?? 3001);
+const PUBLIC_DIR = resolve(__dirname, '..', '..', 'public');
+const UPLOAD_DIR = resolve(PUBLIC_DIR, 'uploads');
+const RESULTS_DIR = resolve(PUBLIC_DIR, 'results');
+const PORT = config.port;
+
+for (const d of [UPLOAD_DIR, RESULTS_DIR]) {
+  if (!existsSync(d)) mkdirSync(d, { recursive: true });
+}
 
 // ---------- 应用 ----------
 
@@ -52,11 +63,22 @@ app.get('/api/health', (_req, res) => {
 
 // ---------- 业务路由 ----------
 
+app.use('/api', uploadRouter);
 app.use('/api', recommendRouter);
 app.use('/api', explainRouter);
+app.use('/api', generateRouter);
 app.use('/api', analyticsRouter);
 
-// ---------- 静态文件服务 (Vite build 产物) ----------
+// ---------- 静态文件服务 (上传的图 / 生成的结果 / Vite build 产物) ----------
+
+if (existsSync(PUBLIC_DIR)) {
+  app.use(
+    express.static(PUBLIC_DIR, {
+      index: false,
+      maxAge: '1h',
+    }),
+  );
+}
 
 if (existsSync(DIST_DIR)) {
   // express.static 把 dist 里的文件直接挂到 /
@@ -101,6 +123,9 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 app.listen(PORT, () => {
   console.info(`[妆语] backend listening on http://localhost:${PORT}`);
+  console.info(`[妆语] image gen provider: ${config.imageGenProvider}`);
+  console.info(`[妆语] uploads: ${UPLOAD_DIR}`);
+  console.info(`[妆语] results: ${RESULTS_DIR}`);
   if (existsSync(DIST_DIR)) {
     console.info(`[妆语] static site: ${DIST_DIR}`);
   }

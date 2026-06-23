@@ -28,20 +28,20 @@
          ========================================================================= */
       :root {
         /* —— Palette: 胭脂红木 + 香槟金 + 落日朱 + 蜜桃腮 ——————————————————— */
-        --c-rosewood: #8B2942;
-        --c-rosewood-dark: #6B1F33;
-        --c-rosewood-light: #B8456A;
-        --c-ember: #C73E4B;
-        --c-champagne: #D4AF8E;
-        --c-champagne-deep: #B8946F;
-        --c-champagne-light: #E8D5BC;
-        --c-blush: #FBF4F0;
-        --c-blush-deep: #F5E6DE;
-        --c-pearl: #FAEFE3;
-        --c-paper: #FFFCF9;
-        --c-ink: #2A1A1F;
-        --c-ink-soft: #6B5559;
-        --c-ink-faint: #A89599;
+        --c-rosewood: #8b2942;
+        --c-rosewood-dark: #6b1f33;
+        --c-rosewood-light: #b8456a;
+        --c-ember: #c73e4b;
+        --c-champagne: #d4af8e;
+        --c-champagne-deep: #b8946f;
+        --c-champagne-light: #e8d5bc;
+        --c-blush: #fbf4f0;
+        --c-blush-deep: #f5e6de;
+        --c-pearl: #faefe3;
+        --c-paper: #fffcf9;
+        --c-ink: #2a1a1f;
+        --c-ink-soft: #6b5559;
+        --c-ink-faint: #a89599;
 
         /* —— Typography ————————————————————————————————————————————— */
         --font-display: 'Cormorant Garamond', 'Noto Serif SC', serif;
@@ -63,9 +63,9 @@
 
         /* —— Shadows: 粉色阴影,绝不用灰 —————————————————————————————— */
         --shadow-pink-sm: 0 4px 16px rgba(139, 41, 66, 0.06);
-        --shadow-pink-md: 0 12px 32px rgba(139, 41, 66, 0.10);
+        --shadow-pink-md: 0 12px 32px rgba(139, 41, 66, 0.1);
         --shadow-pink-lg: 0 24px 56px rgba(139, 41, 66, 0.14);
-        --shadow-luxe: 0 32px 80px rgba(42, 26, 31, 0.20);
+        --shadow-luxe: 0 32px 80px rgba(42, 26, 31, 0.2);
         --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 
         /* —— Easing ————————————————————————————————————————————————— */
@@ -413,11 +413,7 @@
         left: 0;
         right: 0;
         height: 56px;
-        background: linear-gradient(
-          180deg,
-          var(--c-rosewood) 0%,
-          var(--c-rosewood-dark) 100%
-        );
+        background: linear-gradient(180deg, var(--c-rosewood) 0%, var(--c-rosewood-dark) 100%);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -653,7 +649,7 @@
             rgba(255, 255, 255, 0.45) 0%,
             rgba(255, 255, 255, 0) 60%
           ),
-          linear-gradient(160deg, #FFE8DC 0%, #F9C9B5 50%, #E89F8C 100%);
+          linear-gradient(160deg, #ffe8dc 0%, #f9c9b5 50%, #e89f8c 100%);
       }
       /* look 2 — 清冷 */
       .look--froid::before {
@@ -663,7 +659,7 @@
             rgba(255, 255, 255, 0.35) 0%,
             rgba(255, 255, 255, 0) 60%
           ),
-          linear-gradient(160deg, #F0E5EE 0%, #C7A9C2 50%, #8E6D90 100%);
+          linear-gradient(160deg, #f0e5ee 0%, #c7a9c2 50%, #8e6d90 100%);
       }
       /* look 3 — 气场 */
       .look--epoque::before {
@@ -673,7 +669,7 @@
             rgba(255, 255, 255, 0.18) 0%,
             rgba(255, 255, 255, 0) 60%
           ),
-          linear-gradient(160deg, #B8456A 0%, #8B2942 50%, #4A1828 100%);
+          linear-gradient(160deg, #b8456a 0%, #8b2942 50%, #4a1828 100%);
       }
 
       .look__index {
@@ -832,11 +828,7 @@
         width: 56px;
         height: 56px;
         border-radius: 16px;
-        background: linear-gradient(
-          135deg,
-          var(--c-blush-deep) 0%,
-          var(--c-champagne-light) 100%
-        );
+        background: linear-gradient(135deg, var(--c-blush-deep) 0%, var(--c-champagne-light) 100%);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -900,16 +892,8 @@
         inset: 0;
         z-index: -1;
         background:
-          radial-gradient(
-            80% 60% at 0% 0%,
-            rgba(212, 175, 142, 0.45) 0%,
-            transparent 60%
-          ),
-          radial-gradient(
-            60% 50% at 100% 100%,
-            rgba(232, 213, 188, 0.3) 0%,
-            transparent 60%
-          );
+          radial-gradient(80% 60% at 0% 0%, rgba(212, 175, 142, 0.45) 0%, transparent 60%),
+          radial-gradient(60% 50% at 100% 100%, rgba(232, 213, 188, 0.3) 0%, transparent 60%);
       }
       .ending__card::after {
         content: '';
@@ -1163,9 +1147,8 @@
             <span class="brand__en">— votre muse numérique</span>
           </h1>
           <p class="lede">
-            上传一张自拍，三十秒读懂你的脸。
-            从 <strong>三庭五眼</strong> 到 <strong>口红选色</strong>，
-            像闺蜜贴在耳边那样，手把手教你画。
+            上传一张自拍，三十秒读懂你的脸。 从 <strong>三庭五眼</strong> 到
+            <strong>口红选色</strong>， 像闺蜜贴在耳边那样，手把手教你画。
           </p>
           <a href="#ending" class="cta">
             <span>开始读你</span>
@@ -1184,9 +1167,7 @@
               <div class="compact__greeting">Bonjour, vous</div>
               <div class="compact__hand">你好</div>
               <div class="compact__divider"></div>
-              <p class="compact__line">
-                "把脸交给我。<br />我把适合你的，还给你。"
-              </p>
+              <p class="compact__line">"把脸交给我。<br />我把适合你的，还给你。"</p>
               <div class="compact__mirror"></div>
             </div>
           </div>
@@ -1273,9 +1254,7 @@
     <!-- ============ Looks ============ -->
     <section class="section" id="looks">
       <div class="section__head">
-        <h2 class="section__title">
-          Trois looks<em>三个</em>
-        </h2>
+        <h2 class="section__title">Trois looks<em>三个</em></h2>
         <div class="section__meta">Lookbook · I / II / III</div>
       </div>
 
@@ -1291,9 +1270,9 @@
             <span class="look__tag">日常通勤</span>
           </div>
           <div class="look__swatches" aria-hidden="true">
-            <span class="look__swatch" style="background: #F9C9B5"></span>
-            <span class="look__swatch" style="background: #E89F8C"></span>
-            <span class="look__swatch" style="background: #B8456A"></span>
+            <span class="look__swatch" style="background: #f9c9b5"></span>
+            <span class="look__swatch" style="background: #e89f8c"></span>
+            <span class="look__swatch" style="background: #b8456a"></span>
           </div>
         </article>
 
@@ -1308,9 +1287,9 @@
             <span class="look__tag">拍照出片</span>
           </div>
           <div class="look__swatches" aria-hidden="true">
-            <span class="look__swatch" style="background: #C7A9C2"></span>
-            <span class="look__swatch" style="background: #8E6D90"></span>
-            <span class="look__swatch" style="background: #4A2C50"></span>
+            <span class="look__swatch" style="background: #c7a9c2"></span>
+            <span class="look__swatch" style="background: #8e6d90"></span>
+            <span class="look__swatch" style="background: #4a2c50"></span>
           </div>
         </article>
 
@@ -1325,9 +1304,9 @@
             <span class="look__tag">职场晚宴</span>
           </div>
           <div class="look__swatches" aria-hidden="true">
-            <span class="look__swatch" style="background: #B8456A"></span>
-            <span class="look__swatch" style="background: #8B2942"></span>
-            <span class="look__swatch" style="background: #4A1828"></span>
+            <span class="look__swatch" style="background: #b8456a"></span>
+            <span class="look__swatch" style="background: #8b2942"></span>
+            <span class="look__swatch" style="background: #4a1828"></span>
           </div>
         </article>
       </div>
@@ -1336,9 +1315,7 @@
     <!-- ============ Features ============ -->
     <section class="section" id="features">
       <div class="section__head">
-        <h2 class="section__title">
-          Quatre détails<em>四个</em>
-        </h2>
+        <h2 class="section__title">Quatre détails<em>四个</em></h2>
         <div class="section__meta">Comment · 01—04</div>
       </div>
 
@@ -1349,11 +1326,18 @@
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
               <circle cx="14" cy="14" r="11" stroke="currentColor" stroke-width="1.4" />
               <path d="M3 14h22M14 3v22" stroke="currentColor" stroke-width="1.2" />
-              <path d="M3 14 Q9 8 14 14 T25 14" stroke="currentColor" stroke-width="1.2" fill="none" />
+              <path
+                d="M3 14 Q9 8 14 14 T25 14"
+                stroke="currentColor"
+                stroke-width="1.2"
+                fill="none"
+              />
             </svg>
           </div>
           <h3 class="feature__title">三庭五眼</h3>
-          <p class="feature__body">478 个 MediaPipe 关键点，给你的脸画一张精确地图，告诉你哪里适合打高光、哪里该藏阴影。</p>
+          <p class="feature__body">
+            478 个 MediaPipe 关键点，给你的脸画一张精确地图，告诉你哪里适合打高光、哪里该藏阴影。
+          </p>
         </div>
 
         <div class="feature">
@@ -1369,26 +1353,51 @@
             </svg>
           </div>
           <h3 class="feature__title">AI 肤色卡</h3>
-          <p class="feature__body">从冷白皮到暖深色，8 种肤色分类，知道你适合哪种粉底、哪支口红、什么色系眼影。</p>
+          <p class="feature__body">
+            从冷白皮到暖深色，8 种肤色分类，知道你适合哪种粉底、哪支口红、什么色系眼影。
+          </p>
         </div>
 
         <div class="feature">
           <span class="feature__no">iii.</span>
           <div class="feature__icon" aria-hidden="true">
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <rect x="4" y="4" width="20" height="20" rx="4" stroke="currentColor" stroke-width="1.4" />
-              <path d="M9 9l5 5 5-5M9 19l5-5 5 5" stroke="currentColor" stroke-width="1.2" fill="none" />
+              <rect
+                x="4"
+                y="4"
+                width="20"
+                height="20"
+                rx="4"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+              <path
+                d="M9 9l5 5 5-5M9 19l5-5 5 5"
+                stroke="currentColor"
+                stroke-width="1.2"
+                fill="none"
+              />
             </svg>
           </div>
           <h3 class="feature__title">跟妆步骤</h3>
-          <p class="feature__body">从底妆到唇色，每一步都在你自己的脸上画出来。告诉你用什么工具、刷哪个方向、避免哪些雷区。</p>
+          <p class="feature__body">
+            从底妆到唇色，每一步都在你自己的脸上画出来。告诉你用什么工具、刷哪个方向、避免哪些雷区。
+          </p>
         </div>
 
         <div class="feature">
           <span class="feature__no">iv.</span>
           <div class="feature__icon" aria-hidden="true">
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <rect x="3" y="6" width="22" height="16" rx="3" stroke="currentColor" stroke-width="1.4" />
+              <rect
+                x="3"
+                y="6"
+                width="22"
+                height="16"
+                rx="3"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
               <path d="M3 12h22" stroke="currentColor" stroke-width="1.2" />
               <circle cx="9" cy="18" r="1.6" fill="currentColor" />
               <circle cx="14" cy="18" r="1.6" fill="currentColor" />
@@ -1396,7 +1405,9 @@
             </svg>
           </div>
           <h3 class="feature__title">闺蜜文案</h3>
-          <p class="feature__body">一键复制小红书种草文案，口吻像闺蜜贴耳，不卖弄、不油腻，发朋友圈不会脸红。</p>
+          <p class="feature__body">
+            一键复制小红书种草文案，口吻像闺蜜贴耳，不卖弄、不油腻，发朋友圈不会脸红。
+          </p>
         </div>
       </div>
     </section>
@@ -1407,16 +1418,10 @@
         <div class="ending__grid">
           <div>
             <div class="ending__eyebrow">À toi, maintenant</div>
-            <h2 class="ending__title">
-              准备好让妆容<br />替你说话了吗<em>?</em>
-            </h2>
-            <p class="ending__line">
-              妆从来不是为了变成别人，是把最像自己的那张脸，再描清楚一点。
-            </p>
+            <h2 class="ending__title">准备好让妆容<br />替你说话了吗<em>?</em></h2>
+            <p class="ending__line">妆从来不是为了变成别人，是把最像自己的那张脸，再描清楚一点。</p>
           </div>
-          <a href="#" class="ending__cta">
-            上传自拍 · 三十秒读你 <span>→</span>
-          </a>
+          <a href="#" class="ending__cta"> 上传自拍 · 三十秒读你 <span>→</span> </a>
         </div>
       </div>
     </section>

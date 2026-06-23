@@ -125,4 +125,57 @@ export interface MakeupLook {
   reason: string;
   steps: MakeupStep[];
   productHints: ProductHint[];
+  /** Optional LoRA / diffusion prompt trigger keywords. */
+  trigger?: string;
+}
+
+// =========================================================================
+// Image Generation (large-model integration)
+// =========================================================================
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface UploadResponse {
+  imageId: string;
+  url: string;
+  size: number;
+}
+
+export interface GenerationRequest {
+  imageId: string;
+  style: string;
+  features?: FaceFeatures;
+}
+
+export interface GenerationResponse {
+  jobId: string;
+  status: JobStatus;
+}
+
+export interface GenerationStatusResponse {
+  jobId: string;
+  status: JobStatus;
+  resultUrl?: string;
+  error?: string;
+  tookMs?: number;
+  /** 0..1, optional provider-reported progress. */
+  progress?: number;
+}
+
+/** Internal job record kept on the server. */
+export interface GenerationJob {
+  id: string;
+  status: JobStatus;
+  imageId: string;
+  style: string;
+  sessionId: string | null;
+  /** Provider name used (e.g. "mock", "replicate"). */
+  provider: string;
+  prompt: string;
+  resultUrl?: string;
+  error?: string;
+  /** Optional progress 0..1 for providers that report it. */
+  progress?: number;
+  createdAt: number;
+  updatedAt: number;
 }
