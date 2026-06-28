@@ -6,51 +6,96 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+// Response 形状 (匹配 analytics.ts 的实际返回).测试用,放本地.
+interface StatsBody { total: number; byEvent: Record<string, number> }
+interface AckBody { ok: true }
+
 // 测试注入 DATA_DIR via process.env,这样不需要改 analytics.ts 的硬编码路径.
 
 const TMP = join(tmpdir(), `analytics-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const TEST_DATA_DIR = join(TMP, 'data');
 
-// 必须在 import analytics 之前设置 env,让模块读取 TEST_DATA_DIR
+// 必须在 import analytics 之前设置 env,让模块读取 TEST_DATA_DIR.
+// 动态 import 是测试场景下唯一可靠的方式 (env 必须先就位)
 process.env.ANALYTICS_DATA_DIR = TEST_DATA_DIR;
 
-// 现在再 import (会读 env)
 const { analyticsRouter } = await import('../src/backend/routes/analytics');
 
 // ---------- 工具: 直接调用 router handler,绕开 express ----------
 
+// Express Router 内部 stack 不在公开类型里.用窄接口局部接受 unknown.
+interface InternalRouter {
+  stack: Array<{
+    route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: Function }> };
+  }>;
+}
+
+interface CallResponse {
+  status: number;
+  json: unknown;
+}
+
 function getLayer(method: 'post' | 'get', path: string) {
-  const stack = (analyticsRouter as any).stack as any[];
-  const layer = stack.find((l: any) => l.route && l.route.path === path && l.route.methods[method]);
-  if (!layer) throw new Error(`route ${method.toUpperCase()} ${path} not found`);
-  return layer.route.stack[0].handle;
+  const internal = analyticsRouter as unknown as InternalRouter;
+  const layer = internal.stack.find(
+    (l) => l.route && l.route.path === path && l.route.methods[method],
+  );
+  if (!layer || !layer.route) throw new Error(`route ${method.toUpperCase()} ${path} not found`);
+  return layer.route.stack;
 }
 
 function callHandler(
   method: 'post' | 'get',
   path: string,
-  opts: { body?: any; headers?: Record<string, string> } = {},
-): Promise<{ status: number; json: any }> {
-  return new Promise((resolve) => {
-    const handler = getLayer(method, path);
-    const req = {
-      method: method.toUpperCase(),
-      url: path,
-      body: opts.body ?? {},
-      headers: opts.headers ?? {},
-    };
-    const res = {
-      statusCode: 200,
-      json(payload: any) {
-        resolve({ status: this.statusCode, json: payload });
-      },
-      status(c: number) {
-        this.statusCode = c;
-        return this;
-      },
-    };
-    handler(req, res, () => {});
-  });
+  opts: { body?: unknown; headers?: Record<string, string> } = {},
+): Promise<CallResponse> {
+  const { promise, resolve } = Promise.withResolvers<CallResponse>();
+  const handlers = getLayer(method, path);
+  // req 用宽 unknown 转,只暴露 handler 真正用到的字段. 必须给个 ip 让 rate-limit 不抛.
+  // 还要给 req.app,因为 express-rate-limit 在 keyGenerator 里读 app.get('trust proxy').
+  const req = {
+    method: method.toUpperCase(),
+    url: path,
+    body: opts.body ?? {},
+    headers: opts.headers ?? {},
+    ip: '127.0.0.1',
+    app: { get: (k: string) => (k === 'trust proxy' ? 1 : undefined) },
+  };
+  let ended = false;
+  const res = {
+    statusCode: 200,
+    json(payload: unknown) {
+      if (ended) return this;
+      ended = true;
+      resolve({ status: this.statusCode, json: payload });
+      return this;
+    },
+    status(c: number) {
+      this.statusCode = c;
+      return this;
+    },
+    setHeader(_name: string, _value: string | number | string[]): unknown { return this; },
+    getHeader(_name: string): unknown { return undefined; },
+  };
+  // 串行调用整条中间件链 (限流 → 校验 → 业务 handler).res.json 一旦写过就停.
+  let i = 0;
+  const next = (err?: unknown) => {
+    if (ended) return;
+    if (err) {
+      res.status(500).json(String(err));
+      return;
+    }
+    if (i >= handlers.length) return;
+    const handler = handlers[i]!.handle;
+    i += 1;
+    try {
+      handler(req, res, next);
+    } catch (e) {
+      if (!ended) res.status(500).json(String(e));
+    }
+  };
+  next();
+  return promise;
 }
 
 // ---------- 准备/清理 ----------
@@ -75,7 +120,7 @@ describe('POST /api/analytics — 写入 jsonl', () => {
       headers: { 'x-session-id': 'sess-abc' },
     });
     expect(r.status).toBe(200);
-    expect(r.json.ok).toBe(true);
+    expect((r.json as AckBody).ok).toBe(true);
 
     const jsonl = join(TEST_DATA_DIR, 'analytics.jsonl');
     expect(existsSync(jsonl)).toBe(true);
@@ -138,8 +183,9 @@ describe('GET /api/analytics/stats — 统计', () => {
   it('无事件 → total=0, byEvent={}', async () => {
     const r = await callHandler('get', '/analytics/stats');
     expect(r.status).toBe(200);
-    expect(r.json.total).toBe(0);
-    expect(r.json.byEvent).toEqual({});
+    const s = r.json as StatsBody;
+    expect(s.total).toBe(0);
+    expect(s.byEvent).toEqual({});
   });
 
   it('多次写不同 event → 返回总数 + 按 event 分组计数', async () => {
@@ -148,8 +194,9 @@ describe('GET /api/analytics/stats — 统计', () => {
     await callHandler('post', '/analytics', { body: { event: 'share' } });
     const r = await callHandler('get', '/analytics/stats');
     expect(r.status).toBe(200);
-    expect(r.json.total).toBe(3);
-    expect(r.json.byEvent).toEqual({ click: 2, share: 1 });
+    const s = r.json as StatsBody;
+    expect(s.total).toBe(3);
+    expect(s.byEvent).toEqual({ click: 2, share: 1 });
   });
 
   it('坏行 (非 JSON) → 跳过不抛错', async () => {
@@ -160,7 +207,8 @@ describe('GET /api/analytics/stats — 统计', () => {
     await callHandler('post', '/analytics', { body: { event: 'click' } });
     const r = await callHandler('get', '/analytics/stats');
     expect(r.status).toBe(200);
-    expect(r.json.total).toBe(2); // 坏行跳过
-    expect(r.json.byEvent).toEqual({ click: 2 });
+    const s = r.json as StatsBody;
+    expect(s.total).toBe(2); // 坏行跳过
+    expect(s.byEvent).toEqual({ click: 2 });
   });
 });

@@ -1,14 +1,9 @@
-// 分析事件路由 — 文件存储版.
-// - POST /api/analytics    写入 data/analytics.jsonl (每行一个 JSON)
-// - GET  /api/analytics/stats  返回事件总数 + 按 event 分组计数
-// 数据落盘后,后续接 Postgres / ClickHouse 时只换 storage 适配器即可.
-
 import { Router } from 'express';
 import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-
-// ---------- 路径解析 ----------
+import { analyticsLimiter } from '../middleware/rateLimit.js';
+import { validateBody } from '../middleware/validate.js';
 // 路径优先级: ANALYTICS_DATA_DIR env > <project_root>/data
 // 方便测试注入临时目录,也方便生产环境切到外挂盘.
 
@@ -23,13 +18,6 @@ const DATA_DIR = process.env.ANALYTICS_DATA_DIR
 const JSONL_PATH = join(DATA_DIR, 'analytics.jsonl');
 
 // ---------- 类型 ----------
-
-interface AnalyticsEvent {
-  event: string;
-  props?: Record<string, unknown>;
-  timestamp?: number;
-  sessionId?: string | null;
-}
 
 // 落盘行结构 (强制 timestamp,允许 sessionId 为 null)
 interface AnalyticsRow {
@@ -111,26 +99,24 @@ function readRows(): AnalyticsRow[] {
 
 export const analyticsRouter = Router();
 
+// 事件名:限 ASCII 字母数字 + 下划线 + 短横线,避免写入奇怪字符
+const analyticsSchema = {
+  event: { type: 'string', required: true, min: 1, max: 64 },
+} as const;
+
 // POST /api/analytics — 写入 jsonl
-analyticsRouter.post('/analytics', (req, res) => {
-  const body = (req.body ?? {}) as AnalyticsEvent;
-
-  // event 必填
-  if (typeof body.event !== 'string' || body.event.length === 0) {
-    res.status(400).json({ error: 'missing event' });
-    return;
-  }
-
-  const row: AnalyticsRow = {
-    event: body.event,
-    props: body.props ?? {},
-    timestamp: typeof body.timestamp === 'number' ? body.timestamp : Date.now(),
-    sessionId: extractSessionId(req.headers['x-session-id'], body.sessionId),
-  };
-
+analyticsRouter.post('/analytics', analyticsLimiter, validateBody(analyticsSchema), (req, res) => {
+  const raw = req.body as { event: string; props?: unknown; sessionId?: unknown; timestamp?: unknown };
+  // props 必须是普通对象;不是就当作空,保证落盘形状稳定.
+  const props: Record<string, unknown> =
+    raw.props && typeof raw.props === 'object' && !Array.isArray(raw.props)
+      ? (raw.props as Record<string, unknown>)
+      : {};
+  const sessionId = extractSessionId(req.headers['x-session-id'], raw.sessionId);
+  const timestamp = typeof raw.timestamp === 'number' ? raw.timestamp : Date.now();
+  const row: AnalyticsRow = { event: raw.event, props, timestamp, sessionId };
   try {
     ensureFile();
-    // 每行一个 JSON,以 \n 结尾
     appendFileSync(JSONL_PATH, JSON.stringify(row) + '\n', 'utf-8');
   } catch (err) {
     console.error('[analytics] write failed:', err);

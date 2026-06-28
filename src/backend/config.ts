@@ -16,16 +16,23 @@ function readStr(name: string, fallback: string): string {
 export const config = {
   // ---------- Server ----------
   port: readInt('PORT', 3001),
+  /** Comma-separated allowlist of CORS origins. Empty = use dev default. */
+  corsOrigins: readStr('CORS_ORIGINS', ''),
+  /** Production 模式 (会收紧 CORS / 错误信息 / 静态文件缓存). */
+  nodeEnv: readStr('NODE_ENV', 'development'),
 
   // ---------- Upload ----------
   uploadDir: readStr('UPLOAD_DIR', 'public/uploads'),
   maxUploadBytes: readInt('MAX_UPLOAD_BYTES', 8 * 1024 * 1024), // 8 MB
+  /** 上传后保留时间 (ms);到期文件由后台清扫. */
+  uploadTtlMs: readInt('UPLOAD_TTL_MS', 24 * 60 * 60 * 1000), // 24h
 
   // ---------- Generation ----------
   /**
    * Provider name. One of:
    *   - "noop"  (default) — explicit "not configured" failure, safe in prod
    *   - "mock"  — deterministic SVG placeholder, dev only
+   *   - "runninghub" — RunningHub 妆容迁移 AI 应用
    *   - "replicate" — Replicate-hosted model (to be implemented by model provider)
    */
   imageGenProvider: readStr('IMAGE_GEN_PROVIDER', 'noop'),
@@ -37,6 +44,15 @@ export const config = {
   jobTtlMs: readInt('JOB_TTL_MS', 60 * 60 * 1000), // 1 hour
   /** How often the job store sweeps for expired jobs. */
   jobSweepIntervalMs: readInt('JOB_SWEEP_INTERVAL_MS', 5 * 60 * 1000), // 5 min
-} as const;
+  /** Max jobs in the in-memory store (LRU eviction past this). */
+  jobStoreMax: readInt('JOB_STORE_MAX', 5000),
+  /** Static-asset cache max-age in seconds. */
+  staticMaxAgeSec: readInt('STATIC_MAX_AGE_SEC', 3600),
 
-export type AppConfig = typeof config;
+  // ---------- Rate limits (per minute per IP) ----------
+  // Overridden by RATE_LIMIT_GLOBAL / RATE_LIMIT_UPLOAD / etc.
+  rateLimitGlobal: readInt('RATE_LIMIT_GLOBAL', 120),
+  rateLimitUpload: readInt('RATE_LIMIT_UPLOAD', 10),
+  rateLimitGenerate: readInt('RATE_LIMIT_GENERATE', 20),
+  rateLimitAnalytics: readInt('RATE_LIMIT_ANALYTICS', 60),
+} as const;

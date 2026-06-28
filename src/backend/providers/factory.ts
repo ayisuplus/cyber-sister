@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import type { ImageGenerationProvider } from './types.js';
 import { NoopProvider } from './noop.js';
 import { MockProvider } from './mock.js';
+import { RunningHubProvider } from './runninghub.js';
 
 let cached: ImageGenerationProvider | null = null;
 
@@ -28,10 +29,12 @@ function create(name: string): ImageGenerationProvider {
       return new MockProvider();
     case 'noop':
       return new NoopProvider();
+    case 'runninghub':
+      return new RunningHubProvider();
     // case 'replicate':
     //   return new ReplicateProvider({ apiKey: process.env.REPLICATE_API_KEY });
     default:
       // Unknown provider name → fail loud, don't silently noop.
-      throw new Error(`Unknown IMAGE_GEN_PROVIDER: "${name}". Supported: mock | noop`);
+      throw new Error(`Unknown IMAGE_GEN_PROVIDER: "${name}". Supported: mock | noop | runninghub`);
   }
 }

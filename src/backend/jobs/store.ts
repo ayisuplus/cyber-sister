@@ -17,12 +17,16 @@ interface CreateInput {
 export class JobStore {
   private readonly jobs = new Map<string, GenerationJob>();
   private readonly sweepTimer: ReturnType<typeof setInterval> | null;
+  /** 0 / 负数 = 不限. */
+  private readonly maxJobs: number;
 
   constructor(
     private readonly ttlMs: number,
     sweepIntervalMs: number,
     onError: (err: unknown) => void = () => {},
+    maxJobs = 0,
   ) {
+    this.maxJobs = maxJobs;
     if (sweepIntervalMs > 0) {
       this.sweepTimer = setInterval(() => {
         try {
@@ -39,6 +43,14 @@ export class JobStore {
   }
 
   create(input: CreateInput): GenerationJob {
+    // LRU: 满 cap 时删除最旧的 entry (Map 按插入顺序迭代,头部即最旧)
+    if (this.maxJobs > 0) {
+      while (this.jobs.size >= this.maxJobs) {
+        const oldestKey = this.jobs.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.jobs.delete(oldestKey);
+      }
+    }
     const now = Date.now();
     const job: GenerationJob = {
       id: randomUUID(),

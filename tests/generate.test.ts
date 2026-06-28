@@ -26,49 +26,86 @@ writeFileSync(IMG_PATH, TINY_JPEG);
 
 const { generateRouter } = await import('../src/backend/routes/generate');
 
+// Express Router 内部 stack 不在公开类型里.用窄接口局部接受 unknown.
+interface InternalRouter {
+  stack: Array<{
+    route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: Function }> };
+  }>;
+}
+
 function getLayer(method: 'post' | 'get' | 'delete', path: string) {
-  const stack = (generateRouter as any).stack as any[];
-  const layer = stack.find((l: any) => l.route && l.route.path === path && l.route.methods[method]);
-  if (!layer) throw new Error(`route ${method.toUpperCase()} ${path} not found`);
-  return layer.route.stack[0].handle;
+  const internal = generateRouter as unknown as InternalRouter;
+  const layer = internal.stack.find(
+    (l) => l.route && l.route.path === path && l.route.methods[method],
+  );
+  if (!layer || !layer.route) throw new Error(`route ${method.toUpperCase()} ${path} not found`);
+  return layer.route.stack;
 }
 
 interface CallOpts {
   body?: unknown;
   params?: Record<string, string>;
   headers?: Record<string, string>;
+  query?: Record<string, string>;
+}
+
+interface CallResponse {
+  status: number;
+  json: unknown;
 }
 
 function callHandler(
   method: 'post' | 'get' | 'delete',
   path: string,
   opts: CallOpts = {},
-): Promise<{ status: number; json: unknown }> {
-  return new Promise((resolve) => {
-    const handler = getLayer(method, path);
-    const req: any = {
-      method: method.toUpperCase(),
-      url: path,
-      body: opts.body ?? {},
-      headers: opts.headers ?? {},
-      query: {},
-    };
-    if (opts.params) {
-      // Express 5: path params live at req.params; route uses :jobId
-      req.params = opts.params;
+): Promise<CallResponse> {
+  const { promise, resolve } = Promise.withResolvers<CallResponse>();
+  const handlers = getLayer(method, path);
+  // req 用宽 unknown 转,只暴露 handler 真正用到的字段. 必须给个 ip 让 rate-limit 不抛.
+  // 还要给 req.app,因为 express-rate-limit 在 keyGenerator 里读 app.get('trust proxy').
+  const req: Record<string, unknown> = {
+    method: method.toUpperCase(),
+    url: path,
+    body: opts.body ?? {},
+    headers: opts.headers ?? {},
+    query: opts.query ?? {},
+    ip: '127.0.0.1',
+    app: { get: (k: string) => (k === 'trust proxy' ? 1 : undefined) },
+  };
+  if (opts.params) req.params = opts.params;
+  let ended = false;
+  const res = {
+    statusCode: 200,
+    json(payload: unknown) {
+      if (ended) return this;
+      ended = true;
+      resolve({ status: this.statusCode, json: payload });
+      return this;
+    },
+    status(c: number) {
+      this.statusCode = c;
+      return this;
+    },
+    setHeader(_name: string, _value: string | number | string[]): unknown { return this; },
+  };
+  let i = 0;
+  const next = (err?: unknown) => {
+    if (ended) return;
+    if (err) {
+      res.status(500).json(String(err));
+      return;
     }
-    const res: any = {
-      statusCode: 200,
-      json(payload: unknown) {
-        resolve({ status: this.statusCode, json: payload });
-      },
-      status(c: number) {
-        this.statusCode = c;
-        return this;
-      },
-    };
-    handler(req, res, () => {});
-  });
+    if (i >= handlers.length) return;
+    const handler = handlers[i]!.handle;
+    i += 1;
+    try {
+      handler(req, res, next);
+    } catch (e) {
+      if (!ended) res.status(500).json(String(e));
+    }
+  };
+  next();
+  return promise;
 }
 
 afterAll(() => {

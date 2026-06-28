@@ -105,72 +105,107 @@ describe('recommendLooks — 确定性', () => {
 });
 
 describe('recommendLooks — 避免项惩罚', () => {
-  it('用户特征命中 avoidFor → 该 look 排名靠后', () => {
+  it('用户特征命中 avoidFor → 该 look 排名靠后 (或跌出 top 3)', () => {
     const safe = baseFeatures({ faceShape: 'oval', skinTone: 'cool_fair' });
     const avoid = baseFeatures({ faceShape: 'oval', skinTone: 'warm_deep' });
     const r1 = recommendLooks(safe, 3);
     const r2 = recommendLooks(avoid, 3);
-    // warm_deep 应让 清冷白开水妆 降权(因不在 suitableFor)
+    // warm_deep 应让 清冷白开水妆 降权。
+    // 强降权: 跌出 top 3 (idx === -1) 视为 > 任意合法 idx。
     const idSafeIdx = r1.findIndex((r) => r.look.id === 'look_cool_water');
     const idAvoidIdx = r2.findIndex((r) => r.look.id === 'look_cool_water');
-    expect(idSafeIdx).toBeLessThan(idAvoidIdx);
+    const avoidRank = idAvoidIdx === -1 ? Infinity : idAvoidIdx;
+    expect(idSafeIdx).toBeLessThan(avoidRank);
   });
 });
 
 // ---------- HTTP 路由测试 ----------
 
+import type { Request, Response, NextFunction } from 'express';
 import { recommendRouter } from '../src/backend/routes/recommend';
 
-function callRouter(body: unknown): { status: number; json: any } {
-  return new Promise((resolve) => {
-    const handlers: Array<{ method: string; path: string; handler: Function }> = [];
-    const fakeApp = {
-      post: (path: string, h: Function) => {
-        handlers.push({ method: 'post', path, handler: h });
-        return fakeApp;
-      },
-    };
-    // 重新创建路由并直接调用 handler
-    const router = recommendRouter;
-    const stack = (router as any).stack;
-    const layer = stack.find(
-      (l: any) => l.route && l.route.path === '/recommend' && l.route.methods.post,
-    );
-    if (!layer) throw new Error('no /recommend route');
-    const req = { body };
-    const res = {
-      statusCode: 200,
-      json(payload: any) {
-        resolve({ status: this.statusCode, json: payload });
-      },
-      status(c: number) {
-        this.statusCode = c;
-        return this;
-      },
-    };
-    layer.route.stack[0].handle(req, res, () => {});
-  }) as any;
+interface HttpResponse {
+  statusCode: number;
+  body: unknown;
+  /** 在中间件链终止时,记录调用栈以定位未触发的 handler. */
+  ended: boolean;
 }
 
+function callRouter(body: unknown): Promise<HttpResponse> {
+  const { promise, resolve } = Promise.withResolvers<HttpResponse>();
+
+  // 通过 express.Router.stack 拿到中间件链.
+  // 这里 router 来自第三方库,内部结构不在公开类型里,用窄接口局部接受 unknown.
+  interface InternalRouter {
+    stack: Array<{
+      route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: Function }> };
+    }>;
+  }
+  const internal = recommendRouter as unknown as InternalRouter;
+  const layer = internal.stack.find(
+    (l) => l.route && l.route.path === '/recommend' && l.route.methods.post,
+  );
+  if (!layer || !layer.route) throw new Error('no /recommend route');
+  const handlers = layer.route.stack;
+
+  const req = { body } as unknown as Request;
+  const res = makeRes(resolve);
+
+  // 串行调用中间件链 (validator → handler).
+  const i = { value: 0 };
+  const next: NextFunction = (err) => {
+    if (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'next(err)' });
+      return;
+    }
+    i.value += 1;
+    if (i.value >= handlers.length) return; // 链结束,等 res 触发
+    void handlers[i.value]!.handle(req, res, next);
+  };
+  void handlers[0]!.handle(req, res, next);
+  return promise;
+}
+
+function makeRes(resolve: (r: HttpResponse) => void) {
+  const state: HttpResponse = { statusCode: 200, body: null, ended: false };
+  const res = {
+    get statusCode() {
+      return state.statusCode;
+    },
+    status(c: number) {
+      state.statusCode = c;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      state.ended = true;
+      resolve(state);
+      return this;
+    },
+  };
+  return res as unknown as Response;
+}
 describe('POST /api/recommend', () => {
   it('合法 features → 返回 3 个 looks + 评分详情', async () => {
     const r = await callRouter(baseFeatures({ faceShape: 'oval', skinTone: 'cool_fair' }));
-    expect(r.status).toBe(200);
-    expect(r.json.looks).toHaveLength(3);
-    expect(r.json.scores).toHaveLength(3);
-    expect(r.json.scores[0].lookId).toBeTruthy();
-    expect(typeof r.json.scores[0].score).toBe('number');
-    expect(r.json.scores[0].reason).toBeTruthy();
+    expect(r.statusCode).toBe(200);
+    const body = r.body as { looks: unknown[]; scores: Array<{ lookId: string; score: number; reason: string }> };
+    expect(body.looks).toHaveLength(3);
+    expect(body.scores).toHaveLength(3);
+    expect(body.scores[0]?.lookId).toBeTruthy();
+    expect(typeof body.scores[0]?.score).toBe('number');
+    expect(body.scores[0]?.reason).toBeTruthy();
   });
 
-  it('空 body → 400', async () => {
+  it('空 body → 200 (兜底 fill)', async () => {
     const r = await callRouter({});
-    expect(r.status).toBe(200); // 兜底 fill,不会 400
-    expect(r.json.looks).toHaveLength(3);
+    expect(r.statusCode).toBe(200);
+    const body = r.body as { looks: unknown[] };
+    expect(body.looks).toHaveLength(3);
   });
 
-  it('缺失 body → 400', async () => {
+  it('缺失 body (null) → 400', async () => {
     const r = await callRouter(null);
-    expect(r.status).toBe(400);
+    expect(r.statusCode).toBe(400);
   });
 });

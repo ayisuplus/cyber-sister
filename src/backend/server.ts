@@ -1,9 +1,10 @@
-// 妆语 backend — Express 5 + CORS + upload / recommend / explain /
-// generate / analytics 五个核心路由.
+// 妆语 backend — Express 5 + 安全中间件 + 业务路由.
+// 中间件顺序: requestId → logger → security (helmet) → CORS → rateLimit → 路由.
 // 同时托管 Vite 构建产物 (dist/) 作为前端静态站点,支持 SPA fallback.
 
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -13,6 +14,9 @@ import { analyticsRouter } from './routes/analytics';
 import { uploadRouter } from './routes/upload';
 import { generateRouter } from './routes/generate';
 import { config } from './config.js';
+import { requestId } from './middleware/requestId.js';
+import { requestLogger } from './middleware/logger.js';
+import { globalLimiter } from './middleware/rateLimit.js';
 
 // ---------- 路径与配置 ----------
 
@@ -23,6 +27,7 @@ const PUBLIC_DIR = resolve(__dirname, '..', '..', 'public');
 const UPLOAD_DIR = resolve(PUBLIC_DIR, 'uploads');
 const RESULTS_DIR = resolve(PUBLIC_DIR, 'results');
 const PORT = config.port;
+const isProd = config.nodeEnv === 'production';
 
 for (const d of [UPLOAD_DIR, RESULTS_DIR]) {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
@@ -35,22 +40,40 @@ const app = express();
 // 代理信任(便于部署在 nginx/cloudflare 后面时获取真实 client IP)
 app.set('trust proxy', 1);
 
-// CORS: 允许前端 dev server (Vite 默认 5173) + 任何 localhost 变体
+// 1) 请求 ID + 关联到响应头 (X-Request-Id)
+app.use(requestId());
+// 2) 结构化访问日志 (放在 requestId 之后,日志带上 reqId)
+app.use(requestLogger());
+// 3) 安全头: X-Content-Type-Options, X-Frame-Options, Strict-Transport-Security, etc.
 app.use(
-  cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', /^https?:\/\/localhost(:\d+)?$/],
-    credentials: true,
+  helmet({
+    // SPA 不需要严格 CSP (内联样式 + 外部字体),关掉避免阻断
+    contentSecurityPolicy: false,
+    // 跨域读 /results/* 的图片需要 cors,helmet 默认会带 CORP 头
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   }),
 );
-app.use(express.json({ limit: '2mb' }));
+// 4) CORS — 开发时允许 localhost,生产走白名单 (CORS_ORIGINS 逗号分隔)
+const corsOrigins = config.corsOrigins
+  ? config.corsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+  : null;
+app.use(
+  cors({
+    origin: corsOrigins ?? [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      /^https?:\/\/localhost(:\d+)?$/,
+    ],
+    credentials: true,
+    maxAge: 600,
+  }),
+);
+// 5) Body parsing — 全局限制小,大文件走 /api/upload 单独处理
+app.use(express.json({ limit: '256kb' }));
+// 6) 全局限流 — 健康检查已 skip
+app.use('/api', globalLimiter);
 
-// 简易请求日志(开发期有用,生产可换 morgan/pino)
-app.use((req, _res, next) => {
-  console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
-
-// ---------- 健康检查 ----------
+// ---------- 健康检查 (在限流器前,但已在限流器后;这里保持原位) ----------
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -71,11 +94,15 @@ app.use('/api', analyticsRouter);
 
 // ---------- 静态文件服务 (上传的图 / 生成的结果 / Vite build 产物) ----------
 
+const staticMaxAge = isProd ? `${config.staticMaxAgeSec}s` : '0';
 if (existsSync(PUBLIC_DIR)) {
   app.use(
     express.static(PUBLIC_DIR, {
       index: false,
-      maxAge: '1h',
+      maxAge: staticMaxAge,
+      setHeaders: (res) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+      },
     }),
   );
 }
@@ -85,7 +112,7 @@ if (existsSync(DIST_DIR)) {
   app.use(
     express.static(DIST_DIR, {
       index: false, // SPA fallback 自己处理 index.html
-      maxAge: '1h',
+      maxAge: staticMaxAge,
       extensions: ['html'],
     }),
   );
@@ -94,6 +121,7 @@ if (existsSync(DIST_DIR)) {
   app.get(/^\/(?!api\/).*/, (_req, res, next) => {
     const indexHtml = join(DIST_DIR, 'index.html');
     if (!existsSync(indexHtml)) return next();
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(indexHtml);
   });
 } else {
@@ -113,20 +141,55 @@ app.use((req, res) => {
 });
 
 // 通用错误中间件(4 参数签名才会被 Express 识别为 error handler)
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('[妆语] unhandled error:', err);
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   const message = err instanceof Error ? err.message : 'Internal Server Error';
-  res.status(500).json({ error: message });
+  // 生产:不暴露内部错误细节
+  const safe = isProd ? 'Internal Server Error' : message;
+  console.error(
+    JSON.stringify({
+      t: new Date().toISOString(),
+      level: 'error',
+      reqId: req.id,
+      err: message,
+      stack: err instanceof Error ? err.stack : undefined,
+    }),
+  );
+  res.status(500).json({ error: safe, reqId: req.id });
 });
 
 // ---------- 启动 ----------
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.info(`[妆语] backend listening on http://localhost:${PORT}`);
-  console.info(`[妆语] image gen provider: ${config.imageGenProvider}`);
+  console.info(`[妆语] env=${config.nodeEnv} image gen provider: ${config.imageGenProvider}`);
   console.info(`[妆语] uploads: ${UPLOAD_DIR}`);
   console.info(`[妆语] results: ${RESULTS_DIR}`);
+  console.info(
+    `[妆语] rate limits: global=${config.rateLimitGlobal}/min upload=${config.rateLimitUpload}/min generate=${config.rateLimitGenerate}/min analytics=${config.rateLimitAnalytics}/min`,
+  );
   if (existsSync(DIST_DIR)) {
     console.info(`[妆语] static site: ${DIST_DIR}`);
   }
 });
+
+// 优雅关停:收到 SIGTERM/SIGINT 时关闭 server,清理连接
+let shuttingDown = false;
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info(`[妆语] received ${signal}, closing server…`);
+  server.close((err) => {
+    if (err) {
+      console.error('[妆语] error closing server:', err);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
+  // 5s 强制退出
+  setTimeout(() => {
+    console.warn('[妆语] forced exit after timeout');
+    process.exit(1);
+  }, 5000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
