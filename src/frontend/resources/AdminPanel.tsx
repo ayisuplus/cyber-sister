@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
+import { useToast } from '../components/Toast';
 
 // ---------- 类型 ----------
 
@@ -29,6 +30,7 @@ export default function AdminPanel({
   onRefresh: () => void;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const [isAdding, setIsAdding] = useState(false);
   const [addingError, setAddingError] = useState<string | null>(null);
   const [formData, setFormData] = useState<CreateResourcePayload>({
@@ -52,7 +54,7 @@ export default function AdminPanel({
         body: JSON.stringify({ ...formData, tags: tagsInput }),
       });
 
-      // 清空表单
+      // 清空表单 + 提示成功
       setFormData({
         lookId: '',
         kind: 'article',
@@ -61,6 +63,7 @@ export default function AdminPanel({
         tags: [],
       });
       setTagsInput('');
+      toast.success('资源已添加');
       onRefresh();
     } catch (err) {
       setAddingError(err instanceof Error ? err.message : '添加失败');

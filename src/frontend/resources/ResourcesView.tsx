@@ -164,6 +164,7 @@ export default function ResourcesView({
               isAdmin={isAdmin}
               onClick={() => { if (!isAdmin) setSelectedResource(resource); }}
               onDelete={isAdmin ? async () => {
+                if (!window.confirm(`确定删除「${resource.title}」?`)) return;
                 try {
                   await fetchJson(`/api/teaching-resources/${resource.id}`, { method: 'DELETE' });
                   setResources((prev) => prev.filter((r) => r.id !== resource.id));
