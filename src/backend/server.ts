@@ -13,6 +13,7 @@ import { explainRouter } from './routes/explain';
 import { analyticsRouter } from './routes/analytics';
 import { uploadRouter } from './routes/upload';
 import { generateRouter } from './routes/generate';
+import { resourcesRouter } from './routes/resources';
 import { config } from './config.js';
 import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/logger.js';
@@ -91,8 +92,7 @@ app.use('/api', recommendRouter);
 app.use('/api', explainRouter);
 app.use('/api', generateRouter);
 app.use('/api', analyticsRouter);
-
-// ---------- 静态文件服务 (上传的图 / 生成的结果 / Vite build 产物) ----------
+app.use('/api', resourcesRouter);
 
 const staticMaxAge = isProd ? `${config.staticMaxAgeSec}s` : '0';
 if (existsSync(PUBLIC_DIR)) {

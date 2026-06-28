@@ -179,3 +179,33 @@ export interface GenerationJob {
   createdAt: number;
   updatedAt: number;
 }
+
+// =========================================================================
+// 教学资源 (post-tutorial navigation)
+// =========================================================================
+
+export type TeachingResourceKind = 'article' | 'video';
+
+export interface TeachingResource {
+  id: string;
+  /** 关联的妆容 id (来自 MakeupLook.id); 空字符串 = 全局. */
+  lookId: string;
+  /** 'article' = 图文; 'video' = 视频. */
+  kind: TeachingResourceKind;
+  title: string;
+  /** 简短描述 (1-2 行). */
+  summary: string;
+  /** 图文资源: Markdown/纯文本 body. 视频资源: 可以为空 (用 videoUrl). */
+  body?: string;
+  /** 文章封面图 (可选). */
+  coverImage?: string;
+  /** 视频 URL (文章资源可空). */
+  videoUrl?: string;
+  /** 视频时长 (秒), 仅 kind=video. */
+  durationSec?: number;
+  /** 作者/来源. */
+  author?: string;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}

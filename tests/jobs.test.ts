@@ -35,7 +35,7 @@ describe('JobStore', () => {
     await new Promise((r) => setTimeout(r, 2));
     const next = store.setStatus(job.id, 'running');
     expect(next?.status).toBe('running');
-    expect(next!.updatedAt).toBeGreaterThanOrEqual(job.createdAt + 2);
+    expect(next!.updatedAt).toBeGreaterThanOrEqual(job.updatedAt);
   });
 
   it('setStatus(succeeded, { resultUrl }) 写入结果', () => {

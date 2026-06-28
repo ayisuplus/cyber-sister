@@ -26,6 +26,7 @@ import { fetchJson } from './utils/fetch';
 // 1) MediaPipe canvas 走单独的 chunk, 不会拖慢 onboarding 启动.
 // 2) 结果卡也按需加载 (它会引入 fonts/分享文案/canvas 渲染等).
 const MakeupCanvas = lazy(() => import('./tutorial/MakeupCanvas'));
+const ResourcesView = lazy(() => import('./resources/ResourcesView'));
 const ResultCard = lazy(() => import('./result/ResultCard'));
 
 type AppState =
@@ -52,6 +53,7 @@ type AppState =
     }
   | { stage: 'tutorial_done'; look: MakeupLook }
   | { stage: 'result'; look: MakeupLook; features: FaceFeatures }
+  | { stage: 'teaching_resources'; lookId: string }
   | { stage: 'error'; message: string; recoverable: boolean };
 
 type Action =
@@ -75,6 +77,8 @@ type Action =
   | { type: 'GOTO_STEP'; index: number }
   | { type: 'TUTORIAL_DONE' }
   | { type: 'ENTER_RESULT'; look: MakeupLook; features: FaceFeatures }
+  | { type: 'OPEN_TEACHING_RESOURCES'; lookId: string }
+  | { type: 'CLOSE_TEACHING_RESOURCES' }
   | { type: 'ERROR'; message: string; recoverable: boolean }
   | { type: 'RESET' };
 
@@ -140,6 +144,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { stage: 'tutorial_done', look: state.look };
     case 'ENTER_RESULT':
       return { stage: 'result', look: action.look, features: action.features };
+    case 'OPEN_TEACHING_RESOURCES':
+      return { stage: 'teaching_resources', lookId: action.lookId };
+    case 'CLOSE_TEACHING_RESOURCES':
+      return { stage: 'idle' };
     case 'ERROR':
       return { stage: 'error', message: action.message, recoverable: action.recoverable };
     case 'RESET':
@@ -418,6 +426,7 @@ function App() {
                 featuresRef.current = null;
                 dispatch({ type: 'RESET' });
               }}
+              onOpenTeaching={(lookId) => dispatch({ type: 'OPEN_TEACHING_RESOURCES', lookId })}
             />
           )}
           {state.stage === 'tutorial_step' && (
@@ -443,6 +452,14 @@ function App() {
           {state.stage === 'result' && (
             <Suspense fallback={<ResultLoadingFallback />}>
               <ResultCard features={state.features} look={state.look} />
+            </Suspense>
+          )}
+          {state.stage === 'teaching_resources' && (
+            <Suspense fallback={<div className="text-center py-8 text-ink-soft/60">加载资源中...</div>}>
+              <ResourcesView
+                lookId={state.lookId}
+                onBack={() => dispatch({ type: 'CLOSE_TEACHING_RESOURCES' })}
+              />
             </Suspense>
           )}
           {state.stage === 'error' && (
@@ -930,6 +947,7 @@ function LooksReadyView({
   onSelect,
   onStart,
   onRetake,
+  onOpenTeaching,
 }: {
   looks: MakeupLook[];
   selected: number;
@@ -938,6 +956,7 @@ function LooksReadyView({
   onSelect: (i: number) => void;
   onStart: () => void;
   onRetake: () => void;
+  onOpenTeaching: (lookId: string) => void;
 }) {
   const selectedLook = looks[selected] ?? null;
   const gen = useGeneration();
@@ -1016,6 +1035,13 @@ function LooksReadyView({
         </button>
         <button type="button" onClick={onRetake} className="btn-secondary w-full text-sm py-2">
           换一张照片
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenTeaching(selectedLook?.id ?? '')}
+          className="btn-secondary w-full text-sm py-2 flex items-center justify-center gap-2"
+        >
+          📚 查看教学资源
         </button>
       </div>
     </div>
