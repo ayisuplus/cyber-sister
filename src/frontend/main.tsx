@@ -1,10 +1,21 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastProvider } from './components/Toast';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+const root = document.getElementById('root');
+if (!root) {
+  throw new Error('root 元素未找到 — 检查 public/index.html');
+}
+
+createRoot(root).render(
+  <StrictMode>
+    <ErrorBoundary>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </ErrorBoundary>
+  </StrictMode>,
 );

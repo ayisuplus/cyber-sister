@@ -2,6 +2,7 @@
 // 多人脸时按边界框面积选最大;无脸抛错由上层捕获.
 
 import type { FaceLandmarker, NormalizedLandmark } from '@mediapipe/tasks-vision';
+import type { Landmark } from '../../shared/faceFeatures';
 
 export interface LandmarkPoint {
   x: number;
@@ -16,6 +17,31 @@ export class NoFaceError extends Error {
     super('未检测到人脸');
     this.name = 'NoFaceError';
   }
+}
+/**
+ * 返回所有检测到的人脸关键点 (不挑最大).多人脸诊断时使用.
+ * 格式与 extractLandmarks 一致;每张脸 478 点(不足时补 0).
+ */
+export function extractAllLandmarks(
+  landmarker: FaceLandmarker,
+  imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+): LandmarkPoint[][] {
+  const result = landmarker.detect(imageElement);
+  if (!result.faceLandmarks) return [];
+  return result.faceLandmarks.map((face) => {
+    const pts = toLandmarkPoints(face);
+    if (pts.length >= FACE_LANDMARK_COUNT) return pts;
+    const filled: LandmarkPoint[] = pts.slice();
+    while (filled.length < FACE_LANDMARK_COUNT) {
+      filled.push({ x: 0, y: 0, z: 0 });
+    }
+    return filled;
+  });
+}
+
+/** 关键点 → 共享 Landmark 格式 (faceFeatures 模块签名). */
+export function toSharedLandmarks(pts: LandmarkPoint[]): Landmark[] {
+  return pts.map((p) => ({ x: p.x, y: p.y, z: p.z }));
 }
 
 /**

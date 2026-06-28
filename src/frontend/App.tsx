@@ -3,23 +3,35 @@
 //        → recommending → looks_ready → tutorial_step → tutorial_done → result / error
 // 视觉层: 新拟态 + 毛玻璃 + 粉系调色板,移动端优先 (max-width: 430px)
 
-import { useEffect, useReducer, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useReducer, useRef, useState, Suspense, lazy, type ChangeEvent, type DragEvent, type ClipboardEvent } from 'react';
 import type { FaceFeatures, MakeupLook, MakeupStep } from '../shared/types';
 import { loadModel } from './face/loader';
-import { extractLandmarks, NoFaceError, type LandmarkPoint } from './face/landmarks';
+import {
+  extractAllLandmarks,
+  NoFaceError,
+  toSharedLandmarks,
+  type LandmarkPoint,
+} from './face/landmarks';
 import { analyzeFeatures, type Landmark } from '../shared/faceFeatures';
+import { diagnoseSelfie } from './face/edgeCases';
 import { track, startTimer } from '../shared/analytics';
-import MakeupCanvas from './tutorial/MakeupCanvas';
 import TutorialPanel from './tutorial/TutorialPanel';
-import ResultCard from './result/ResultCard';
 import GeneratingView from './generate/GeneratingView';
 import { useGeneration } from './hooks/useGeneration';
+import { useToast } from './components/Toast';
+import { compressImage, blobToDataUrl } from './utils/image';
+import { fetchJson } from './utils/fetch';
 
-// ---------- 状态机 ----------
+// 延迟加载重型组件 — 首次进入 tutorial / result 时才下载 + 解析.
+// 1) MediaPipe canvas 走单独的 chunk, 不会拖慢 onboarding 启动.
+// 2) 结果卡也按需加载 (它会引入 fonts/分享文案/canvas 渲染等).
+const MakeupCanvas = lazy(() => import('./tutorial/MakeupCanvas'));
+const ResultCard = lazy(() => import('./result/ResultCard'));
 
 type AppState =
   | { stage: 'idle' }
   | { stage: 'loading_model'; progress: number }
+  | { stage: 'analyzing' }
   | {
       stage: 'ready';
       imageData: ImageData;
@@ -27,7 +39,6 @@ type AppState =
       imageWidth: number;
       imageHeight: number;
     }
-  | { stage: 'analyzing' }
   | { stage: 'analysis_done'; features: FaceFeatures; warnings: string[] }
   | { stage: 'recommending' }
   | { stage: 'looks_ready'; looks: MakeupLook[]; selected: number }
@@ -175,6 +186,7 @@ function App() {
   // 跨阶段保留 ready 的图片信息 (previewUrl/尺寸),tutorial 阶段需要用
   const previewUrlRef = useRef<string>('');
   const imageSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const toast = useToast();
 
   // app_open
   useEffect(() => {
@@ -202,27 +214,56 @@ function App() {
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Canvas 2D context unavailable');
         ctx.putImageData(imageData, 0, 0);
-        const landmarkPoints: LandmarkPoint[] = extractLandmarks(landmarker, canvas);
+
+        // 1) 一次性拿到所有人脸,diagnoseSelfie 需要所有脸 + 单张最大脸的 landmarks
+        const allFaces = extractAllLandmarks(landmarker, canvas);
         if (cancelled) return;
-        const features = analyzeFeatures(landmarkPoints, {
+        if (allFaces.length === 0) throw new NoFaceError();
+        const largest = allFaces.reduce<LandmarkPoint[]>(
+          (best, cur) => (cur.length > best.length ? cur : best),
+          allFaces[0]!,
+        );
+
+        const features = analyzeFeatures(largest, {
           data: imageData.data,
           width: imageData.width,
           height: imageData.height,
         });
         if (cancelled) return;
-        landmarksRef.current = landmarkPoints as unknown as Landmark[];
+
+        // 2) 诊断:暗光 / 模糊 / 戴眼镜 / 刘海 / 浓妆 / 偏转 → 友好文案警告
+        const diagnosis = diagnoseSelfie({
+          faces: allFaces.map(toSharedLandmarks),
+          pixels: {
+            data: imageData.data,
+            width: imageData.width,
+            height: imageData.height,
+          },
+          baseConfidence: features.confidence,
+        });
+        if (cancelled) return;
+        if (diagnosis.blocked) {
+          track('selfie_blocked', { reason: diagnosis.blockedReason ?? 'unknown' });
+          dispatch({
+            type: 'ERROR',
+            message: diagnosis.blockedReason ?? '请上传清晰的正面照 📷',
+            recoverable: true,
+          });
+          return;
+        }
+
+        landmarksRef.current = toSharedLandmarks(largest);
         featuresRef.current = features;
-        const warnings: string[] =
-          features.confidence < 0.5 ? ['照片质量一般，分析结果仅供参考'] : [];
         track('analysis_complete', {
           confidence: features.confidence,
           duration_ms: elapsed(),
         });
         track('selfie_diagnosis', {
           confidence: features.confidence,
-          warnings: warnings.length,
+          warnings: diagnosis.warnings.length,
+          skipped: diagnosis.skippedFeatures.length,
         });
-        dispatch({ type: 'ANALYSIS_DONE', features, warnings });
+        dispatch({ type: 'ANALYSIS_DONE', features, warnings: diagnosis.warnings });
       } catch (err) {
         if (cancelled) return;
         if (err instanceof NoFaceError) {
@@ -238,7 +279,6 @@ function App() {
       cancelled = true;
     };
   }, [state.stage]);
-
   // analysis_done → recommending 自动跳
   useEffect(() => {
     if (state.stage !== 'analysis_done') return;
@@ -246,26 +286,30 @@ function App() {
     if (!features) return;
     dispatch({ type: 'START_RECOMMEND' });
     const ctrl = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch('/api/recommend', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(features),
-          signal: ctrl.signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { looks: MakeupLook[] };
+    fetchJson<{ looks: MakeupLook[] }>(
+      '/api/recommend',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(features),
+        signal: ctrl.signal,
+        timeoutMs: 20_000,
+        retries: 1,
+      },
+    )
+      .then((data) => {
+        if (ctrl.signal.aborted) return;
         track('recommend_view', { count: data.looks.length });
         dispatch({ type: 'LOOKS_READY', looks: data.looks, selected: 0 });
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
         if (ctrl.signal.aborted) return;
         const msg = err instanceof Error ? `推荐失败：${err.message}` : '推荐失败';
+        toast.error(msg);
         dispatch({ type: 'ERROR', message: msg, recoverable: true });
-      }
-    })();
+      });
     return () => ctrl.abort();
-  }, [state.stage]);
+  }, [state.stage, toast]);
 
   // tutorial_step 变化时埋点 + 启动计时
   useEffect(() => {
@@ -377,24 +421,30 @@ function App() {
             />
           )}
           {state.stage === 'tutorial_step' && (
-            <TutorialView
-              look={state.look}
-              stepIndex={state.stepIndex}
-              previewUrl={state.previewUrl}
-              imageWidth={state.imageWidth}
-              imageHeight={state.imageHeight}
-              landmarks={landmarksRef.current}
-              onPrev={() => dispatch({ type: 'PREV_STEP' })}
-              onNext={() => dispatch({ type: 'NEXT_STEP' })}
-              onRestart={() => {
-                tutorialStartRef.current = Date.now();
-                dispatch({ type: 'GOTO_STEP', index: 0 });
-              }}
-              onFinish={() => dispatch({ type: 'TUTORIAL_DONE' })}
-            />
+            <Suspense fallback={<TutorialLoadingFallback />}>
+              <TutorialView
+                look={state.look}
+                stepIndex={state.stepIndex}
+                previewUrl={state.previewUrl}
+                imageWidth={state.imageWidth}
+                imageHeight={state.imageHeight}
+                landmarks={landmarksRef.current}
+                onPrev={() => dispatch({ type: 'PREV_STEP' })}
+                onNext={() => dispatch({ type: 'NEXT_STEP' })}
+                onRestart={() => {
+                  tutorialStartRef.current = Date.now();
+                  dispatch({ type: 'GOTO_STEP', index: 0 });
+                }}
+                onFinish={() => dispatch({ type: 'TUTORIAL_DONE' })}
+              />
+            </Suspense>
           )}
           {state.stage === 'tutorial_done' && <TutorialDoneView lookName={state.look.name} />}
-          {state.stage === 'result' && <ResultCard features={state.features} look={state.look} />}
+          {state.stage === 'result' && (
+            <Suspense fallback={<ResultLoadingFallback />}>
+              <ResultCard features={state.features} look={state.look} />
+            </Suspense>
+          )}
           {state.stage === 'error' && (
             <ErrorView
               message={state.message}
@@ -412,61 +462,84 @@ function App() {
     </main>
   );
 
-  // 选图
+  // 选图 — 先压缩,再走原流程.
   function onPick(file: File) {
     track('upload_start', { size: file.size, type: file.type });
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        URL.revokeObjectURL(url);
-        dispatch({ type: 'ERROR', message: '浏览器不支持画布', recoverable: false });
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const t = startTimer();
-      dispatch({ type: 'START_LOAD_MODEL' });
-      loadModel((p) => dispatch({ type: 'MODEL_PROGRESS', progress: p }))
-        .then(() => {
-          track('model_load', { duration_ms: t() });
-          // 把图片信息存到 ref,跨阶段供 tutorial 使用
-          previewUrlRef.current = url;
-          imageSizeRef.current = { width: img.naturalWidth, height: img.naturalHeight };
-          dispatch({
-            type: 'MODEL_READY',
-            imageData,
-            previewUrl: url,
-            imageWidth: img.naturalWidth,
-            imageHeight: img.naturalHeight,
-          });
-        })
-        .catch((err) => {
-          URL.revokeObjectURL(url);
-          track('model_load_fail', { error: err instanceof Error ? err.message : 'unknown' });
-          const msg = err instanceof Error ? `模型加载失败：${err.message}` : '模型加载失败';
-          dispatch({ type: 'ERROR', message: msg, recoverable: true });
+    dispatch({ type: 'START_LOAD_MODEL' });
+    compressAndProcess(file).catch((err) => {
+      const msg = err instanceof Error ? `图片处理失败：${err.message}` : '图片处理失败';
+      track('image_process_fail', { error: msg });
+      toast.error('图片处理失败,请换一张');
+      dispatch({ type: 'ERROR', message: msg, recoverable: true });
+    });
+  }
+
+  async function compressAndProcess(file: File): Promise<void> {
+    // 1. 压缩(失败回退到原图)
+    let processed: Blob = file;
+    try {
+      const compressed = await compressImage(file);
+      if (compressed.size < file.size) {
+        processed = compressed;
+        track('image_compressed', {
+          original: file.size,
+          compressed: compressed.size,
+          ratio: Math.round((compressed.size / file.size) * 100),
         });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      track('upload_reject', { reason: 'image_load_failed' });
-      dispatch({ type: 'ERROR', message: '图片加载失败，请换一张试试', recoverable: true });
-    };
-    img.src = url;
+      }
+    } catch (err) {
+      track('image_compress_fail', { error: err instanceof Error ? err.message : 'unknown' });
+      // 压缩失败不影响主流程,继续用原图
+    }
+    // 2. 转 dataURL 给 MediaPipe + 预览
+    const dataUrl = await blobToDataUrl(processed);
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = dataUrl;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      dispatch({ type: 'ERROR', message: '浏览器不支持画布', recoverable: false });
+      return;
+    }
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    const t = startTimer();
+    try {
+      await loadModel((p) => dispatch({ type: 'MODEL_PROGRESS', progress: p }));
+      track('model_load', { duration_ms: t() });
+      // 把图片信息存到 ref,跨阶段供 tutorial 使用
+      previewUrlRef.current = dataUrl;
+      imageSizeRef.current = { width: img.naturalWidth, height: img.naturalHeight };
+      dispatch({
+        type: 'MODEL_READY',
+        imageData,
+        previewUrl: dataUrl,
+        imageWidth: img.naturalWidth,
+        imageHeight: img.naturalHeight,
+      });
+    } catch (err) {
+      track('model_load_fail', { error: err instanceof Error ? err.message : 'unknown' });
+      const msg = err instanceof Error ? `模型加载失败：${err.message}` : '模型加载失败';
+      toast.error(msg);
+      dispatch({ type: 'ERROR', message: msg, recoverable: true });
+    }
   }
 }
 
 // ---------- 视图: 引导页 ----------
-
 function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void }) {
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   function pick(file: File | undefined) {
     if (!file) return;
@@ -495,8 +568,47 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
     e.target.value = '';
   }
 
+  function onDragOver(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    if (!isDragging) setIsDragging(true);
+  }
+
+  function onDragLeave(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    // 仅在离开整个 drop zone 时清除高亮
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  }
+
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      track('upload_via', { method: 'drop' });
+      pick(file);
+    }
+  }
+
+  function onPaste(e: ClipboardEvent<HTMLDivElement>) {
+    const file = Array.from(e.clipboardData?.files ?? [])[0];
+    if (!file) return;
+    e.preventDefault();
+    track('upload_via', { method: 'paste' });
+    pick(file);
+  }
+
   return (
-    <div>
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onPaste={onPaste}
+      tabIndex={0}
+      role="region"
+      aria-label="上传自拍图片"
+      aria-describedby="onboarding-help"
+    >
       {/* Hero */}
       <div className="text-center mb-8">
         <div className="inline-flex chip-rose-solid mb-4 animate-pulse-soft">✨ AI 智能美妆</div>
@@ -507,30 +619,42 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
       </div>
 
       {/* 三步骤预览 */}
-      <ol className="space-y-4 mb-8">
+      <ol className="space-y-4 mb-8" aria-label="使用流程">
         <Step n={1} title="拍一张正面照" desc="光线充足、表情自然，效果最好" />
         <Step n={2} title="AI 分析你的脸型" desc="三庭五眼、肤色、轮廓，一键读取" />
         <Step n={3} title="手把手教你画" desc="从底妆到唇色，跟着步骤一步步来" />
       </ol>
 
-      {/* 上传按钮 */}
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={() => cameraRef.current?.click()}
-          className="btn-primary w-full flex items-center justify-center gap-2"
-        >
-          <span>📷</span>
-          <span>开始拍照</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => galleryRef.current?.click()}
-          className="btn-secondary w-full flex items-center justify-center gap-2"
-        >
-          <span>🖼️</span>
-          <span>从相册选择</span>
-        </button>
+      {/* 上传按钮 + 拖拽/粘贴提示 */}
+      <div
+        className={`relative rounded-2xl border-2 border-dashed p-5 mb-4 transition-colors ${
+          isDragging ? 'border-primary bg-primary/10' : 'border-ink-soft/30 bg-white/40'
+        }`}
+        aria-label={isDragging ? '松开以上传' : '拖拽图片到这里上传'}
+      >
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="btn-primary w-full flex items-center justify-center gap-2"
+            aria-label="拍照上传 (调用相机)"
+          >
+            <span aria-hidden>📷</span>
+            <span>开始拍照</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => galleryRef.current?.click()}
+            className="btn-secondary w-full flex items-center justify-center gap-2"
+            aria-label="从相册选择图片"
+          >
+            <span aria-hidden>🖼️</span>
+            <span>从相册选择</span>
+          </button>
+        </div>
+        <p id="onboarding-help" className="mt-4 text-xs text-ink-soft/60 text-center">
+          也可以 <strong>拖拽</strong>图片到此处,或 <strong>Ctrl/⌘ + V</strong> 粘贴
+        </p>
       </div>
 
       <input
@@ -540,6 +664,8 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
         capture="user"
         onChange={onChange}
         className="hidden"
+        aria-hidden
+        tabIndex={-1}
       />
       <input
         ref={galleryRef}
@@ -547,10 +673,15 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
         accept={ACCEPT_TYPES}
         onChange={onChange}
         className="hidden"
+        aria-hidden
+        tabIndex={-1}
       />
 
       {error && (
-        <p className="mt-4 text-sm text-primary text-center bg-primary/10 rounded-2xl py-2">
+        <p
+          role="alert"
+          className="mt-4 text-sm text-primary text-center bg-primary/10 rounded-2xl py-2"
+        >
           {error}
         </p>
       )}
@@ -1046,7 +1177,45 @@ function ErrorView({
   );
 }
 
-function cnFaceShape(s: string): string {
+/** TutorialView 懒加载的占位 — 显示一个静态的画布 + 加载文案. */
+function TutorialLoadingFallback() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-live="polite">
+      <div className="card-soft p-2">
+        <div
+          className="w-full h-[480px] bg-secondary/30 rounded-card flex items-center justify-center text-ink-soft/60 text-sm"
+          role="status"
+        >
+          正在加载教学模块…
+        </div>
+      </div>
+      <div
+        className="rounded-3xl p-5 space-y-3 animate-pulse-soft"
+        style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(253,242,243,0.7))' }}
+      >
+        <div className="h-4 w-1/3 bg-ink-soft/10 rounded" />
+        <div className="h-3 w-2/3 bg-ink-soft/10 rounded" />
+        <div className="h-3 w-1/2 bg-ink-soft/10 rounded" />
+      </div>
+    </div>
+  );
+}
+
+/** ResultCard 懒加载的占位. */
+function ResultLoadingFallback() {
+  return (
+    <div className="text-center py-12" role="status" aria-live="polite">
+      <div
+        className="w-20 h-20 rounded-full mx-auto mb-5 animate-pulse-soft"
+        style={{ background: 'linear-gradient(135deg,#EAB6BC,#C86B77)' }}
+        aria-hidden
+      />
+      <p className="text-ink-soft/70">正在生成你的分享卡…</p>
+    </div>
+  );
+}
+
+ function cnFaceShape(s: string): string {
   return (
     (
       {
