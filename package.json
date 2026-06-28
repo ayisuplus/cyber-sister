@@ -28,6 +28,8 @@
     "@mediapipe/tasks-vision": "^0.10.35",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

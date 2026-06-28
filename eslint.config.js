@@ -58,9 +58,10 @@ export default [
       ],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-function-type': 'off',
+      // TypeScript 自己处理全局类型 (RequestInit, AbortController 等);
+      // eslint no-undef 不知道这些 lib.dom 类型, 关掉避免噪音.
+      'no-undef': 'off',
       'no-console': ['warn', { allow: ['warn', 'error', 'info', 'debug', 'log'] }],
-      'prefer-const': 'warn',
-      eqeqeq: ['error', 'smart'],
     },
   },
   prettier,

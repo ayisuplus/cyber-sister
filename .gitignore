@@ -8,6 +8,10 @@ dist/
 public/app.js
 public/app.js.map
 
+# ---------- User-uploaded images + generated outputs (runtime artifacts) ----------
+public/uploads/
+public/results/
+
 # ---------- MediaPipe model binaries (download separately) ----------
 public/mp-models/*.task
 public/mp-models/wasm/
@@ -37,8 +41,6 @@ coverage/
 venv_train/
 .omo/
 .mavis/
-
-# ---------- Large assets (download separately) ----------
-models/
+.serena/
 LLaMA-Factory/
 tools/
