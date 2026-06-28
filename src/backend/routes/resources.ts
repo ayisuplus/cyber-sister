@@ -69,46 +69,56 @@ resourcesRouter.get('/teaching-resources/:id', (req, res) => {
 resourcesRouter.post(
   '/teaching-resources',
   validateBody(createSchema),
-  (req, res) => {
-    const body = req.body as {
-      lookId?: unknown;
-      kind?: unknown;
-      title?: unknown;
-      summary?: unknown;
-      body?: unknown;
-      coverImage?: unknown;
-      videoUrl?: unknown;
-      durationSec?: unknown;
-      author?: unknown;
-      tags?: unknown;
-    };
-    // schema 已保证 required 字段存在且类型对,这里只 narrow 剩余 optional
-    const lookId = typeof body.lookId === 'string' ? body.lookId : '';
-    const kind = body.kind === 'video' ? 'video' : 'article';
-    const title = typeof body.title === 'string' ? body.title : '';
-    const summary = typeof body.summary === 'string' ? body.summary : '';
-    const created = createResource({
-      lookId,
-      kind,
-      title,
-      summary,
-      tags: parseTags(body.tags),
-      body: parseStringField(body.body),
-      coverImage: parseStringField(body.coverImage),
-      videoUrl: parseStringField(body.videoUrl),
-      durationSec: parseNumberField(body.durationSec),
-      author: parseStringField(body.author),
-    });
-    res.status(201).json(created);
+  async (req, res) => {
+    try {
+      const body = req.body as {
+        lookId?: unknown;
+        kind?: unknown;
+        title?: unknown;
+        summary?: unknown;
+        body?: unknown;
+        coverImage?: unknown;
+        videoUrl?: unknown;
+        durationSec?: unknown;
+        author?: unknown;
+        tags?: unknown;
+      };
+      // schema 已保证 required 字段存在且类型对,这里只 narrow 剩余 optional
+      const lookId = typeof body.lookId === 'string' ? body.lookId : '';
+      const kind = body.kind === 'video' ? 'video' : 'article';
+      const title = typeof body.title === 'string' ? body.title : '';
+      const summary = typeof body.summary === 'string' ? body.summary : '';
+      const created = await createResource({
+        lookId,
+        kind,
+        title,
+        summary,
+        tags: parseTags(body.tags),
+        body: parseStringField(body.body),
+        coverImage: parseStringField(body.coverImage),
+        videoUrl: parseStringField(body.videoUrl),
+        durationSec: parseNumberField(body.durationSec),
+        author: parseStringField(body.author),
+      });
+      res.status(201).json(created);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'create failed';
+      res.status(500).json({ error: message });
+    }
   },
 );
 
 // DELETE /api/teaching-resources/:id
-resourcesRouter.delete('/teaching-resources/:id', (req, res) => {
-  const ok = deleteResource(req.params.id);
-  if (!ok) {
-    res.status(404).json({ error: 'resource not found' });
-    return;
+resourcesRouter.delete('/teaching-resources/:id', async (req, res) => {
+  try {
+    const ok = await deleteResource(req.params.id);
+    if (!ok) {
+      res.status(404).json({ error: 'resource not found' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'delete failed';
+    res.status(500).json({ error: message });
   }
-  res.json({ ok: true });
 });
