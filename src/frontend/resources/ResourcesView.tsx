@@ -33,6 +33,7 @@ export default function ResourcesView({
 }) {
   const [tab, setTab] = useState<TeachingResourceKind>('article');
   const [showBookmarks, setShowBookmarks] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   // useTransition 让 tab/收藏过滤切换非阻塞: 视觉立即响应, 列表过滤可稍后完成
   const [, startTabTransition] = useTransition();
   const [bookmarkTick, setBookmarkTick] = useState(0);
@@ -108,12 +109,24 @@ export default function ResourcesView({
 
   // 读 bookmarkTick / readTick 触发 React re-render 同步 localStorage 状态.
   void bookmarkTick; void readTick;
-  // useDeferredValue: 资源量大时过滤计算推迟到空闲时间, 不阻塞切换动画
-  const filterInputs = { tab, showBookmarks, n: resources.length };
+  // useDeferredValue: 资源量大时过滤计算推迟到空闲时间, 不阻塞切换动画 + 搜索
+  const filterInputs = { tab, showBookmarks, searchQuery, n: resources.length };
   const deferredFilter = useDeferredValue(filterInputs);
+  // 搜索词预先 trim + 转小写, 避免每个资源都做
+  const q = deferredFilter.searchQuery.trim().toLowerCase();
   const filtered = resources.filter((r) => {
     if (r.kind !== deferredFilter.tab) return false;
     if (deferredFilter.showBookmarks && !isBookmarked(r.id)) return false;
+    if (q) {
+      // 搜索 title / summary / tags
+      if (
+        !r.title.toLowerCase().includes(q) &&
+        !r.summary.toLowerCase().includes(q) &&
+        !r.tags.some((t) => t.toLowerCase().includes(q))
+      ) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -227,6 +240,29 @@ export default function ResourcesView({
         />
       )}
 
+      {/* 搜索框 */}
+      <div className="mb-3 relative">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="搜索标题、摘要、标签…"
+          aria-label="搜索资源"
+          className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white/60 border border-primary/20 text-sm text-ink placeholder:text-ink-soft/50 focus:outline-none focus:border-primary focus:bg-white/80 transition-colors"
+        />
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft/50 pointer-events-none" aria-hidden>🔍</span>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(''); haptic('tap'); }}
+            aria-label="清空搜索"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full text-ink-soft/60 hover:bg-primary/10 active:scale-90 transition-all"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* 分类切换 + 收藏过滤 */}
       <div className="flex items-center justify-between gap-2 mb-4" role="tablist" aria-label="资源分类">
         <div className="flex gap-2">
@@ -284,8 +320,23 @@ export default function ResourcesView({
 
       {!loading && !error && filtered.length === 0 && (
         <div className="text-center py-12 text-ink-soft/60">
-          暂无{tab === 'article' ? '图文' : '视频'}资源
-          {isAdmin && <span className="text-primary"> (点击上方 + 添加)</span>}
+          {searchQuery ? (
+            <>
+              没找到匹配「{searchQuery}」的资源
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(''); haptic('tap'); }}
+                className="block mx-auto mt-3 text-xs text-primary hover:underline active:scale-95 transition-transform"
+              >
+                清空搜索
+              </button>
+            </>
+          ) : (
+            <>
+              暂无{tab === 'article' ? '图文' : '视频'}资源
+              {isAdmin && <span className="text-primary"> (点击上方 + 添加)</span>}
+            </>
+          )}
         </div>
       )}
 
