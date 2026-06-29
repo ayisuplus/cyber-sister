@@ -409,8 +409,22 @@ function ResourceDetailView({
   onToggleBookmark?: () => void;
   onBack: () => void;
 }) {
-  // 下滑关闭详情 (移动端)
+  // 下滑关闭详情 (移动端) + Esc 关闭 (桌面)
   const detailRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        haptic('select');
+        onBack();
+      } else if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        haptic('select');
+        onBack();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onBack]);
   useSwipe(detailRef, {
     direction: 'vertical',
     threshold: 80,
