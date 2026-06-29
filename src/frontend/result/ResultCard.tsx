@@ -75,18 +75,24 @@ export default function ResultCard({ features, look }: Props) {
 
   async function onSaveImage() {
     track('result_share', { method: 'image' });
+    haptic('tap');
     const card = cardRef.current;
     if (!card) return;
     try {
       // 用 html-to-image 风格的轻量方案:这里直接用 SVG foreignObject 把 DOM 转图片.
       // MVP 阶段不引依赖,改成手动 CSS snapshot:用 canvas 重绘.
       const dataUrl = renderCardToPng(card, summary, look, tips);
-      if (!dataUrl) return;
+      if (!dataUrl) {
+        haptic('error');
+        return;
+      }
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = `妆语-${look.name}.png`;
       a.click();
+      haptic('success');
     } catch (err) {
+      haptic('error');
       console.warn('save image failed', err);
     }
   }
@@ -123,14 +129,26 @@ export default function ResultCard({ features, look }: Props) {
 
   async function onCopyText() {
     track('result_share', { method: 'copy' });
+    haptic('tap');
     const ok = await copyToClipboard(shareText);
-    if (ok) setCopied(true);
+    if (ok) {
+      haptic('success');
+      setCopied(true);
+    } else {
+      haptic('error');
+    }
   }
 
   async function onCopyXhsText() {
     track('result_share', { method: 'copy_xhs' });
+    haptic('tap');
     const ok = await copyToClipboard(xhsText);
-    if (ok) setCopiedXhs(true);
+    if (ok) {
+      haptic('success');
+      setCopiedXhs(true);
+    } else {
+      haptic('error');
+    }
   }
 
   // Web Share API:在支持的设备(主要是移动端)上弹出原生分享面板.
@@ -140,14 +158,17 @@ export default function ResultCard({ features, look }: Props) {
   async function onNativeShare() {
     if (!canNativeShare) return;
     track('result_share', { method: 'native' });
+    haptic('tap');
     try {
       await navigator.share({
         title: `妆语 AI 妆教 — ${look.name}`,
         text: xhsText,
       });
+      haptic('success');
     } catch (err) {
-      // 用户取消或权限被拒:静默忽略
+      // 用户取消或权限被拒:静默忽略 (AbortError 不算错)
       if (err instanceof Error && err.name !== 'AbortError') {
+        haptic('error');
         console.warn('native share failed', err);
       }
     }
@@ -240,7 +261,7 @@ export default function ResultCard({ features, look }: Props) {
           <button
             type="button"
             onClick={onSaveImage}
-            className="btn-primary flex-1 flex items-center justify-center gap-1.5"
+            className="btn-primary flex-1 flex items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
           >
             <span>🖼️</span>
             <span>保存图片</span>
@@ -248,7 +269,7 @@ export default function ResultCard({ features, look }: Props) {
           <button
             type="button"
             onClick={onCopyText}
-            className="btn-secondary flex-1 flex items-center justify-center gap-1.5"
+            className="btn-secondary flex-1 flex items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
           >
             {copied ? (
               <>
@@ -267,7 +288,7 @@ export default function ResultCard({ features, look }: Props) {
               type="button"
               onClick={onNativeShare}
               aria-label="系统分享"
-              className="btn-secondary flex items-center justify-center gap-1.5 px-3"
+              className="btn-secondary flex items-center justify-center gap-1.5 px-3 min-h-[44px] min-w-[44px] active:scale-95 transition-transform"
             >
               <span>📤</span>
             </button>
@@ -294,7 +315,7 @@ export default function ResultCard({ features, look }: Props) {
             type="button"
             onClick={onCopyXhsText}
             data-testid="copy-xhs-btn"
-            className="text-xs px-3 py-1.5 rounded-full font-medium transition-all"
+            className="text-xs px-3 min-h-[44px] rounded-full font-medium active:scale-95 transition-all"
             style={{
               background: copiedXhs
                 ? 'linear-gradient(135deg,#EAB6BC,#C86B77)'

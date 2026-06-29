@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
+import { haptic } from '../utils/haptic';
 import AdminPanel from './AdminPanel';
 import {
   isBookmarked,
@@ -87,7 +88,8 @@ export default function ResourcesView({
         bookmarked={isBookmarked(selectedResource.id)}
         isRead={isRead(selectedResource.id)}
         onToggleBookmark={() => {
-          toggleBookmark(selectedResource.id);
+          const added = toggleBookmark(selectedResource.id);
+          haptic(added ? 'success' : 'tap');
           setBookmarkTick((n) => n + 1);
         }}
         onBack={() => setSelectedResource(null)}
@@ -102,14 +104,14 @@ export default function ResourcesView({
         <button
           type="button"
           onClick={onBack}
-          className="text-sm text-ink-soft/70 hover:text-primary transition-colors"
+          className="text-sm min-h-[44px] px-3 -ml-3 rounded-lg active:bg-primary/10 text-ink-soft/70 hover:text-primary transition-colors"
         >
           ← 返回
         </button>
         <h2 className="font-serif text-lg font-bold text-ink">教学资源</h2>
         <button
           type="button"
-          onClick={() => setIsAdmin((v) => !v)}
+          onClick={() => { setIsAdmin((v) => !v); haptic('select'); }}
           className={`text-xs px-2 py-1 rounded-lg transition-colors ${
             isAdmin
               ? 'bg-primary text-white'
@@ -146,7 +148,7 @@ export default function ResourcesView({
             type="button"
             role="tab"
             aria-selected={tab === 'article'}
-            onClick={() => { setTab('article'); setSelectedResource(null); }}
+            onClick={() => { setTab('article'); setSelectedResource(null); haptic('select'); }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'article'
                 ? 'bg-primary text-white shadow-sm'
@@ -159,7 +161,7 @@ export default function ResourcesView({
             type="button"
             role="tab"
             aria-selected={tab === 'video'}
-            onClick={() => { setTab('video'); setSelectedResource(null); }}
+            onClick={() => { setTab('video'); setSelectedResource(null); haptic('select'); }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'video'
                 ? 'bg-primary text-white shadow-sm'
@@ -174,7 +176,7 @@ export default function ResourcesView({
           role="switch"
           aria-checked={showBookmarks}
           aria-label="只显示收藏的资源"
-          onClick={() => setShowBookmarks((v) => !v)}
+          onClick={() => { setShowBookmarks((v) => !v); haptic('select'); }}
           className={`px-3 py-2 rounded-xl text-sm transition-colors ${
             showBookmarks
               ? 'bg-primary text-white shadow-sm'
@@ -218,15 +220,19 @@ export default function ResourcesView({
                 }
               }}
               onToggleBookmark={() => {
-                toggleBookmark(resource.id);
+                const added = toggleBookmark(resource.id);
+                haptic(added ? 'success' : 'tap');
                 setBookmarkTick((n) => n + 1);
               }}
               onDelete={isAdmin ? async () => {
                 if (!window.confirm(`确定删除「${resource.title}」?`)) return;
+                haptic('tap');
                 try {
                   await fetchJson(`/api/teaching-resources/${resource.id}`, { method: 'DELETE' });
+                  haptic('success');
                   setResources((prev) => prev.filter((r) => r.id !== resource.id));
                 } catch (err) {
+                  haptic('error');
                   console.error('删除失败:', err);
                 }
               } : undefined}
@@ -286,7 +292,7 @@ function ResourceCard({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
-                  className={`text-sm transition-colors ${
+                  className={`text-base min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 transition-all ${
                     bookmarked ? 'text-amber-500' : 'text-ink-soft/30 hover:text-amber-400'
                   }`}
                   aria-label={bookmarked ? '取消收藏' : '收藏'}
@@ -299,7 +305,7 @@ function ResourceCard({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                  className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                  className="text-sm min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 text-red-400 hover:text-red-600 transition-all flex-shrink-0"
                   aria-label={`删除 ${resource.title}`}
                 >
                   🗑️
@@ -359,7 +365,7 @@ function ResourceDetailView({
         <button
           type="button"
           onClick={onBack}
-          className="text-sm text-ink-soft/70 hover:text-primary transition-colors"
+          className="text-sm min-h-[44px] px-3 -ml-3 rounded-lg active:bg-primary/10 text-ink-soft/70 hover:text-primary transition-colors"
         >
           ← 返回
         </button>
@@ -370,7 +376,7 @@ function ResourceDetailView({
           <button
             type="button"
             onClick={onToggleBookmark}
-            className={`text-lg transition-colors flex-shrink-0 ${
+            className={`text-xl min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 transition-all flex-shrink-0 ${
               bookmarked ? 'text-amber-500' : 'text-ink-soft/40 hover:text-amber-400'
             }`}
             aria-label={bookmarked ? '取消收藏' : '收藏'}

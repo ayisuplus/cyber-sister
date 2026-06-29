@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import { useToast } from '../components/Toast';
+import { haptic } from '../utils/haptic';
 
 // ---------- 类型 ----------
 
@@ -46,6 +47,7 @@ export default function AdminPanel({
   async function handleAdd() {
     setIsAdding(true);
     setAddingError(null);
+    haptic('tap');
 
     try {
       await fetchJson<TeachingResource>('/api/teaching-resources', {
@@ -63,9 +65,11 @@ export default function AdminPanel({
         tags: [],
       });
       setTagsInput('');
+      haptic('success');
       toast.success('资源已添加');
       onRefresh();
     } catch (err) {
+      haptic('error');
       setAddingError(err instanceof Error ? err.message : '添加失败');
     } finally {
       setIsAdding(false);

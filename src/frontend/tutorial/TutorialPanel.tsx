@@ -1,7 +1,9 @@
 // 分步教学面板:显示当前妆容 + 步骤指令 + 上一步/下一步/重新开始按钮 + 进度条.
 // 视觉层:粉系毛玻璃卡片 + 渐变按钮 + 大圆角 chip 标签
 
+import { useEffect } from 'react';
 import type { MakeupLook, MakeupStep } from '../../shared/types';
+import { haptic } from '../utils/haptic';
 
 interface Props {
   look: MakeupLook;
@@ -28,6 +30,28 @@ export default function TutorialPanel({
   const total = steps.length;
   const isFirst = stepIndex === 0;
   const isLast = stepIndex === total - 1;
+
+  // 键盘导航: ← 上一步 / → 下一步 / Home 回到起点 / End 跳到结尾
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLElement) {
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      }
+      if (e.key === 'ArrowLeft' && !isFirst) {
+        haptic('select');
+        onPrev();
+      } else if (e.key === 'ArrowRight' && !isLast) {
+        haptic('select');
+        onNext();
+      } else if (e.key === 'Home' && stepIndex !== 0) {
+        haptic('select');
+        onRestart();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFirst, isLast, stepIndex, onPrev, onNext, onRestart]);
 
   if (!step) {
     return <div className="text-sm text-ink-soft/60 text-center py-4">该妆容暂无教学步骤。</div>;
@@ -154,9 +178,9 @@ export default function TutorialPanel({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={onPrev}
+            onClick={() => { haptic('select'); onPrev(); }}
             disabled={isFirst}
-            className="btn-secondary text-sm py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-secondary text-sm py-2 min-h-[44px] active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
           >
             ← 上一步
           </button>
@@ -170,7 +194,7 @@ export default function TutorialPanel({
               完成 →
             </button>
           ) : (
-            <button type="button" onClick={onNext} className="btn-primary text-sm py-2">
+            <button type="button" onClick={() => { haptic('select'); onNext(); }} className="btn-primary text-sm py-2 min-h-[44px] active:scale-95 transition-transform">
               下一步 →
             </button>
           )}
