@@ -2,10 +2,11 @@
 // 由 looks_ready / tutorial_done 阶段进入.
 // 管理模式: 可增删资源, 触发方式为底部长按或按钮切换.
 
-import { useState, useEffect, useTransition, useDeferredValue } from 'react';
+import { useState, useEffect, useTransition, useDeferredValue, useCallback, useRef } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import { haptic } from '../utils/haptic';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import AdminPanel from './AdminPanel';
 import {
   isBookmarked,
@@ -75,6 +76,26 @@ export default function ResourcesView({
     };
   }, [lookId]);
 
+  // 手动刷新 (供下拉刷新 / 标签页切回 时调用)
+  const refreshList = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ lookId: lookId || '' });
+      const data = await fetchJson<ResourcesListResponse>(`/api/teaching-resources?${params}`);
+      setResources(data.resources ?? []);
+    } catch (err) {
+      console.warn('refresh failed', err);
+    }
+  }, [lookId]);
+
+  // 下拉刷新 (移动端)
+  const pull = usePullToRefresh({
+    onRefresh: async () => {
+      haptic('success');
+      await refreshList();
+    },
+    disabled: loading,
+  });
+
   // 读 bookmarkTick / readTick 触发 React re-render 同步 localStorage 状态.
   void bookmarkTick; void readTick;
   // useDeferredValue: 资源量大时过滤计算推迟到空闲时间, 不阻塞切换动画
@@ -103,7 +124,31 @@ export default function ResourcesView({
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4 overflow-y-auto overscroll-y-contain"
+      ref={pull.ref}
+      style={{ maxHeight: 'calc(100vh - 200px)' }}
+    >
+      {/* 下拉刷新指示器 */}
+      {pull.pullDistance > 0 && (
+        <div
+          className="flex items-center justify-center text-ink-soft/60 text-xs select-none"
+          style={{
+            height: pull.pullDistance,
+            opacity: Math.min(1, pull.pullDistance / 40),
+            transition: pull.isRefreshing ? 'height 200ms ease-out' : 'none',
+          }}
+          aria-live="polite"
+        >
+          {pull.isRefreshing ? (
+            <span>刷新中…</span>
+          ) : pull.pullDistance >= 70 ? (
+            <span>松开刷新</span>
+          ) : (
+            <span>↓ 继续下拉</span>
+          )}
+        </div>
+      )}
       {/* 顶部导航 */}
       <div className="flex items-center justify-between mb-4">
         <button
@@ -363,8 +408,18 @@ function ResourceDetailView({
   onToggleBookmark?: () => void;
   onBack: () => void;
 }) {
+  // 下滑关闭详情 (移动端)
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  useSwipe(detailRef, {
+    direction: 'vertical',
+    threshold: 80,
+    onSwipeDown: () => {
+      haptic('select');
+      onBack();
+    },
+  });
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={detailRef}>
       {/* 顶部导航 */}
       <div className="flex items-center justify-between mb-4">
         <button

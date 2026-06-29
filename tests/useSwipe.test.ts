@@ -72,4 +72,28 @@ describe('detectSwipe: durationMs edge cases', () => {
     // Even 0ms duration is safe — clamped to 1
     expect(() => detectSwipe(makeInput({ durationMs: 0 }))).not.toThrow();
   });
+
+describe('detectSwipe: vertical direction', () => {
+  it('returns "down" for downward swipe past threshold', () => {
+    expect(detectSwipe({
+      startX: 100, startY: 100, endX: 100, endY: 200, durationMs: 100,
+      direction: 'vertical',
+    })).toBe('down');
+  });
+
+  it('returns "up" for upward swipe past threshold', () => {
+    expect(detectSwipe({
+      startX: 100, startY: 200, endX: 100, endY: 100, durationMs: 100,
+      direction: 'vertical',
+    })).toBe('up');
+  });
+
+  it('rejects horizontal-dominant motion in vertical mode', () => {
+    expect(detectSwipe({
+      startX: 100, startY: 100, endX: 300, endY: 110, durationMs: 100,
+      direction: 'vertical',
+    })).toBe('none');
+  });
+});
+
 });
