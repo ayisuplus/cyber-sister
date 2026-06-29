@@ -46,11 +46,17 @@ export default function GeneratingView({
   onUse,
 }: Props) {
   const [tipIdx, setTipIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [fadeKey, setFadeKey] = useState(0);
   useEffect(() => {
     if (status !== 'queued' && status !== 'running') return;
-    const t = window.setInterval(() => setTipIdx((i) => (i + 1) % TIPS.length), 3000);
+    if (paused) return;
+    const t = window.setInterval(() => {
+      setTipIdx((i) => (i + 1) % TIPS.length);
+      setFadeKey((k) => k + 1);
+    }, 3000);
     return () => window.clearInterval(t);
-  }, [status]);
+  }, [status, paused]);
 
   const canStart = imageId !== null && look !== null && status === 'idle';
   const isPending = status === 'queued' || status === 'running';
@@ -99,7 +105,17 @@ export default function GeneratingView({
                     💄
                   </div>
                 </div>
-                <p className="font-serif text-base text-ink">{TIPS[tipIdx]}</p>
+                <p
+                  key={fadeKey}
+                  className="font-serif text-base text-ink animate-fade-up cursor-default"
+                  onMouseEnter={() => setPaused(true)}
+                  onMouseLeave={() => setPaused(false)}
+                  onFocus={() => setPaused(true)}
+                  onBlur={() => setPaused(false)}
+                  title="悬停暂停轮播"
+                >
+                  {TIPS[tipIdx]}
+                </p>
                 <p className="text-xs text-ink-soft/70 mt-2">
                   已等待 {elapsedMs !== null ? fmtSeconds(elapsedMs) : '0s'}
                 </p>
