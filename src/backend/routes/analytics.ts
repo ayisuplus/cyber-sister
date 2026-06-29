@@ -105,8 +105,14 @@ function readRows(): AnalyticsRow[] {
 export const analyticsRouter = Router();
 
 // 事件名:限 ASCII 字母数字 + 下划线 + 短横线,避免写入奇怪字符
+// 事件名限 ASCII 字母数字 + 下划线 + 短横线, 避免写入奇怪字符
+// props 必须 < 16 KB, sessionId < 128, timestamp 是 unix ms
+const EVENT_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const analyticsSchema = {
-  event: { type: 'string', required: true, min: 1, max: 64 },
+  event: { type: 'string', required: true, min: 1, max: 64, pattern: EVENT_NAME_PATTERN },
+  sessionId: { type: 'string', min: 0, max: 128 },
+  timestamp: { type: 'integer', ge: 0, le: 9_999_999_999_999 },
+  props: { type: 'object', min: 0, max: 65_536 },
 } as const;
 
 // POST /api/analytics — 写入 jsonl

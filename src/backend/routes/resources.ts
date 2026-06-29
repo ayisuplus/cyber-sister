@@ -10,28 +10,44 @@ import { validateBody, type Schema } from '../middleware/validate.js';
 
 const ALLOWED_KINDS: ReadonlyArray<TeachingResourceKind> = ['article', 'video'];
 
+// 字符串正则: 防止注入 / 路径穿越 / 特殊字符
+// - id/lookId: UUID 风格 + dash
+// - author / title / summary: 中文 / 字母 / 数字 / 空格 / 常见标点
+// - URL: 严格 https?:// 前缀, 避免 javascript: / data: 等伪协议
+// - body: 任意字符 (允许多行), 仅长度限制
+const ID_PATTERN = /^[A-Za-z0-9_-]{0,64}$/;
+const NAME_PATTERN = /^[\p{L}\p{N}\p{Zs}\-—‘’“”…()·.,!?、。]{0,100}$/u;
+const URL_PATTERN = /^https?:\/\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{0,2048}$/;
+const BODY_PATTERN = /^[\s\S]{0,50000}$/;
+
 const createSchema: Schema = {
-  lookId: { type: 'string', min: 0, max: 64 },
+  lookId: { type: 'string', min: 0, max: 64, pattern: ID_PATTERN },
   kind: { type: 'enum', values: [...ALLOWED_KINDS] },
-  title: { type: 'string', required: true, min: 1, max: 200 },
-  summary: { type: 'string', required: true, min: 1, max: 500 },
-  body: { type: 'string', min: 0, max: 50_000 },
-  coverImage: { type: 'string', min: 0, max: 2048 },
-  videoUrl: { type: 'string', min: 0, max: 2048 },
+  title: { type: 'string', required: true, min: 1, max: 200, pattern: NAME_PATTERN },
+  summary: { type: 'string', required: true, min: 1, max: 500, pattern: NAME_PATTERN },
+  body: { type: 'string', min: 0, max: 50_000, pattern: BODY_PATTERN },
+  coverImage: { type: 'string', min: 0, max: 2048, pattern: URL_PATTERN },
+  videoUrl: { type: 'string', min: 0, max: 2048, pattern: URL_PATTERN },
   durationSec: { type: 'integer', ge: 0, le: 86400 },
-  author: { type: 'string', min: 0, max: 100 },
+  author: { type: 'string', min: 0, max: 100, pattern: NAME_PATTERN },
   tags: { type: 'string', min: 0, max: 500 },
 };
 
 // 字符串数组的窄化 — schema 只能校验 string, 运行时再 split.
+// 每个 tag 必须是字母/数字/下划线/dash/中文, ≤ 30 字符.
 function parseTags(input: unknown): string[] {
   if (typeof input !== 'string') return [];
   if (!input) return [];
-  return input
-    .split(/[,，\s]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .slice(0, 20);
+  const raw = input.split(/[,，\s]+/);
+  const out: string[] = [];
+  for (const t of raw) {
+    const trimmed = t.trim();
+    if (!trimmed) continue;
+    if (!/^[A-Za-z0-9_\-一-龥]{1,30}$/.test(trimmed)) continue;
+    out.push(trimmed);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 function parseStringField(input: unknown): string | undefined {
