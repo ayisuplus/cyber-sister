@@ -18,6 +18,7 @@ import { config } from './config.js';
 import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/logger.js';
 import { globalLimiter } from './middleware/rateLimit.js';
+import { securityHeaders } from './middleware/securityHeaders.js';
 
 // ---------- 路径与配置 ----------
 
@@ -45,15 +46,23 @@ app.set('trust proxy', 1);
 app.use(requestId());
 // 2) 结构化访问日志 (放在 requestId 之后,日志带上 reqId)
 app.use(requestLogger());
-// 3) 安全头: X-Content-Type-Options, X-Frame-Options, Strict-Transport-Security, etc.
+// 3) 安全头: helmet 默认 + 自定义 CSP / Permissions-Policy / Referrer-Policy
 app.use(
   helmet({
-    // SPA 不需要严格 CSP (内联样式 + 外部字体),关掉避免阻断
+    // 自定义 securityHeaders() 提供更严格的 CSP, 关闭 helmet 默认避免冲突
     contentSecurityPolicy: false,
     // 跨域读 /results/* 的图片需要 cors,helmet 默认会带 CORP 头
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // HSTS: 一年 + includeSubDomains + preload (仅在 HTTPS 时由 securityHeaders 注入, 这里给 fallback)
+    strictTransportSecurity: {
+      maxAge: 31_536_000,
+      includeSubDomains: true,
+      preload: true,
+    },
   }),
 );
+// 3b) 补齐 CSP / Permissions-Policy / Referrer-Policy / COOP 等头
+app.use(securityHeaders());
 // 4) CORS — 开发时允许 localhost,生产走白名单 (CORS_ORIGINS 逗号分隔)
 const corsOrigins = config.corsOrigins
   ? config.corsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
