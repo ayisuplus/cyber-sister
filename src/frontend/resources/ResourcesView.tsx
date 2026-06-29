@@ -470,6 +470,21 @@ function ResourceDetailView({
   });
   return (
     <div className="space-y-4" ref={detailRef}>
+      {/* 底部弹层风格的拖拽手柄: 顶部居中的 32px 细条 (WCAG: 至少 48dp 触摸区) */}
+      <div className="flex justify-center -mt-2 mb-1">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="关闭详情"
+          title="拖动下滑 / 点击关闭 / 按 Esc 关闭"
+          className="w-12 min-h-[48px] flex items-center justify-center rounded-full active:bg-primary/10 transition-colors"
+        >
+          <span
+            aria-hidden
+            className="w-10 h-1.5 rounded-full bg-ink-soft/30"
+          />
+        </button>
+      </div>
       {/* 顶部导航 */}
       <div className="flex items-center justify-between mb-4">
         <button
