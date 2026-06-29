@@ -1,11 +1,12 @@
 // 教学资源管理面板 — 用于添加和删除教学资源.
 // 触发方式: 在 ResourcesView 中长按 "妆语" logo 触发.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import { useToast } from '../components/Toast';
 import { haptic } from '../utils/haptic';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // ---------- 类型 ----------
 
@@ -32,6 +33,9 @@ export default function AdminPanel({
   onClose: () => void;
 }) {
   const toast = useToast();
+  // 焦点陷阱: 键盘 Tab 在面板内循环, 不跑出去
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(panelRef, true);
   const [isAdding, setIsAdding] = useState(false);
   const [addingError, setAddingError] = useState<string | null>(null);
   const [formData, setFormData] = useState<CreateResourcePayload>({
@@ -77,7 +81,12 @@ export default function AdminPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      ref={panelRef}
+      role="region"
+      aria-label="教学资源管理面板"
+      className="space-y-4"
+    >
       {/* 顶部操作栏 */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-serif text-lg font-bold text-primary">资源管理</h3>
