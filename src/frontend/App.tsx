@@ -21,6 +21,7 @@ import { useGeneration } from './hooks/useGeneration';
 import { useToast } from './components/Toast';
 import { compressImage, blobToDataUrl } from './utils/image';
 import { fetchJson } from './utils/fetch';
+import { haptic } from './utils/haptic';
 
 // 延迟加载重型组件 — 首次进入 tutorial / result 时才下载 + 解析.
 // 1) MediaPipe canvas 走单独的 chunk, 不会拖慢 onboarding 启动.
@@ -652,8 +653,8 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
         <div className="space-y-3">
           <button
             type="button"
-            onClick={() => cameraRef.current?.click()}
-            className="btn-primary w-full flex items-center justify-center gap-2"
+            onClick={() => { haptic('select'); cameraRef.current?.click(); }}
+            className="btn-primary w-full flex items-center justify-center gap-2 min-h-[48px] active:scale-[0.98] transition-transform"
             aria-label="拍照上传 (调用相机)"
           >
             <span aria-hidden>📷</span>
@@ -661,8 +662,8 @@ function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) => void
           </button>
           <button
             type="button"
-            onClick={() => galleryRef.current?.click()}
-            className="btn-secondary w-full flex items-center justify-center gap-2"
+            onClick={() => { haptic('select'); galleryRef.current?.click(); }}
+            className="btn-secondary w-full flex items-center justify-center gap-2 min-h-[48px] active:scale-[0.98] transition-transform"
             aria-label="从相册选择图片"
           >
             <span aria-hidden>🖼️</span>
