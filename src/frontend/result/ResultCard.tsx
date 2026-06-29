@@ -133,6 +133,26 @@ export default function ResultCard({ features, look }: Props) {
     if (ok) setCopiedXhs(true);
   }
 
+  // Web Share API:在支持的设备(主要是移动端)上弹出原生分享面板.
+  // dataUrl 是 base64 时 share() 会拒绝,所以用 file/blob 优先,否则只分享文本.
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  async function onNativeShare() {
+    if (!canNativeShare) return;
+    track('result_share', { method: 'native' });
+    try {
+      await navigator.share({
+        title: `妆语 AI 妆教 — ${look.name}`,
+        text: xhsText,
+      });
+    } catch (err) {
+      // 用户取消或权限被拒:静默忽略
+      if (err instanceof Error && err.name !== 'AbortError') {
+        console.warn('native share failed', err);
+      }
+    }
+  }
+
   return (
     <div className="text-left space-y-4">
       {/* 主分享卡 */}
@@ -242,6 +262,16 @@ export default function ResultCard({ features, look }: Props) {
               </>
             )}
           </button>
+          {canNativeShare && (
+            <button
+              type="button"
+              onClick={onNativeShare}
+              aria-label="系统分享"
+              className="btn-secondary flex items-center justify-center gap-1.5 px-3"
+            >
+              <span>📤</span>
+            </button>
+          )}
         </div>
       </div>
 
