@@ -19,6 +19,7 @@ import { requestId } from './middleware/requestId.js';
 import { requestLogger } from './middleware/logger.js';
 import { globalLimiter } from './middleware/rateLimit.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
+import { cookieParser, issueCsrfToken, requireCsrfToken } from './middleware/csrf.js';
 
 // ---------- 路径与配置 ----------
 
@@ -80,8 +81,12 @@ app.use(
 );
 // 5) Body parsing — 全局限制小,大文件走 /api/upload 单独处理
 app.use(express.json({ limit: '256kb' }));
+// 5b) 解析 Cookie header (供 CSRF 中间件用)
+app.use(cookieParser());
 // 6) 全局限流 — 健康检查已 skip
 app.use('/api', globalLimiter);
+// 6b) CSRF 防护 — 跳过 analytics / csrf-token / health, 其他 unsafe method 必须带 token
+app.use('/api', requireCsrfToken());
 
 // ---------- 健康检查 (在限流器前,但已在限流器后;这里保持原位) ----------
 
@@ -93,6 +98,9 @@ app.get('/api/health', (_req, res) => {
     timestamp: Date.now(),
   });
 });
+
+// ---------- CSRF token 端点 (用于客户端初始化) ----------
+app.get('/api/csrf-token', issueCsrfToken);
 
 // ---------- 业务路由 ----------
 
