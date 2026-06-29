@@ -7,6 +7,7 @@ import type { TeachingResource, TeachingResourceKind } from '../../shared/types'
 import { fetchJson } from '../utils/fetch';
 import { haptic } from '../utils/haptic';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useLongPress } from '../hooks/useLongPress';
 import AdminPanel from './AdminPanel';
 import {
   isBookmarked,
@@ -75,6 +76,15 @@ export default function ResourcesView({
       window.removeEventListener('storage', onStorage);
     };
   }, [lookId]);
+
+  // 长按标题进入管理模式 (兜底交互 — 同时也有 ⚙ 按钮 + Esc 关闭)
+  const titleLongPress = useLongPress({
+    onLongPress: () => {
+      haptic('success');
+      setIsAdmin((v) => !v);
+    },
+    durationMs: 600,
+  });
 
   // 手动刷新 (供下拉刷新 / 标签页切回 时调用)
   const refreshList = useCallback(async () => {
@@ -158,7 +168,32 @@ export default function ResourcesView({
         >
           ← 返回
         </button>
-        <h2 className="font-serif text-lg font-bold text-ink">教学资源</h2>
+        <button
+          type="button"
+          ref={titleLongPress.ref}
+          onClick={() => {
+            // 单击 = 短提示, 不进入管理 (避免误触)
+            // 长按 = 通过 useLongPress 触发
+          }}
+          aria-label="长按标题进入管理"
+          title="长按 0.6 秒进入管理"
+          className="relative font-serif text-lg font-bold text-ink select-none px-2 py-1 rounded-lg active:scale-95 transition-transform"
+        >
+          教学资源
+          {titleLongPress.isPressing && (
+            <span
+              className="absolute inset-0 rounded-lg pointer-events-none"
+              aria-hidden
+            >
+              <span
+                className="absolute inset-0 rounded-lg border-2 border-primary"
+                style={{
+                  clipPath: `inset(0 ${(1 - titleLongPress.progress) * 100}% 0 0)`,
+                }}
+              />
+            </span>
+          )}
+        </button>
         <button
           type="button"
           onClick={() => { setIsAdmin((v) => !v); haptic('select'); }}
