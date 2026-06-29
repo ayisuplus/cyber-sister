@@ -1,4 +1,6 @@
-// fetch 包装 — 超时 + 退避重试 (5xx / 网络错误 / 429).
+// fetch 包装 — 超时 + 退避重试 (5xx / 网络错误 / 429) + CSRF 自动注入.
+
+import { withCsrfHeader } from './csrf';
 //
 // 行为:
 // - 单次请求有 timeoutMs 超时 (默认 15s).
@@ -18,6 +20,8 @@ interface FetchOptions {
 const DEFAULT_TIMEOUT = 15_000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_BASE_DELAY = 400;
+
+
 
 function isRetriableStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504;
@@ -47,8 +51,16 @@ export async function fetchJson<T = unknown>(
   requestUrl: string,
   init: RequestInit & FetchOptions = {},
 ): Promise<T> {
-  const { timeoutMs = DEFAULT_TIMEOUT, retries = DEFAULT_RETRIES, baseDelayMs = DEFAULT_BASE_DELAY, signal, ...rest } = init;
-  // 把超时信号和父信号合并 — 任一触发就取消.
+  let { timeoutMs = DEFAULT_TIMEOUT, retries = DEFAULT_RETRIES, baseDelayMs = DEFAULT_BASE_DELAY, signal, ...rest } = init;
+  // CSRF 注入: 仅在 unsafe method + same-origin 时加 header
+  const isUnsafe = ["POST", "PUT", "PATCH", "DELETE"].includes((rest.method ?? "").toUpperCase());
+  if (isUnsafe) {
+    try {
+      rest = await withCsrfHeader(rest.method ?? "POST", rest);
+    } catch {
+      // 拉 token 失败, 仍然尝试发请求 (后端会拒绝)
+    }
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const onParentAbort = () => ctrl.abort();
