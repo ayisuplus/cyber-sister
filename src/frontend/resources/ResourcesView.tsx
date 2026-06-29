@@ -6,6 +6,12 @@ import { useState, useEffect } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import AdminPanel from './AdminPanel';
+import {
+  isBookmarked,
+  isRead,
+  markRead,
+  toggleBookmark,
+} from './userPrefs';
 
 // ---------- 类型 ----------
 
@@ -23,6 +29,9 @@ export default function ResourcesView({
   onBack: () => void;
 }) {
   const [tab, setTab] = useState<TeachingResourceKind>('article');
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [bookmarkTick, setBookmarkTick] = useState(0);
+  const [readTick, setReadTick] = useState(0);
   const [resources, setResources] = useState<TeachingResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +44,12 @@ export default function ResourcesView({
     setLoading(true);
     setError(null);
     setSelectedResource(null);
+
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'zw:bookmarks') setBookmarkTick((n) => n + 1);
+      if (e.key === 'zw:read') setReadTick((n) => n + 1);
+    }
+    window.addEventListener('storage', onStorage);
 
     const params = new URLSearchParams({ lookId: lookId || '' });
     fetchJson<ResourcesListResponse>(`/api/teaching-resources?${params}`)
@@ -51,15 +66,30 @@ export default function ResourcesView({
         }
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      window.removeEventListener('storage', onStorage);
+    };
   }, [lookId]);
 
-  const filtered = resources.filter((r) => r.kind === tab);
+  // 读 bookmarkTick / readTick 触发 React re-render 同步 localStorage 状态.
+  void bookmarkTick; void readTick;
+  const filtered = resources.filter((r) => {
+    if (r.kind !== tab) return false;
+    if (showBookmarks && !isBookmarked(r.id)) return false;
+    return true;
+  });
 
   if (selectedResource) {
     return (
       <ResourceDetailView
         resource={selectedResource}
+        bookmarked={isBookmarked(selectedResource.id)}
+        isRead={isRead(selectedResource.id)}
+        onToggleBookmark={() => {
+          toggleBookmark(selectedResource.id);
+          setBookmarkTick((n) => n + 1);
+        }}
         onBack={() => setSelectedResource(null)}
       />
     );
@@ -109,33 +139,49 @@ export default function ResourcesView({
         />
       )}
 
-      {/* Tab 切换 */}
-      <div className="flex gap-2 mb-4" role="tablist" aria-label="资源分类">
+      {/* 分类切换 + 收藏过滤 */}
+      <div className="flex items-center justify-between gap-2 mb-4" role="tablist" aria-label="资源分类">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'article'}
+            onClick={() => { setTab('article'); setSelectedResource(null); }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+              tab === 'article'
+                ? 'bg-primary text-white shadow-sm'
+                : 'bg-white/60 text-ink-soft/70 hover:bg-white/80'
+            }`}
+          >
+            📖 图文
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'video'}
+            onClick={() => { setTab('video'); setSelectedResource(null); }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+              tab === 'video'
+                ? 'bg-primary text-white shadow-sm'
+                : 'bg-white/60 text-ink-soft/70 hover:bg-white/80'
+            }`}
+          >
+            🎬 视频
+          </button>
+        </div>
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === 'article'}
-          onClick={() => { setTab('article'); setSelectedResource(null); }}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-            tab === 'article'
+          role="switch"
+          aria-checked={showBookmarks}
+          aria-label="只显示收藏的资源"
+          onClick={() => setShowBookmarks((v) => !v)}
+          className={`px-3 py-2 rounded-xl text-sm transition-colors ${
+            showBookmarks
               ? 'bg-primary text-white shadow-sm'
               : 'bg-white/60 text-ink-soft/70 hover:bg-white/80'
           }`}
         >
-          📖 图文
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'video'}
-          onClick={() => { setTab('video'); setSelectedResource(null); }}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-            tab === 'video'
-              ? 'bg-primary text-white shadow-sm'
-              : 'bg-white/60 text-ink-soft/70 hover:bg-white/80'
-          }`}
-        >
-          🎬 视频
+          {showBookmarks ? '★ 仅收藏' : '☆ 仅收藏'}
         </button>
       </div>
 
@@ -162,7 +208,19 @@ export default function ResourcesView({
               key={resource.id}
               resource={resource}
               isAdmin={isAdmin}
-              onClick={() => { if (!isAdmin) setSelectedResource(resource); }}
+              bookmarked={isBookmarked(resource.id)}
+              isRead={isRead(resource.id)}
+              onClick={() => {
+                if (!isAdmin) {
+                  markRead(resource.id);
+                  setReadTick((n) => n + 1);
+                  setSelectedResource(resource);
+                }
+              }}
+              onToggleBookmark={() => {
+                toggleBookmark(resource.id);
+                setBookmarkTick((n) => n + 1);
+              }}
               onDelete={isAdmin ? async () => {
                 if (!window.confirm(`确定删除「${resource.title}」?`)) return;
                 try {
@@ -185,12 +243,18 @@ export default function ResourcesView({
 function ResourceCard({
   resource,
   isAdmin,
+  bookmarked,
+  isRead,
   onClick,
+  onToggleBookmark,
   onDelete,
 }: {
   resource: TeachingResource;
   isAdmin?: boolean;
+  bookmarked?: boolean;
+  isRead?: boolean;
   onClick: () => void;
+  onToggleBookmark?: () => void;
   onDelete?: () => void;
 }) {
   return (
@@ -203,24 +267,45 @@ function ResourceCard({
     >
       <div className="flex items-start gap-3">
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 relative"
           style={{ background: 'linear-gradient(135deg,#EAB6BC,#C86B77)' }}
         >
           {resource.kind === 'article' ? '📖' : '🎬'}
+          {isRead && (
+            <span
+              className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-white"
+              aria-label="已读"
+            />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <div className="font-medium text-ink text-sm truncate flex-1">{resource.title}</div>
-            {isAdmin && onDelete && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
-                aria-label={`删除 ${resource.title}`}
-              >
-                🗑️
-              </button>
-            )}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {!isAdmin && onToggleBookmark && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
+                  className={`text-sm transition-colors ${
+                    bookmarked ? 'text-amber-500' : 'text-ink-soft/30 hover:text-amber-400'
+                  }`}
+                  aria-label={bookmarked ? '取消收藏' : '收藏'}
+                  aria-pressed={bookmarked}
+                >
+                  {bookmarked ? '★' : '☆'}
+                </button>
+              )}
+              {isAdmin && onDelete && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                  className="text-xs text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                  aria-label={`删除 ${resource.title}`}
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
           </div>
           <div className="text-xs text-ink-soft/60 mt-1 line-clamp-2">
             {resource.summary}
@@ -256,9 +341,15 @@ function ResourceCard({
 
 function ResourceDetailView({
   resource,
+  isRead,
+  onToggleBookmark,
+  bookmarked,
   onBack,
 }: {
   resource: TeachingResource;
+  isRead?: boolean;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   onBack: () => void;
 }) {
   return (
@@ -272,10 +363,25 @@ function ResourceDetailView({
         >
           ← 返回
         </button>
-        <h2 className="font-serif text-lg font-bold text-ink truncate px-2">
+        <h2 className="font-serif text-lg font-bold text-ink truncate px-2 flex-1">
           {resource.title}
         </h2>
-        <div className="w-10" />
+        {onToggleBookmark && (
+          <button
+            type="button"
+            onClick={onToggleBookmark}
+            className={`text-lg transition-colors flex-shrink-0 ${
+              bookmarked ? 'text-amber-500' : 'text-ink-soft/40 hover:text-amber-400'
+            }`}
+            aria-label={bookmarked ? '取消收藏' : '收藏'}
+            aria-pressed={bookmarked}
+          >
+            {bookmarked ? '★' : '☆'}
+          </button>
+        )}
+        {isRead && (
+          <span className="text-xs text-emerald-600 flex-shrink-0">已读</span>
+        )}
       </div>
 
       {/* 标签 */}
