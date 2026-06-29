@@ -17,6 +17,11 @@ const DATA_DIR = process.env.ANALYTICS_DATA_DIR
   : DEFAULT_DATA_DIR;
 const JSONL_PATH = join(DATA_DIR, 'analytics.jsonl');
 
+// 内存缓存:避免每次 GET /stats 都读盘.写入时失效.
+// 5s TTL 是 trade-off: 实时性 vs 性能. 监控场景 5s 内一致已经足够.
+let cachedStats: { stats: StatsResponse; loadedAt: number } | null = null;
+const STATS_CACHE_TTL_MS = 5_000;
+
 // ---------- 类型 ----------
 
 // 落盘行结构 (强制 timestamp,允许 sessionId 为 null)
@@ -124,20 +129,36 @@ analyticsRouter.post('/analytics', analyticsLimiter, validateBody(analyticsSchem
     return;
   }
 
+  invalidateStatsCache();
   console.info('[analytics]', row.event, row.props);
   res.json({ ok: true });
 });
 
 // GET /api/analytics/stats — 返回统计
 analyticsRouter.get('/analytics/stats', (_req, res) => {
+  res.json(getStats());
+});
+
+/**
+ * 带缓存的统计读.5s TTL,写后立即失效.
+ * 公开用于测试与未来其他端点.
+ */
+export function getStats(): StatsResponse {
+  const now = Date.now();
+  if (cachedStats && now - cachedStats.loadedAt < STATS_CACHE_TTL_MS) {
+    return cachedStats.stats;
+  }
   const rows = readRows();
   const byEvent: Record<string, number> = {};
   for (const r of rows) {
     byEvent[r.event] = (byEvent[r.event] ?? 0) + 1;
   }
-  const payload: StatsResponse = {
-    total: rows.length,
-    byEvent,
-  };
-  res.json(payload);
-});
+  const stats: StatsResponse = { total: rows.length, byEvent };
+  cachedStats = { stats, loadedAt: now };
+  return stats;
+}
+
+/** 手动清缓存 (写完/管理后台刷新). */
+export function invalidateStatsCache(): void {
+  cachedStats = null;
+}

@@ -19,7 +19,7 @@ const TEST_DATA_DIR = join(TMP, 'data');
 // 动态 import 是测试场景下唯一可靠的方式 (env 必须先就位)
 process.env.ANALYTICS_DATA_DIR = TEST_DATA_DIR;
 
-const { analyticsRouter } = await import('../src/backend/routes/analytics');
+const { analyticsRouter, getStats, invalidateStatsCache } = await import('../src/backend/routes/analytics');
 
 // ---------- 工具: 直接调用 router handler,绕开 express ----------
 
@@ -210,5 +210,40 @@ describe('GET /api/analytics/stats — 统计', () => {
     const s = r.json as StatsBody;
     expect(s.total).toBe(2); // 坏行跳过
     expect(s.byEvent).toEqual({ click: 2 });
+  });
+});
+
+describe('analytics: stats cache', () => {
+  it('getStats returns the same shape as the route', () => {
+    invalidateStatsCache();
+    const s = getStats();
+    expect(typeof s.total).toBe('number');
+    expect(typeof s.byEvent).toBe('object');
+  });
+
+  it('getStats within TTL returns the cached object reference', () => {
+    invalidateStatsCache();
+    const a = getStats();
+    const b = getStats();
+    expect(b).toBe(a); // 同一个引用 → 命中缓存
+  });
+
+  it('invalidateStatsCache forces the next call to recompute', () => {
+    invalidateStatsCache();
+    const a = getStats();
+    invalidateStatsCache();
+    const b = getStats();
+    expect(b).not.toBe(a);
+    expect(b).toEqual(a); // 但内容应该相同
+  });
+
+  it('write 通过 invalidateStatsCache 失效缓存', async () => {
+    invalidateStatsCache();
+    const before = getStats();
+    await callHandler('post', '/analytics', { body: { event: 'cache_test' } });
+    // 写入后 cache 应被清,下一次 getStats 重新算
+    const after = getStats();
+    expect(after.total).toBe(before.total + 1);
+    expect(after.byEvent.cache_test).toBe(1);
   });
 });
