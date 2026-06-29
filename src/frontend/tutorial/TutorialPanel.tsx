@@ -1,9 +1,10 @@
 // 分步教学面板:显示当前妆容 + 步骤指令 + 上一步/下一步/重新开始按钮 + 进度条.
 // 视觉层:粉系毛玻璃卡片 + 渐变按钮 + 大圆角 chip 标签
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { MakeupLook, MakeupStep } from '../../shared/types';
 import { haptic } from '../utils/haptic';
+import { useSwipe } from '../hooks/useSwipe';
 
 interface Props {
   look: MakeupLook;
@@ -53,6 +54,23 @@ export default function TutorialPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [isFirst, isLast, stepIndex, onPrev, onNext, onRestart]);
 
+  // 滑动:左滑下一步, 右滑上一步 (移动端)
+  const swipeRef = useRef<HTMLDivElement | null>(null);
+  useSwipe(swipeRef, {
+    onSwipeLeft: () => {
+      if (!isLast) {
+        haptic('select');
+        onNext();
+      }
+    },
+    onSwipeRight: () => {
+      if (!isFirst) {
+        haptic('select');
+        onPrev();
+      }
+    },
+  });
+
   if (!step) {
     return <div className="text-sm text-ink-soft/60 text-center py-4">该妆容暂无教学步骤。</div>;
   }
@@ -60,7 +78,7 @@ export default function TutorialPanel({
   const progress = ((stepIndex + 1) / total) * 100;
 
   return (
-    <div className="text-left space-y-4">
+    <div className="text-left space-y-4" ref={swipeRef}>
       {/* 妆容头信息 */}
       <div>
         <div className="chip-tag mb-1.5">{look.scenario}</div>
