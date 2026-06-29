@@ -25,9 +25,9 @@ import { fetchJson } from './utils/fetch';
 // 延迟加载重型组件 — 首次进入 tutorial / result 时才下载 + 解析.
 // 1) MediaPipe canvas 走单独的 chunk, 不会拖慢 onboarding 启动.
 // 2) 结果卡也按需加载 (它会引入 fonts/分享文案/canvas 渲染等).
-const MakeupCanvas = lazy(() => import('./tutorial/MakeupCanvas'));
-const ResourcesView = lazy(() => import('./resources/ResourcesView'));
-const ResultCard = lazy(() => import('./result/ResultCard'));
+const MakeupCanvas = lazy(() => import(/* webpackChunkName: "makeup-canvas", webpackPrefetch: true */ './tutorial/MakeupCanvas'));
+const ResourcesView = lazy(() => import(/* webpackChunkName: "resources-view", webpackPrefetch: true */ './resources/ResourcesView'));
+const ResultCard = lazy(() => import(/* webpackChunkName: "result-card" */ './result/ResultCard'));
 
 type AppState =
   | { stage: 'idle' }
