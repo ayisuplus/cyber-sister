@@ -162,12 +162,13 @@ export default function ResourcesView({
         <button
           type="button"
           onClick={() => { setIsAdmin((v) => !v); haptic('select'); }}
-          className={`text-xs px-2 py-1 rounded-lg transition-colors ${
+          className={`min-w-[44px] min-h-[44px] px-3 rounded-lg text-base flex items-center justify-center active:scale-95 transition-all ${
             isAdmin
               ? 'bg-primary text-white'
               : 'text-ink-soft/50 hover:text-ink-soft/80'
           }`}
-          title="长按可进入管理模式"
+          title="管理教学资源 (长按 logo 也能进入)"
+          aria-label={isAdmin ? '退出管理模式' : '进入管理模式'}
         >
           {isAdmin ? '管理中' : '⚙'}
         </button>

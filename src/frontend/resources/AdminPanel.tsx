@@ -188,14 +188,25 @@ export default function AdminPanel({
           <div className="text-xs text-red-500 bg-red-50 rounded-xl p-2">{addingError}</div>
         )}
 
-        {/* 提交按钮 */}
+        {/* 提交按钮:带 spinner 的 pending 状态 */}
         <button
           type="button"
           onClick={handleAdd}
           disabled={isAdding || !formData.title}
-          className="btn-primary w-full py-2 text-sm disabled:opacity-50"
+          aria-busy={isAdding}
+          className="btn-primary w-full min-h-[44px] py-2 text-sm active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          {isAdding ? '添加中...' : '添加资源'}
+          {isAdding ? (
+            <>
+              <span
+                className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"
+                aria-hidden
+              />
+              <span>添加中…</span>
+            </>
+          ) : (
+            <span>添加资源</span>
+          )}
         </button>
       </div>
     </div>
