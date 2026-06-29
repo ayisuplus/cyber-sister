@@ -2,7 +2,7 @@
 // 由 looks_ready / tutorial_done 阶段进入.
 // 管理模式: 可增删资源, 触发方式为底部长按或按钮切换.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition, useDeferredValue } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import { haptic } from '../utils/haptic';
@@ -31,6 +31,8 @@ export default function ResourcesView({
 }) {
   const [tab, setTab] = useState<TeachingResourceKind>('article');
   const [showBookmarks, setShowBookmarks] = useState(false);
+  // useTransition 让 tab/收藏过滤切换非阻塞: 视觉立即响应, 列表过滤可稍后完成
+  const [, startTabTransition] = useTransition();
   const [bookmarkTick, setBookmarkTick] = useState(0);
   const [readTick, setReadTick] = useState(0);
   const [resources, setResources] = useState<TeachingResource[]>([]);
@@ -75,9 +77,12 @@ export default function ResourcesView({
 
   // 读 bookmarkTick / readTick 触发 React re-render 同步 localStorage 状态.
   void bookmarkTick; void readTick;
+  // useDeferredValue: 资源量大时过滤计算推迟到空闲时间, 不阻塞切换动画
+  const filterInputs = { tab, showBookmarks, n: resources.length };
+  const deferredFilter = useDeferredValue(filterInputs);
   const filtered = resources.filter((r) => {
-    if (r.kind !== tab) return false;
-    if (showBookmarks && !isBookmarked(r.id)) return false;
+    if (r.kind !== deferredFilter.tab) return false;
+    if (deferredFilter.showBookmarks && !isBookmarked(r.id)) return false;
     return true;
   });
 
@@ -148,7 +153,7 @@ export default function ResourcesView({
             type="button"
             role="tab"
             aria-selected={tab === 'article'}
-            onClick={() => { setTab('article'); setSelectedResource(null); haptic('select'); }}
+            onClick={() => { startTabTransition(() => { setTab('article'); setSelectedResource(null); }); haptic('select'); }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'article'
                 ? 'bg-primary text-white shadow-sm'
@@ -161,7 +166,7 @@ export default function ResourcesView({
             type="button"
             role="tab"
             aria-selected={tab === 'video'}
-            onClick={() => { setTab('video'); setSelectedResource(null); haptic('select'); }}
+            onClick={() => { startTabTransition(() => { setTab('video'); setSelectedResource(null); }); haptic('select'); }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'video'
                 ? 'bg-primary text-white shadow-sm'
@@ -176,7 +181,7 @@ export default function ResourcesView({
           role="switch"
           aria-checked={showBookmarks}
           aria-label="只显示收藏的资源"
-          onClick={() => { setShowBookmarks((v) => !v); haptic('select'); }}
+          onClick={() => { startTabTransition(() => { setShowBookmarks((v) => !v); }); haptic('select'); }}
           className={`px-3 py-2 rounded-xl text-sm transition-colors ${
             showBookmarks
               ? 'bg-primary text-white shadow-sm'
