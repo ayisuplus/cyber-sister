@@ -1,3 +1,5 @@
+/* Google Fonts: 必须在 @import 'tailwindcss' 之前 (Tailwind v4 会展开成 @layer 规则) */
+@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600;700&family=Long+Cang&display=swap');
 @import 'tailwindcss';
 
 /* =========================================================================
@@ -44,11 +46,6 @@
   --shadow-neu-in:
     inset 4px 4px 10px rgba(200, 107, 119, 0.12), inset -4px -4px 10px rgba(255, 255, 255, 0.85);
 }
-
-/* =========================================================================
-   字体引入
-   ========================================================================= */
-@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600;700&family=Long+Cang&display=swap');
 
 /* =========================================================================
    基础 reset
