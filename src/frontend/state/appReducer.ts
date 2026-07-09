@@ -25,6 +25,7 @@ export type AppState =
   | { stage: 'tutorial_done'; look: MakeupLook }
   | { stage: 'result'; look: MakeupLook; features: FaceFeatures }
   | { stage: 'teaching_resources'; lookId: string }
+  | { stage: 'survey' }
   | { stage: 'error'; message: string; recoverable: boolean };
 
 export type Action =
@@ -50,6 +51,8 @@ export type Action =
   | { type: 'ENTER_RESULT'; look: MakeupLook; features: FaceFeatures }
   | { type: 'OPEN_TEACHING_RESOURCES'; lookId: string }
   | { type: 'CLOSE_TEACHING_RESOURCES' }
+  | { type: 'OPEN_SURVEY' }
+  | { type: 'CLOSE_SURVEY' }
   | { type: 'ERROR'; message: string; recoverable: boolean }
   | { type: 'RESET' };
 
@@ -118,6 +121,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'OPEN_TEACHING_RESOURCES':
       return { stage: 'teaching_resources', lookId: action.lookId };
     case 'CLOSE_TEACHING_RESOURCES':
+      return { stage: 'idle' };
+    case 'OPEN_SURVEY':
+      return { stage: 'survey' };
+    case 'CLOSE_SURVEY':
       return { stage: 'idle' };
     case 'ERROR':
       return { stage: 'error', message: action.message, recoverable: action.recoverable };

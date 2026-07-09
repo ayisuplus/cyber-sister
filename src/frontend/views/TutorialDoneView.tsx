@@ -13,13 +13,15 @@ interface Props {
   look: MakeupLook;
   /** 分析五官; tutorial_done 阶段 state 未携带, 由 App 通过 featuresRef 透传, 可能为 null. */
   features: FaceFeatures | null;
+  /** D9: 打开问卷页回调. */
+  onOpenSurvey: () => void;
 }
 
 /**
  * 教学完成页: "恭喜完成" + 进度条过渡 + 收藏入口.
  * 收藏按钮在 1.8s 过渡窗口内可快速点按; 完整收藏体验在 ResultCard 也有.
  */
-export function TutorialDoneView({ look, features }: Props) {
+export function TutorialDoneView({ look, features, onOpenSurvey }: Props) {
   const [favorited, setFavorited] = useState<boolean>(() => isFavorited(look.id));
 
   function toggleFavorite() {
@@ -87,6 +89,24 @@ export function TutorialDoneView({ look, features }: Props) {
         >
           <span>{favorited ? '✓' : '⭐'}</span>
           <span>{favorited ? '已收藏' : '收藏这个妆容'}</span>
+        </button>
+      </div>
+
+      {/* D9: 问卷入口 — 帮我们做得更好 */}
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={onOpenSurvey}
+          data-testid="done-survey-btn"
+          className="inline-flex items-center gap-1.5 min-h-[44px] px-5 rounded-full font-medium text-sm active:scale-95 transition-all"
+          style={{
+            background: 'rgba(234,182,188,0.15)',
+            color: '#C86B77',
+            border: '1.5px dashed rgba(200,107,119,0.3)',
+          }}
+        >
+          <span aria-hidden="true">📋</span>
+          <span>帮我们做得更好</span>
         </button>
       </div>
     </div>

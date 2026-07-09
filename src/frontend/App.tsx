@@ -30,6 +30,7 @@ import { RecommendingView } from './views/RecommendingView';
 import { LooksReadyView } from './views/LooksReadyView';
 import { TutorialView } from './views/TutorialView';
 import { TutorialDoneView } from './views/TutorialDoneView';
+import { SurveyView } from './views/SurveyView';
 import { ErrorView } from './views/ErrorView';
 import { ResourcesLoadingFallback, ResultLoadingFallback } from './views/fallbacks';
 
@@ -398,7 +399,14 @@ function App() {
             />
           )}
           {state.stage === 'tutorial_done' && (
-            <TutorialDoneView look={state.look} features={featuresRef.current} />
+            <TutorialDoneView
+              look={state.look}
+              features={featuresRef.current}
+              onOpenSurvey={() => dispatch({ type: 'OPEN_SURVEY' })}
+            />
+          )}
+          {state.stage === 'survey' && (
+            <SurveyView onClose={() => dispatch({ type: 'CLOSE_SURVEY' })} />
           )}
           {state.stage === 'result' && (
             <Suspense fallback={<ResultLoadingFallback />}>
