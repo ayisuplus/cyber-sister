@@ -79,6 +79,23 @@ export function OnboardingView({ onImagePicked }: { onImagePicked: (file: File) 
       aria-label="上传自拍图片"
       aria-describedby="onboarding-help"
     >
+      {/* 隐私承诺 — 常驻顶部,温暖闺蜜感 */}
+      <div
+        className="rounded-2xl px-4 py-3 mb-6 flex items-center gap-2 text-sm"
+        style={{
+          background:
+            'linear-gradient(135deg, rgba(253,242,243,0.95), rgba(234,182,188,0.4))',
+          border: '1px solid rgba(234,182,188,0.5)',
+        }}
+        role="note"
+        aria-label="隐私承诺：照片仅在本地分析"
+      >
+        <span aria-hidden className="text-base">🔒</span>
+        <span className="text-primary-deep">
+          放心哦，你的照片只在手机本地分析，绝不会上传到服务器～
+        </span>
+      </div>
+
       {/* Hero */}
       <div className="text-center mb-8">
         <div className="inline-flex chip-rose-solid mb-4 animate-pulse-soft">✨ AI 智能美妆</div>

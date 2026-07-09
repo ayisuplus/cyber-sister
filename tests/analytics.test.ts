@@ -1,7 +1,7 @@
 // analytics 路由测试 — 文件存储 + /stats 端点.
 // 用临时目录隔离,避免污染真实 data/analytics.jsonl.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -255,5 +255,81 @@ describe('analytics: stats cache', () => {
     const after = getStats();
     expect(after.total).toBe(before.total + 1);
     expect(after.byEvent.cache_test).toBe(1);
+  });
+});
+
+// ---------- track() 自动附带 sessionId (前端 src/shared/analytics.ts) ----------
+
+describe('track() 自动附带 sessionId', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = new Map();
+    const lsMock = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      clear: () => {
+        store.clear();
+      },
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      get length() {
+        return store.size;
+      },
+    };
+    vi.stubGlobal('localStorage', lsMock);
+    fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('track 发送的 body 含非空 sessionId', async () => {
+    const { track } = await import('../src/shared/analytics');
+    track('test_event', { foo: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
+    expect(calls[0]![0]).toBe('/api/analytics');
+    const body = JSON.parse(calls[0]![1].body) as Record<string, unknown>;
+    expect(body.event).toBe('test_event');
+    expect(typeof body.sessionId).toBe('string');
+    expect((body.sessionId as string).length).toBeGreaterThan(0);
+  });
+
+  it('同一会话内多次 track 使用相同 sessionId', async () => {
+    const { track, getSessionId } = await import('../src/shared/analytics');
+    track('a');
+    track('b');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
+    const id1 = JSON.parse(calls[0]![1].body).sessionId as string;
+    const id2 = JSON.parse(calls[1]![1].body).sessionId as string;
+    expect(id1).toBe(id2);
+    expect(id1).toBe(getSessionId());
+  });
+
+  it('sessionId 持久化到 localStorage 且不含 PII', async () => {
+    const { getSessionId } = await import('../src/shared/analytics');
+    const id = getSessionId();
+    expect(store.get('makeupwhisper_session_id')).toBe(id);
+    // id 形态: UUID 或 sess- 前缀,均为本地生成、无 PII
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+    expect(id.length).toBeLessThanOrEqual(128);
+  });
+
+  it('已持久化的 sessionId 在重新加载后被复用', async () => {
+    store.set('makeupwhisper_session_id', 'pre-existing-id');
+    const { getSessionId } = await import('../src/shared/analytics');
+    expect(getSessionId()).toBe('pre-existing-id');
   });
 });

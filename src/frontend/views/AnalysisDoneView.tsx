@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import type { FaceFeatures } from '../../shared/types';
+import { track } from '../../shared/analytics';
+import { haptic } from '../utils/haptic';
 
 export function AnalysisDoneView({
   features,
@@ -9,6 +12,16 @@ export function AnalysisDoneView({
   warnings: string[];
   onContinue: () => void;
 }) {
+  const [trusted, setTrusted] = useState(false);
+
+  // 信任点击: 落 trust_click 事件 (含 confidence), 并给轻量反馈.
+  function handleTrustClick() {
+    if (trusted) return;
+    haptic('select');
+    track('trust_click', { confidence: features.confidence });
+    setTrusted(true);
+  }
+
   return (
     <div className="text-left">
       <div className="text-center mb-5">
@@ -68,9 +81,24 @@ export function AnalysisDoneView({
         </div>
       )}
 
-      <button type="button" onClick={onContinue} className="btn-primary w-full">
-        查看推荐妆容 →
-      </button>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={handleTrustClick}
+          className="btn-secondary flex-1 min-h-[48px] active:scale-[0.98] transition-transform"
+          aria-label="分析得挺准"
+          aria-pressed={trusted}
+        >
+          {trusted ? '谢谢肯定～' : '👍 分析得挺准'}
+        </button>
+        <button
+          type="button"
+          onClick={onContinue}
+          className="btn-primary flex-1 min-h-[48px] active:scale-[0.98] transition-transform"
+        >
+          查看推荐妆容 →
+        </button>
+      </div>
     </div>
   );
 }

@@ -311,6 +311,7 @@ function App() {
     try {
       await loadModel((p) => dispatch({ type: 'MODEL_PROGRESS', progress: p }));
       track('model_load', { duration_ms: t() });
+      track('upload_success', { size: file.size, type: file.type });
       // 把图片信息存到 ref,跨阶段供 tutorial 使用
       previewUrlRef.current = previewUrl;
       imageSizeRef.current = { width: imageData.width, height: imageData.height };
