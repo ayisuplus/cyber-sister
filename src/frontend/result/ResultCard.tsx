@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FaceFeatures, MakeupLook, MakeupStep } from '../../shared/types';
 import { track } from '../../shared/analytics';
 import { haptic } from '../utils/haptic';
+import { addFavorite, findFavoriteByLookId, isFavorited, removeFavorite } from '../utils/favorites';
 
 interface Props {
   features: FaceFeatures;
@@ -54,6 +55,8 @@ export default function ResultCard({ features, look }: Props) {
   const [copied, setCopied] = useState(false);
   // 闺蜜种草文案专用复制反馈,跟原 copied 区分避免互相覆盖
   const [copiedXhs, setCopiedXhs] = useState(false);
+  // D11: 收藏状态, 初始从本地读取
+  const [favorited, setFavorited] = useState<boolean>(() => isFavorited(look.id));
 
   const tips = pickTopTips(look.steps, 3);
   const summary = `${FACE_SHAPE_CN[features.faceShape] ?? '未知'} + ${SKIN_TONE_CN[features.skinTone] ?? '未知'} + ${EYE_CN[features.eyeType] ?? '未知'}`;
@@ -172,6 +175,32 @@ export default function ResultCard({ features, look }: Props) {
         haptic('error');
         console.warn('native share failed', err);
       }
+    }
+  }
+
+  // D11: 收藏 / 取消收藏当前方案到本地 (localStorage, 禁含 PII)
+  function toggleFavorite() {
+    if (favorited) {
+      const rec = findFavoriteByLookId(look.id);
+      if (rec) removeFavorite(rec.id);
+      track('favorite_toggle', { look_id: look.id, action: 'remove' });
+      haptic('tap');
+      setFavorited(false);
+    } else {
+      addFavorite({
+        lookId: look.id,
+        lookName: look.name,
+        scenario: look.scenario,
+        features: {
+          faceShape: features.faceShape,
+          skinTone: features.skinTone,
+          eyeType: features.eyeType,
+          confidence: features.confidence,
+        },
+      });
+      track('favorite_toggle', { look_id: look.id, action: 'add' });
+      haptic('success');
+      setFavorited(true);
     }
   }
 
@@ -295,6 +324,25 @@ export default function ResultCard({ features, look }: Props) {
             </button>
           )}
         </div>
+        {/* D11: 收藏方案到本地, 7 日内可回看 */}
+        <button
+          type="button"
+          onClick={toggleFavorite}
+          data-testid="favorite-toggle-btn"
+          aria-pressed={favorited}
+          className="w-full flex items-center justify-center gap-1.5 min-h-[44px] rounded-full font-medium active:scale-95 transition-all"
+          style={{
+            background: favorited
+              ? 'linear-gradient(135deg,#EAB6BC,#C86B77)'
+              : 'rgba(234,182,188,0.25)',
+            color: favorited ? '#fff' : '#C86B77',
+            boxShadow: favorited ? '0 4px 12px rgba(200,107,119,0.3)' : 'none',
+            border: favorited ? 'none' : '1.5px solid rgba(200,107,119,0.35)',
+          }}
+        >
+          <span>{favorited ? '★' : '⭐'}</span>
+          <span>{favorited ? '已收藏' : '收藏方案'}</span>
+        </button>
       </div>
 
       {/* 闺蜜种草文案区:小红书/朋友圈口吻,一键复制 */}

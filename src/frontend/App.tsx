@@ -397,7 +397,9 @@ function App() {
               onFinish={() => dispatch({ type: 'TUTORIAL_DONE' })}
             />
           )}
-          {state.stage === 'tutorial_done' && <TutorialDoneView lookName={state.look.name} />}
+          {state.stage === 'tutorial_done' && (
+            <TutorialDoneView look={state.look} features={featuresRef.current} />
+          )}
           {state.stage === 'result' && (
             <Suspense fallback={<ResultLoadingFallback />}>
               <ResultCard features={state.features} look={state.look} />
