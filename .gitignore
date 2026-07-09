@@ -37,6 +37,12 @@ coverage/
 .idea/
 *.swp
 
+# ---------- AI assistant work dirs ----------
+.workbuddy/
+
+# ---------- Reference images (too large for git) ----------
+妆容参考图片/
+
 # ---------- Dead environments ----------
 venv_train/
 .omo/

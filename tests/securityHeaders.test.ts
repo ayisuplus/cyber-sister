@@ -25,7 +25,10 @@ afterAll(() => {
   server.close();
 });
 
-async function get(path: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: Record<string, string | string[] | undefined> }> {
+async function get(
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined> }> {
   const res = await fetch(`${baseUrl}${path}`, { headers });
   // Convert Headers to a plain object for easy assertion
   const obj: Record<string, string | string[] | undefined> = {};

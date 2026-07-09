@@ -12,10 +12,7 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export function useFocusTrap(
-  ref: React.RefObject<HTMLElement | null>,
-  active = true,
-): void {
+export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, active = true): void {
   useEffect(() => {
     if (!active) return;
     const el = ref.current;
@@ -24,7 +21,9 @@ export function useFocusTrap(
     function getFocusable(): HTMLElement[] {
       if (!el) return [];
       const nodes = el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-      return Array.from(nodes).filter((n) => n.offsetParent !== null || n === document.activeElement);
+      return Array.from(nodes).filter(
+        (n) => n.offsetParent !== null || n === document.activeElement,
+      );
     }
 
     function onKey(e: KeyboardEvent) {

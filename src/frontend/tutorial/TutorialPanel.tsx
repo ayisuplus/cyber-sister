@@ -196,7 +196,10 @@ export default function TutorialPanel({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => { haptic('select'); onPrev(); }}
+            onClick={() => {
+              haptic('select');
+              onPrev();
+            }}
             disabled={isFirst}
             className="btn-secondary text-sm py-2 min-h-[44px] active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -212,7 +215,14 @@ export default function TutorialPanel({
               完成 →
             </button>
           ) : (
-            <button type="button" onClick={() => { haptic('select'); onNext(); }} className="btn-primary text-sm py-2 min-h-[44px] active:scale-95 transition-transform">
+            <button
+              type="button"
+              onClick={() => {
+                haptic('select');
+                onNext();
+              }}
+              className="btn-primary text-sm py-2 min-h-[44px] active:scale-95 transition-transform"
+            >
               下一步 →
             </button>
           )}

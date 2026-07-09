@@ -1,6 +1,5 @@
 // Loads src/shared/data/looks.json once and caches the result.
-// Shared by recommend.ts and generate.ts so the trigger prompt and
-// look names stay in sync with the canonical data file.
+// Shared by recommend.ts so look names stay in sync with the canonical data file.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

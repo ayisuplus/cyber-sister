@@ -21,9 +21,8 @@ export function requestId() {
     // 优先使用上游传入的 X-Request-Id (分布式追踪用)
     const incoming = req.headers['x-request-id'];
     const id =
-      (typeof incoming === 'string' && /^[a-zA-Z0-9-]{6,64}$/.test(incoming)
-        ? incoming
-        : null) ?? randomBytes(4).toString('hex');
+      (typeof incoming === 'string' && /^[a-zA-Z0-9-]{6,64}$/.test(incoming) ? incoming : null) ??
+      randomBytes(4).toString('hex');
     req.id = id;
     res.setHeader('X-Request-Id', id);
     next();

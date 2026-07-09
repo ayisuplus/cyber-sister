@@ -63,10 +63,7 @@ beforeAll(() => {
   );
   app.post(
     '/must-be-obj',
-    validateBody(
-      { name: { type: 'string', required: true, min: 1, max: 50 } },
-      { strict: true },
-    ),
+    validateBody({ name: { type: 'string', required: true, min: 1, max: 50 } }, { strict: true }),
     (_req, res) => res.json({ ok: true }),
   );
 

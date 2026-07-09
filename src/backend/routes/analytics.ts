@@ -117,7 +117,12 @@ const analyticsSchema = {
 
 // POST /api/analytics — 写入 jsonl
 analyticsRouter.post('/analytics', analyticsLimiter, validateBody(analyticsSchema), (req, res) => {
-  const raw = req.body as { event: string; props?: unknown; sessionId?: unknown; timestamp?: unknown };
+  const raw = req.body as {
+    event: string;
+    props?: unknown;
+    sessionId?: unknown;
+    timestamp?: unknown;
+  };
   // props 必须是普通对象;不是就当作空,保证落盘形状稳定.
   const props: Record<string, unknown> =
     raw.props && typeof raw.props === 'object' && !Array.isArray(raw.props)

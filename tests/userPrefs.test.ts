@@ -6,12 +6,24 @@ import { describe, it, expect, beforeEach } from 'vitest';
 function makeMemoryStorage(): Storage {
   const store = new Map<string, string>();
   return {
-    get length() { return store.size; },
-    clear() { store.clear(); },
-    getItem(key: string) { return store.get(key) ?? null; },
-    key(index: number) { return Array.from(store.keys())[index] ?? null; },
-    removeItem(key: string) { store.delete(key); },
-    setItem(key: string, value: string) { store.set(key, String(value)); },
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
   };
 }
 
@@ -26,7 +38,6 @@ import {
   isRead,
   markRead,
 } from '../src/frontend/resources/userPrefs';
-
 
 describe('userPrefs: bookmarks', () => {
   it('initial state is empty list', () => {

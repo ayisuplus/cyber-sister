@@ -27,24 +27,13 @@ export const config = {
   /** 上传后保留时间 (ms);到期文件由后台清扫. */
   uploadTtlMs: readInt('UPLOAD_TTL_MS', 24 * 60 * 60 * 1000), // 24h
 
-  // ---------- Generation ----------
-  /**
-   * Provider name. One of:
-   *   - "noop"  (default) — explicit "not configured" failure, safe in prod
-   *   - "mock"  — deterministic SVG placeholder, dev only
-   *   - "runninghub" — RunningHub 妆容迁移 AI 应用
-   *   - "replicate" — Replicate-hosted model (to be implemented by model provider)
-   */
+  // ---------- Generation (已剥离;保留占位避免破坏旧 .env,但不再使用) ----------
+  // 这些字段将在后续彻底清理,目前仅为了向后兼容而存在.
   imageGenProvider: readStr('IMAGE_GEN_PROVIDER', 'noop'),
-  /** Hard timeout per provider call. Provider receives an AbortSignal. */
-  imageGenTimeoutMs: readInt('IMAGE_GEN_TIMEOUT_MS', 180_000), // 3 min
-  /** Suggested poll interval for clients. Server doesn't enforce. */
+  imageGenTimeoutMs: readInt('IMAGE_GEN_TIMEOUT_MS', 180_000),
   imageGenPollIntervalMs: readInt('IMAGE_GEN_POLL_INTERVAL_MS', 2_500),
-  /** TTL for completed/failed jobs in the in-memory store. */
-  jobTtlMs: readInt('JOB_TTL_MS', 60 * 60 * 1000), // 1 hour
-  /** How often the job store sweeps for expired jobs. */
-  jobSweepIntervalMs: readInt('JOB_SWEEP_INTERVAL_MS', 5 * 60 * 1000), // 5 min
-  /** Max jobs in the in-memory store (LRU eviction past this). */
+  jobTtlMs: readInt('JOB_TTL_MS', 60 * 60 * 1000),
+  jobSweepIntervalMs: readInt('JOB_SWEEP_INTERVAL_MS', 5 * 60 * 1000),
   jobStoreMax: readInt('JOB_STORE_MAX', 5000),
   /** Static-asset cache max-age in seconds. */
   staticMaxAgeSec: readInt('STATIC_MAX_AGE_SEC', 3600),
@@ -53,6 +42,5 @@ export const config = {
   // Overridden by RATE_LIMIT_GLOBAL / RATE_LIMIT_UPLOAD / etc.
   rateLimitGlobal: readInt('RATE_LIMIT_GLOBAL', 120),
   rateLimitUpload: readInt('RATE_LIMIT_UPLOAD', 10),
-  rateLimitGenerate: readInt('RATE_LIMIT_GENERATE', 20),
   rateLimitAnalytics: readInt('RATE_LIMIT_ANALYTICS', 60),
 } as const;

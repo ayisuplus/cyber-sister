@@ -43,10 +43,7 @@ export function resetCsrfToken(): void {
 }
 
 /** 给 RequestInit 自动补 X-CSRF-Token (仅 unsafe methods + same-origin). */
-export async function withCsrfHeader(
-  method: string,
-  init: RequestInit = {},
-): Promise<RequestInit> {
+export async function withCsrfHeader(method: string, init: RequestInit = {}): Promise<RequestInit> {
   const upper = method.toUpperCase();
   if (!UNSAFE_METHODS.has(upper)) return init;
   // 只对 same-origin 请求加 CSRF (跨域本来就被 CORS 拦截)

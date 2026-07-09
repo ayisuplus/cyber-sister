@@ -21,8 +21,6 @@ const DEFAULT_TIMEOUT = 15_000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_BASE_DELAY = 400;
 
-
-
 function isRetriableStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504;
 }
@@ -51,12 +49,18 @@ export async function fetchJson<T = unknown>(
   requestUrl: string,
   init: RequestInit & FetchOptions = {},
 ): Promise<T> {
-  let { timeoutMs = DEFAULT_TIMEOUT, retries = DEFAULT_RETRIES, baseDelayMs = DEFAULT_BASE_DELAY, signal, ...rest } = init;
+  let {
+    timeoutMs = DEFAULT_TIMEOUT,
+    retries = DEFAULT_RETRIES,
+    baseDelayMs = DEFAULT_BASE_DELAY,
+    signal,
+    ...rest
+  } = init;
   // CSRF 注入: 仅在 unsafe method + same-origin 时加 header
-  const isUnsafe = ["POST", "PUT", "PATCH", "DELETE"].includes((rest.method ?? "").toUpperCase());
+  const isUnsafe = ['POST', 'PUT', 'PATCH', 'DELETE'].includes((rest.method ?? '').toUpperCase());
   if (isUnsafe) {
     try {
-      rest = await withCsrfHeader(rest.method ?? "POST", rest);
+      rest = await withCsrfHeader(rest.method ?? 'POST', rest);
     } catch {
       // 拉 token 失败, 仍然尝试发请求 (后端会拒绝)
     }

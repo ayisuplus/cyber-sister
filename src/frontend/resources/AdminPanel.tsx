@@ -81,12 +81,7 @@ export default function AdminPanel({
   }
 
   return (
-    <div
-      ref={panelRef}
-      role="region"
-      aria-label="教学资源管理面板"
-      className="space-y-4"
-    >
+    <div ref={panelRef} role="region" aria-label="教学资源管理面板" className="space-y-4">
       {/* 顶部操作栏 */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-serif text-lg font-bold text-primary">资源管理</h3>
@@ -108,7 +103,9 @@ export default function AdminPanel({
           <label className="block text-xs text-ink-soft/60 mb-1">资源类型</label>
           <select
             value={formData.kind}
-            onChange={(e) => setFormData((prev) => ({ ...prev, kind: e.target.value as TeachingResourceKind }))}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, kind: e.target.value as TeachingResourceKind }))
+            }
             className="w-full px-3 py-2 rounded-xl text-sm bg-white/80 border border-primary/20 focus:outline-none focus:border-primary"
           >
             <option value="article">📖 图文</option>

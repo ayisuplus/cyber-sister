@@ -11,19 +11,37 @@ import type { FaceFeatures, MakeupLook } from '../../shared/types';
 import { validateBody, type Schema } from '../middleware/validate.js';
 
 // ---------- FaceFeatures schema (所有字段都 optional,缺省回 unknown) ----------
-const FACE_SHAPES = [
-  'oval', 'round', 'square', 'heart', 'long', 'diamond', 'unknown',
-] as const;
+const FACE_SHAPES = ['oval', 'round', 'square', 'heart', 'long', 'diamond', 'unknown'] as const;
 const SKIN_TONES = [
-  'cool_fair', 'cool_medium', 'neutral_fair', 'neutral_medium',
-  'warm_fair', 'warm_medium', 'warm_deep', 'warm_deep_dark', 'unknown',
+  'cool_fair',
+  'cool_medium',
+  'neutral_fair',
+  'neutral_medium',
+  'warm_fair',
+  'warm_medium',
+  'warm_deep',
+  'warm_deep_dark',
+  'unknown',
 ] as const;
 const EYE_TYPES = [
-  'almond', 'round', 'hooded', 'monolid', 'downturned', 'upturned',
-  'close_set', 'wide_set', 'unknown',
+  'almond',
+  'round',
+  'hooded',
+  'monolid',
+  'downturned',
+  'upturned',
+  'close_set',
+  'wide_set',
+  'unknown',
 ] as const;
 const NOSE_TYPES = [
-  'straight', 'wide_bridge', 'narrow_bridge', 'bulbus_tip', 'upturned', 'hooked', 'unknown',
+  'straight',
+  'wide_bridge',
+  'narrow_bridge',
+  'bulbus_tip',
+  'upturned',
+  'hooked',
+  'unknown',
 ] as const;
 
 const featureSchema: Schema = {
@@ -55,9 +73,7 @@ function isLooksFile(v: unknown): v is { looks: MakeupLook[] } {
 }
 
 const LOOKS: MakeupLook[] = (() => {
-  const parsed: unknown = JSON.parse(
-    readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'),
-  );
+  const parsed: unknown = JSON.parse(readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'));
   if (!isLooksFile(parsed)) {
     throw new Error('looks.json 缺少 "looks" 数组');
   }
@@ -166,15 +182,9 @@ function toFaceFeatures(input: Record<string, unknown>): FaceFeatures {
     const v = input[k];
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
-  const en = <T extends string>(
-    k: keyof FaceFeatures,
-    allowed: readonly T[],
-    fb: T,
-  ): T => {
+  const en = <T extends string>(k: keyof FaceFeatures, allowed: readonly T[], fb: T): T => {
     const v = input[k];
-    return typeof v === 'string' && (allowed as readonly string[]).includes(v)
-      ? (v as T)
-      : fb;
+    return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : fb;
   };
   return {
     upperThirdRatio: num('upperThirdRatio'),

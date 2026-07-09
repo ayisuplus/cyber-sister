@@ -43,11 +43,7 @@ interface FieldError {
   message: string;
 }
 
-function checkField(
-  field: string,
-  rule: FieldRule,
-  raw: unknown,
-): FieldError | null {
+function checkField(field: string, rule: FieldRule, raw: unknown): FieldError | null {
   const present = raw !== undefined && raw !== null;
   if (!present) {
     if (rule.required) return { field, message: '字段必填' };

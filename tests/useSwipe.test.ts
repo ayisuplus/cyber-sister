@@ -42,7 +42,9 @@ describe('detectSwipe: noise rejection', () => {
 
   it('rejects vertical-dominant motion', () => {
     // 100px left but 200px down — clearly vertical scroll
-    expect(detectSwipe(makeInput({ startX: 200, endY: 300, endX: 100, durationMs: 100 }))).toBe('none');
+    expect(detectSwipe(makeInput({ startX: 200, endY: 300, endX: 100, durationMs: 100 }))).toBe(
+      'none',
+    );
   });
 
   it('rejects 0 distance', () => {
@@ -53,7 +55,9 @@ describe('detectSwipe: noise rejection', () => {
 describe('detectSwipe: custom thresholds', () => {
   it('respects higher threshold', () => {
     // 100px with threshold 200 — should reject
-    expect(detectSwipe(makeInput({ startX: 200, endX: 100, durationMs: 5000, threshold: 200 }))).toBe('none');
+    expect(
+      detectSwipe(makeInput({ startX: 200, endX: 100, durationMs: 5000, threshold: 200 })),
+    ).toBe('none');
   });
 
   it('respects lower threshold', () => {
@@ -63,7 +67,17 @@ describe('detectSwipe: custom thresholds', () => {
 
   it('respects custom velocityThreshold', () => {
     // 100px in 500ms = 0.2 px/ms, threshold 50, vTh 0.3 — reject (slow)
-    expect(detectSwipe(makeInput({ startX: 130, endX: 100, durationMs: 500, threshold: 50, velocityThreshold: 0.3 }))).toBe('none');
+    expect(
+      detectSwipe(
+        makeInput({
+          startX: 130,
+          endX: 100,
+          durationMs: 500,
+          threshold: 50,
+          velocityThreshold: 0.3,
+        }),
+      ),
+    ).toBe('none');
   });
 });
 
@@ -73,27 +87,44 @@ describe('detectSwipe: durationMs edge cases', () => {
     expect(() => detectSwipe(makeInput({ durationMs: 0 }))).not.toThrow();
   });
 
-describe('detectSwipe: vertical direction', () => {
-  it('returns "down" for downward swipe past threshold', () => {
-    expect(detectSwipe({
-      startX: 100, startY: 100, endX: 100, endY: 200, durationMs: 100,
-      direction: 'vertical',
-    })).toBe('down');
-  });
+  describe('detectSwipe: vertical direction', () => {
+    it('returns "down" for downward swipe past threshold', () => {
+      expect(
+        detectSwipe({
+          startX: 100,
+          startY: 100,
+          endX: 100,
+          endY: 200,
+          durationMs: 100,
+          direction: 'vertical',
+        }),
+      ).toBe('down');
+    });
 
-  it('returns "up" for upward swipe past threshold', () => {
-    expect(detectSwipe({
-      startX: 100, startY: 200, endX: 100, endY: 100, durationMs: 100,
-      direction: 'vertical',
-    })).toBe('up');
-  });
+    it('returns "up" for upward swipe past threshold', () => {
+      expect(
+        detectSwipe({
+          startX: 100,
+          startY: 200,
+          endX: 100,
+          endY: 100,
+          durationMs: 100,
+          direction: 'vertical',
+        }),
+      ).toBe('up');
+    });
 
-  it('rejects horizontal-dominant motion in vertical mode', () => {
-    expect(detectSwipe({
-      startX: 100, startY: 100, endX: 300, endY: 110, durationMs: 100,
-      direction: 'vertical',
-    })).toBe('none');
+    it('rejects horizontal-dominant motion in vertical mode', () => {
+      expect(
+        detectSwipe({
+          startX: 100,
+          startY: 100,
+          endX: 300,
+          endY: 110,
+          durationMs: 100,
+          direction: 'vertical',
+        }),
+      ).toBe('none');
+    });
   });
-});
-
 });

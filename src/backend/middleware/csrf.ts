@@ -61,12 +61,9 @@ export function issueCsrfToken() {
     // - HttpOnly=false: JS 需要读 cookie 放到 header
     // - SameSite=Lax: 顶层导航带, 跨站 POST 不带
     // - Max-Age=1 天
-    const cookieStr = [
-      `${COOKIE_NAME}=${token}`,
-      'Path=/',
-      'Max-Age=86400',
-      'SameSite=Lax',
-    ].join('; ');
+    const cookieStr = [`${COOKIE_NAME}=${token}`, 'Path=/', 'Max-Age=86400', 'SameSite=Lax'].join(
+      '; ',
+    );
     res.setHeader('Set-Cookie', cookieStr);
     res.json({ csrfToken: token });
   };

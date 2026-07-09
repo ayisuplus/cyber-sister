@@ -62,8 +62,8 @@ interface TouchState {
   triggered: boolean;
 }
 
-export function useSwipe(
-  ref: React.RefObject<HTMLElement | null>,
+export function useSwipe<T extends HTMLElement>(
+  ref: React.RefObject<T | null>,
   opts: SwipeOptions,
 ): void {
   const optsRef = useRef(opts);

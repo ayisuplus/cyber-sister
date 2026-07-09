@@ -5,7 +5,9 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TeachingResource } from '../src/shared/types';
 
-interface ListBody { resources: TeachingResource[] }
+interface ListBody {
+  resources: TeachingResource[];
+}
 
 // ---------- Express Router stack 模拟器 ----------
 
@@ -64,7 +66,8 @@ async function callHandler(
     if (rp.endsWith('/:id') && path.startsWith(rp.slice(0, -3))) return true;
     return false;
   });
-  if (!layer?.route || layer.route.stack.length === 0) throw new Error('No route found: ' + method + ' ' + path);
+  if (!layer?.route || layer.route.stack.length === 0)
+    throw new Error('No route found: ' + method + ' ' + path);
 
   const handlers = layer.route.stack;
 
@@ -126,8 +129,12 @@ async function callHandler(
       this.statusCode = c;
       return this;
     },
-    setHeader(_name: string, _value: string | number | string[]) { return this; },
-    getHeader(_name: string): string | undefined { return undefined; },
+    setHeader(_name: string, _value: string | number | string[]) {
+      return this;
+    },
+    getHeader(_name: string): string | undefined {
+      return undefined;
+    },
   };
 
   next();
@@ -154,8 +161,28 @@ beforeEach(async () => {
     version: 1,
     description: 'test seed',
     resources: [
-      { id: 'tr-seed-1', lookId: 'look_cool_water', kind: 'article', title: '底妆指南', summary: '基础', tags: ['基础'], createdAt: 1, updatedAt: 1 },
-      { id: 'tr-seed-2', lookId: 'look_cool_water', kind: 'video', title: '视频教程', summary: '快速', tags: ['视频'], videoUrl: 'https://e.com/v', durationSec: 60, createdAt: 1, updatedAt: 1 },
+      {
+        id: 'tr-seed-1',
+        lookId: 'look_cool_water',
+        kind: 'article',
+        title: '底妆指南',
+        summary: '基础',
+        tags: ['基础'],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'tr-seed-2',
+        lookId: 'look_cool_water',
+        kind: 'video',
+        title: '视频教程',
+        summary: '快速',
+        tags: ['视频'],
+        videoUrl: 'https://e.com/v',
+        durationSec: 60,
+        createdAt: 1,
+        updatedAt: 1,
+      },
     ],
   };
   writeFileSync(join(tmpDir, 'teaching-resources.json'), JSON.stringify(initialSeed, null, 2));
@@ -185,7 +212,9 @@ describe('GET /teaching-resources', () => {
   });
 
   it('按 lookId 过滤', async () => {
-    const r = await callHandler('get', '/teaching-resources', { query: { lookId: 'look_cool_water' } });
+    const r = await callHandler('get', '/teaching-resources', {
+      query: { lookId: 'look_cool_water' },
+    });
     expect(r.status).toBe(200);
     const body = r.body as ListBody;
     expect(body.resources.every((x) => x.lookId === 'look_cool_water')).toBe(true);
@@ -236,12 +265,16 @@ describe('POST /teaching-resources', () => {
   });
 
   it('缺 title → 400', async () => {
-    const r = await callHandler('post', '/teaching-resources', { body: { kind: 'article', summary: 'x' } });
+    const r = await callHandler('post', '/teaching-resources', {
+      body: { kind: 'article', summary: 'x' },
+    });
     expect(r.status).toBe(400);
   });
 
   it('非法 kind → 400', async () => {
-    const r = await callHandler('post', '/teaching-resources', { body: { kind: 'bad', title: 'x', summary: 'y' } });
+    const r = await callHandler('post', '/teaching-resources', {
+      body: { kind: 'bad', title: 'x', summary: 'y' },
+    });
     expect(r.status).toBe(400);
   });
 });
@@ -253,7 +286,9 @@ describe('DELETE /teaching-resources/:id', () => {
     const before = await callHandler('get', '/teaching-resources');
     const beforeCount = (before.body as ListBody).resources.length;
 
-    const c = await callHandler('post', '/teaching-resources', { body: { kind: 'article', title: 'to-delete', summary: 'x', tags: '' } });
+    const c = await callHandler('post', '/teaching-resources', {
+      body: { kind: 'article', title: 'to-delete', summary: 'x', tags: '' },
+    });
     expect(c.status).toBe(201);
     const id = (c.body as { id: string }).id;
 
@@ -274,7 +309,9 @@ describe('DELETE /teaching-resources/:id', () => {
 
 describe('持久化', () => {
   it('POST 后内容写回文件', async () => {
-    const c = await callHandler('post', '/teaching-resources', { body: { kind: 'article', title: 'persist-test', summary: 'p', tags: '' } });
+    const c = await callHandler('post', '/teaching-resources', {
+      body: { kind: 'article', title: 'persist-test', summary: 'p', tags: '' },
+    });
     expect(c.status).toBe(201);
 
     // 验证文件内容
@@ -284,7 +321,9 @@ describe('持久化', () => {
   });
 
   it('DELETE 后内容写回文件', async () => {
-    const c = await callHandler('post', '/teaching-resources', { body: { kind: 'article', title: 'to-be-deleted', summary: 'd', tags: '' } });
+    const c = await callHandler('post', '/teaching-resources', {
+      body: { kind: 'article', title: 'to-be-deleted', summary: 'd', tags: '' },
+    });
     const id = (c.body as { id: string }).id;
 
     const r = await callHandler('delete', `/teaching-resources/${id}`);

@@ -6,11 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import express, { type Express } from 'express';
-import {
-  cookieParser,
-  issueCsrfToken,
-  requireCsrfToken,
-} from '../src/backend/middleware/csrf';
+import { cookieParser, issueCsrfToken, requireCsrfToken } from '../src/backend/middleware/csrf';
 
 let app: Express;
 let server: Server;

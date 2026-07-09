@@ -12,7 +12,6 @@ import { recommendRouter } from './routes/recommend';
 import { explainRouter } from './routes/explain';
 import { analyticsRouter } from './routes/analytics';
 import { uploadRouter } from './routes/upload';
-import { generateRouter } from './routes/generate';
 import { resourcesRouter } from './routes/resources';
 import { config } from './config.js';
 import { requestId } from './middleware/requestId.js';
@@ -66,7 +65,10 @@ app.use(
 app.use(securityHeaders());
 // 4) CORS — 开发时允许 localhost,生产走白名单 (CORS_ORIGINS 逗号分隔)
 const corsOrigins = config.corsOrigins
-  ? config.corsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+  ? config.corsOrigins
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
   : null;
 app.use(
   cors({
@@ -83,12 +85,8 @@ app.use(
 app.use(express.json({ limit: '256kb' }));
 // 5b) 解析 Cookie header (供 CSRF 中间件用)
 app.use(cookieParser());
-// 6) 全局限流 — 健康检查已 skip
-app.use('/api', globalLimiter);
-// 6b) CSRF 防护 — 跳过 analytics / csrf-token / health, 其他 unsafe method 必须带 token
-app.use('/api', requireCsrfToken());
 
-// ---------- 健康检查 (在限流器前,但已在限流器后;这里保持原位) ----------
+// ---------- 健康检查 (必须在全局限流器之前,避免负载均衡探针被 429) ----------
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -99,15 +97,19 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// ---------- CSRF token 端点 (用于客户端初始化) ----------
+// ---------- CSRF token 端点 (用于客户端初始化,同样需在限流前) ----------
 app.get('/api/csrf-token', issueCsrfToken);
+
+// 6) 全局限流 — 健康检查与 CSRF token 端点已前置
+app.use('/api', globalLimiter);
+// 6b) CSRF 防护 — 跳过 analytics / csrf-token / health, 其他 unsafe method 必须带 token
+app.use('/api', requireCsrfToken());
 
 // ---------- 业务路由 ----------
 
 app.use('/api', uploadRouter);
 app.use('/api', recommendRouter);
 app.use('/api', explainRouter);
-app.use('/api', generateRouter);
 app.use('/api', analyticsRouter);
 app.use('/api', resourcesRouter);
 
@@ -178,11 +180,11 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   console.info(`[妆语] backend listening on http://localhost:${PORT}`);
-  console.info(`[妆语] env=${config.nodeEnv} image gen provider: ${config.imageGenProvider}`);
+  console.info(`[妆语] env=${config.nodeEnv}`);
   console.info(`[妆语] uploads: ${UPLOAD_DIR}`);
   console.info(`[妆语] results: ${RESULTS_DIR}`);
   console.info(
-    `[妆语] rate limits: global=${config.rateLimitGlobal}/min upload=${config.rateLimitUpload}/min generate=${config.rateLimitGenerate}/min analytics=${config.rateLimitAnalytics}/min`,
+    `[妆语] rate limits: global=${config.rateLimitGlobal}/min upload=${config.rateLimitUpload}/min analytics=${config.rateLimitAnalytics}/min`,
   );
   if (existsSync(DIST_DIR)) {
     console.info(`[妆语] static site: ${DIST_DIR}`);

@@ -6,7 +6,15 @@
 //   const toast = useToast();
 //   toast('已保存 ✓', 'success');           // 显示一条
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 export type ToastKind = 'info' | 'success' | 'warn' | 'error';
 
@@ -43,15 +51,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 构造可调用对象 + 便捷方法. 用类型守卫保留 ToastApi 形状.
-  const api = Object.assign(
-    (msg: string, kind: ToastKind = 'info') => push(msg, kind),
-    {
-      success: (msg: string) => push(msg, 'success'),
-      error: (msg: string) => push(msg, 'error'),
-      warn: (msg: string) => push(msg, 'warn'),
-      info: (msg: string) => push(msg, 'info'),
-    } satisfies Pick<ToastApi, 'success' | 'error' | 'warn' | 'info'>,
-  ) as ToastApi;
+  const api = Object.assign((msg: string, kind: ToastKind = 'info') => push(msg, kind), {
+    success: (msg: string) => push(msg, 'success'),
+    error: (msg: string) => push(msg, 'error'),
+    warn: (msg: string) => push(msg, 'warn'),
+    info: (msg: string) => push(msg, 'info'),
+  } satisfies Pick<ToastApi, 'success' | 'error' | 'warn' | 'info'>) as ToastApi;
   return (
     <ToastCtx.Provider value={api}>
       {children}

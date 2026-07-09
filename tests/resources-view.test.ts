@@ -14,16 +14,44 @@ process.env.ANALYTICS_DATA_DIR = TEST_DATA_DIR;
 
 // 创建一个非常简单的 mock
 const mockRouter = (() => {
-  const resources: Array<{ id: string; lookId: string; kind: string; title: string; summary: string; tags: string[]; videoUrl?: string; durationSec?: number }> = [
-    { id: 'seed-1', lookId: 'look_cool_water', kind: 'article', title: '测试图文', summary: '摘要', tags: ['tag1'] },
-    { id: 'seed-2', lookId: 'look_cool_water', kind: 'video', title: '测试视频', summary: '视频摘要', tags: ['tag2'], videoUrl: 'https://example.com/video', durationSec: 120 },
+  const resources: Array<{
+    id: string;
+    lookId: string;
+    kind: string;
+    title: string;
+    summary: string;
+    tags: string[];
+    videoUrl?: string;
+    durationSec?: number;
+  }> = [
+    {
+      id: 'seed-1',
+      lookId: 'look_cool_water',
+      kind: 'article',
+      title: '测试图文',
+      summary: '摘要',
+      tags: ['tag1'],
+    },
+    {
+      id: 'seed-2',
+      lookId: 'look_cool_water',
+      kind: 'video',
+      title: '测试视频',
+      summary: '视频摘要',
+      tags: ['tag2'],
+      videoUrl: 'https://example.com/video',
+      durationSec: 120,
+    },
   ];
   return {
     list: () => resources,
-    add: (r: typeof resources[0]) => resources.push(r),
+    add: (r: (typeof resources)[0]) => resources.push(r),
     delete: (id: string) => {
       const idx = resources.findIndex((r) => r.id === id);
-      if (idx >= 0) { resources.splice(idx, 1); return true; }
+      if (idx >= 0) {
+        resources.splice(idx, 1);
+        return true;
+      }
       return false;
     },
     getAll: () => [...resources],
@@ -32,7 +60,8 @@ const mockRouter = (() => {
 
 beforeEach(() => {
   mkdirSync(TEST_DATA_DIR, { recursive: true });
-  if (existsSync(join(TEST_DATA_DIR, 'analytics.jsonl'))) rmSync(join(TEST_DATA_DIR, 'analytics.jsonl'));
+  if (existsSync(join(TEST_DATA_DIR, 'analytics.jsonl')))
+    rmSync(join(TEST_DATA_DIR, 'analytics.jsonl'));
 });
 
 // ---------- ResourcesView 数据层测试 ----------
@@ -41,19 +70,33 @@ describe('ResourcesView 数据层', () => {
   it('mock 资源列表有初始数据', () => {
     const list = mockRouter.getAll();
     expect(list.length).toBe(2);
-    expect(list[0].kind).toBe('article');
-    expect(list[1].kind).toBe('video');
+    expect(list[0]).toEqual(expect.objectContaining({ kind: 'article' }));
+    expect(list[1]).toEqual(expect.objectContaining({ kind: 'video' }));
   });
 
   it('可以按 lookId 过滤资源', () => {
-    mockRouter.add({ id: 'new-1', lookId: 'look_peach_date', kind: 'article', title: '新资源', summary: '新摘要', tags: [] });
+    mockRouter.add({
+      id: 'new-1',
+      lookId: 'look_peach_date',
+      kind: 'article',
+      title: '新资源',
+      summary: '新摘要',
+      tags: [],
+    });
     const filtered = mockRouter.getAll().filter((r) => r.lookId === 'look_peach_date');
     expect(filtered.length).toBe(1);
-    expect(filtered[0].title).toBe('新资源');
+    expect(filtered[0]).toEqual(expect.objectContaining({ title: '新资源' }));
   });
 
   it('可以删除资源', () => {
-    mockRouter.add({ id: 'to-delete', lookId: 'look_cool_water', kind: 'article', title: '待删除', summary: '', tags: [] });
+    mockRouter.add({
+      id: 'to-delete',
+      lookId: 'look_cool_water',
+      kind: 'article',
+      title: '待删除',
+      summary: '',
+      tags: [],
+    });
     const before = mockRouter.getAll().length;
     const result = mockRouter.delete('to-delete');
     expect(result).toBe(true);
@@ -83,8 +126,9 @@ describe('ResourcesView 视觉组件', () => {
 
   it('资源卡片显示标签', () => {
     const resources = mockRouter.getAll();
-    expect(resources[0].tags.length).toBeGreaterThan(0);
-    expect(resources[0].tags[0]).toBe('tag1');
+    const first = resources[0];
+    expect(first).toBeDefined();
+    expect(first!.tags).toContain('tag1');
   });
 
   it('视频资源有 URL 和时长', () => {
@@ -112,7 +156,14 @@ describe('AdminPanel 逻辑', () => {
   });
 
   it('删除资源减少列表长度', () => {
-    mockRouter.add({ id: 'admin-delete', lookId: 'look_power_queen', kind: 'article', title: '待删', summary: '', tags: [] });
+    mockRouter.add({
+      id: 'admin-delete',
+      lookId: 'look_power_queen',
+      kind: 'article',
+      title: '待删',
+      summary: '',
+      tags: [],
+    });
     const before = mockRouter.getAll().length;
     mockRouter.delete('admin-delete');
     expect(mockRouter.getAll().length).toBe(before - 1);

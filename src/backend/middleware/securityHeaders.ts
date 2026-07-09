@@ -61,10 +61,7 @@ function buildPermissionsPolicy(): string {
     'sync-xhr',
     'xr-spatial-tracking',
   ];
-  return [
-    ...closed.map((f) => `${f}=()`),
-    'camera=(self)',
-  ].join(', ');
+  return [...closed.map((f) => `${f}=()`), 'camera=(self)'].join(', ');
 }
 
 /**
@@ -91,10 +88,7 @@ export function securityHeaders() {
     // 6) HSTS (一年 + includeSubDomains + preload)
     // 只在 HTTPS 环境下设置 (避免本地开发时浏览器拒绝 HTTP 加载)
     if (_req.secure || _req.headers['x-forwarded-proto'] === 'https') {
-      res.setHeader(
-        'Strict-Transport-Security',
-        'max-age=31536000; includeSubDomains; preload',
-      );
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }
 
     // 7) X-XSS-Protection 显式禁用 (现代浏览器 CSP 已覆盖, 旧头会让旧浏览器行为反预测)

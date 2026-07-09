@@ -62,10 +62,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
  *
  * @returns 压缩后的 Blob (image/jpeg) — 调用方再 .arrayBuffer() / 走 fetch.
  */
-export async function compressImage(
-  source: Blob,
-  opts: CompressOptions = {},
-): Promise<Blob> {
+export async function compressImage(source: Blob, opts: CompressOptions = {}): Promise<Blob> {
   const maxDim = opts.maxDimension ?? MAX_DIMENSION;
   const maxBytes = opts.maxBytes ?? 1_500_000;
 

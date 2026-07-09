@@ -45,8 +45,5 @@ export const globalLimiter = makeLimiter('global', config.rateLimitGlobal);
 /** 上传:大 payload,容易耗盘. */
 export const uploadLimiter = makeLimiter('upload', config.rateLimitUpload);
 
-/** 出图提交:每次调外部 API. */
-export const generateLimiter = makeLimiter('generate', config.rateLimitGenerate);
-
 /** analytics 写入:IO 密集. */
 export const analyticsLimiter = makeLimiter('analytics', config.rateLimitAnalytics);

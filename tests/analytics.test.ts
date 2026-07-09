@@ -7,8 +7,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 // Response 形状 (匹配 analytics.ts 的实际返回).测试用,放本地.
-interface StatsBody { total: number; byEvent: Record<string, number> }
-interface AckBody { ok: true }
+interface StatsBody {
+  total: number;
+  byEvent: Record<string, number>;
+}
+interface AckBody {
+  ok: true;
+}
 
 // 测试注入 DATA_DIR via process.env,这样不需要改 analytics.ts 的硬编码路径.
 
@@ -19,7 +24,8 @@ const TEST_DATA_DIR = join(TMP, 'data');
 // 动态 import 是测试场景下唯一可靠的方式 (env 必须先就位)
 process.env.ANALYTICS_DATA_DIR = TEST_DATA_DIR;
 
-const { analyticsRouter, getStats, invalidateStatsCache } = await import('../src/backend/routes/analytics');
+const { analyticsRouter, getStats, invalidateStatsCache } =
+  await import('../src/backend/routes/analytics');
 
 // ---------- 工具: 直接调用 router handler,绕开 express ----------
 
@@ -74,8 +80,12 @@ function callHandler(
       this.statusCode = c;
       return this;
     },
-    setHeader(_name: string, _value: string | number | string[]): unknown { return this; },
-    getHeader(_name: string): unknown { return undefined; },
+    setHeader(_name: string, _value: string | number | string[]): unknown {
+      return this;
+    },
+    getHeader(_name: string): unknown {
+      return undefined;
+    },
   };
   // 串行调用整条中间件链 (限流 → 校验 → 业务 handler).res.json 一旦写过就停.
   let i = 0;

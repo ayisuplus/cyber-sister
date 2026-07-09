@@ -318,10 +318,13 @@ function classifySkinTone(lab: {
   const { medianL, medianA, medianB, validRatio } = lab;
   if (validRatio < 0.2 || medianL === 0) return 'unknown';
 
-  // 暖: b > 0 且 |b| > |a|; 冷: a > 0 且 |a| > |b|; 中性: 都不显著
+  // 暖冷判断基于 a/b 相对差值,而不是绝对阈值:
+  // 亚洲人自然肤色的 LAB a/b 通常都较小(0~5),用相对差值才能区分暖黄/粉调.
+  const diff = medianB - medianA;
+  const threshold = 0.5; // |diff| 小于此值视为中性
   let temp: 'warm' | 'cool' | 'neutral';
-  if (medianB > 1 && Math.abs(medianB) > Math.abs(medianA)) temp = 'warm';
-  else if (medianA > 1 && Math.abs(medianA) > Math.abs(medianB)) temp = 'cool';
+  if (diff > threshold) temp = 'warm';
+  else if (diff < -threshold) temp = 'cool';
   else temp = 'neutral';
 
   // 深度: L 越大越浅

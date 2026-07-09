@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FaceFeatures, MakeupLook, MakeupStep } from '../../shared/types';
 import { track } from '../../shared/analytics';
+import { haptic } from '../utils/haptic';
 
 interface Props {
   features: FaceFeatures;

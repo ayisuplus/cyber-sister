@@ -27,11 +27,7 @@ const inFlight = new Map<string, Promise<unknown>>();
  * - 失效 / 缺失: 调 compute(), 把结果存进缓存, 返回.
  * - 并发去重: 同时多个调用只跑一次 compute.
  */
-export async function cached<T>(
-  key: string,
-  ttlMs: number,
-  compute: () => Promise<T>,
-): Promise<T> {
+export async function cached<T>(key: string, ttlMs: number, compute: () => Promise<T>): Promise<T> {
   const now = Date.now();
 
   // 1) 命中缓存
@@ -60,7 +56,10 @@ export async function cached<T>(
       const value = await compute();
       if (STORE) {
         try {
-          STORE.setItem(key, JSON.stringify({ value, expireAt: Date.now() + ttlMs } satisfies Entry<T>));
+          STORE.setItem(
+            key,
+            JSON.stringify({ value, expireAt: Date.now() + ttlMs } satisfies Entry<T>),
+          );
         } catch {
           // quota 超限 — 静默忽略
         }

@@ -138,7 +138,11 @@ function callRouter(body: unknown): Promise<HttpResponse> {
   // 这里 router 来自第三方库,内部结构不在公开类型里,用窄接口局部接受 unknown.
   interface InternalRouter {
     stack: Array<{
-      route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: Function }> };
+      route?: {
+        path: string;
+        methods: Record<string, boolean>;
+        stack: Array<{ handle: Function }>;
+      };
     }>;
   }
   const internal = recommendRouter as unknown as InternalRouter;
@@ -189,7 +193,10 @@ describe('POST /api/recommend', () => {
   it('合法 features → 返回 3 个 looks + 评分详情', async () => {
     const r = await callRouter(baseFeatures({ faceShape: 'oval', skinTone: 'cool_fair' }));
     expect(r.statusCode).toBe(200);
-    const body = r.body as { looks: unknown[]; scores: Array<{ lookId: string; score: number; reason: string }> };
+    const body = r.body as {
+      looks: unknown[];
+      scores: Array<{ lookId: string; score: number; reason: string }>;
+    };
     expect(body.looks).toHaveLength(3);
     expect(body.scores).toHaveLength(3);
     expect(body.scores[0]?.lookId).toBeTruthy();

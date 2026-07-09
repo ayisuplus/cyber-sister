@@ -27,9 +27,11 @@ function getStoragePath(): string {
 const DEFAULT_PATH = join(DATA_DIR, 'teaching-resources.json');
 
 let cache: TeachingResource[] | null = null;
-let pendingWrite: Promise<void> = Promise.resolve();
+let pendingWrite: Promise<unknown> = Promise.resolve();
 
-function isSeedFile(v: unknown): v is { resources: TeachingResource[]; description?: string; version?: number } {
+function isSeedFile(
+  v: unknown,
+): v is { resources: TeachingResource[]; description?: string; version?: number } {
   if (!v || typeof v !== 'object') return false;
   const candidate = v as { resources?: unknown };
   return Array.isArray(candidate.resources);
@@ -56,14 +58,21 @@ function persistToDisk(list: TeachingResource[]): void {
   const path = getStoragePath();
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
-  const payload = JSON.stringify({ version: 1, description: '教学资源 — 妆容教程配套的图文 + 视频列表.', resources: list }, null, 2);
+  const payload = JSON.stringify(
+    { version: 1, description: '教学资源 — 妆容教程配套的图文 + 视频列表.', resources: list },
+    null,
+    2,
+  );
   writeFileSync(tmp, payload, 'utf-8');
   renameSync(tmp, path);
 }
 
 /** 串行化所有写操作 — 防止同时两个写交错覆盖. */
-function enqueueWrite(work: () => void): Promise<void> {
-  const run = pendingWrite.then(work, work);
+function enqueueWrite<T>(work: () => T): Promise<T> {
+  const run = pendingWrite.then(
+    () => work(),
+    () => work(),
+  );
   pendingWrite = run.catch(() => undefined);
   return run;
 }

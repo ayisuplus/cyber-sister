@@ -20,13 +20,13 @@ interface PullState {
   triggered: boolean;
 }
 
-export interface PullToRefreshState {
+export interface PullToRefreshState<T extends HTMLElement = HTMLElement> {
   /** 当前下拉距离 (0..maxPull). 0 时不显示. */
   pullDistance: number;
   /** 是否正在刷新 (用户已释放超过阈值, onRefresh 进行中). */
   isRefreshing: boolean;
   /** 容器 ref, 挂到滚动容器上. */
-  ref: React.RefObject<HTMLElement | null>;
+  ref: React.RefObject<T | null>;
 }
 
 /**
@@ -39,9 +39,11 @@ export function dampPullDistance(rawDy: number, maxPull: number): number {
   return Math.min(maxPull, Math.sqrt(rawDy) * 12);
 }
 
-export function usePullToRefresh(opts: PullToRefreshOptions): PullToRefreshState {
+export function usePullToRefresh<T extends HTMLElement = HTMLElement>(
+  opts: PullToRefreshOptions,
+): PullToRefreshState<T> {
   const { onRefresh, threshold = 70, maxPull = 120, disabled = false } = opts;
-  const ref = useRef<HTMLElement | null>(null);
+  const ref = useRef<T | null>(null);
   const stateRef = useRef<PullState | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);

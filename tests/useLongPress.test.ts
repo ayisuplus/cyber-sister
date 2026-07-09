@@ -1,10 +1,7 @@
 // Tests for the long-press progress calculation.
 
 import { describe, it, expect } from 'vitest';
-import {
-  longPressProgress,
-  exceedsMovementThreshold,
-} from '../src/frontend/hooks/useLongPress';
+import { longPressProgress, exceedsMovementThreshold } from '../src/frontend/hooks/useLongPress';
 
 describe('longPressProgress', () => {
   it('returns 0 at start', () => {

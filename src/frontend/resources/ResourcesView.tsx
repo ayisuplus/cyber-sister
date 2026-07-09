@@ -2,20 +2,16 @@
 // 由 looks_ready / tutorial_done 阶段进入.
 // 管理模式: 可增删资源, 触发方式为底部长按或按钮切换.
 
-import { useState, useEffect, useTransition, useDeferredValue, useCallback, useRef } from 'react';
+import { useState, useEffect, useTransition, useDeferredValue, useCallback } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
 import { fetchJson } from '../utils/fetch';
 import { haptic } from '../utils/haptic';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useLongPress } from '../hooks/useLongPress';
-import { Highlight } from './Highlight';
 import AdminPanel from './AdminPanel';
-import {
-  isBookmarked,
-  isRead,
-  markRead,
-  toggleBookmark,
-} from './userPrefs';
+import { isBookmarked, isRead, markRead, toggleBookmark } from './userPrefs';
+import { ResourceCard } from './ResourceCard';
+import { ResourceDetailView } from './ResourceDetailView';
 
 // ---------- 类型 ----------
 
@@ -25,13 +21,7 @@ interface ResourcesListResponse {
 
 // ---------- 主组件 ----------
 
-export default function ResourcesView({
-  lookId,
-  onBack,
-}: {
-  lookId: string;
-  onBack: () => void;
-}) {
+export default function ResourcesView({ lookId, onBack }: { lookId: string; onBack: () => void }) {
   const [tab, setTab] = useState<TeachingResourceKind>('article');
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,7 +70,7 @@ export default function ResourcesView({
   }, [lookId]);
 
   // 长按标题进入管理模式 (兜底交互 — 同时也有 ⚙ 按钮 + Esc 关闭)
-  const titleLongPress = useLongPress({
+  const titleLongPress = useLongPress<HTMLButtonElement>({
     onLongPress: () => {
       haptic('success');
       setIsAdmin((v) => !v);
@@ -100,7 +90,7 @@ export default function ResourcesView({
   }, [lookId]);
 
   // 下拉刷新 (移动端)
-  const pull = usePullToRefresh({
+  const pull = usePullToRefresh<HTMLDivElement>({
     onRefresh: async () => {
       haptic('success');
       await refreshList();
@@ -109,7 +99,8 @@ export default function ResourcesView({
   });
 
   // 读 bookmarkTick / readTick 触发 React re-render 同步 localStorage 状态.
-  void bookmarkTick; void readTick;
+  void bookmarkTick;
+  void readTick;
   // useDeferredValue: 资源量大时过滤计算推迟到空闲时间, 不阻塞切换动画 + 搜索
   const filterInputs = { tab, showBookmarks, searchQuery, n: resources.length };
   const deferredFilter = useDeferredValue(filterInputs);
@@ -195,10 +186,7 @@ export default function ResourcesView({
         >
           教学资源
           {titleLongPress.isPressing && (
-            <span
-              className="absolute inset-0 rounded-lg pointer-events-none"
-              aria-hidden
-            >
+            <span className="absolute inset-0 rounded-lg pointer-events-none" aria-hidden>
               <span
                 className="absolute inset-0 rounded-lg border-2 border-primary"
                 style={{
@@ -210,11 +198,12 @@ export default function ResourcesView({
         </button>
         <button
           type="button"
-          onClick={() => { setIsAdmin((v) => !v); haptic('select'); }}
+          onClick={() => {
+            setIsAdmin((v) => !v);
+            haptic('select');
+          }}
           className={`min-w-[44px] min-h-[44px] px-3 rounded-lg text-base flex items-center justify-center active:scale-95 transition-all ${
-            isAdmin
-              ? 'bg-primary text-white'
-              : 'text-ink-soft/50 hover:text-ink-soft/80'
+            isAdmin ? 'bg-primary text-white' : 'text-ink-soft/50 hover:text-ink-soft/80'
           }`}
           title="管理教学资源 (长按 logo 也能进入)"
           aria-label={isAdmin ? '退出管理模式' : '进入管理模式'}
@@ -235,7 +224,9 @@ export default function ResourcesView({
                 setResources(data.resources ?? []);
                 setLoading(false);
               })
-              .catch(() => { setLoading(false); });
+              .catch(() => {
+                setLoading(false);
+              });
           }}
           onClose={() => setIsAdmin(false)}
         />
@@ -251,11 +242,19 @@ export default function ResourcesView({
           aria-label="搜索资源"
           className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white/60 border border-primary/20 text-sm text-ink placeholder:text-ink-soft/50 focus:outline-none focus:border-primary focus:bg-white/80 transition-colors"
         />
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft/50 pointer-events-none" aria-hidden>🔍</span>
+        <span
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft/50 pointer-events-none"
+          aria-hidden
+        >
+          🔍
+        </span>
         {searchQuery && (
           <button
             type="button"
-            onClick={() => { setSearchQuery(''); haptic('tap'); }}
+            onClick={() => {
+              setSearchQuery('');
+              haptic('tap');
+            }}
             aria-label="清空搜索"
             className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full text-ink-soft/60 hover:bg-primary/10 active:scale-90 transition-all"
           >
@@ -265,13 +264,23 @@ export default function ResourcesView({
       </div>
 
       {/* 分类切换 + 收藏过滤 */}
-      <div className="flex items-center justify-between gap-2 mb-4" role="tablist" aria-label="资源分类">
+      <div
+        className="flex items-center justify-between gap-2 mb-4"
+        role="tablist"
+        aria-label="资源分类"
+      >
         <div className="flex gap-2">
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'article'}
-            onClick={() => { startTabTransition(() => { setTab('article'); setSelectedResource(null); }); haptic('select'); }}
+            onClick={() => {
+              startTabTransition(() => {
+                setTab('article');
+                setSelectedResource(null);
+              });
+              haptic('select');
+            }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'article'
                 ? 'bg-primary text-white shadow-sm'
@@ -284,7 +293,13 @@ export default function ResourcesView({
             type="button"
             role="tab"
             aria-selected={tab === 'video'}
-            onClick={() => { startTabTransition(() => { setTab('video'); setSelectedResource(null); }); haptic('select'); }}
+            onClick={() => {
+              startTabTransition(() => {
+                setTab('video');
+                setSelectedResource(null);
+              });
+              haptic('select');
+            }}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'video'
                 ? 'bg-primary text-white shadow-sm'
@@ -299,7 +314,12 @@ export default function ResourcesView({
           role="switch"
           aria-checked={showBookmarks}
           aria-label="只显示收藏的资源"
-          onClick={() => { startTabTransition(() => { setShowBookmarks((v) => !v); }); haptic('select'); }}
+          onClick={() => {
+            startTabTransition(() => {
+              setShowBookmarks((v) => !v);
+            });
+            haptic('select');
+          }}
           className={`px-3 py-2 rounded-xl text-sm transition-colors ${
             showBookmarks
               ? 'bg-primary text-white shadow-sm'
@@ -311,13 +331,9 @@ export default function ResourcesView({
       </div>
 
       {/* 资源列表 */}
-      {loading && (
-        <div className="text-center py-12 text-ink-soft/60">加载中...</div>
-      )}
+      {loading && <div className="text-center py-12 text-ink-soft/60">加载中...</div>}
 
-      {error && (
-        <div className="text-center py-8 text-sm text-red-500">{error}</div>
-      )}
+      {error && <div className="text-center py-8 text-sm text-red-500">{error}</div>}
 
       {!loading && !error && filtered.length === 0 && (
         <div className="text-center py-12 text-ink-soft/60">
@@ -326,7 +342,10 @@ export default function ResourcesView({
               没找到匹配「{searchQuery}」的资源
               <button
                 type="button"
-                onClick={() => { setSearchQuery(''); haptic('tap'); }}
+                onClick={() => {
+                  setSearchQuery('');
+                  haptic('tap');
+                }}
                 className="block mx-auto mt-3 text-xs text-primary hover:underline active:scale-95 transition-transform"
               >
                 清空搜索
@@ -348,8 +367,6 @@ export default function ResourcesView({
               key={resource.id}
               resource={resource}
               isAdmin={isAdmin}
-              bookmarked={isBookmarked(resource.id)}
-              isRead={isRead(resource.id)}
               searchQuery={searchQuery}
               onClick={() => {
                 if (!isAdmin) {
@@ -358,274 +375,29 @@ export default function ResourcesView({
                   setSelectedResource(resource);
                 }
               }}
-              onToggleBookmark={() => {
-                const added = toggleBookmark(resource.id);
-                haptic(added ? 'success' : 'tap');
-                setBookmarkTick((n) => n + 1);
-              }}
-              onDelete={isAdmin ? async () => {
-                if (!window.confirm(`确定删除「${resource.title}」?`)) return;
-                haptic('tap');
-                try {
-                  await fetchJson(`/api/teaching-resources/${resource.id}`, { method: 'DELETE' });
-                  haptic('success');
-                  setResources((prev) => prev.filter((r) => r.id !== resource.id));
-                } catch (err) {
-                  haptic('error');
-                  console.error('删除失败:', err);
-                }
-              } : undefined}
+              onBookmarkTick={() => setBookmarkTick((n) => n + 1)}
+              onDelete={
+                isAdmin
+                  ? async () => {
+                      if (!window.confirm(`确定删除「${resource.title}」?`)) return;
+                      haptic('tap');
+                      try {
+                        await fetchJson(`/api/teaching-resources/${resource.id}`, {
+                          method: 'DELETE',
+                        });
+                        haptic('success');
+                        setResources((prev) => prev.filter((r) => r.id !== resource.id));
+                      } catch (err) {
+                        haptic('error');
+                        console.error('删除失败:', err);
+                      }
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
       )}
     </div>
   );
-}
-
-// ---------- 资源卡片 ----------
-
-function ResourceCard({
-  resource,
-  isAdmin,
-  bookmarked,
-  isRead,
-  searchQuery,
-  onClick,
-  onToggleBookmark,
-  onDelete,
-}: {
-  resource: TeachingResource;
-  isAdmin?: boolean;
-  bookmarked?: boolean;
-  isRead?: boolean;
-  searchQuery?: string;
-  onClick: () => void;
-  onToggleBookmark?: () => void;
-  onDelete?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left p-4 rounded-2xl bg-white/60 backdrop-blur
-                 border border-primary/10 hover:border-primary/30
-                 transition-all hover:shadow-sm relative"
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 relative"
-          style={{ background: 'linear-gradient(135deg,#EAB6BC,#C86B77)' }}
-        >
-          {resource.kind === 'article' ? '📖' : '🎬'}
-          {isRead && (
-            <span
-              className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-white"
-              aria-label="已读"
-            />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="font-medium text-ink text-sm truncate flex-1">
-              <Highlight text={resource.title} query={searchQuery ?? ''} />
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {!isAdmin && onToggleBookmark && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
-                  className={`text-base min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 transition-all ${
-                    bookmarked ? 'text-amber-500' : 'text-ink-soft/30 hover:text-amber-400'
-                  }`}
-                  aria-label={bookmarked ? '取消收藏' : '收藏'}
-                  aria-pressed={bookmarked}
-                >
-                  {bookmarked ? '★' : '☆'}
-                </button>
-              )}
-              {isAdmin && onDelete && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                  className="text-sm min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 text-red-400 hover:text-red-600 transition-all flex-shrink-0"
-                  aria-label={`删除 ${resource.title}`}
-                >
-                  🗑️
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="text-xs text-ink-soft/60 mt-1 line-clamp-2">
-            <Highlight text={resource.summary} query={searchQuery ?? ''} />
-          </div>
-          {resource.author && (
-            <div className="text-[10px] text-ink-soft/50 mt-2">
-              {resource.author}
-              {resource.durationSec != null && resource.durationSec > 0 && (
-                <span> · {Math.floor(resource.durationSec / 60)}:{String(resource.durationSec % 60).padStart(2, '0')}</span>
-              )}
-            </div>
-          )}
-        </div>
-        {!isAdmin && <div className="text-ink-soft/40 text-lg flex-shrink-0 pt-1">›</div>}
-      </div>
-      {resource.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {resource.tags.map((tag) => (
-            <span
-              key={tag}
-              className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary/80"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-    </button>
-  );
-}
-
-// ---------- 资源详情 ----------
-
-function ResourceDetailView({
-  resource,
-  isRead,
-  onToggleBookmark,
-  bookmarked,
-  onBack,
-}: {
-  resource: TeachingResource;
-  isRead?: boolean;
-  bookmarked?: boolean;
-  onToggleBookmark?: () => void;
-  onBack: () => void;
-}) {
-  // 下滑关闭详情 (移动端) + Esc 关闭 (桌面)
-  const detailRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        haptic('select');
-        onBack();
-      } else if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        haptic('select');
-        onBack();
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onBack]);
-  useSwipe(detailRef, {
-    direction: 'vertical',
-    threshold: 80,
-    onSwipeDown: () => {
-      haptic('select');
-      onBack();
-    },
-  });
-  return (
-    <div className="space-y-4" ref={detailRef}>
-      {/* 底部弹层风格的拖拽手柄: 顶部居中的 32px 细条 (WCAG: 至少 48dp 触摸区) */}
-      <div className="flex justify-center -mt-2 mb-1">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="关闭详情"
-          title="拖动下滑 / 点击关闭 / 按 Esc 关闭"
-          className="w-12 min-h-[48px] flex items-center justify-center rounded-full active:bg-primary/10 transition-colors"
-        >
-          <span
-            aria-hidden
-            className="w-10 h-1.5 rounded-full bg-ink-soft/30"
-          />
-        </button>
-      </div>
-      {/* 顶部导航 */}
-      <div className="flex items-center justify-between mb-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm min-h-[44px] px-3 -ml-3 rounded-lg active:bg-primary/10 text-ink-soft/70 hover:text-primary transition-colors"
-        >
-          ← 返回
-        </button>
-        <h2 className="font-serif text-lg font-bold text-ink truncate px-2 flex-1">
-          <Highlight text={resource.title} query={''} />
-        </h2>
-        {onToggleBookmark && (
-          <button
-            type="button"
-            onClick={onToggleBookmark}
-            className={`text-xl min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full active:scale-90 transition-all flex-shrink-0 ${
-              bookmarked ? 'text-amber-500' : 'text-ink-soft/40 hover:text-amber-400'
-            }`}
-            aria-label={bookmarked ? '取消收藏' : '收藏'}
-            aria-pressed={bookmarked}
-          >
-            {bookmarked ? '★' : '☆'}
-          </button>
-        )}
-        {isRead && (
-          <span className="text-xs text-emerald-600 flex-shrink-0">已读</span>
-        )}
-      </div>
-
-      {/* 标签 */}
-      {resource.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-4">
-          {resource.tags.map((tag) => (
-            <span
-              key={tag}
-              className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary/80"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* 视频预览 */}
-      {resource.kind === 'video' && resource.videoUrl && (
-        <div className="rounded-2xl overflow-hidden mb-4 bg-black/5">
-          <iframe
-            src={resource.videoUrl}
-            className="w-full aspect-video"
-            title={resource.title}
-            allowFullScreen
-          />
-        </div>
-      )}
-
-      {/* 正文内容 */}
-      {resource.body && (
-        <div
-          className="card-soft p-4 prose prose-sm max-w-none text-ink/85 leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: markdownToHtml(resource.body) }}
-        />
-      )}
-
-      {!resource.body && resource.kind === 'article' && (
-        <div className="card-soft p-4 text-sm text-ink-soft/60">
-          暂无详细内容
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------- 简易 Markdown → HTML 转换 ----------
-
-function markdownToHtml(md: string): string {
-  return md
-    .replace(/^### (.+)$/gm, '<h3 class="font-semibold text-ink mb-2">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="font-serif font-bold text-ink text-lg mb-3">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="font-serif font-bold text-ink text-xl mb-4">$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 mb-1 list-disc">$1</li>')
-    .replace(/(<li[^>]*>.*<\/li>\n?)+/g, (m) => `<ul class="my-2">${m}</ul>`)
-    .replace(/\n\n+/g, '</p><p class="mb-2">')
-    .replace(/\n/g, '<br/>');
 }

@@ -59,9 +59,7 @@ function DefaultFallback({ error, onRetry }: { error: Error; onRetry: () => void
             🥺
           </div>
           <h1 className="font-serif text-2xl font-bold text-ink mb-2">出错了</h1>
-          <p className="text-sm text-ink-soft/70 mb-6">
-            页面遇到了一些意外,可以刷新一下重试
-          </p>
+          <p className="text-sm text-ink-soft/70 mb-6">页面遇到了一些意外,可以刷新一下重试</p>
           <details className="text-left text-xs text-ink-soft/60 mb-6 bg-white/40 rounded-xl p-3">
             <summary className="cursor-pointer text-ink-soft/80">错误详情</summary>
             <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px]">

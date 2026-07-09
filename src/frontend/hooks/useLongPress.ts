@@ -15,12 +15,12 @@ export interface LongPressOptions {
   movementThreshold?: number;
 }
 
-export interface LongPressState {
+export interface LongPressState<T extends HTMLElement = HTMLElement> {
   /** 0..1 进度. */
   progress: number;
   /** 是否正在长按中. */
   isPressing: boolean;
-  ref: React.RefObject<HTMLElement | null>;
+  ref: React.RefObject<T | null>;
 }
 
 /**
@@ -36,14 +36,20 @@ export function longPressProgress(elapsedMs: number, durationMs: number): number
  * 判断移动是否超出阈值.
  */
 export function exceedsMovementThreshold(
-  startX: number, startY: number, currentX: number, currentY: number, threshold: number,
+  startX: number,
+  startY: number,
+  currentX: number,
+  currentY: number,
+  threshold: number,
 ): boolean {
   return Math.hypot(currentX - startX, currentY - startY) > threshold;
 }
 
-export function useLongPress(opts: LongPressOptions): LongPressState {
+export function useLongPress<T extends HTMLElement = HTMLElement>(
+  opts: LongPressOptions,
+): LongPressState<T> {
   const { onLongPress, durationMs = 500, disabled = false, movementThreshold = 10 } = opts;
-  const ref = useRef<HTMLElement | null>(null);
+  const ref = useRef<T | null>(null);
   const [progress, setProgress] = useState(0);
   const [isPressing, setIsPressing] = useState(false);
   const stateRef = useRef<{
@@ -112,17 +118,25 @@ export function useLongPress(opts: LongPressOptions): LongPressState {
       const s = stateRef.current;
       if (!s) return;
       const t = e.touches[0]!;
-      if (Math.hypot(t.clientX - s.startX, t.clientY - s.startY) > optsRef.current.movementThreshold) {
+      if (
+        Math.hypot(t.clientX - s.startX, t.clientY - s.startY) > optsRef.current.movementThreshold
+      ) {
         cancel();
       }
     }
-    function onTouchEnd() { cancel(); }
+    function onTouchEnd() {
+      cancel();
+    }
 
     function onMouseDown(e: MouseEvent) {
       start(e.clientX, e.clientY);
     }
-    function onMouseUp() { cancel(); }
-    function onMouseLeave() { cancel(); }
+    function onMouseUp() {
+      cancel();
+    }
+    function onMouseLeave() {
+      cancel();
+    }
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === ' ' || e.key === 'Enter') {
