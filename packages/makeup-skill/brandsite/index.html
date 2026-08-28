@@ -1,0 +1,1438 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#8B2942" />
+    <title>妆语 · 给每一个用心打扮的你</title>
+    <meta
+      name="description"
+      content="妆语 MakeupWhisper · 上传一张自拍，30 秒读懂你的脸。从三庭五眼到口红选色，手把手教你怎么画。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Inter:wght@400;500;600;700&family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@300;400;500;600;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='80' font-size='80'%3E%F0%9F%92%84%3C/text%3E%3C/svg%3E"
+    />
+
+    <style>
+      /* =========================================================================
+         妆语 · 设计令牌 (Design Tokens)
+         Palette: rosewood × champagne × ember
+         Type:    Cormorant Garamond × Noto Serif SC × Ma Shan Zheng × Inter
+         ========================================================================= */
+      :root {
+        /* —— Palette: 胭脂红木 + 香槟金 + 落日朱 + 蜜桃腮 ——————————————————— */
+        --c-rosewood: #8b2942;
+        --c-rosewood-dark: #6b1f33;
+        --c-rosewood-light: #b8456a;
+        --c-ember: #c73e4b;
+        --c-champagne: #d4af8e;
+        --c-champagne-deep: #b8946f;
+        --c-champagne-light: #e8d5bc;
+        --c-blush: #fbf4f0;
+        --c-blush-deep: #f5e6de;
+        --c-pearl: #faefe3;
+        --c-paper: #fffcf9;
+        --c-ink: #2a1a1f;
+        --c-ink-soft: #6b5559;
+        --c-ink-faint: #a89599;
+
+        /* —— Typography ————————————————————————————————————————————— */
+        --font-display: 'Cormorant Garamond', 'Noto Serif SC', serif;
+        --font-body: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+        --font-hand: 'Ma Shan Zheng', 'ZCOOL XiaoWei', cursive;
+        --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+
+        /* —— Spacing scale (4-pt) ————————————————————————————————————— */
+        --s-1: 4px;
+        --s-2: 8px;
+        --s-3: 12px;
+        --s-4: 16px;
+        --s-5: 24px;
+        --s-6: 32px;
+        --s-7: 48px;
+        --s-8: 64px;
+        --s-9: 96px;
+        --s-10: 128px;
+
+        /* —— Shadows: 粉色阴影,绝不用灰 —————————————————————————————— */
+        --shadow-pink-sm: 0 4px 16px rgba(139, 41, 66, 0.06);
+        --shadow-pink-md: 0 12px 32px rgba(139, 41, 66, 0.1);
+        --shadow-pink-lg: 0 24px 56px rgba(139, 41, 66, 0.14);
+        --shadow-luxe: 0 32px 80px rgba(42, 26, 31, 0.2);
+        --shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+
+        /* —— Easing ————————————————————————————————————————————————— */
+        --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: var(--font-body);
+        background: var(--c-blush);
+        color: var(--c-ink);
+        font-size: 16px;
+        line-height: 1.7;
+        font-weight: 400;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+
+      /* —— 纸质底纹 (paper grain) ————————————————————————————————————— */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.35;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.55  0 0 0 0 0.16  0 0 0 0 0.26  0 0 0 0.06 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+        mix-blend-mode: multiply;
+      }
+
+      /* —— 排版家族别名 ——————————————————————————————————————————— */
+      .display {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+      .hand {
+        font-family: var(--font-hand);
+        font-weight: 400;
+        letter-spacing: 0.04em;
+      }
+      .ui {
+        font-family: var(--font-ui);
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      /* =========================================================================
+         Hero
+         ========================================================================= */
+      .hero {
+        position: relative;
+        min-height: 100vh;
+        padding: var(--s-6) var(--s-6);
+        max-width: 1320px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: var(--s-7);
+        z-index: 1;
+      }
+
+      /* —— 顶栏 ————————————————————————————————————————————————————— */
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-5);
+      }
+      .topbar__mark {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 1.0625rem;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        color: var(--c-ink);
+        text-transform: uppercase;
+      }
+      .topbar__mark::before {
+        content: '·';
+        margin-right: 0.5em;
+        color: var(--c-rosewood);
+      }
+      .topbar__nav {
+        display: flex;
+        gap: var(--s-6);
+      }
+      .topbar__nav a {
+        font-family: var(--font-ui);
+        font-size: 0.75rem;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--c-ink-soft);
+        text-decoration: none;
+        transition: color 0.3s var(--ease-out-expo);
+      }
+      .topbar__nav a:hover {
+        color: var(--c-rosewood);
+      }
+      .topbar__cta {
+        font-family: var(--font-ui);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--c-rosewood);
+        text-decoration: none;
+        border-bottom: 1px solid var(--c-rosewood);
+        padding-bottom: 2px;
+        transition: gap 0.3s var(--ease-out-expo);
+      }
+      .topbar__cta::after {
+        content: ' →';
+        display: inline-block;
+        transition: transform 0.3s var(--ease-out-expo);
+      }
+      .topbar__cta:hover {
+        gap: 8px;
+      }
+      .topbar__cta:hover::after {
+        transform: translateX(4px);
+      }
+
+      /* —— 中央舞台 ————————————————————————————————————————————————— */
+      .stage {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
+        gap: var(--s-8);
+        align-items: center;
+      }
+
+      .stage__copy {
+        position: relative;
+        z-index: 3;
+      }
+
+      .eyebrow {
+        font-family: var(--font-ui);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--c-rosewood);
+        margin-bottom: var(--s-5);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-3);
+      }
+      .eyebrow::before {
+        content: '';
+        display: inline-block;
+        width: 32px;
+        height: 1px;
+        background: var(--c-rosewood);
+      }
+
+      .brand {
+        font-family: var(--font-hand);
+        font-size: clamp(5rem, 14vw, 11rem);
+        line-height: 0.95;
+        color: var(--c-rosewood-dark);
+        margin-bottom: var(--s-5);
+        position: relative;
+        display: inline-block;
+      }
+      .brand__en {
+        display: block;
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 400;
+        font-size: clamp(1.125rem, 2vw, 1.5rem);
+        color: var(--c-ink-soft);
+        letter-spacing: 0.04em;
+        margin-top: var(--s-3);
+        margin-left: 0.4em;
+      }
+
+      .lede {
+        font-family: var(--font-body);
+        font-weight: 400;
+        font-size: clamp(1.0625rem, 1.4vw, 1.25rem);
+        line-height: 1.75;
+        color: var(--c-ink);
+        max-width: 36ch;
+        margin-bottom: var(--s-6);
+      }
+      .lede strong {
+        font-weight: 600;
+        color: var(--c-rosewood);
+      }
+
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-4);
+        padding: 1.125rem 2.25rem;
+        background: linear-gradient(135deg, var(--c-rosewood) 0%, var(--c-ember) 100%);
+        color: var(--c-paper);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 1.0625rem;
+        letter-spacing: 0.04em;
+        text-decoration: none;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow:
+          var(--shadow-pink-md),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        transition:
+          transform 0.4s var(--ease-spring),
+          box-shadow 0.4s var(--ease-out-expo);
+        position: relative;
+        overflow: hidden;
+      }
+      .cta::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.25) 50%,
+          rgba(255, 255, 255, 0) 100%
+        );
+        transform: translateX(-100%);
+        transition: transform 0.7s var(--ease-out-expo);
+      }
+      .cta:hover {
+        transform: translateY(-3px);
+        box-shadow:
+          var(--shadow-pink-lg),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+      .cta:hover::before {
+        transform: translateX(100%);
+      }
+      .cta__arrow {
+        display: inline-block;
+        transition: transform 0.4s var(--ease-out-expo);
+      }
+      .cta:hover .cta__arrow {
+        transform: translateX(4px);
+      }
+
+      /* —— 右侧: 粉饼盒 signature visual ——————————————————————————————— */
+      .stage__visual {
+        position: relative;
+        height: 480px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Signature: 一抹胭脂 diagonal stroke */
+      .swatch {
+        position: absolute;
+        top: 8%;
+        left: -8%;
+        width: 90%;
+        height: 84%;
+        background: linear-gradient(
+          118deg,
+          transparent 0%,
+          transparent 18%,
+          rgba(139, 41, 66, 0.05) 22%,
+          rgba(199, 62, 75, 0.18) 38%,
+          rgba(212, 175, 142, 0.32) 56%,
+          rgba(232, 213, 188, 0.18) 72%,
+          rgba(251, 244, 240, 0) 88%,
+          transparent 100%
+        );
+        filter: blur(28px);
+        transform-origin: left center;
+        animation: brush 1.8s var(--ease-out-expo) both;
+        z-index: 1;
+      }
+
+      @keyframes brush {
+        from {
+          transform: scaleX(0) rotate(0deg);
+          opacity: 0;
+        }
+        to {
+          transform: scaleX(1) rotate(0deg);
+          opacity: 1;
+        }
+      }
+
+      /* 粉饼盒 */
+      .compact {
+        position: relative;
+        width: 360px;
+        height: 420px;
+        border-radius: 180px 180px 24px 24px;
+        background: linear-gradient(
+          160deg,
+          var(--c-paper) 0%,
+          var(--c-pearl) 60%,
+          var(--c-blush-deep) 100%
+        );
+        box-shadow:
+          var(--shadow-luxe),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8),
+          inset 0 -40px 60px rgba(139, 41, 66, 0.06);
+        z-index: 2;
+        transform: translateY(0) rotate(-3deg);
+        animation: rise 1.2s var(--ease-spring) 0.4s both;
+        overflow: hidden;
+      }
+
+      @keyframes rise {
+        from {
+          transform: translateY(40px) rotate(-3deg);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0) rotate(-3deg);
+          opacity: 1;
+        }
+      }
+
+      /* compact hinge band (top metallic ribbon) */
+      .compact__band {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: linear-gradient(180deg, var(--c-rosewood) 0%, var(--c-rosewood-dark) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--s-2);
+        box-shadow: 0 2px 8px rgba(139, 41, 66, 0.2);
+      }
+      .compact__band::before,
+      .compact__band::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--c-champagne);
+        transform: translateY(-50%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+      }
+      .compact__band::before {
+        left: 28px;
+      }
+      .compact__band::after {
+        right: 28px;
+      }
+
+      .compact__brand {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 0.75rem;
+        letter-spacing: 0.4em;
+        color: var(--c-pearl);
+        text-transform: uppercase;
+      }
+
+      .compact__body {
+        position: absolute;
+        top: 56px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: var(--s-7) var(--s-6) var(--s-6);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-between;
+        text-align: center;
+      }
+
+      .compact__greeting {
+        font-family: var(--font-ui);
+        font-size: 0.625rem;
+        font-weight: 500;
+        letter-spacing: 0.4em;
+        text-transform: uppercase;
+        color: var(--c-ink-faint);
+        margin-top: var(--s-4);
+      }
+
+      .compact__hand {
+        font-family: var(--font-hand);
+        font-size: 3.5rem;
+        line-height: 1;
+        color: var(--c-rosewood);
+        margin: var(--s-3) 0;
+      }
+
+      .compact__divider {
+        width: 32px;
+        height: 1px;
+        background: var(--c-champagne-deep);
+        margin: var(--s-2) 0;
+      }
+
+      .compact__line {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 0.9375rem;
+        color: var(--c-ink-soft);
+        max-width: 22ch;
+        line-height: 1.55;
+      }
+
+      .compact__mirror {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.95) 0%,
+          rgba(232, 213, 188, 0.4) 50%,
+          rgba(184, 69, 106, 0.18) 100%
+        );
+        box-shadow:
+          inset 0 2px 4px rgba(255, 255, 255, 0.8),
+          inset 0 -2px 8px rgba(139, 41, 66, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* powder puff ornament */
+      .puff {
+        position: absolute;
+        right: -40px;
+        bottom: 8%;
+        width: 140px;
+        height: 140px;
+        z-index: 3;
+        animation: drift 6s ease-in-out infinite alternate;
+      }
+      @keyframes drift {
+        from {
+          transform: translateY(-8px) rotate(8deg);
+        }
+        to {
+          transform: translateY(8px) rotate(-4deg);
+        }
+      }
+
+      /* —— 信任带 (Trust strip) ——————————————————————————————————————— */
+      .trust {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-6);
+        padding: var(--s-5) 0;
+        border-top: 1px solid var(--c-rosewood);
+        border-bottom: 1px solid var(--c-rosewood);
+      }
+      .trust__item {
+        display: flex;
+        align-items: baseline;
+        gap: var(--s-3);
+        flex: 1;
+      }
+      .trust__num {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 2rem;
+        font-weight: 500;
+        color: var(--c-rosewood);
+        line-height: 1;
+      }
+      .trust__label {
+        font-family: var(--font-body);
+        font-weight: 500;
+        font-size: 0.875rem;
+        color: var(--c-ink-soft);
+      }
+
+      /* =========================================================================
+         Section: 3 LOOKS (signature layout — asymmetric magazine spread)
+         ========================================================================= */
+      .section {
+        position: relative;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: var(--s-10) var(--s-6);
+        z-index: 1;
+      }
+
+      .section__head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: end;
+        gap: var(--s-7);
+        margin-bottom: var(--s-8);
+        padding-bottom: var(--s-5);
+        border-bottom: 1px solid var(--c-rosewood);
+      }
+      .section__title {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 500;
+        font-size: clamp(2.25rem, 4.5vw, 3.5rem);
+        line-height: 1.05;
+        color: var(--c-ink);
+        letter-spacing: -0.01em;
+      }
+      .section__title em {
+        font-family: var(--font-hand);
+        font-style: normal;
+        font-weight: 400;
+        color: var(--c-rosewood);
+        margin-left: 0.4em;
+        font-size: 0.9em;
+      }
+      .section__meta {
+        font-family: var(--font-ui);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--c-ink-faint);
+        white-space: nowrap;
+      }
+      .section__meta::before {
+        content: '· ';
+        color: var(--c-rosewood);
+      }
+
+      .looks {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--s-5);
+      }
+
+      .look {
+        position: relative;
+        padding: var(--s-7) var(--s-5) var(--s-6);
+        border-radius: 24px;
+        min-height: 460px;
+        overflow: hidden;
+        cursor: pointer;
+        isolation: isolate;
+        transition: transform 0.6s var(--ease-spring);
+      }
+      .look:hover {
+        transform: translateY(-6px);
+      }
+      .look::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+      }
+
+      /* look 1 — 纯欲 */
+      .look--pure::before {
+        background:
+          radial-gradient(
+            120% 80% at 80% 10%,
+            rgba(255, 255, 255, 0.45) 0%,
+            rgba(255, 255, 255, 0) 60%
+          ),
+          linear-gradient(160deg, #ffe8dc 0%, #f9c9b5 50%, #e89f8c 100%);
+      }
+      /* look 2 — 清冷 */
+      .look--froid::before {
+        background:
+          radial-gradient(
+            120% 80% at 80% 10%,
+            rgba(255, 255, 255, 0.35) 0%,
+            rgba(255, 255, 255, 0) 60%
+          ),
+          linear-gradient(160deg, #f0e5ee 0%, #c7a9c2 50%, #8e6d90 100%);
+      }
+      /* look 3 — 气场 */
+      .look--epoque::before {
+        background:
+          radial-gradient(
+            120% 80% at 80% 10%,
+            rgba(255, 255, 255, 0.18) 0%,
+            rgba(255, 255, 255, 0) 60%
+          ),
+          linear-gradient(160deg, #b8456a 0%, #8b2942 50%, #4a1828 100%);
+      }
+
+      .look__index {
+        position: absolute;
+        top: var(--s-5);
+        right: var(--s-5);
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 0.875rem;
+        font-weight: 500;
+        letter-spacing: 0.2em;
+        color: rgba(42, 26, 31, 0.45);
+      }
+      .look--epoque .look__index {
+        color: rgba(255, 252, 249, 0.45);
+      }
+
+      .look__label {
+        font-family: var(--font-ui);
+        font-size: 0.625rem;
+        font-weight: 600;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: rgba(42, 26, 31, 0.7);
+        margin-bottom: var(--s-3);
+      }
+      .look--epoque .look__label {
+        color: rgba(255, 252, 249, 0.7);
+      }
+
+      .look__name {
+        font-family: var(--font-hand);
+        font-size: 2.5rem;
+        line-height: 1;
+        color: var(--c-rosewood-dark);
+        margin-bottom: var(--s-2);
+      }
+      .look--epoque .look__name {
+        color: var(--c-pearl);
+      }
+
+      .look__line {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 1.125rem;
+        font-weight: 400;
+        line-height: 1.5;
+        color: var(--c-ink);
+        margin-bottom: var(--s-5);
+      }
+      .look--epoque .look__line {
+        color: var(--c-blush);
+      }
+
+      .look__tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-2);
+        margin-bottom: var(--s-6);
+      }
+      .look__tag {
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
+        font-weight: 500;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: rgba(255, 252, 249, 0.6);
+        color: var(--c-ink);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+      }
+      .look--epoque .look__tag {
+        background: rgba(255, 252, 249, 0.12);
+        color: var(--c-blush);
+        border-color: rgba(255, 252, 249, 0.2);
+      }
+
+      .look__swatches {
+        display: flex;
+        gap: var(--s-2);
+      }
+      .look__swatch {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      }
+
+      /* —— 浮动胭脂粉 orb (ambient atmosphere) ————————————————————————————— */
+      .orb {
+        position: fixed;
+        border-radius: 50%;
+        filter: blur(60px);
+        z-index: 0;
+        pointer-events: none;
+        opacity: 0.5;
+      }
+      .orb--rose {
+        top: 12%;
+        right: -120px;
+        width: 420px;
+        height: 420px;
+        background: radial-gradient(circle, var(--c-rosewood-light) 0%, transparent 70%);
+        animation: float-a 18s ease-in-out infinite alternate;
+      }
+      .orb--champagne {
+        bottom: -150px;
+        left: -100px;
+        width: 380px;
+        height: 380px;
+        background: radial-gradient(circle, var(--c-champagne) 0%, transparent 70%);
+        opacity: 0.35;
+        animation: float-b 22s ease-in-out infinite alternate;
+      }
+      @keyframes float-a {
+        from {
+          transform: translate(0, 0) scale(1);
+        }
+        to {
+          transform: translate(-60px, 40px) scale(1.1);
+        }
+      }
+      @keyframes float-b {
+        from {
+          transform: translate(0, 0) scale(1);
+        }
+        to {
+          transform: translate(50px, -50px) scale(1.15);
+        }
+      }
+
+      /* =========================================================================
+         Section: 4 细节 (Features)
+         ========================================================================= */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--s-4);
+      }
+      .feature {
+        position: relative;
+        padding: var(--s-6) var(--s-5);
+        background: var(--c-paper);
+        border-radius: 20px;
+        border: 1px solid rgba(139, 41, 66, 0.08);
+        box-shadow: var(--shadow-pink-sm);
+        transition:
+          transform 0.5s var(--ease-spring),
+          box-shadow 0.5s var(--ease-out-expo);
+      }
+      .feature:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-pink-md);
+      }
+      .feature__icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, var(--c-blush-deep) 0%, var(--c-champagne-light) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: var(--s-4);
+        color: var(--c-rosewood);
+      }
+      .feature__no {
+        position: absolute;
+        top: var(--s-5);
+        right: var(--s-5);
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--c-ink-faint);
+        letter-spacing: 0.1em;
+      }
+      .feature__title {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 1.125rem;
+        color: var(--c-ink);
+        margin-bottom: var(--s-2);
+        line-height: 1.4;
+      }
+      .feature__body {
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        line-height: 1.65;
+        color: var(--c-ink-soft);
+      }
+
+      /* =========================================================================
+         Section: 收笔 (Footer CTA) — 镜像 hero 的反转
+         ========================================================================= */
+      .ending {
+        position: relative;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: var(--s-10) var(--s-6) var(--s-9);
+        z-index: 1;
+      }
+      .ending__card {
+        position: relative;
+        padding: var(--s-9) var(--s-8);
+        border-radius: 32px;
+        background: linear-gradient(
+          145deg,
+          var(--c-rosewood-dark) 0%,
+          var(--c-rosewood) 40%,
+          var(--c-ember) 100%
+        );
+        color: var(--c-paper);
+        box-shadow: var(--shadow-luxe);
+        overflow: hidden;
+        isolation: isolate;
+      }
+      .ending__card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background:
+          radial-gradient(80% 60% at 0% 0%, rgba(212, 175, 142, 0.45) 0%, transparent 60%),
+          radial-gradient(60% 50% at 100% 100%, rgba(232, 213, 188, 0.3) 0%, transparent 60%);
+      }
+      .ending__card::after {
+        content: '';
+        position: absolute;
+        top: -20%;
+        right: -10%;
+        width: 60%;
+        height: 140%;
+        background: linear-gradient(
+          118deg,
+          transparent 0%,
+          rgba(232, 213, 188, 0.15) 50%,
+          rgba(255, 255, 255, 0.1) 100%
+        );
+        filter: blur(20px);
+        transform-origin: right center;
+        animation: brush 2s var(--ease-out-expo) 0.3s both;
+        z-index: -1;
+      }
+      .ending__grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: end;
+        gap: var(--s-8);
+      }
+      .ending__eyebrow {
+        font-family: var(--font-ui);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--c-champagne-light);
+        margin-bottom: var(--s-4);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-3);
+      }
+      .ending__eyebrow::before {
+        content: '';
+        width: 32px;
+        height: 1px;
+        background: var(--c-champagne-light);
+      }
+      .ending__title {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 500;
+        font-size: clamp(2.5rem, 5vw, 4.5rem);
+        line-height: 1.1;
+        color: var(--c-paper);
+        margin-bottom: var(--s-5);
+        letter-spacing: -0.01em;
+      }
+      .ending__title em {
+        font-family: var(--font-hand);
+        font-style: normal;
+        font-weight: 400;
+        color: var(--c-champagne-light);
+        margin-left: 0.3em;
+      }
+      .ending__line {
+        font-family: var(--font-body);
+        font-size: 1.0625rem;
+        color: rgba(255, 252, 249, 0.78);
+        max-width: 44ch;
+      }
+
+      .ending__cta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-4);
+        padding: 1.25rem 2.5rem;
+        background: var(--c-paper);
+        color: var(--c-rosewood);
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 1.0625rem;
+        letter-spacing: 0.04em;
+        text-decoration: none;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow:
+          var(--shadow-luxe),
+          inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        transition: transform 0.4s var(--ease-spring);
+        white-space: nowrap;
+      }
+      .ending__cta:hover {
+        transform: translateY(-3px);
+      }
+
+      /* =========================================================================
+         Footer
+         ========================================================================= */
+      footer {
+        position: relative;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: var(--s-6) var(--s-6) var(--s-7);
+        z-index: 1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--s-5);
+        color: var(--c-ink-faint);
+        font-family: var(--font-ui);
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      footer a {
+        color: var(--c-ink-soft);
+        text-decoration: none;
+        margin-left: var(--s-5);
+        transition: color 0.3s;
+      }
+      footer a:hover {
+        color: var(--c-rosewood);
+      }
+
+      /* =========================================================================
+         Mobile (down to 360)
+         ========================================================================= */
+      @media (max-width: 960px) {
+        .stage {
+          grid-template-columns: 1fr;
+          gap: var(--s-6);
+        }
+        .stage__visual {
+          height: 380px;
+        }
+        .compact {
+          width: 280px;
+          height: 340px;
+        }
+        .looks {
+          grid-template-columns: 1fr;
+        }
+        .features {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .trust {
+          flex-wrap: wrap;
+          gap: var(--s-4);
+        }
+        .trust__item {
+          flex: 1 1 40%;
+        }
+        .topbar__nav {
+          display: none;
+        }
+        .section__head {
+          grid-template-columns: 1fr;
+          align-items: start;
+          gap: var(--s-3);
+        }
+        .ending__grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 480px) {
+        .hero {
+          padding: var(--s-5) var(--s-4);
+        }
+        .compact {
+          width: 240px;
+          height: 300px;
+        }
+        .compact__hand {
+          font-size: 2.5rem;
+        }
+        .compact__line {
+          font-size: 0.8125rem;
+        }
+        .features {
+          grid-template-columns: 1fr;
+        }
+        .look {
+          min-height: 380px;
+          padding: var(--s-6) var(--s-4) var(--s-5);
+        }
+        .look__name {
+          font-size: 2rem;
+        }
+      }
+
+      /* —— 入场动画 (page load sequence) ——————————————————————————————— */
+      .stage__copy > * {
+        opacity: 0;
+        transform: translateY(20px);
+        animation: enter 1s var(--ease-out-expo) forwards;
+      }
+      .stage__copy > *:nth-child(1) {
+        animation-delay: 0.3s;
+      }
+      .stage__copy > *:nth-child(2) {
+        animation-delay: 0.45s;
+      }
+      .stage__copy > *:nth-child(3) {
+        animation-delay: 0.6s;
+      }
+      .stage__copy > *:nth-child(4) {
+        animation-delay: 0.75s;
+      }
+      .stage__copy > *:nth-child(5) {
+        animation-delay: 0.9s;
+      }
+      @keyframes enter {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* —— 减少动效偏好 ————————————————————————————————————————————— */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- 浮动胭脂 orbs (ambient) -->
+    <div class="orb orb--rose" aria-hidden="true"></div>
+    <div class="orb orb--champagne" aria-hidden="true"></div>
+
+    <!-- ============ Hero ============ -->
+    <header class="hero">
+      <div class="topbar">
+        <div class="topbar__mark">Zhuang · Yu</div>
+        <nav class="topbar__nav" aria-label="primary">
+          <a href="#looks">Lookbook</a>
+          <a href="#features">Comment</a>
+          <a href="#share">Partage</a>
+        </nav>
+        <a href="#ending" class="topbar__cta">Essayage</a>
+      </div>
+
+      <div class="stage">
+        <div class="stage__copy">
+          <div class="eyebrow">Maison de Beauté · AI</div>
+          <h1 class="brand">
+            妆语
+            <span class="brand__en">— votre muse numérique</span>
+          </h1>
+          <p class="lede">
+            上传一张自拍，三十秒读懂你的脸。 从 <strong>三庭五眼</strong> 到
+            <strong>口红选色</strong>， 像闺蜜贴在耳边那样，手把手教你画。
+          </p>
+          <a href="#ending" class="cta">
+            <span>开始读你</span>
+            <span class="cta__arrow">→</span>
+          </a>
+        </div>
+
+        <div class="stage__visual" aria-hidden="true">
+          <div class="swatch"></div>
+
+          <div class="compact">
+            <div class="compact__band">
+              <span class="compact__brand">Zhuang · Yu</span>
+            </div>
+            <div class="compact__body">
+              <div class="compact__greeting">Bonjour, vous</div>
+              <div class="compact__hand">你好</div>
+              <div class="compact__divider"></div>
+              <p class="compact__line">"把脸交给我。<br />我把适合你的，还给你。"</p>
+              <div class="compact__mirror"></div>
+            </div>
+          </div>
+
+          <!-- powder puff SVG -->
+          <svg
+            class="puff"
+            viewBox="0 0 140 140"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <defs>
+              <radialGradient id="puffGrad" cx="40%" cy="40%" r="60%">
+                <stop offset="0%" stop-color="#FAEFE3" />
+                <stop offset="60%" stop-color="#E8D5BC" />
+                <stop offset="100%" stop-color="#D4AF8E" />
+              </radialGradient>
+              <radialGradient id="ribbonGrad" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#B8456A" />
+                <stop offset="100%" stop-color="#8B2942" />
+              </radialGradient>
+            </defs>
+            <!-- ribbon -->
+            <ellipse cx="70" cy="20" rx="14" ry="6" fill="url(#ribbonGrad)" />
+            <path
+              d="M 60 20 Q 70 35 80 20"
+              stroke="#8B2942"
+              stroke-width="1.5"
+              fill="none"
+              opacity="0.5"
+            />
+            <!-- puff body -->
+            <ellipse cx="70" cy="80" rx="58" ry="46" fill="url(#puffGrad)" />
+            <ellipse
+              cx="70"
+              cy="80"
+              rx="58"
+              ry="46"
+              fill="none"
+              stroke="#B8946F"
+              stroke-width="1.5"
+              opacity="0.4"
+            />
+            <!-- puff texture: dots -->
+            <g opacity="0.18" fill="#8B2942">
+              <circle cx="50" cy="65" r="1" />
+              <circle cx="60" cy="70" r="1" />
+              <circle cx="75" cy="68" r="1" />
+              <circle cx="88" cy="75" r="1" />
+              <circle cx="55" cy="85" r="1" />
+              <circle cx="70" cy="88" r="1" />
+              <circle cx="85" cy="92" r="1" />
+              <circle cx="62" cy="100" r="1" />
+              <circle cx="80" cy="105" r="1" />
+              <circle cx="48" cy="78" r="1" />
+              <circle cx="92" cy="85" r="1" />
+            </g>
+            <!-- highlight -->
+            <ellipse cx="55" cy="65" rx="20" ry="12" fill="#FFFCF9" opacity="0.4" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="trust" aria-label="trust strip">
+        <div class="trust__item">
+          <div class="trust__num">14<small>w+</small></div>
+          <div class="trust__label">素人博主样本训练</div>
+        </div>
+        <div class="trust__item">
+          <div class="trust__num">05</div>
+          <div class="trust__label">主流妆容风格</div>
+        </div>
+        <div class="trust__item">
+          <div class="trust__num">30<small>s</small></div>
+          <div class="trust__label">AI 测脸耗时</div>
+        </div>
+        <div class="trust__item">
+          <div class="trust__num">100<small>%</small></div>
+          <div class="trust__label">本地不上传原图</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ Looks ============ -->
+    <section class="section" id="looks">
+      <div class="section__head">
+        <h2 class="section__title">Trois looks<em>三个</em></h2>
+        <div class="section__meta">Lookbook · I / II / III</div>
+      </div>
+
+      <div class="looks">
+        <article class="look look--pure">
+          <span class="look__index">I</span>
+          <div class="look__label">Pure · 蜜桃</div>
+          <h3 class="look__name">纯欲妆</h3>
+          <p class="look__line">水光玻璃唇，淡腮红晕染<br />把"又纯又欲"穿在脸上</p>
+          <div class="look__tags">
+            <span class="look__tag">适合 · 圆脸</span>
+            <span class="look__tag">适合 · 蜜桃皮</span>
+            <span class="look__tag">日常通勤</span>
+          </div>
+          <div class="look__swatches" aria-hidden="true">
+            <span class="look__swatch" style="background: #f9c9b5"></span>
+            <span class="look__swatch" style="background: #e89f8c"></span>
+            <span class="look__swatch" style="background: #b8456a"></span>
+          </div>
+        </article>
+
+        <article class="look look--froid">
+          <span class="look__index">II</span>
+          <div class="look__label">Froid · 莓果</div>
+          <h3 class="look__name">清冷妆</h3>
+          <p class="look__line">冷调眼影 + 莓果咬唇<br />干净克制的冷艳感</p>
+          <div class="look__tags">
+            <span class="look__tag">适合 · 椭圆脸</span>
+            <span class="look__tag">适合 · 冷白皮</span>
+            <span class="look__tag">拍照出片</span>
+          </div>
+          <div class="look__swatches" aria-hidden="true">
+            <span class="look__swatch" style="background: #c7a9c2"></span>
+            <span class="look__swatch" style="background: #8e6d90"></span>
+            <span class="look__swatch" style="background: #4a2c50"></span>
+          </div>
+        </article>
+
+        <article class="look look--epoque">
+          <span class="look__index">III</span>
+          <div class="look__label">Époque · 玫瑰木</div>
+          <h3 class="look__name">气场妆</h3>
+          <p class="look__line">酒红木唇 + 高挑眉峰<br />把存在感写在眉骨上</p>
+          <div class="look__tags">
+            <span class="look__tag">适合 · 鹅蛋脸</span>
+            <span class="look__tag">适合 · 暖黄皮</span>
+            <span class="look__tag">职场晚宴</span>
+          </div>
+          <div class="look__swatches" aria-hidden="true">
+            <span class="look__swatch" style="background: #b8456a"></span>
+            <span class="look__swatch" style="background: #8b2942"></span>
+            <span class="look__swatch" style="background: #4a1828"></span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ Features ============ -->
+    <section class="section" id="features">
+      <div class="section__head">
+        <h2 class="section__title">Quatre détails<em>四个</em></h2>
+        <div class="section__meta">Comment · 01—04</div>
+      </div>
+
+      <div class="features">
+        <div class="feature">
+          <span class="feature__no">i.</span>
+          <div class="feature__icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <circle cx="14" cy="14" r="11" stroke="currentColor" stroke-width="1.4" />
+              <path d="M3 14h22M14 3v22" stroke="currentColor" stroke-width="1.2" />
+              <path
+                d="M3 14 Q9 8 14 14 T25 14"
+                stroke="currentColor"
+                stroke-width="1.2"
+                fill="none"
+              />
+            </svg>
+          </div>
+          <h3 class="feature__title">三庭五眼</h3>
+          <p class="feature__body">
+            478 个 MediaPipe 关键点，给你的脸画一张精确地图，告诉你哪里适合打高光、哪里该藏阴影。
+          </p>
+        </div>
+
+        <div class="feature">
+          <span class="feature__no">ii.</span>
+          <div class="feature__icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <circle cx="14" cy="14" r="6" fill="currentColor" opacity="0.85" />
+              <circle cx="14" cy="14" r="11" stroke="currentColor" stroke-width="1.4" />
+              <circle cx="14" cy="3" r="2" fill="currentColor" />
+              <circle cx="14" cy="25" r="2" fill="currentColor" />
+              <circle cx="3" cy="14" r="2" fill="currentColor" />
+              <circle cx="25" cy="14" r="2" fill="currentColor" />
+            </svg>
+          </div>
+          <h3 class="feature__title">AI 肤色卡</h3>
+          <p class="feature__body">
+            从冷白皮到暖深色，8 种肤色分类，知道你适合哪种粉底、哪支口红、什么色系眼影。
+          </p>
+        </div>
+
+        <div class="feature">
+          <span class="feature__no">iii.</span>
+          <div class="feature__icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <rect
+                x="4"
+                y="4"
+                width="20"
+                height="20"
+                rx="4"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+              <path
+                d="M9 9l5 5 5-5M9 19l5-5 5 5"
+                stroke="currentColor"
+                stroke-width="1.2"
+                fill="none"
+              />
+            </svg>
+          </div>
+          <h3 class="feature__title">跟妆步骤</h3>
+          <p class="feature__body">
+            从底妆到唇色，每一步都在你自己的脸上画出来。告诉你用什么工具、刷哪个方向、避免哪些雷区。
+          </p>
+        </div>
+
+        <div class="feature">
+          <span class="feature__no">iv.</span>
+          <div class="feature__icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <rect
+                x="3"
+                y="6"
+                width="22"
+                height="16"
+                rx="3"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+              <path d="M3 12h22" stroke="currentColor" stroke-width="1.2" />
+              <circle cx="9" cy="18" r="1.6" fill="currentColor" />
+              <circle cx="14" cy="18" r="1.6" fill="currentColor" />
+              <circle cx="19" cy="18" r="1.6" fill="currentColor" />
+            </svg>
+          </div>
+          <h3 class="feature__title">闺蜜文案</h3>
+          <p class="feature__body">
+            一键复制小红书种草文案，口吻像闺蜜贴耳，不卖弄、不油腻，发朋友圈不会脸红。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Ending CTA ============ -->
+    <section class="ending" id="ending">
+      <div class="ending__card">
+        <div class="ending__grid">
+          <div>
+            <div class="ending__eyebrow">À toi, maintenant</div>
+            <h2 class="ending__title">准备好让妆容<br />替你说话了吗<em>?</em></h2>
+            <p class="ending__line">妆从来不是为了变成别人，是把最像自己的那张脸，再描清楚一点。</p>
+          </div>
+          <a href="#" class="ending__cta"> 上传自拍 · 三十秒读你 <span>→</span> </a>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div>© 2026 妆语 · Maison de Beauté</div>
+      <div>
+        <a href="#">隐私</a>
+        <a href="#">关于</a>
+        <a href="#">联系</a>
+      </div>
+    </footer>
+  </body>
+</html>

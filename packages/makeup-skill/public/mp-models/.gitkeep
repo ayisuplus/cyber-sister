@@ -1,0 +1,3 @@
+# MediaPipe model files (face_landmarker.task) belong here.
+# Download before running face detection locally.
+# Tracked as empty dir via this placeholder; .task binaries are gitignored.
