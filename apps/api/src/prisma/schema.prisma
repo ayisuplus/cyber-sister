@@ -1,0 +1,172 @@
+// 赛博姐妹数据库Schema
+// 生产环境使用PostgreSQL，开发环境可使用Docker PostgreSQL或本地安装
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  phone       String   @unique
+  nickname    String?
+  avatarUrl   String?   @map("avatar_url")
+  persona     String   @default("toxic")
+  isVip       Boolean  @default(false) @map("is_vip")
+  vipExpireAt DateTime? @map("vip_expire_at")
+  birthDate   DateTime? @map("birth_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  conversations Conversation[]
+  memories      Memory[]
+  todos         Todo[]
+  countdowns    Countdown[]
+  periodRecords PeriodRecord[]
+  reminders     Reminder[]
+  crisisLogs    CrisisLog[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String?
+  persona   String   @default("toxic")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           String
+  content        String
+  emotion        String?
+  importance     Int      @default(3)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model Memory {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String    // episodic | semantic | procedural
+  content   String
+  entities  String?   // JSON字符串存储
+  importance Int      @default(5)
+  tags      String?   // JSON数组字符串存储
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([importance])
+  @@map("memories")
+}
+
+model Todo {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  content   String
+  dueDate   DateTime? @map("due_date")
+  isDone    Boolean   @default(false) @map("is_done")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("todos")
+}
+
+model Countdown {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  title      String
+  targetDate DateTime @map("target_date")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("countdowns")
+}
+
+model PeriodRecord {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  startDate DateTime  @map("start_date")
+  endDate   DateTime? @map("end_date")
+  cycleDays Int       @default(28) @map("cycle_days")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("period_records")
+}
+
+model Reminder {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   // water | sleep | custom
+  time      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("reminders")
+}
+
+model CrisisLog {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  triggerMsg String?  @map("trigger_msg")
+  level      String?
+  handled    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("crisis_logs")
+}
+
+// ============ 认证相关 ============
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")  // SHA-256 hash of the refresh token
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}

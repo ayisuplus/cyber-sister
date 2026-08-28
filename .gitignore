@@ -1,0 +1,36 @@
+# 凭据与敏感文件
+.env
+.env.*
+!.env.example
+*_cookies.json
+cookies.json
+*.pem
+*.key
+
+# 大模型权重与训练产物
+*.gguf
+*.safetensors
+*.bin
+checkpoints/
+
+# 爬虫产物与浏览器数据
+browser_data/
+*_user_data_dir/
+xhs_results_*.json
+stealth_*results.json
+
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 工具缓存
+.turbo/
+*.tsbuildinfo
+
+# 埋点数据
+data/analytics.jsonl
