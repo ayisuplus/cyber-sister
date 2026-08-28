@@ -1,0 +1,19 @@
+{
+  "total_samples": 8086,
+  "visual_desc_samples": 1387,
+  "eval_samples": 721,
+  "companion_text_samples": 5978,
+  "notes_total": 653,
+  "notes_with_images": 619,
+  "notes_by_category": {
+    "outfit": 590,
+    "makeup": 3,
+    "appearance": 14,
+    "general": 14
+  },
+  "comments_total": 44400,
+  "batches_ok": 33,
+  "batches_failed": 5,
+  "min_likes": 50,
+  "min_comment_likes": 5
+}

@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "description": "教学步骤的详细指令集合 — 每个 stepId 对应一段中文详细教学、刷法、工具、颜色和警告",
+  "tutorialSteps": [
+    {
+      "stepId": "cool_base",
+      "lookId": "look_cool_water",
+      "detailedInstruction": "挤出黄豆大小粉底液在手背,用湿润美妆蛋蘸取,先在脸颊中央三点(额头、鼻尖、下巴)轻点,再从中央向两侧以滚动按压的方式推开。重点是少量多次,让粉底与皮肤融为一体,而不是浮在表面。",
+      "overlayZones": ["left_cheek", "right_cheek", "t_zone", "chin"],
+      "brushDirection": "由内向外滚动按压",
+      "toolHint": "湿润美妆蛋 (喷雾打湿后挤干)",
+      "colorFamily": "冷调一白 / 中性一白",
+      "commonMistakes": ["一次挤太多,导致底妆厚重", "没有按压而是用涂抹,留下刷痕"],
+      "video": {
+        "duration": 45,
+        "keyFrames": [
+          { "time": 0, "zone": "left_cheek", "action": "点涂" },
+          { "time": 15, "zone": "right_cheek", "action": "按压" },
+          { "time": 30, "zone": "t_zone", "action": "推开" }
+        ]
+      }
+    },
+    {
+      "stepId": "cool_eye",
+      "lookId": "look_cool_water",
+      "detailedInstruction": "先用裸粉色眼影大号眼影刷铺满整个上眼睑,范围到眉骨下方;换中号细节刷蘸冷棕色,从外眼角向内晕染眼尾三角区,范围不超过眼折痕;下眼睑后 1/3 用细节刷轻带过;最后用最小号刷蘸珠光色点在内眼角提亮。",
+      "overlayZones": ["left_eyelid", "right_eyelid", "outer_corner_l", "outer_corner_r", "inner_corner_l", "inner_corner_r"],
+      "brushDirection": "外眼角向内晕染,内眼角点涂",
+      "toolHint": "大号铺色刷 + 中号细节刷 + 小号提亮刷",
+      "colorFamily": "裸粉 / 冷棕 / 香槟珠光",
+      "warnings": ["肿泡眼 / 内双:避免在眼皮中央铺珠光", "眼影范围不要超过眉骨"],
+      "video": {
+        "duration": 60,
+        "keyFrames": [
+          { "time": 0, "zone": "left_eyelid", "action": "铺底色" },
+          { "time": 20, "zone": "outer_corner_r", "action": "加深" },
+          { "time": 40, "zone": "inner_corner_l", "action": "提亮" }
+        ]
+      }
+    },
+    {
+      "stepId": "cool_blush",
+      "lookId": "look_cool_water",
+      "detailedInstruction": "微笑找到苹果肌最高点,用蓬松扇形腮红刷蘸少量冷粉色腮红,在苹果肌上轻拍向上晕染,范围不超过鼻翼水平线。冷调妆容腮红要克制,少量叠加即可。",
+      "overlayZones": ["left_cheek", "right_cheek"],
+      "brushDirection": "轻拍向上,圆形晕开",
+      "toolHint": "蓬松扇形腮红刷",
+      "colorFamily": "冷粉 / 玫瑰粉",
+      "warnings": ["暖橘色腮红会破坏冷调统一感"],
+      "video": {
+        "duration": 30,
+        "keyFrames": [
+          { "time": 0, "zone": "left_cheek", "action": "轻拍" },
+          { "time": 15, "zone": "right_cheek", "action": "晕开" }
+        ]
+      }
+    },
+    {
+      "stepId": "cool_lip",
+      "lookId": "look_cool_water",
+      "detailedInstruction": "先用唇部遮瑕模糊自身唇线,再蘸取玫瑰豆沙色口红从唇中央开始向嘴角涂抹,中间厚一点,边缘薄一点,营造咬唇妆效果。也可以用指腹轻拍晕开,效果更自然。",
+      "overlayZones": ["upper_lip", "lower_lip", "lip_line"],
+      "brushDirection": "从唇中央向嘴角",
+      "toolHint": "唇刷 / 指腹",
+      "colorFamily": "玫瑰豆沙 / 冷调正红",
+      "warnings": ["不要用暖橘色口红,会与冷调冲突"],
+      "video": {
+        "duration": 30,
+        "keyFrames": [
+          { "time": 0, "zone": "upper_lip", "action": "中央厚涂" },
+          { "time": 15, "zone": "lower_lip", "action": "向外晕开" }
+        ]
+      }
+    },
+    {
+      "stepId": "peach_base",
+      "lookId": "look_peach_date",
+      "detailedInstruction": "挤出粉底液,用湿润美妆蛋在面部均匀拍开。蜜桃约会妆的底妆要有奶油肌光泽感,所以不要用散粉全脸定妆,只在 T 区 / 鼻翼 / 下巴轻扫。",
+      "overlayZones": ["left_cheek", "right_cheek", "t_zone", "chin"],
+      "brushDirection": "由内向外拍开",
+      "toolHint": "湿润美妆蛋",
+      "colorFamily": "暖调一白 / 中性一白",
+      "commonMistakes": ["用太多散粉,失去光泽感"],
+      "video": {
+        "duration": 45,
+        "keyFrames": [
+          { "time": 0, "zone": "left_cheek", "action": "点涂" },
+          { "time": 20, "zone": "right_cheek", "action": "拍开" }
+        ]
+      }
+    },
+    {
+      "stepId": "peach_eye",
+      "lookId": "look_peach_date",
+      "detailedInstruction": "蜜桃色铺满上眼睑 1/2 范围,焦糖色加深眼尾 1/3 三角区,下眼睑前 1/3 用香槟金珠光提亮(卧蚕),后 1/3 用焦糖色加深。用细节刷晕染边界,避免色块感。",
+      "overlayZones": ["left_eyelid", "right_eyelid", "outer_corner_l", "outer_corner_r", "inner_corner_l", "inner_corner_r", "crease_l", "crease_r"],
+      "brushDirection": "睫毛根部向上晕染,卧蚕横向提亮",
+      "toolHint": "中号 + 细节眼影刷 + 晕染刷",
+      "colorFamily": "蜜桃 / 焦糖 / 香槟金",
+      "warnings": ["单眼皮:避免亮片色铺眼皮中央,只在下眼睑提亮"],
+      "video": {
+        "duration": 60,
+        "keyFrames": [
+          { "time": 0, "zone": "left_eyelid", "action": "蜜桃底色" },
+          { "time": 20, "zone": "outer_corner_r", "action": "焦糖加深" },
+          { "time": 40, "zone": "inner_corner_l", "action": "卧蚕提亮" }
+        ]
+      }
+    },
+    {
+      "stepId": "peach_blush",
+      "lookId": "look_peach_date",
+      "detailedInstruction": "用蓬松腮红刷蘸蜜桃橘色,在苹果肌向太阳穴方向斜扫,范围比冷调妆大,营造从内透出的红润感。注意不要在鼻梁上打腮红(会显村气)。",
+      "overlayZones": ["left_cheek", "right_cheek"],
+      "brushDirection": "从苹果肌向太阳穴斜扫",
+      "toolHint": "蓬松腮红刷",
+      "colorFamily": "蜜桃橘 / 珊瑚橘",
+      "warnings": ["鼻梁不要打腮红"],
+      "video": {
+        "duration": 30,
+        "keyFrames": [
+          { "time": 0, "zone": "left_cheek", "action": "斜扫" },
+          { "time": 15, "zone": "right_cheek", "action": "晕开" }
+        ]
+      }
+    },
+    {
+      "stepId": "peach_lip",
+      "lookId": "look_peach_date",
+      "detailedInstruction": "先用唇部遮瑕模糊自身唇线,涂蜜桃色口红,中间叠涂一层玻璃唇釉。如果觉得太甜,可以只在唇中央叠唇釉,边缘保持哑光。",
+      "overlayZones": ["upper_lip", "lower_lip", "lip_line", "cupid_bow"],
+      "brushDirection": "从唇中央向外",
+      "toolHint": "唇刷 + 唇釉刷",
+      "colorFamily": "蜜桃色 / 珊瑚色",
+      "video": {
+        "duration": 30,
+        "keyFrames": [
+          { "time": 0, "zone": "upper_lip", "action": "蜜桃底色" },
+          { "time": 15, "zone": "lower_lip", "action": "唇釉叠加" }
+        ]
+      }
+    },
+    {
+      "stepId": "power_contour",
+      "lookId": "look_power_queen",
+      "detailedInstruction": "气场御姐妆的灵魂。斜角修容刷蘸取冷棕调修容,从耳下沿着颧骨下方斜向下扫至脸颊中线,营造颧骨阴影;下颌角从耳下到下巴两侧轻扫加重;鼻翼两侧用小号刷轻带,缩窄鼻头。",
+      "overlayZones": ["forehead", "left_cheek", "right_cheek", "chin", "nose_sides"],
+      "brushDirection": "颧骨斜向下,下颌从耳下到下巴",
+      "toolHint": "斜角修容刷 + 小号鼻影刷",
+      "colorFamily": "冷棕 / 灰棕",
+      "warnings": ["深修容一定要少量多次,避免脏妆", "修容边缘要晕染开,不能有明显的色块边界"],
+      "video": {
+        "duration": 60,
+        "keyFrames": [
+          { "time": 0, "zone": "left_cheek", "action": "颧骨阴影" },
+          { "time": 20, "zone": "right_cheek", "action": "颧骨阴影" },
+          { "time": 40, "zone": "chin", "action": "下颌角加重" }
+        ]
+      }
+    },
+    {
+      "stepId": "power_eye",
+      "lookId": "look_power_queen",
+      "detailedInstruction": "大地色系烟熏:浅棕大号眼影刷铺满整个上眼睑到眉骨;深棕 / 灰黑中号刷加深眼窝和眼尾三角区,范围比日常妆大;下眼睑后 1/3 加重;内眼角用香槟金珠光提亮。用干净晕染刷把所有边界晕染开,避免色块。",
+      "overlayZones": ["left_eyelid", "right_eyelid", "crease_l", "crease_r", "outer_corner_l", "outer_corner_r", "inner_corner_l", "inner_corner_r"],
+      "brushDirection": "眼窝向上晕染,眼尾向上提拉",
+      "toolHint": "大号铺色 + 中号加深 + 晕染刷",
+      "colorFamily": "大地色 / 烟棕 / 酒红",
+      "warnings": ["肿泡眼:避免亮片色铺眼皮", "晕染要充分,不能有明显边界"],
+      "video": {
+        "duration": 90,
+        "keyFrames": [
+          { "time": 0, "zone": "left_eyelid", "action": "铺底色" },
+          { "time": 30, "zone": "crease_r", "action": "加深眼窝" },
+          { "time": 60, "zone": "outer_corner_r", "action": "烟熏加深" }
+        ]
+      }
+    },
+    {
+      "stepId": "power_eyeliner",
+      "lookId": "look_power_queen",
+      "detailedInstruction": "黑色眼线液笔,先画内眼线填满睫毛根部,再从外眼角水平向外延伸 3mm,然后向上 45° 角拉出 5-8mm 的锋利眼尾。下眼线后 1/3 轻轻带过,与上眼线连接形成全包效果。",
+      "overlayZones": ["left_eye", "right_eye", "outer_corner_l", "outer_corner_r"],
+      "brushDirection": "从外眼角向上拉",
+      "toolHint": "眼线液笔 / 眼线刷",
+      "colorFamily": "黑色",
+      "warnings": ["眼线要一笔成型,不要反复描画,会结块"],
+      "video": {
+        "duration": 45,
+        "keyFrames": [
+          { "time": 0, "zone": "left_eye", "action": "内眼线" },
+          { "time": 20, "zone": "outer_corner_l", "action": "上挑外眼线" }
+        ]
+      }
+    },
+    {
+      "stepId": "power_lip",
+      "lookId": "look_power_queen",
+      "detailedInstruction": "用与口红同色系的唇线笔勾勒锋利唇形,先画唇峰 M 形,再沿唇线到嘴角,修正原本不对称的唇形。然后用唇刷蘸正红 / 酒红色口红填满,边缘要干净。气场妆容拒绝水光感,坚持哑光雾面。",
+      "overlayZones": ["upper_lip", "lower_lip", "lip_line", "cupid_bow"],
+      "brushDirection": "从唇中央向嘴角",
+      "toolHint": "唇线笔 + 唇刷",
+      "colorFamily": "正红 / 酒红 / 浆果",
+      "warnings": ["水光感会削弱气场,坚持哑光"],
+      "video": {
+        "duration": 45,
+        "keyFrames": [
+          { "time": 0, "zone": "lip_line", "action": "唇线勾勒" },
+          { "time": 20, "zone": "upper_lip", "action": "口红填充" }
+        ]
+      }
+    }
+  ]
+}

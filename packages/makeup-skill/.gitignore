@@ -17,7 +17,9 @@ public/mp-models/*.task
 public/mp-models/wasm/
 
 # ---------- Data (too large for git) ----------
-data/
+/data/
+# 妆容规则数据是运行必需的小文件，必须入库
+!src/shared/data/
 training/
 training_by_style/
 training_packages/
