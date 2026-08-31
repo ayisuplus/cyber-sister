@@ -6,6 +6,10 @@
 cookies.json
 *.pem
 *.key
+*.crt
+*.cer
+*.p12
+*.pfx
 
 # 大模型权重与训练产物
 *.gguf
@@ -21,8 +25,17 @@ stealth_*results.json
 
 # 依赖与构建产物
 node_modules/
+apps/web/test-results/
+apps/web/playwright-report/
 dist/
 build/
+apps/api/src/prisma/dev.db
+packages/makeup-skill/.assets/*
+!packages/makeup-skill/.assets/.gitkeep
+
+# MediaPipe 模型与 wasm（构建期由 verify-model-assets.mjs 从 .assets/ 注入，不入库）
+apps/web/public/mp-models/
+packages/makeup-skill/public/mp-models/
 __pycache__/
 *.pyc
 venv/
@@ -34,3 +47,6 @@ venv/
 
 # 埋点数据
 data/analytics.jsonl
+
+# 测试覆盖率产物
+coverage/
