@@ -1,0 +1,66 @@
+/*
+ * 赛博姐妹 共享设计令牌（--cs-*）唯一来源。
+ *
+ * 消费方：
+ * - apps/web/src/styles/globals.css   @import '../../../../packages/design-tokens/tokens.css'
+ * - packages/makeup-skill/src/frontend/index.css  @import '../../../design-tokens/tokens.css'
+ *
+ * 色值权威依据：docs/UI设计系统规范_V3.0.md（2026-08-30，实施基线）。
+ * 本文件 2026-08-31 按消费方引用清单重建；新增变量前先在两处消费方确认命名。
+ */
+
+:root {
+  /* ---- 品牌四色（粉彩，仅承担背景与分区，禁止用于小字号正文） ---- */
+  --cs-pastel-blush: #FDF1F0;   /* 对话暖区、轻提示、柔和选中面 */
+  --cs-pastel-mist: #DEF0F5;    /* 信息、本地模型说明、冷静分区 */
+  --cs-pastel-sprout: #F4F9E8;  /* 本地就绪、隐私与成功表面 */
+  --cs-pastel-apricot: #FAF0EA; /* 妆教、温暖提示与发现页点缀 */
+
+  /* ---- 高对比语义色（正文/按钮/焦点/状态） ---- */
+  --cs-action-primary: #8A3F56;        /* 主操作 深莓红 */
+  --cs-action-primary-hover: #76344A;  /* 主操作悬停 */
+  --cs-action-hover: #76344A;          /* 别名，与 primary-hover 一致 */
+  --cs-focus-info: #315E6B;            /* 信息/焦点 深青 */
+  --cs-status-info: #315E6B;           /* 信息状态（与 focus-info 同源） */
+  --cs-status-local: #53633B;          /* 本地成功 深绿 */
+  --cs-warning: #8A5A00;               /* 警告 深琥珀 */
+  --cs-danger: #B42318;                /* 危险/危机 */
+
+  /* ---- 文字 ---- */
+  --cs-text-primary: #2D2429;
+  --cs-text-secondary: #5C4F56;
+  --cs-text-muted: #8A7B83;
+  --cs-text-inverse: #FFFFFF;
+
+  /* ---- 表面 ---- */
+  --cs-surface-page: #FDF8F6;   /* 页面底 */
+  --cs-surface-card: #FFFFFF;   /* 卡片 */
+  --cs-surface-muted: #F7F2F0;  /* 弱分区 */
+  --cs-surface-input: #FFFFFF;  /* 输入框 */
+
+  /* ---- 描边 ---- */
+  --cs-border-hairline: #F3EAE8;
+  --cs-border-subtle: #EFE3E1;
+  --cs-border-default: #E3D3D1;
+  --cs-border-control: #D8C4C2;
+
+  /* ---- 渐变（--cs-gradient-action 由 apps/web globals.css 自行定义，此处不重复） ---- */
+  --cs-gradient-hero: linear-gradient(135deg, var(--cs-pastel-blush) 0%, var(--cs-pastel-mist) 100%);
+  --cs-gradient-warm: linear-gradient(135deg, var(--cs-pastel-apricot) 0%, var(--cs-pastel-blush) 100%);
+  --cs-gradient-bubble: linear-gradient(135deg, #FFFFFF 0%, var(--cs-pastel-blush) 100%);
+  --cs-gradient-subtle: linear-gradient(180deg, var(--cs-surface-page) 0%, var(--cs-pastel-blush) 100%);
+
+  /* ---- 阴影（低透明、短距离，不做高亮霓虹） ---- */
+  --cs-shadow-sm: 0 1px 3px rgba(138, 63, 86, 0.08);
+  --cs-shadow-md: 0 4px 12px rgba(138, 63, 86, 0.10);
+  --cs-shadow-lg: 0 8px 24px rgba(138, 63, 86, 0.12);
+  --cs-shadow-card: 0 2px 8px rgba(138, 63, 86, 0.08);
+  --cs-shadow-input: inset 0 1px 2px rgba(138, 63, 86, 0.06);
+  --cs-shadow-button: 0 2px 6px rgba(138, 63, 86, 0.20);
+  --cs-shadow-phone: 0 12px 40px rgba(138, 63, 86, 0.16);
+
+  /* ---- 圆角（卡片 24px 基线，控件约 14px） ---- */
+  --cs-radius-card: 24px;
+  --cs-radius-control: 14px;
+  --cs-radius-sheet: 28px;
+}

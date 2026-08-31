@@ -1,0 +1,9 @@
+{
+  "name": "@cyber-sister/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "赛博姐妹共享设计令牌（--cs-* CSS 变量唯一来源）",
+  "files": [
+    "tokens.css"
+  ]
+}
