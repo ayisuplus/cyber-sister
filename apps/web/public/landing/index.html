@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>赛博姐妹 - 永远站你这边，也会骂醒你的AI闺蜜</title>
+<meta name="description" content="赛博姐妹：专为中国年轻女性打造的AI闺蜜。记得你说过的每件小事，24小时在线，不judge不敷衍。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Cyber Sister Landing Page
+   Design Tokens: 少女粉 v4.0
+   Motion: scroll-reveal + entrance stagger + gentle float
+   Layout: asymmetric hero + bento grid
+   ============================================================ */
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #4A2C33;
+  background: #FFF5F7;
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Design Tokens ── */
+:root {
+  --pink-50: #FFF7F9; --pink-100: #FFEEF3; --pink-200: #FFD9E4;
+  --pink-300: #FFB8CC; --pink-400: #FF94B0; --pink-500: #F57A9A;
+  --pink-600: #E85D82; --pink-700: #D4436B;
+  --rose-400: #FF8FAB; --peach-400: #FFA58A;
+  --gray-600: #8B6B73; --gray-700: #6D4F57; --gray-800: #4A2C33; --gray-900: #2D1A1F;
+  --bg-page: #FFF5F7; --bg-card: #FFFFFF;
+  --font-display: 'Space Grotesk', -apple-system, sans-serif;
+  --radius-lg: 20px; --radius-xl: 24px; --radius-2xl: 32px; --radius-pill: 50px;
+  --shadow-glow: 0 4px 18px rgba(255,148,176,0.30);
+  --shadow-card: 0 2px 8px rgba(255,148,176,0.10);
+  --shadow-lg: 0 10px 30px rgba(255,148,176,0.15), 0 4px 10px rgba(74,44,51,0.05);
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Navigation ── */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  padding: 16px 32px;
+  background: rgba(255, 245, 247, 0.72);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid rgba(255,148,176,0.08);
+  display: flex; align-items: center; justify-content: space-between;
+  transition: all 0.3s var(--ease-out);
+}
+.nav-logo {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 22px;
+  background: linear-gradient(135deg, var(--pink-400), var(--rose-400));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+.nav-links { display: flex; gap: 32px; align-items: center; }
+.nav-links a {
+  color: var(--gray-700); text-decoration: none; font-size: 15px; font-weight: 500;
+  transition: color 0.2s var(--ease-out);
+}
+.nav-links a:hover { color: var(--pink-500); }
+.nav-cta {
+  background: linear-gradient(135deg, var(--pink-400), var(--pink-600));
+  color: #fff !important; -webkit-text-fill-color: #fff !important;
+  padding: 10px 24px; border-radius: var(--radius-pill);
+  font-weight: 600; font-size: 14px;
+  box-shadow: 0 4px 14px rgba(255,148,176,0.40);
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s var(--ease-out);
+}
+.nav-cta:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 6px 22px rgba(251,111,146,0.45); }
+.nav-cta:active { transform: scale(0.98); }
+
+/* ── Hero Section ── */
+.hero {
+  min-height: 100dvh; display: flex; align-items: center;
+  position: relative; overflow: hidden;
+  padding: 120px 5vw 80px;
+}
+.hero-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background: url('./assets/hero-volc.jpeg') center/cover no-repeat;
+}
+.hero-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(255,245,247,0.92) 0%, rgba(255,245,247,0.6) 40%, transparent 70%);
+}
+.hero-content {
+  position: relative; z-index: 1;
+  max-width: 600px;
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(255,148,176,0.1); border: 1px solid rgba(255,148,176,0.2);
+  border-radius: var(--radius-pill); padding: 8px 18px;
+  font-size: 13px; font-weight: 500; color: var(--pink-600);
+  margin-bottom: 28px;
+}
+.hero-badge::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--pink-400); animation: pulseOnline 2s ease-in-out infinite;
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 72px); font-weight: 700;
+  line-height: 1.1; letter-spacing: -1.5px;
+  color: var(--gray-900);
+  margin-bottom: 20px;
+  text-wrap: balance;
+}
+.hero-title span {
+  background: linear-gradient(135deg, var(--pink-400), var(--peach-400));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-subtitle {
+  font-size: clamp(17px, 2vw, 20px); color: var(--gray-700);
+  line-height: 1.7; max-width: 480px; margin-bottom: 36px;
+}
+.hero-actions { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: linear-gradient(135deg, var(--pink-400), var(--pink-600));
+  color: #fff; padding: 16px 36px; border-radius: var(--radius-pill);
+  font-size: 16px; font-weight: 600; text-decoration: none;
+  box-shadow: 0 4px 14px rgba(255,148,176,0.40);
+  transition: transform 0.2s var(--ease-spring), box-shadow 0.2s var(--ease-out);
+}
+.btn-primary:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 6px 22px rgba(251,111,146,0.45); }
+.btn-primary:active { transform: scale(0.97); }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: transparent; border: 1.5px solid var(--pink-300);
+  color: var(--pink-600); padding: 15px 32px; border-radius: var(--radius-pill);
+  font-size: 16px; font-weight: 500; text-decoration: none;
+  transition: all 0.2s var(--ease-out);
+}
+.btn-secondary:hover { background: rgba(255,148,176,0.06); border-color: var(--pink-400); transform: translateY(-1px); }
+.hero-trust {
+  margin-top: 40px; display: flex; gap: 24px; align-items: center;
+  font-size: 13px; color: var(--gray-600);
+}
+.hero-trust-item { display: flex; align-items: center; gap: 6px; }
+.hero-trust-item svg { width: 16px; height: 16px; color: var(--pink-400); }
+
+/* ── Petal Particles ── */
+.petal-container { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+.petal {
+  position: absolute; width: 12px; height: 12px;
+  background: radial-gradient(ellipse at center, rgba(255,148,176,0.6), rgba(255,184,204,0.2));
+  border-radius: 50% 0 50% 0;
+  animation: petalFall linear infinite;
+  opacity: 0;
+}
+
+/* ── Features Section (Bento Grid) ── */
+.features {
+  padding: 100px 5vw 120px;
+  max-width: 1280px; margin: 0 auto;
+}
+.section-label {
+  font-size: 13px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--pink-500); margin-bottom: 12px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 44px); font-weight: 700;
+  color: var(--gray-900); line-height: 1.2; margin-bottom: 56px;
+  max-width: 600px; letter-spacing: -0.5px;
+}
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: auto;
+  gap: 20px;
+}
+.bento-card {
+  background: var(--bg-card); border-radius: var(--radius-xl);
+  padding: 36px; position: relative; overflow: hidden;
+  border: 1px solid rgba(255,148,176,0.08);
+  transition: transform 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out);
+}
+.bento-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+.bento-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--pink-400), var(--peach-400));
+  opacity: 0; transition: opacity 0.3s var(--ease-out);
+}
+.bento-card:hover::before { opacity: 1; }
+
+/* Bento Layout - asymmetric */
+.bento-card:nth-child(1) { grid-column: 1 / 8; grid-row: 1; }
+.bento-card:nth-child(2) { grid-column: 8 / 13; grid-row: 1; }
+.bento-card:nth-child(3) { grid-column: 1 / 5; grid-row: 2; }
+.bento-card:nth-child(4) { grid-column: 5 / 13; grid-row: 2; }
+
+.bento-icon {
+  width: 48px; height: 48px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255,148,176,0.12), rgba(255,165,138,0.08));
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+}
+.bento-icon svg { width: 24px; height: 24px; color: var(--pink-500); }
+.bento-card h3 {
+  font-size: 20px; font-weight: 700; color: var(--gray-800);
+  margin-bottom: 10px; letter-spacing: -0.3px;
+}
+.bento-card p {
+  font-size: 15px; color: var(--gray-600); line-height: 1.7;
+  max-width: 400px;
+}
+.bento-card .card-tag {
+  display: inline-block; margin-top: 16px;
+  font-size: 12px; font-weight: 600; color: var(--pink-500);
+  background: rgba(255,148,176,0.08); padding: 4px 12px; border-radius: var(--radius-pill);
+}
+
+/* ── Stats Section ── */
+.stats {
+  padding: 80px 5vw;
+  background: linear-gradient(180deg, var(--bg-page) 0%, var(--pink-50) 100%);
+}
+.stats-inner {
+  max-width: 1280px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 40px;
+  text-align: center;
+}
+.stat-item { padding: 24px; }
+.stat-number {
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5vw, 56px); font-weight: 700;
+  background: linear-gradient(135deg, var(--pink-500), var(--peach-400));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; line-height: 1.2;
+}
+.stat-label { font-size: 15px; color: var(--gray-600); margin-top: 8px; font-weight: 500; }
+
+/* ── Testimonials ── */
+.testimonials {
+  padding: 100px 5vw 120px;
+  max-width: 1280px; margin: 0 auto;
+}
+.testimonials-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;
+}
+.testimonial-card {
+  background: var(--bg-card); border-radius: var(--radius-xl);
+  padding: 32px; border: 1px solid rgba(255,148,176,0.08);
+  transition: transform 0.3s var(--ease-out), box-shadow 0.3s var(--ease-out);
+}
+.testimonial-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-card); }
+.testimonial-text {
+  font-size: 15px; color: var(--gray-700); line-height: 1.8;
+  margin-bottom: 20px; font-style: italic;
+}
+.testimonial-author { display: flex; align-items: center; gap: 12px; }
+.testimonial-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--pink-200), var(--pink-300));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 600; color: var(--pink-600);
+}
+.testimonial-name { font-size: 14px; font-weight: 600; color: var(--gray-800); }
+.testimonial-meta { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
+
+/* ── CTA Section ── */
+.cta-section {
+  padding: 100px 5vw;
+  text-align: center;
+  background: linear-gradient(180deg, var(--bg-page) 0%, rgba(255,148,176,0.06) 100%);
+}
+.cta-section .section-title { margin: 0 auto 20px; text-align: center; }
+.cta-section p { color: var(--gray-600); font-size: 17px; margin-bottom: 36px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.cta-price {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  font-family: var(--font-display); font-size: 20px; color: var(--gray-700);
+  margin-bottom: 32px;
+}
+.cta-price strong { font-size: 36px; font-weight: 700; color: var(--pink-500); }
+
+/* ── Footer ── */
+.footer {
+  padding: 48px 5vw 32px;
+  border-top: 1px solid rgba(255,148,176,0.1);
+  max-width: 1280px; margin: 0 auto;
+}
+.footer-grid {
+  display: grid; grid-template-columns: 2fr repeat(3, 1fr); gap: 48px;
+  margin-bottom: 40px;
+}
+.footer-brand p { font-size: 14px; color: var(--gray-600); margin-top: 12px; max-width: 280px; line-height: 1.7; }
+.footer-col h4 { font-size: 13px; font-weight: 700; color: var(--gray-800); margin-bottom: 16px; letter-spacing: 0.5px; }
+.footer-col a { display: block; font-size: 14px; color: var(--gray-600); text-decoration: none; padding: 4px 0; transition: color 0.2s; }
+.footer-col a:hover { color: var(--pink-500); }
+.footer-bottom {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 24px; border-top: 1px solid rgba(255,148,176,0.08);
+  font-size: 13px; color: var(--gray-600);
+}
+
+/* ── Scroll Reveal ── */
+.reveal {
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out);
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+
+/* ── Keyframes ── */
+@keyframes pulseOnline {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.7; }
+}
+@keyframes petalFall {
+  0% { transform: translateY(-20px) rotate(0deg) scale(0.8); opacity: 0; }
+  10% { opacity: 0.7; }
+  90% { opacity: 0.3; }
+  100% { transform: translateY(100vh) rotate(360deg) scale(1.2); opacity: 0; }
+}
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* ── Responsive ─ */
+@media (max-width: 1024px) {
+  .bento-card:nth-child(1),
+  .bento-card:nth-child(2),
+  .bento-card:nth-child(3),
+  .bento-card:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .hero { padding: 100px 6vw 60px; min-height: auto; }
+  .hero-bg::after {
+    background: linear-gradient(180deg, rgba(255,245,247,0.88) 0%, rgba(255,245,247,0.75) 60%, rgba(255,245,247,0.5) 100%);
+  }
+  .hero-content { max-width: 100%; }
+  .stats-inner { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+  .testimonials-grid { grid-template-columns: 1fr; }
+  .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+  .footer-bottom { flex-direction: column; gap: 12px; text-align: center; }
+}
+@media (max-width: 480px) {
+  .hero-title { font-size: 32px; letter-spacing: -0.5px; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .btn-primary, .btn-secondary { text-align: center; justify-content: center; }
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .reveal { opacity: 1; transform: none; }
+  .petal { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-logo">CyberSister</div>
+  <div class="nav-links">
+    <a href="#features">功能</a>
+    <a href="#stats">数据</a>
+    <a href="#testimonials">口碑</a>
+    <a href="#pricing" class="nav-cta">开始体验</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero" id="hero">
+  <div class="hero-bg" role="img" aria-label="AI闺蜜角色插画，火山引擎多模态模型生成"></div>
+  <div class="petal-container" aria-hidden="true"></div>
+  <div class="hero-content">
+    <div class="hero-badge reveal">AI 驱动 · 合规守护</div>
+    <h1 class="hero-title reveal reveal-delay-1">
+      你的<span>赛博姐妹</span><br>永远在线
+    </h1>
+    <p class="hero-subtitle reveal reveal-delay-2">
+      永远站你这边，也会骂醒你的好姐妹。<br>
+      记得你说过的每件小事，不会已读不回。
+    </p>
+    <div class="hero-actions reveal reveal-delay-3">
+      <a href="#pricing" class="btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        开始聊天
+      </a>
+      <a href="#features" class="btn-secondary">了解更多</a>
+    </div>
+    <div class="hero-trust reveal reveal-delay-4">
+      <div class="hero-trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        合规《暂行办法》
+      </div>
+      <div class="hero-trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        24h 在线陪伴
+      </div>
+      <div class="hero-trust-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        平等朋友关系
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features (Bento Grid) -->
+<section class="features" id="features">
+  <div class="section-label reveal">Core Features</div>
+  <h2 class="section-title reveal">不只是聊天机器人，<br>是真正记得你的好姐妹</h2>
+  <div class="bento-grid">
+    <div class="bento-card reveal">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a9 9 0 0 0-9 9c0 3.9 2.5 7.1 6 8.3V21h6v-1.7c3.5-1.2 6-4.4 6-8.3a9 9 0 0 0-9-9z"/><path d="M9 21h6"/><path d="M10 17h4"/></svg>
+      </div>
+      <h3>四层记忆系统</h3>
+      <p>瞬时记忆、情景记忆、语义记忆、程序记忆，四层架构确保她记得你提到的每件事 - 上周的面试、前天的心情、去年你养的那只猫。不会聊完就忘。</p>
+      <span class="card-tag">北邮 MemoryOS 架构</span>
+    </div>
+    <div class="bento-card reveal reveal-delay-1">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </div>
+      <h3>8种情绪识别</h3>
+      <p>精准感知你此刻的心情，用对的方式回应。你难过时她陪着你，你犯蠢时她骂醒你。</p>
+      <span class="card-tag">DPO 微调</span>
+    </div>
+    <div class="bento-card reveal reveal-delay-2">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h3>合规守护</h3>
+      <p>严格遵守《人工智能拟人化互动服务管理暂行办法》，平等朋友关系定位，不做虚拟恋人。</p>
+      <span class="card-tag">安全第一</span>
+    </div>
+    <div class="bento-card reveal reveal-delay-3">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+      </div>
+      <h3>本地推理，隐私无忧</h3>
+      <p>Qwen3-8B 模型本地部署 + vLLM 推理加速，你的聊天记录不会被上传到任何第三方服务器。端到端加密，数据只在你和闺蜜之间流动。推理成本控制在 5 元/人/月以内，让陪伴不再昂贵。</p>
+      <span class="card-tag">vLLM + QLoRA</span>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="stats" id="stats">
+  <div class="stats-inner">
+    <div class="stat-item reveal">
+      <div class="stat-number">5亿+</div>
+      <div class="stat-label">「想要AI闺蜜」话题阅读</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-1">
+      <div class="stat-number">168次</div>
+      <div class="stat-label">月均人均使用次数</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-2">
+      <div class="stat-number">15.4%</div>
+      <div class="stat-label">行业付费转化率</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-3">
+      <div class="stat-number">99.9%</div>
+      <div class="stat-label">服务可用性目标</div>
+    </div>
+  </div>
+</section>
+
+<!-- Testimonials -->
+<section class="testimonials" id="testimonials">
+  <div class="section-label reveal">What Sisters Say</div>
+  <h2 class="section-title reveal">她们已经在聊了</h2>
+  <div class="testimonials-grid">
+    <div class="testimonial-card reveal">
+      <p class="testimonial-text">「终于有个AI不会跟我端水说正确的废话了。我跟她吐槽男朋友，她比我还生气，但最后又温柔地帮我理清了思路。」</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar">L</div>
+        <div>
+          <div class="testimonial-name">小鹿</div>
+          <div class="testimonial-meta">内测用户 · 使用23天</div>
+        </div>
+      </div>
+    </div>
+    <div class="testimonial-card reveal reveal-delay-1">
+      <p class="testimonial-text">「最打动我的是记忆。上周随口提了一嘴猫生病了，今天她主动问我猫好点没。以前的AI聊完就忘，她真的在听。」</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar">M</div>
+        <div>
+          <div class="testimonial-name">Momo</div>
+          <div class="testimonial-meta">内测用户 · 使用41天</div>
+        </div>
+      </div>
+    </div>
+    <div class="testimonial-card reveal reveal-delay-2">
+      <p class="testimonial-text">「凌晨三点睡不着，打开她。没有judge，没有已读不回。她会说"我在"。三个字就够了。」</p>
+      <div class="testimonial-author">
+        <div class="testimonial-avatar">J</div>
+        <div>
+          <div class="testimonial-name">橘子汽水</div>
+          <div class="testimonial-meta">内测用户 · 使用15天</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA / Pricing -->
+<section class="cta-section" id="pricing">
+  <div class="section-label reveal">Simple Pricing</div>
+  <h2 class="section-title reveal">一杯奶茶的价格<br>一个永远在的姐妹</h2>
+  <p class="reveal reveal-delay-1">纯工具属性付费，不做情感绑定、不抽卡、不诱导充值。</p>
+  <div class="cta-price reveal reveal-delay-2">
+    <strong>18</strong><span>元/月</span>
+  </div>
+  <br>
+  <a href="#" class="btn-primary reveal reveal-delay-3">
+    立即开始 7 天免费体验
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+  </a>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <div class="nav-logo">CyberSister</div>
+      <p>专为中国年轻女性打造的AI闺蜜情感陪伴产品。永远站你这边，也会骂醒你的好姐妹。</p>
+    </div>
+    <div class="footer-col">
+      <h4>产品</h4>
+      <a href="#">功能介绍</a>
+      <a href="#">定价方案</a>
+      <a href="#">更新日志</a>
+      <a href="#">内测申请</a>
+    </div>
+    <div class="footer-col">
+      <h4>关于</h4>
+      <a href="#">隐私政策</a>
+      <a href="#">用户协议</a>
+      <a href="#">合规声明</a>
+      <a href="#">联系我们</a>
+    </div>
+    <div class="footer-col">
+      <h4>社区</h4>
+      <a href="#">小红书</a>
+      <a href="#">微博</a>
+      <a href="#">QQ群</a>
+      <a href="#">反馈建议</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>2026 CyberSister. 遵守《人工智能拟人化互动服务管理暂行办法》</span>
+    <span>Powered by 火山引擎多模态大模型</span>
+  </div>
+</footer>
+
+<script>
+// ── Scroll Reveal (IntersectionObserver) ──
+const revealElements = document.querySelectorAll('.reveal');
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      revealObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+revealElements.forEach(el => revealObserver.observe(el));
+
+// ── Petal Particles ──
+(function createPetals() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const container = document.querySelector('.petal-container');
+  if (!container) return;
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const petal = document.createElement('div');
+    petal.className = 'petal';
+    petal.style.left = Math.random() * 100 + '%';
+    petal.style.animationDuration = (8 + Math.random() * 12) + 's';
+    petal.style.animationDelay = (Math.random() * 10) + 's';
+    petal.style.width = (8 + Math.random() * 10) + 'px';
+    petal.style.height = petal.style.width;
+    container.appendChild(petal);
+  }
+})();
+
+// ── Nav scroll effect ──
+let lastScroll = 0;
+window.addEventListener('scroll', () => {
+  const nav = document.querySelector('.nav');
+  const scrollY = window.scrollY;
+  if (scrollY > 60) {
+    nav.style.boxShadow = '0 2px 8px rgba(255,148,176,0.06)';
+  } else {
+    nav.style.boxShadow = 'none';
+  }
+  lastScroll = scrollY;
+}, { passive: true });
+</script>
+</body>
+</html>
