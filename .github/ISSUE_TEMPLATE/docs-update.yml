@@ -1,0 +1,63 @@
+name: 📝 文档问题
+description: 报告文档缺失、过时或与实现不一致
+title: "[Docs] "
+labels: ["type: docs", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        文档问题是本项目的高频隐患——Spec、README 与代码之间已出现过多处漂移。
+        发现不一致请大胆提出，这属于"边边角角但必须做"的工作。
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: 问题类型
+      options:
+        - 文档缺失（应该有但没有）
+        - 文档过时（描述与当前实现不符）
+        - 文档之间互相矛盾
+        - 文档错误（错别字、失效链接、错误示例）
+        - 文档结构/索引问题
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: doc-path
+    attributes:
+      label: 相关文档路径
+      description: 例如 docs/Spec_赛博姐妹_v1.0.md
+      placeholder: docs/xxx.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 具体描述
+      description: 文档怎么说，实际是什么样
+      placeholder: |
+        文档说：……
+        实际是：……
+        依据（代码位置 / 运行结果）：……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 影响
+      options:
+        - 会误导实施或部署（高）
+        - 会造成理解偏差（中）
+        - 轻微瑕疵（低）
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 建议如何修正
+    validations:
+      required: false

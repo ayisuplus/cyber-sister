@@ -1,0 +1,100 @@
+name: 🐛 Bug 报告
+description: 报告一个功能异常或体验缺陷
+title: "[Bug] "
+labels: ["type: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交 Bug！请尽量填写完整，能帮我们更快定位。
+        提交前请先搜索是否已有相同 Issue。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题现象
+      description: 清楚描述发生了什么
+      placeholder: 例：在聊天页发送消息后，一直显示"正在输入"但没有回复
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何稳定复现这个问题
+      placeholder: |
+        1. 打开 xxx 页面
+        2. 点击 xxx
+        3. 输入 xxx
+        4. 观察到 xxx
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      description: 你认为正确的行为应该是什么
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 所属模块
+      options:
+        - module: chat（聊天）
+        - module: tools（工具箱）
+        - module: auth（登录/鉴权）
+        - module: memories（记忆）
+        - module: compliance（危机/合规）
+        - module: makeup（妆教）
+        - module: virtual（虚拟试衣/化妆间）
+        - module: other / 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 严重程度
+      description: 若不确定可留空，由 triage 决定
+      options:
+        - priority: p0（阻塞发布 / 核心功能不可用）
+        - priority: p1（主要功能受损，有 workaround）
+        - priority: p2（次要问题 / 体验瑕疵）
+        - 不确定，请 triage
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 浏览器、操作系统、部署环境（内测域名）、本地模型是否已配置
+      placeholder: |
+        - 浏览器 / 版本：
+        - 操作系统：
+        - 环境：内测
+        - llama.cpp 是否已配置：是 / 否
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图 / 录屏
+      description: 有 UI 问题时请附上
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: |
+        请只粘贴 request ID、错误码等结构化信息。
+        ⚠️ 严禁粘贴提示词正文、聊天内容、记忆内容、凭据或图片（见 Spec §8 日志规范）。
+    validations:
+      required: false
