@@ -5,55 +5,75 @@ import logger from '../utils/logger.js'
 
 const router = Router()
 
+function sendError(res, error, fallback) {
+  return res.status(error.statusCode || 500).json({
+    error: error.statusCode ? error.message : fallback,
+    ...(error.code ? { code: error.code } : {}),
+  })
+}
+
 router.get('/profile', async (req, res) => {
   try {
-    const user = await userService.getProfile(req.user.userId)
-    res.json(user)
+    res.json(await userService.getProfile(req.user.userId))
   } catch (error) {
     logger.error('获取用户信息失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取用户信息失败' })
+    sendError(res, error, '获取用户信息失败')
   }
 })
 
 router.put('/profile', async (req, res) => {
   try {
-    const user = await userService.updateProfile(req.user.userId, req.body)
-    res.json(user)
+    res.json(await userService.updateProfile(req.user.userId, req.body))
   } catch (error) {
     logger.error('更新用户信息失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '更新用户信息失败' })
+    sendError(res, error, '更新用户信息失败')
   }
 })
 
 router.put('/persona', validate([
-  { field: 'persona', validate: (v) => validateEnum(v, '人格', ['toxic', 'gentle', 'wild']) },
+  { field: 'persona', validate: (value) => validateEnum(value, '人格', userService.PERSONAS) },
 ]), async (req, res) => {
   try {
-    const user = await userService.switchPersona(req.user.userId, req.body.persona)
-    res.json(user)
+    res.json(await userService.switchPersona(req.user.userId, req.body.persona))
   } catch (error) {
     logger.error('切换人格失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '切换人格失败' })
+    sendError(res, error, '切换人格失败')
+  }
+})
+
+router.get('/external-llm-consent', async (req, res) => {
+  try {
+    res.json(await userService.getExternalLlmConsent(req.user.userId))
+  } catch (error) {
+    logger.error('获取外部模型同意状态失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '获取外部模型同意状态失败')
+  }
+})
+
+router.put('/external-llm-consent', async (req, res) => {
+  try {
+    res.json(await userService.updateExternalLlmConsent(req.user.userId, req.body.accepted))
+  } catch (error) {
+    logger.error('更新外部模型同意状态失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '更新外部模型同意状态失败')
   }
 })
 
 router.get('/membership', async (req, res) => {
   try {
-    const data = await userService.getMembership(req.user.userId)
-    res.json(data)
+    res.json(await userService.getMembership(req.user.userId))
   } catch (error) {
     logger.error('获取会员状态失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取会员状态失败' })
+    sendError(res, error, '获取会员状态失败')
   }
 })
 
 router.post('/membership/subscribe', async (req, res) => {
   try {
-    const result = await userService.subscribeMembership(req.user.userId)
-    res.json(result)
+    res.json(await userService.subscribeMembership(req.user.userId))
   } catch (error) {
     logger.error('开通会员失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '开通会员失败' })
+    sendError(res, error, '开通会员失败')
   }
 })
 

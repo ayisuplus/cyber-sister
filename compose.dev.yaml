@@ -1,0 +1,24 @@
+# 本地开发专用：只起 PostgreSQL，应用进程用 pnpm dev 跑在宿主机。
+# 用法：docker compose -f compose.dev.yaml up -d
+# 仅供本地开发，口令为公开占位值，禁止用于任何共享/部署环境。
+name: cyber-sister-dev
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: cyber_sister
+      POSTGRES_USER: cyber_sister
+      POSTGRES_PASSWORD: cyber_sister_dev
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cyber_sister -d cyber_sister"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-dev-data:

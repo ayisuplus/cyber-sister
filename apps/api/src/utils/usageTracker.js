@@ -37,6 +37,7 @@ class UsageTracker {
         lastActivity: now,
         sessionCount: 1,
         currentDate: this._getDateKey(),
+        active: true,
       }
       this.sessions.set(userId, session)
       logger.debug('使用计时开始', { userId, sessionStart: new Date(now).toISOString() })
@@ -51,6 +52,7 @@ class UsageTracker {
       session.sessionStart = now
       session.lastActivity = now
       session.sessionCount++
+      session.active = true
     }
 
     return this._getStatus(session)
@@ -78,6 +80,8 @@ class UsageTracker {
     const sessionDuration = now - session.sessionStart
     session.dailyTotal += sessionDuration
     session.lastActivity = now
+    // 结束后时钟必须停下：否则后续 status/heartbeat 会把同一段时长重复计入
+    session.active = false
 
     logger.debug('使用计时结束', {
       userId,
@@ -112,7 +116,8 @@ class UsageTracker {
    */
   _getStatus(session) {
     const now = Date.now()
-    const currentSessionDuration = now - session.sessionStart
+    const isActive = session.active !== false
+    const currentSessionDuration = isActive ? now - session.sessionStart : 0
     const totalDailyMs = session.dailyTotal + currentSessionDuration
     const continuousMinutes = Math.round(currentSessionDuration / 60000)
     const dailyMinutes = Math.round(totalDailyMs / 60000)
@@ -121,7 +126,7 @@ class UsageTracker {
       minutes: continuousMinutes,
       dailyMinutes,
       shouldRemind: currentSessionDuration >= TWO_HOURS_MS,
-      isActive: true,
+      isActive,
       sessionCount: session.sessionCount,
     }
   }

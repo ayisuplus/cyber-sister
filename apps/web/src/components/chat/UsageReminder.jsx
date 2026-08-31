@@ -1,10 +1,16 @@
+import { useRef } from 'react'
 import { useComplianceStore } from '../../stores/complianceStore'
+import useDialogFocusTrap from './useDialogFocusTrap'
 import { Clock } from 'lucide-react'
 
 export default function UsageReminder() {
   const showUsageReminder = useComplianceStore(s => s.showUsageReminder)
   const dismissUsageReminder = useComplianceStore(s => s.dismissUsageReminder)
   const resetSession = useComplianceStore(s => s.resetSession)
+  const dialogRef = useRef(null)
+  const confirmRef = useRef(null)
+
+  useDialogFocusTrap(showUsageReminder, dialogRef, confirmRef)
 
   if (!showUsageReminder) return null
 
@@ -15,23 +21,24 @@ export default function UsageReminder() {
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
     >
-      <div className="bg-white rounded-[24px] w-[300px] p-8 text-center animate-fade-in">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="usage-reminder-title" className="bg-surface-card rounded-[24px] w-[300px] p-8 text-center animate-fade-in">
         <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-brand-yellow/20 flex items-center justify-center">
           <Clock size={32} className="text-brand-yellow" />
         </div>
-        <h2 className="text-lg font-bold text-text-primary mb-3">已经聊了两个小时啦</h2>
+        <h2 id="usage-reminder-title" className="text-lg font-bold text-text-primary mb-3">已经聊了两个小时啦</h2>
         <p className="text-sm text-text-secondary leading-relaxed mb-6">
           起来活动一下，喝杯水吧~
         </p>
         <button
+          ref={confirmRef}
           onClick={(e) => {
             e.stopPropagation()
             handleDismiss()
           }}
-          className="w-full h-12 bg-gradient-pink-purple text-white font-semibold rounded-[23px] shadow-lg mb-3"
+          className="w-full min-h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-[12px] focus:ring-2 focus:ring-status-info mb-3"
+          style={{ boxShadow: 'var(--cs-shadow-button)' }}
         >
           好的，知道了
         </button>

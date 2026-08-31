@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { toolsService } from '../services/toolsService'
+// axios 错误对象的 config.headers 携带 Authorization，日志只保留状态码/错误名级别的摘要
+const summarizeError = (error) => error?.response?.status ?? error?.name ?? 'UnknownError'
 
 export const useToolsStore = create(
   (set, get) => ({
@@ -11,7 +13,7 @@ export const useToolsStore = create(
         const todos = await toolsService.getTodos()
         set({ todos })
       } catch (error) {
-        console.error('加载待办列表失败:', error)
+        console.error('加载待办列表失败:', summarizeError(error))
       }
     },
 
@@ -21,7 +23,7 @@ export const useToolsStore = create(
         set((state) => ({ todos: [todo, ...state.todos] }))
         return todo
       } catch (error) {
-        console.error('创建待办失败:', error)
+        console.error('创建待办失败:', summarizeError(error))
         throw error
       }
     },
@@ -36,7 +38,7 @@ export const useToolsStore = create(
           todos: state.todos.map((t) => (t.id === id ? updated : t)),
         }))
       } catch (error) {
-        console.error('更新待办失败:', error)
+        console.error('更新待办失败:', summarizeError(error))
       }
     },
 
@@ -45,7 +47,7 @@ export const useToolsStore = create(
         await toolsService.deleteTodo(id)
         set((state) => ({ todos: state.todos.filter((t) => t.id !== id) }))
       } catch (error) {
-        console.error('删除待办失败:', error)
+        console.error('删除待办失败:', summarizeError(error))
       }
     },
 
@@ -57,7 +59,7 @@ export const useToolsStore = create(
         const countdowns = await toolsService.getCountdowns()
         set({ countdowns })
       } catch (error) {
-        console.error('加载倒数日列表失败:', error)
+        console.error('加载倒数日列表失败:', summarizeError(error))
       }
     },
 
@@ -67,7 +69,7 @@ export const useToolsStore = create(
         set((state) => ({ countdowns: [cd, ...state.countdowns] }))
         return cd
       } catch (error) {
-        console.error('创建倒数日失败:', error)
+        console.error('创建倒数日失败:', summarizeError(error))
         throw error
       }
     },
@@ -79,7 +81,7 @@ export const useToolsStore = create(
           countdowns: state.countdowns.filter((c) => c.id !== id),
         }))
       } catch (error) {
-        console.error('删除倒数日失败:', error)
+        console.error('删除倒数日失败:', summarizeError(error))
       }
     },
 
@@ -91,7 +93,7 @@ export const useToolsStore = create(
         const records = await toolsService.getPeriodRecords()
         set({ periodRecords: records })
       } catch (error) {
-        console.error('加载经期记录失败:', error)
+        console.error('加载经期记录失败:', summarizeError(error))
       }
     },
 
@@ -103,7 +105,7 @@ export const useToolsStore = create(
         }))
         return record
       } catch (error) {
-        console.error('创建经期记录失败:', error)
+        console.error('创建经期记录失败:', summarizeError(error))
         throw error
       }
     },
@@ -111,8 +113,8 @@ export const useToolsStore = create(
     getNextPeriodDate: () => {
       const records = get().periodRecords
       if (records.length === 0) return null
-      const latest = records.sort(
-        (a, b) => new Date(b.startDate) - new Date(a.startDate)
+      const latest = [...records].sort(
+        (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
       )[0]
       const start = new Date(latest.startDate)
       start.setDate(start.getDate() + (latest.cycleDays || 28))
@@ -124,7 +126,7 @@ export const useToolsStore = create(
       if (!next) return null
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      const diff = Math.ceil((next - today) / (1000 * 60 * 60 * 24))
+      const diff = Math.ceil((next.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       return Math.max(0, diff)
     },
 
@@ -136,7 +138,7 @@ export const useToolsStore = create(
         const reminders = await toolsService.getReminders()
         set({ reminders })
       } catch (error) {
-        console.error('加载提醒列表失败:', error)
+        console.error('加载提醒列表失败:', summarizeError(error))
       }
     },
 
@@ -152,7 +154,7 @@ export const useToolsStore = create(
           reminders: state.reminders.map((r) => (r.id === id ? updated : r)),
         }))
       } catch (error) {
-        console.error('更新提醒失败:', error)
+        console.error('更新提醒失败:', summarizeError(error))
       }
     },
 
@@ -164,7 +166,7 @@ export const useToolsStore = create(
         const weather = await toolsService.getWeather()
         set({ weather })
       } catch (error) {
-        console.error('加载天气失败:', error)
+        console.error('加载天气失败:', summarizeError(error))
       }
     },
   })

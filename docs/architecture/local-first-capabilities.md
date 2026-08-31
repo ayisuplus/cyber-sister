@@ -1,0 +1,45 @@
+# 本地优先与能力扩展边界
+
+本文记录当前代码必须保持的两个扩展面。它不是动态插件系统，也不允许功能以“规划中”状态冒充可用能力。
+
+## 1. 模型扩展面
+
+所有模型调用经 `@cyber-sister/llm-gateway` 进入，provider 必须声明：
+
+- `scope: local | external`：数据是否离开本地部署的信任边界。
+- `scenes`：provider 可以服务的业务场景，如 `chat`、`explain`。
+- OpenAI-compatible `baseUrl`、`model` 与超时等运行参数。
+
+调用方必须显式传入 `allowExternal`。默认值是 `false`；在候选形成阶段就排除外部 provider。本地 provider 在各场景内始终优先。
+
+聊天和妆教不得各自实现供应商选择。妆教只提交规范化标签到主 API，由主 API 统一执行危机/内容安全、同意门、路由、来源标记与日志约束。
+
+## 2. 产品能力扩展面
+
+主 Web 的能力注册表是导航和展示的唯一来源。每项能力至少声明：
+
+- 稳定 `id` 与显示名称。
+- `status: available | planned | unavailable`。
+- 已上线能力的同源路由。
+- 一句可验证的隐私说明。
+- 视觉语义色；组件不自带裸色值。
+
+只有 `available` 能导航。`planned` 只能显示“规划中”，不得出现上传、分析、支付或生成等伪交互。
+
+新增虚拟试衣间、虚拟化妆间等独立体验时：
+
+1. 在 `packages/<capability>` 内拥有自己的前端与领域代码。
+2. 复用共享设计令牌、主应用 access token 和主 API 模型路由。
+3. 在 Nginx 下使用独立同源前缀，媒体处理默认只在浏览器进行。
+4. 服务端只接受规范化、白名单化的结构化特征；若确需上传媒体，必须单独更新隐私合同和测试门禁。
+5. 完成真实 E2E 后才把注册状态切换为 `available`。
+
+   例外（2026-08-30，用户明确指示）：虚拟化妆间/虚拟试衣间在生图外部 API 接入前即翻转为 `available` 并开放导航，页面内生图入口保持诚实“接入中”占位（服务端恒 503 `IMAGE_GEN_NOT_CONFIGURED`），不出现伪生成。外部 API 接通、真实 E2E 通过后该例外自动失效。
+
+   本期两个房间以主应用页面（`apps/web/src/pages/Virtual*RoomPage.jsx` + `components/virtualRoom/` + `features/virtualStudio/`）而非独立 `packages/<capability>` 交付：生图留空阶段独立构建链属于过重脚手架；若接入外部 API 后长成独立体验（自有前缀、独立部署面），再按本条第 1 款抽出为包。
+
+## 3. 共享 UI 基础
+
+`packages/design-tokens/tokens.css` 是所有体验的颜色、焦点、圆角、阴影和动效基线。四个低饱和品牌色只用作表面；正文、操作、状态和危机反馈使用独立高对比语义色。
+
+未来模块可以有自己的布局和任务颜色，但不得重新定义 AI 来源、隐私、本地、外部、警告和危险的语义。

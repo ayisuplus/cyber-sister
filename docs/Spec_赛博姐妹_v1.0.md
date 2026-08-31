@@ -1,146 +1,100 @@
-# Spec - 赛博姐妹 Web应用 v1.0
+# 赛博姐妹单机内测规格 v1.0
 
-> 生成日期：2026-07-12
-> 基于：PRD Web版 + 架构设计文档 + UIUX设计文档
-> 状态：已确认
+> 状态：四周内测实施基线
+> 更新日期：2026-08-30
+> 目标日期：2026-10-01
+> 适用范围：中国区、中文优先、VPN/可信私网中的白名单成年测试者
 
----
+## 1. 产品与架构边界
 
-## 1. 产品定义
+当前产品是模块化单体加独立妆教模块，不是微服务平台。单机 Docker Compose 运行 Nginx、主 Web、API、Makeup、PostgreSQL 和一次性 migration job。Nginx 提供用户域名上的 TLS，同源暴露 `/api/` 与 `/makeup/`。
 
-- **一句话描述**：面向中国年轻女性的AI闺蜜Web应用
-- **目标用户**：22-28岁一二线城市女性
-- **核心问题**：年轻女性需要一个"懂自己"的AI闺蜜
+内测只正式暴露：
 
-## 2. MVP范围（锁定）
+- 白名单登录、refresh 轮换和 logout 撤销。
+- llama.cpp 本地优先的非流式 AI 聊天与三种用户级人格。
+- `qwen-fallback-v1` 可选云端备用的同意、拒绝和撤回。
+- 用户主动维护的显式记忆。
+- 服务端危机阻断和安全输出过滤。
+- 主应用妆教入口与 `/makeup/` 流程。
 
-| 优先级 | 功能 | 验收标准摘要 |
-|--------|------|-------------|
-| P0 | 用户注册/登录 | 手机号+验证码，JWT鉴权 |
-| P0 | 聊天界面 | AI标识、消息气泡、输入框、发送、打字动画 |
-| P0 | 人格切换 | 3种预设人格，切换即时生效 |
-| P0 | Mock对话引擎 | 规则匹配+预设回复，预留LLM API |
-| P0 | 四层记忆系统 | 瞬时/情景/语义/程序，PostgreSQL存储 |
-| P0 | 工具功能 | 天气、待办、倒数日、大姨妈、提醒 |
-| P0 | 合规安全 | AI标识、2小时提醒、危机干预、未成年人保护 |
-| P0 | 会员系统 | 免费/会员版，权益区分 |
-| P0 | 我的页面 | 用户信息、人格切换、设置 |
+天气、待办、倒计时、生理期、提醒、会员、支付、账号删除、真实短信、自动记忆、向量检索、流式输出、第二生产供应商、语音/图片生成、模型训练、微服务/Kubernetes/Redis、妆教独立账号和公开发布均为后置项。
 
-### 明确不做（Won't Have）
-- LLM训练/微调 — 用户要求排除
-- 语音/视频通话 — V1.5
-- 图片生成 — V1.5
-- UGC角色创建 — V1.0不做
-- 群聊 — V1.0不做
+## 2. 认证合同
 
-## 3. 技术架构（锁定）
+- 仅 `APP_ENV=internal` 允许 `INTERNAL_TEST_PHONES` 和 `INTERNAL_TEST_CODE`；其他环境配置固定验证码必须拒绝启动。
+- 非白名单号码和错误验证码统一返回通用 401，不泄漏白名单状态。
+- 登录限流按 IP 与手机号组合执行，内测单实例不引入 Redis。
+- access token 用于 API 鉴权；refresh token 只存于 `Secure`、`HttpOnly` cookie，服务端只保存 token hash。
+- refresh 每次轮换；旧 token 重放失败。logout 撤销当前 refresh token、清 cookie，重复调用幂等。
+- 客户端没有“获取验证码”交互，登录必须等待真实 API 结果。
 
-- **前端**：React 18 + Vite + TailwindCSS + Zustand + Lucide Icons
-- **后端**：Node.js + Express + Prisma ORM
-- **数据库**：PostgreSQL 16
-- **认证**：JWT (access + refresh token)
-- **对话引擎**：Mock（预留LLM API接口）
+## 3. 用户、人格与同意
 
-## 4. API端点清单（锁定）
+`User.persona` 是唯一人格来源，允许 `toxic | gentle | rational`。`PUT /api/user/persona` 后，当前及未来会话的下一条消息立即使用新人格；会话历史和记忆不改变。`Conversation` 不保存 persona。
 
-### 认证
-| Method | Path | 功能 |
-|--------|------|------|
-| POST | /api/auth/send-code | 发送验证码 |
-| POST | /api/auth/login | 验证码登录 |
-| POST | /api/auth/refresh | 刷新token |
+外部模型同意只控制可选云端备用，不是使用本地聊天的前置条件。用户拥有三态外部模型同意：
 
-### 用户
-| Method | Path | 功能 |
-|--------|------|------|
-| GET | /api/user/profile | 获取用户信息 |
-| PUT | /api/user/profile | 更新用户信息 |
-| PUT | /api/user/persona | 切换人格 |
+- `GET /api/user/external-llm-consent` 返回 `{accepted:null|boolean, version:"qwen-fallback-v1", updatedAt}`。
+- `PUT /api/user/external-llm-consent {accepted:boolean}` 记录接受或拒绝；把已接受状态改为 `false` 即撤回。
+- 同意版本不是 `qwen-fallback-v1` 时按未选择处理，不能触发外部调用。
 
-### 聊天
-| Method | Path | 功能 |
-|--------|------|------|
-| GET | /api/chat/conversations | 会话列表 |
-| POST | /api/chat/conversations | 新建会话 |
-| GET | /api/chat/conversations/:id | 会话详情 |
-| POST | /api/chat/conversations/:id/messages | 发送消息 |
+同意门由服务端执行：未选择、拒绝或撤回时仍允许调用本地模型，但 Qwen 调用次数必须为零；只有当前版本明确接受后，本地模型失败的同一请求才允许尝试 Qwen。每个外部候选发出请求前都必须重新读取数据库中的当前同意状态，因此用户在本地模型等待期间撤回授权也会阻止尚未发出的外部请求。页面不得用同意弹窗阻断本地聊天。
 
-### 记忆
-| Method | Path | 功能 |
-|--------|------|------|
-| GET | /api/memories | 记忆列表 |
-| PUT | /api/memories/:id | 编辑记忆 |
-| DELETE | /api/memories/:id | 删除记忆 |
-| DELETE | /api/memories | 清空所有 |
+## 4. 聊天与外发合同
 
-### 工具
-| Method | Path | 功能 |
-|--------|------|------|
-| GET/POST | /api/tools/todos | 待办CRUD |
-| GET/POST | /api/tools/countdowns | 倒数日CRUD |
-| GET/POST | /api/tools/period | 大姨妈记录 |
-| GET/PUT | /api/tools/reminders | 提醒设置 |
-| GET | /api/tools/weather | 天气 |
+聊天发送请求保持 `{content}`：
 
-### 合规
-| Method | Path | 功能 |
-|--------|------|------|
-| POST | /api/compliance/crisis | 危机事件上报 |
-| GET | /api/compliance/usage/status | 使用时长 |
+- 成功：`{status:"ok", userMessage, aiMessage, source:"local_model"|"qwen"|"local_template"}`。
+- 危机阻断：`{status:"blocked", userMessage, intervention:{level,message,resources}}`。
+- 本地模型未配置：503 `LOCAL_LLM_NOT_CONFIGURED`。
+- 本地模型不可用且没有可用的已授权云端备用：503 `LOCAL_LLM_UNAVAILABLE`。
+- 已授权云端备用但所有候选模型都不可用：503 `LLM_UNAVAILABLE`。
 
-## 5. 数据库表（锁定）
+成功响应的 `source` 为 `local_model | qwen | local_template`。任何模型失败时该次消息都不持久化，前端保留输入供重试。
 
-| 表名 | 核心字段 | 关联 |
-|------|----------|------|
-| users | id, phone, nickname, persona, is_vip, birth_date | - |
-| conversations | id, user_id, title, persona | users |
-| messages | id, conversation_id, role, content, emotion, importance | conversations |
-| memories | id, user_id, type, content, entities, importance, expires_at | users |
-| todos | id, user_id, content, due_date, is_done | users |
-| countdowns | id, user_id, title, target_date | users |
-| period_records | id, user_id, start_date, end_date, cycle_days | users |
-| reminders | id, user_id, type, time, is_active | users |
-| crisis_logs | id, user_id, trigger_msg, level | users |
+llama.cpp 使用 OpenAI-compatible、`stream:false` 接口。实例管理员可在受控页面检测、测试并保存 Base URL 与模型；服务端只接受 `LOCAL_LLM_ALLOWED_ORIGINS` 精确白名单中的地址，不跟随重定向，也不从页面接收密钥。Qwen 同样使用 OpenAI-compatible 非流式接口，地址、模型与凭据只来自部署环境，且只作为可选备用。送入任何模型的负载遵守：
 
-## 6. 页面清单（锁定）
+- 系统提示另计；业务消息最多 20 条，按旧到新排列，即最多 19 条历史加当前输入。
+- 业务消息只含 `role` 和脱敏后的 `content`。
+- 最多注入 5 条与当前输入存在确定性词/标签重合的显式记忆；importance 仅在相关结果内排序。
+- 手机号、邮箱、证件号等确定性脱敏；不发送用户 ID、用户手机号字段、时间戳、图片、日志或无关记忆。
+- 输出命中威胁、拱火、浪漫化伤害、冒充真人或替用户决定重大人生事项等红线时替换为安全模板。
 
-| 页面 | 路由 | 核心组件 | 对应API |
-|------|------|---------|---------|
-| 登录 | /login | LoginForm, CodeInput | auth/* |
-| 聊天主页 | /chat | ChatHeader, MessageList, InputBar | chat/* |
-| 工具箱 | /tools | ToolGrid, CareCard | tools/* |
-| 大姨妈 | /tools/period | Calendar, PeriodRecord | tools/period |
-| 我的 | /profile | UserCard, PersonaSwitch | user/* |
-| 记忆管理 | /profile/memories | MemoryList | memories/* |
-| 会员中心 | /membership | PlanCard, FeatureList | user/membership |
-| 设置 | /settings | SettingsList | user/* |
+三套版本化人格提示允许网络化表达和轻度脏话，但 AI 身份、安全边界和用户自主性不可被人格或用户提示覆盖。
 
-## 7. 设计Token（锁定）
+## 5. 危机安全
 
-- **主色**：#FF6B9D (pink)
-- **辅色**：#6B5FC6 (purple), #6B8AFF (blue)
-- **字体**：Noto Sans SC + Inter
-- **图标库**：Lucide React
-- **主题**：浅色（白色背景）
-- **对标**：原型 index.html Design Token 1:1映射
+危机检测发生在同意检查和模型调用之前。中高风险输入在一个数据库事务中写入用户消息、固定干预回复和唯一一条 `CrisisLog`，返回 `status:"blocked"`，模型调用次数必须为零。
 
-## 8. 验收标准（锁定）
+仓库默认不提供未核验热线号码。展示资源必须由产品负责人书面批准，记录官方来源与核验日期；不得在没有证据时声明“24 小时”等可用性。
 
-| 编号 | 功能 | Given | When | Then |
-|------|------|-------|------|------|
-| A01 | 登录 | 用户打开应用 | 输入手机号+验证码 | 登录成功跳转聊天页 |
-| A02 | 发送消息 | 用户在聊天页 | 输入消息并发送 | 消息显示+AI回复+打字动画 |
-| A03 | 人格切换 | 用户在我的页 | 点击切换人格 | 聊天风格变化 |
-| A04 | 危机干预 | 用户发送危险关键词 | 系统检测 | 弹出危机干预全屏弹窗 |
-| A05 | 2小时提醒 | 用户连续使用2小时 | 系统检测 | 弹出提醒弹窗 |
-| A06 | 大姨妈记录 | 用户记录经期 | 点击记录按钮 | 日历显示周期标记 |
-| A07 | 待办管理 | 用户添加待办 | 输入内容并提交 | 待办出现在列表 |
-| A08 | 会员开通 | 用户点击开通会员 | 模拟支付 | 会员状态更新 |
+## 6. 显式记忆
 
-## 9. 边界与约束
+新用户记忆为空。`/api/memories` 提供带当前用户归属检查的创建、列表、编辑、删除和清空接口，沿用 `semantic | episodic | procedural`、importance 与 tags。系统不自动提取、不由模型推断记忆。
 
-- 移动端优先响应式（393×852基准）
-- Desktop居中显示手机模拟器效果
-- 聊天消息本地持久化（localStorage + API同步）
-- Mock验证码固定为 888888
-- 环境变量管理敏感配置
+## 7. 妆教合同
+
+- Vite base 为 `/makeup/`，解释 API 为 `/makeup/api/`，模型静态路径为 `/makeup/mp-models/`。
+- 图片和视频帧只在浏览器本地分析，永不发往服务器或模型供应商。
+- MediaPipe/WASM 不进入 Git、不在运行时下载；构建前注入受控目录，按已跟踪清单与 SHA-256 校验，缺失或不匹配时构建失败。
+- `POST /makeup/api/explain` 只接受规范化 `{features:{faceShape,skinTone,eyeType}, lookId}`。服务端按 `lookId` 解析内置妆容，不接受任意提示词或完整妆容对象。
+- Makeup 复用主应用 access token，把规范化特征标签和 `lookId` 转发给主 API；主 API 统一执行本地优先路由，只有当前版本明确接受时才允许云端备用。图片和视频帧不会进入这条请求链。
+- 未登录、主 API 或模型服务异常时返回透明标识的确定性本地解释。响应固定为 `{explanation, source:"local_model"|"qwen"|"local_template"}`，解释最长 50 个 Unicode 字符。
+- 管理入口、伪二维码和完成页自动跳转不进入内测构建。
+
+## 8. 运行与数据
+
+- 环境变量必须在业务模块加载前读取并严格校验；密钥、白名单、模型地址、域名和证书不得进入仓库。
+- PostgreSQL 使用纯初始迁移；空库只能通过 `prisma migrate deploy` 建库，不允许 `db push`。
+- migration job 成功后才启动 API；API ready 只检查 PostgreSQL，不把用户尚未启动的消费级本地模型误判为应用宕机。
+- `/api/health/live` 只表示进程存活；`/api/health/ready` 可随依赖恢复自动恢复。
+- 登录用户通过 `/api/llm/status` 查看去敏后的本地模型状态和云端备用状态；本地模型未加载时应用仍保持 ready。
+- 日志只允许 request ID、scene、provider/model、尝试次数、延迟和结果，不记录提示词、正文、记忆、凭据或图片。
+- 发布使用不可变镜像 tag。初始基线后只增量迁移；迁移前 `pg_dump`，并演练旧镜像和数据库恢复。
+
+## 9. 发布验收
+
+发布门要求：清洁检出后 frozen install、lint、typecheck、全部测试和构建通过；真实 PostgreSQL 迁移/重启/查询通过；真实 llama.cpp 完成检测、冷启动、聊天、本地失败与重试验收；核心 Playwright E2E、安全、键盘、焦点、标签、live region、44px 触控、缩放、reduced-motion 与 axe 检查通过；危机和人格冻结输入集通过；Compose TLS、深链、健康依赖、持久卷、备份恢复和镜像回滚完成演练。
+
+真实 Qwen 只做人工风格验收，必须在用户提供密钥并再次批准外部调用后执行。最终发布前的只读代码审查不得留有未解决的 P0/P1。该内测不等同于正式 WCAG、医疗或法律合规认证。

@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useToolsStore } from '../stores/toolsStore'
 import Header from '../components/layout/Header'
-import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, getDay, subMonths, addMonths } from 'date-fns'
+import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, subMonths, addMonths } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 
 export default function PeriodPage() {
   const { periodRecords, addPeriodRecord, getDaysUntilPeriod, getNextPeriodDate } = useToolsStore()
+  const loadPeriodRecords = useToolsStore(s => s.loadPeriodRecords)
   const [currentMonth, setCurrentMonth] = useState(new Date())
+  useEffect(() => {
+    loadPeriodRecords()
+  }, [loadPeriodRecords])
 
   const daysUntil = getDaysUntilPeriod()
   const nextDate = getNextPeriodDate()
@@ -34,7 +38,7 @@ export default function PeriodPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-page overflow-hidden">
       <Header title="大姨妈记录" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -113,7 +117,7 @@ export default function PeriodPage() {
                     <p className="text-xs text-text-muted">周期 {record.cycleDays} 天</p>
                   </div>
                   <span className="text-xs text-brand-pink bg-brand-pink/10 px-2 py-0.5 rounded-full">
-                    {record.endDate ? `${Math.ceil((new Date(record.endDate) - new Date(record.startDate)) / 86400000)}天` : '进行中'}
+                    {record.endDate ? `${Math.ceil((new Date(record.endDate).getTime() - new Date(record.startDate).getTime()) / 86400000)}天` : '进行中'}
                   </span>
                 </div>
               ))}
@@ -124,7 +128,7 @@ export default function PeriodPage() {
         {/* 记录按钮 */}
         <button
           onClick={handleRecord}
-          className="w-full h-12 bg-gradient-pink-purple text-white font-semibold rounded-[23px] shadow-lg flex items-center justify-center gap-2"
+          className="w-full h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-[23px] shadow-lg flex items-center justify-center gap-2"
         >
           <Plus size={18} />
           记录今天

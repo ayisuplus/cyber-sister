@@ -4,29 +4,40 @@ import logger from '../utils/logger.js'
 import usageTracker from '../utils/usageTracker.js'
 
 const router = Router()
+const CRISIS_LEVELS = new Set(['high', 'medium'])
+// 与 chatService.persistBlockedCrisis 的隐私口径对齐：触发消息最少化留存
+const MAX_TRIGGER_MSG_LENGTH = 500
 
-// 上报危机事件
-router.post('/crisis', async (req, res) => {
-  try {
-    const { triggerMsg, level } = req.body
-    const userId = req.user.userId
+// 内测危机记录只能由聊天事务创建，禁止客户端绕过该事务直接写入。
+if (process.env.APP_ENV !== 'internal') {
+  router.post('/crisis', async (req, res) => {
+    try {
+      const { triggerMsg, level } = req.body
+      const userId = req.user.userId
 
-    const log = await prisma.crisisLog.create({
-      data: {
-        userId,
-        triggerMsg,
-        level,
-        handled: false,
-      },
-    })
+      if (!CRISIS_LEVELS.has(level)) {
+        return res.status(400).json({ error: '危机等级必须是 high 或 medium' })
+      }
 
-    logger.warn('危机事件上报', { userId, level, logId: log.id })
-    res.json({ success: true, logId: log.id })
-  } catch (error) {
-    logger.error('危机事件上报失败', { error: error.message })
-    res.status(500).json({ error: '危机事件上报失败' })
-  }
-})
+      const log = await prisma.crisisLog.create({
+        data: {
+          userId,
+          triggerMsg: typeof triggerMsg === 'string' && triggerMsg.trim()
+            ? triggerMsg.trim().slice(0, MAX_TRIGGER_MSG_LENGTH)
+            : null,
+          level,
+          handled: false,
+        },
+      })
+
+      logger.warn('危机事件上报', { userId, level, logId: log.id })
+      res.json({ success: true, logId: log.id })
+    } catch (error) {
+      logger.error('危机事件上报失败', { error: error.message })
+      res.status(500).json({ error: '危机事件上报失败' })
+    }
+  })
+}
 
 // 开始使用计时
 router.post('/usage/start', (req, res) => {

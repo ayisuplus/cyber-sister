@@ -31,8 +31,8 @@ export const useComplianceStore = create((set, get) => ({
     try {
       await complianceService.startUsage()
       set({ usageStartTime: Date.now() })
-    } catch (error) {
-      console.error('开始使用计时失败:', error)
+    } catch {
+      // 非核心计时失败不影响聊天，也不记录可能含凭据的请求对象。
       set({ usageStartTime: Date.now() })
     }
   },
@@ -61,8 +61,8 @@ export const useComplianceStore = create((set, get) => ({
   endSession: async () => {
     try {
       await complianceService.endUsage()
-    } catch (error) {
-      console.error('结束使用计时失败:', error)
+    } catch {
+      // 非核心计时失败不影响退出流程。
     }
     set({ usageStartTime: null, usageMinutes: 0 })
   },
@@ -71,8 +71,8 @@ export const useComplianceStore = create((set, get) => ({
   triggerCrisis: async (level, triggerMsg = '') => {
     try {
       await complianceService.reportCrisis(triggerMsg, level)
-    } catch (error) {
-      console.error('上报危机事件失败:', error)
+    } catch {
+      // 主聊天危机事务由服务端完成，此兼容上报失败时静默降级。
     }
     set({ showCrisisModal: true, crisisLevel: level })
   },

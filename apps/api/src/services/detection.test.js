@@ -15,6 +15,7 @@ import {
   CRISIS_HIGH_RISK,
   CRISIS_MEDIUM_RISK,
   EMOTION_KEYWORDS,
+  getCrisisIntervention,
 } from './detection.js'
 
 describe('detectCrisis 危机检测', () => {
@@ -28,6 +29,20 @@ describe('detectCrisis 危机检测', () => {
     it('关键词嵌入在长句中也应识别', () => {
       expect(detectCrisis('我真的好想结束生命，撑不下去了')).toBe('high')
       expect(detectCrisis('今晚就想跳楼，一了百了')).toBe('high')
+    })
+
+    it.each([
+      '今晚准备吃安眠药结束自己',
+      '我已经准备好去死了',
+      '我打算从天台跳下去',
+      '我只是想结束这一切',
+      '我 想 自 杀',
+      '我想從天臺跳下去輕生',
+      '看完电影我也想死',
+      '电影里有人自杀，我也想死',
+      '我看了自杀预防科普，但现在我想死',
+    ])('冻结高风险改写：%s', (text) => {
+      expect(detectCrisis(text)).toBe('high')
     })
   })
 
@@ -54,11 +69,23 @@ describe('detectCrisis 危机检测', () => {
     it('普通日常对话应返回 null', () => {
       expect(detectCrisis('今天天气真好，出去逛街了')).toBeNull()
       expect(detectCrisis('升职加薪了，太开心了')).toBeNull()
+      expect(detectCrisis('医生说这个药要饭后吃药')).toBeNull()
+      expect(detectCrisis('这个弹窗怎么消失')).toBeNull()
     })
 
     it('包含"死"字但非危机语境的常见误报需关注', () => {
       // "笑死我了"不含任何高风险关键词，应返回 null
       expect(detectCrisis('哈哈哈笑死我了')).toBeNull()
+    })
+
+    it.each([
+      '我在做自杀预防科普',
+      '这篇论文研究自残预防',
+      '电影里的角色最后想死',
+      '我没有想自杀，只是在回答问卷',
+      '我不想自残，请不用担心',
+    ])('明确非自伤语境不应误报：%s', (text) => {
+      expect(detectCrisis(text)).toBeNull()
     })
   })
 
@@ -116,5 +143,70 @@ describe('关键词列表完整性（防误删保护）', () => {
     for (const w of [...CRISIS_HIGH_RISK, ...CRISIS_MEDIUM_RISK]) {
       expect(w.trim().length, `关键词「${w}」不应为空`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('getCrisisIntervention 固定干预资源', () => {
+  it('默认内容不包含未经核验的热线号码', () => {
+    const intervention = getCrisisIntervention('high', {})
+    expect(intervention.level).toBe('high')
+    expect(intervention.resources.length).toBeGreaterThan(0)
+    expect(JSON.stringify(intervention)).not.toMatch(/\b\d{5,}\b/)
+  })
+
+  it('仅接受结构完整的运营配置', () => {
+    const approved = [{ type: 'local', label: '已核验资源', guidance: '已审批说明' }]
+    expect(getCrisisIntervention('medium', {
+      CRISIS_RESOURCES_JSON: JSON.stringify(approved),
+    }).resources).toEqual(approved)
+
+    expect(getCrisisIntervention('medium', { CRISIS_RESOURCES_JSON: '{}' }).resources)
+      .not.toEqual([])
+  })
+})
+
+describe('detectCrisis 归一化绕过与亲昵误判回归', () => {
+  it.each([
+    '我想自殘',
+    '我自殘了',
+    '準備自殺',
+    '我計劃結束生命',
+    '我已經決定了結自己',
+    '現在就想跳樓',
+    '準備吃安眠藥結束自己',
+    '我打算從橋上跳下去',
+  ])('繁体写法不绕过检测：%s', (text) => {
+    expect(detectCrisis(text)).toBe('high')
+  })
+
+  it.each([
+    '活著好累',
+    '沒人愛我',
+    '我是個廢物',
+  ])('繁体中风险写法正确分级：%s', (text) => {
+    expect(detectCrisis(text)).toBe('medium')
+  })
+
+  it.each([
+    '自­杀',
+    '自⁠杀',
+    '自杀',
+    '跳﻿楼',
+    '自︀杀',
+  ])('插入格式/组合字符不绕过检测', (text) => {
+    expect(detectCrisis(text)).toBe('high')
+  })
+
+  it.each([
+    '想死你了',
+    '我想死你了',
+    '想死你啦',
+    '想死你们了',
+  ])('亲昵口语「想死你了」不误判：%s', (text) => {
+    expect(detectCrisis(text)).toBeNull()
+  })
+
+  it('亲昵语境不掩护同句的真实自我伤害表达', () => {
+    expect(detectCrisis('想死你了，我也想自杀')).toBe('high')
   })
 })

@@ -1,56 +1,47 @@
-import { useComplianceStore } from '../../stores/complianceStore'
+import { useRef } from 'react'
 import { Heart, Phone } from 'lucide-react'
+import useDialogFocusTrap from './useDialogFocusTrap'
 
-const HOTLINES = [
-  { name: '24小时心理援助热线', number: '400-161-9995' },
-  { name: '北京心理危机研究与干预中心', number: '010-82951332' },
-  { name: '生命热线', number: '400-821-1215' },
-]
+export default function CrisisModal({ intervention, onClose }) {
+  const dialogRef = useRef(null)
+  const closeRef = useRef(null)
 
-export default function CrisisModal() {
-  const showCrisisModal = useComplianceStore(s => s.showCrisisModal)
-  const dismissCrisis = useComplianceStore(s => s.dismissCrisis)
+  useDialogFocusTrap(Boolean(intervention), dialogRef, closeRef)
 
-  if (!showCrisisModal) return null
+  if (!intervention) return null
 
   return (
-    <div
-      className="absolute inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
-    >
-      <div className="bg-white rounded-[24px] w-[320px] p-8 text-center animate-fade-in">
-        <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-red-100 flex items-center justify-center">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-5">
+      <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="crisis-title" aria-describedby="crisis-message" className="w-full max-w-[340px] rounded-3xl bg-surface-card p-6 text-center shadow-xl">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
           <Heart size={32} className="text-red-500" />
         </div>
-        <h2 className="text-lg font-bold text-text-primary mb-3">我很担心你</h2>
-        <p className="text-sm text-text-secondary leading-relaxed mb-5">
-          你现在可能正在经历非常困难的时刻，请知道你不是一个人。以下热线24小时有人接听，请打一个电话聊聊。
-        </p>
+        <h2 id="crisis-title" className="text-lg font-bold text-text-primary">我很担心你</h2>
+        <p id="crisis-message" className="mt-3 text-sm leading-relaxed text-text-secondary">{intervention.message}</p>
 
-        <div className="space-y-2 mb-6">
-          {HOTLINES.map(h => (
-            <a
-              key={h.number}
-              href={`tel:${h.number}`}
-              className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
-            >
-              <Phone size={16} className="text-brand-pink shrink-0" />
-              <div className="text-left">
-                <p className="text-xs text-text-secondary">{h.name}</p>
-                <p className="text-sm font-semibold text-text-primary">{h.number}</p>
-              </div>
-            </a>
-          ))}
-        </div>
+        {Array.isArray(intervention.resources) && intervention.resources.length > 0 && (
+          <div className="mt-5 space-y-2">
+            {intervention.resources.map((resource) => {
+              const label = typeof resource === 'string' ? resource : resource.label || resource.name
+              const number = typeof resource === 'string' ? null : resource.number
+              const guidance = typeof resource === 'string' ? null : resource.guidance
+              return number ? (
+                <a key={`${label}-${number}`} href={`tel:${number}`} className="flex min-h-11 items-center gap-3 rounded-xl bg-gray-50 p-3 text-left hover:bg-gray-100">
+                  <Phone size={16} className="shrink-0 text-brand-pink" />
+                  <span className="text-sm text-text-primary">{label}：{number}</span>
+                </a>
+              ) : (
+                <p key={label} className="rounded-xl bg-gray-50 p-3 text-left text-sm text-text-primary">
+                  <strong className="block">{label}</strong>
+                  {guidance && <span className="mt-1 block text-xs text-text-secondary">{guidance}</span>}
+                </p>
+              )
+            })}
+          </div>
+        )}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            dismissCrisis()
-          }}
-          className="w-full h-12 bg-gradient-pink-purple text-white font-semibold rounded-[23px] shadow-lg"
-        >
-          我已联系帮助
+        <button ref={closeRef} type="button" onClick={onClose} className="mt-6 min-h-12 w-full rounded-[12px] bg-action-primary hover:bg-action-hover font-semibold text-text-inverse focus:ring-2 focus:ring-status-info" style={{ boxShadow: 'var(--cs-shadow-button)' }}>
+          我知道了
         </button>
       </div>
     </div>

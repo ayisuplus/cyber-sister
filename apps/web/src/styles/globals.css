@@ -1,63 +1,50 @@
+@import '../../../../packages/design-tokens/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================================
-   Cyber Sister — React App Global Styles v4.0
-   Unified design tokens aligned with web-app design system.
-   ============================================================ */
-
-/* ===== Design Tokens (少女粉 v4.0) ===== */
+/* Backward-compatible Web aliases while remaining pages migrate.
+   Shared --cs-* values live in packages/design-tokens/tokens.css. */
 :root {
-  /* Core Brand Colors */
-  --color-primary: #FF94B0;
-  --color-primary-light: #FFB8CC;
-  --color-primary-dark: #F57A9A;
-  --color-secondary: #FF8FAB;
-  --color-secondary-light: #FFB3C6;
-  --color-secondary-dark: #FB6F92;
-  --color-tertiary: #FFA58A;
+  --cs-gradient-action: linear-gradient(135deg, var(--cs-action-primary) 0%, var(--cs-action-primary-hover) 100%);
 
-  /* Gradients */
-  --gradient-pink: linear-gradient(135deg, #FF94B0 0%, #FB6F92 100%);
-  --gradient-hero: linear-gradient(135deg, #FFB8CC 0%, #FF8FAB 100%);
-  --gradient-warm: linear-gradient(135deg, #FF94B0 0%, #FFA58A 100%);
-  --gradient-bubble: linear-gradient(135deg, #FFB8CC 0%, #FF94B0 100%);
-  --gradient-subtle: linear-gradient(135deg, rgba(255,148,176,0.08) 0%, rgba(251,111,146,0.06) 100%);
-
-  /* Semantic Colors */
-  --color-success: #7ED957;
-  --color-warning: #FFCB47;
-  --color-error: #F50403;
-  --color-info: #6B8AFF;
-
-  /* Text Colors */
-  --text-primary: #4A2C33;
-  --text-secondary: #8B6B73;
-  --text-muted: #C4A8AF;
-  --text-inverse: #FFFFFF;
-
-  /* Background Colors */
-  --bg-main: #FFFFFF;
-  --bg-page: #FFF5F7;
-  --bg-subtle: #FFF0F3;
-  --bg-muted: #FFE8ED;
-  --bg-input: #FFF0F3;
-
-  /* Border Colors */
-  --border-subtle: #F5E1E6;
-  --border-default: #FAEEF1;
-
-  /* Shadows (pink-tinted) */
-  --shadow-sm: 0 2px 6px rgba(255,148,176,0.08), 0 1px 2px rgba(74,44,51,0.03);
-  --shadow-md: 0 6px 16px rgba(255,148,176,0.12), 0 2px 6px rgba(74,44,51,0.04);
-  --shadow-lg: 0 10px 30px rgba(255,148,176,0.15), 0 4px 10px rgba(74,44,51,0.05);
-  --shadow-card: 0 2px 8px rgba(255,148,176,0.10);
-  --shadow-header: 0 2px 8px rgba(255,148,176,0.06);
-  --shadow-input: 0 -4px 12px rgba(255,148,176,0.06);
-  --shadow-phone: 0 20px 60px rgba(255,148,176,0.15), 0 0 0 1px rgba(0,0,0,0.05);
-  --shadow-glow: 0 4px 18px rgba(255,148,176,0.30);
-  --shadow-btn: 0 4px 14px rgba(255,148,176,0.40);
+  --color-primary: var(--cs-action-primary);
+  --color-primary-light: var(--cs-pastel-blush);
+  --color-primary-dark: var(--cs-action-hover);
+  --color-secondary: var(--cs-focus-info);
+  --color-secondary-light: var(--cs-pastel-mist);
+  --color-secondary-dark: var(--cs-focus-info);
+  --color-tertiary: var(--cs-pastel-apricot);
+  --color-success: var(--cs-status-local);
+  --color-warning: var(--cs-warning);
+  --color-error: var(--cs-danger);
+  --color-info: var(--cs-focus-info);
+  --text-primary: var(--cs-text-primary);
+  --text-secondary: var(--cs-text-secondary);
+  --text-muted: var(--cs-text-muted);
+  --text-inverse: var(--cs-text-inverse);
+  --bg-main: var(--cs-surface-card);
+  --bg-page: var(--cs-surface-page);
+  --bg-subtle: var(--cs-pastel-blush);
+  --bg-muted: var(--cs-surface-muted);
+  --bg-input: var(--cs-surface-input);
+  --border-subtle: var(--cs-border-subtle);
+  --border-default: var(--cs-border-default);
+  --gradient-pink: var(--cs-gradient-action);
+  --gradient-hero: var(--cs-gradient-hero);
+  --gradient-warm: var(--cs-gradient-warm);
+  --gradient-bubble: var(--cs-gradient-bubble);
+  --gradient-subtle: var(--cs-gradient-subtle);
+  --shadow-sm: var(--cs-shadow-sm);
+  --shadow-md: var(--cs-shadow-md);
+  --shadow-lg: var(--cs-shadow-lg);
+  --shadow-card: var(--cs-shadow-sm);
+  --shadow-header: var(--cs-shadow-sm);
+  --shadow-input: var(--cs-shadow-input);
+  --shadow-phone: var(--cs-shadow-phone);
+  --shadow-glow: var(--cs-shadow-button);
+  --shadow-btn: var(--cs-shadow-button);
 
   /* Border Radius */
   --radius-sm: 12px;
@@ -102,13 +89,14 @@ html {
 
 body {
   height: 100%;
-  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   background: var(--bg-page);
   display: flex;
   justify-content: center;
   align-items: center;
   color: var(--text-primary);
   line-height: 1.5;
+  letter-spacing: 0.01em;
 }
 
 #root {
@@ -123,6 +111,10 @@ body {
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   line-height: 1.3;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.01em;
 }
 
 /* ===== Scrollbar Styling ===== */
@@ -210,6 +202,15 @@ h1, h2, h3, h4, h5, h6 {
   animation: slideInUp 0.3s ease-out;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @keyframes bounce {
   0%, 100% {
     transform: translateY(0);
@@ -291,7 +292,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--cs-surface-card) 80%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }

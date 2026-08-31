@@ -1,26 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { useToolsStore } from '../stores/toolsStore'
 import Header from '../components/layout/Header'
 import { Bell, Shield, Trash2, Info, ChevronRight, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react'
 
 export default function SettingsPage() {
   const navigate = useNavigate()
-  const user = useAuthStore(s => s.user)
   const logout = useAuthStore(s => s.logout)
 
-  const [notifications, setNotifications] = useState({
-    proactive: true,
-    water: true,
-    sleep: true,
-    period: true,
-  })
+  const { reminders, loadReminders, toggleReminder } = useToolsStore()
+
+  // 「主动关怀消息」暂无对应服务端提醒，仅本地开关
+  const [proactive, setProactive] = useState(true)
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  const toggleNotification = (key) => {
-    setNotifications(prev => ({ ...prev, [key]: !prev[key] }))
-  }
+  useEffect(() => {
+    loadReminders()
+  }, [loadReminders])
+
+  const reminderOf = (type) => reminders.find(r => r.type === type)
 
   const handleDeleteAccount = () => {
     // 模拟注销
@@ -29,7 +29,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-page overflow-hidden">
       <Header title="设置" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -46,18 +46,30 @@ export default function SettingsPage() {
             { key: 'water', label: '喝水提醒' },
             { key: 'sleep', label: '睡觉提醒' },
             { key: 'period', label: '大姨妈提醒' },
-          ].map(item => (
-            <div key={item.key} className="flex items-center justify-between px-4 py-3 border-b border-border-subtle last:border-0">
-              <span className="text-sm text-text-primary">{item.label}</span>
-              <button onClick={() => toggleNotification(item.key)}>
-                {notifications[item.key] ? (
-                  <ToggleRight size={24} className="text-brand-pink" />
-                ) : (
-                  <ToggleLeft size={24} className="text-text-muted" />
-                )}
-              </button>
-            </div>
-          ))}
+          ].map(item => {
+            const reminder = item.key === 'proactive' ? null : reminderOf(item.key)
+            const enabled = item.key === 'proactive' ? proactive : (reminder?.isActive ?? false)
+            const unavailable = item.key !== 'proactive' && !reminder
+            const handleToggle = () => {
+              if (item.key === 'proactive') {
+                setProactive(prev => !prev)
+              } else if (reminder) {
+                toggleReminder(reminder.id)
+              }
+            }
+            return (
+              <div key={item.key} className="flex items-center justify-between px-4 py-3 border-b border-border-subtle last:border-0">
+                <span className="text-sm text-text-primary">{item.label}</span>
+                <button onClick={handleToggle} disabled={unavailable} className="disabled:opacity-40">
+                  {enabled ? (
+                    <ToggleRight size={24} className="text-brand-pink" />
+                  ) : (
+                    <ToggleLeft size={24} className="text-text-muted" />
+                  )}
+                </button>
+              </div>
+            )
+          })}
         </div>
 
         {/* 隐私与安全 */}

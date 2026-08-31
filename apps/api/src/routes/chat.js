@@ -7,7 +7,10 @@ const router = Router()
 
 router.get('/conversations', async (req, res) => {
   try {
-    const conversations = await chatService.listConversations(req.user.userId)
+    const conversations = await chatService.listConversations(req.user.userId, {
+      page: Number.parseInt(req.query.page, 10),
+      limit: Number.parseInt(req.query.limit, 10),
+    })
     res.json(conversations)
   } catch (error) {
     logger.error('获取会话列表失败', { error: error.message, userId: req.user.userId })
@@ -27,7 +30,10 @@ router.post('/conversations', async (req, res) => {
 
 router.get('/conversations/:id', async (req, res) => {
   try {
-    const conversation = await chatService.getConversation(req.params.id, req.user.userId)
+    const conversation = await chatService.getConversation(req.params.id, req.user.userId, {
+      page: Number.parseInt(req.query.page, 10),
+      limit: Number.parseInt(req.query.limit, 10),
+    })
     res.json(conversation)
   } catch (error) {
     logger.error('获取会话详情失败', { error: error.message, conversationId: req.params.id })
@@ -36,14 +42,33 @@ router.get('/conversations/:id', async (req, res) => {
 })
 
 router.post('/conversations/:id/messages', validate([
-  { field: 'content', validate: (v) => validateRequired(v, '消息内容') || validateLength(v, '消息内容', 1, 10000) },
+  {
+    field: 'content',
+    validate: (value) => {
+      const normalized = typeof value === 'string' ? value.trim() : value
+      return validateRequired(normalized, '消息内容') || validateLength(normalized, '消息内容', 1, 10000)
+    },
+  },
 ]), async (req, res) => {
   try {
-    const result = await chatService.sendMessage(req.params.id, req.user.userId, req.body.content)
+    const result = await chatService.sendMessage(
+      req.params.id,
+      req.user.userId,
+      req.body.content,
+      req.requestId,
+    )
     res.json(result)
   } catch (error) {
-    logger.error('发送消息失败', { error: error.message, conversationId: req.params.id })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '发送消息失败' })
+    logger.error('发送消息失败', {
+      errorCode: error.code || error.name,
+      conversationId: req.params.id,
+    })
+    const statusCode = error.statusCode || 500
+    const body = {
+      error: error.statusCode ? error.message : '发送消息失败',
+      ...(error.statusCode && error.code ? { code: error.code } : {}),
+    }
+    res.status(statusCode).json(body)
   }
 })
 

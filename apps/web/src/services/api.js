@@ -1,8 +1,10 @@
 import axios from 'axios'
 
+export const API_TIMEOUT_MS = 75_000
+
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: API_TIMEOUT_MS,
   withCredentials: true,  // 携带 httpOnly cookie（refresh token）
   headers: { 'Content-Type': 'application/json' },
 })
@@ -31,9 +33,8 @@ api.interceptors.request.use((config) => {
       if (state?.token) {
         config.headers.Authorization = `Bearer ${state.token}`
       }
-    } catch (e) {
+    } catch {
       // localStorage 数据损坏，清除后静默重试
-      console.warn('[API] 读取 auth 数据失败，已清除:', e.message)
       localStorage.removeItem('cyber-sister-auth')
     }
   }
@@ -47,13 +48,16 @@ api.interceptors.response.use(
     const originalRequest = error.config
 
     // 如果是401错误且不是刷新Token的请求
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const isAuthRequest = originalRequest?.url?.includes('/auth/login') || originalRequest?.url?.includes('/auth/refresh')
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest) {
       if (isRefreshing) {
         // 如果正在刷新Token，将请求加入队列
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject })
         })
           .then((token) => {
+            // 重放前打上重试标记：若仍 401 则由拦截器直接拒绝，不再循环刷新
+            originalRequest._retry = true
             originalRequest.headers.Authorization = `Bearer ${token}`
             return api(originalRequest)
           })
@@ -68,17 +72,15 @@ api.interceptors.response.use(
         const response = await axios.post('/api/auth/refresh', {}, { withCredentials: true })
 
         const { token } = response.data
-
-        // 更新 localStorage 中的 access token
-        const authData = localStorage.getItem('cyber-sister-auth')
-        if (authData) {
-          const { state } = JSON.parse(authData)
-          const newState = { ...state, token }
-          localStorage.setItem(
-            'cyber-sister-auth',
-            JSON.stringify({ state: newState })
-          )
+        if (!token) {
+          throw new Error('刷新响应缺少访问令牌')
         }
+
+        // 通过 store 写回新 token（persist 同步 localStorage），
+        // 避免只写 localStorage 后被内存中的旧 token 回写覆盖。
+        // 动态 import 打破 authStore → authService → api 的循环依赖。
+        const { useAuthStore } = await import('../stores/authStore')
+        useAuthStore.setState({ token })
 
         processQueue(null, token)
 

@@ -7,25 +7,51 @@ export default {
   theme: {
     extend: {
       colors: {
+        pastel: {
+          blush: 'var(--cs-pastel-blush)',
+          mist: 'var(--cs-pastel-mist)',
+          sprout: 'var(--cs-pastel-sprout)',
+          apricot: 'var(--cs-pastel-apricot)',
+        },
+        surface: {
+          page: 'var(--cs-surface-page)',
+          card: 'var(--cs-surface-card)',
+          input: 'var(--cs-surface-input)',
+          muted: 'var(--cs-surface-muted)',
+        },
+        action: {
+          primary: 'var(--cs-action-primary)',
+          hover: 'var(--cs-action-hover)',
+        },
+        status: {
+          local: 'var(--cs-status-local)',
+          info: 'var(--cs-focus-info)',
+          warning: 'var(--cs-warning)',
+        },
+        danger: 'var(--cs-danger)',
         brand: {
-          pink: '#FF6B9D',
-          purple: '#6B5FC6',
-          blue: '#6B8AFF',
-          yellow: '#FFCB47',
-          green: '#10B981',
+          pink: 'var(--cs-action-primary)',
+          purple: 'var(--cs-focus-info)',
+          blue: 'var(--cs-focus-info)',
+          yellow: 'var(--cs-warning)',
+          green: 'var(--cs-status-local)',
         },
         text: {
-          primary: '#1A1A2E',
-          secondary: '#6B6B8A',
-          muted: '#B0B0C8',
+          primary: 'var(--cs-text-primary)',
+          secondary: 'var(--cs-text-secondary)',
+          muted: 'var(--cs-text-muted)',
+          inverse: 'var(--cs-text-inverse)',
         },
         bg: {
-          main: '#FFFFFF',
-          message: '#FAF9FE',
-          input: '#F5F5FA',
+          main: 'var(--cs-surface-card)',
+          message: 'var(--cs-surface-page)',
+          input: 'var(--cs-surface-input)',
         },
         border: {
-          subtle: '#EBEEF5',
+          subtle: 'var(--cs-border-subtle)',
+          default: 'var(--cs-border-default)',
+          DEFAULT: 'var(--cs-border-default)',
+          hairline: 'var(--cs-border-hairline)',
         }
       },
       borderRadius: {
@@ -33,21 +59,25 @@ export default {
         'md': '16px',
         'lg': '20px',
         'pill': '25px',
+        'control': 'var(--cs-radius-control)',
+        'card': 'var(--cs-radius-card)',
+        'sheet': 'var(--cs-radius-sheet)',
       },
       fontFamily: {
-        sans: ['Noto Sans SC', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-        serif: ['Noto Serif SC', 'serif'],
-        mono: ['Inter', 'sans-serif'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'sans-serif'],
+        serif: ['Songti SC', 'SimSun', 'serif'],
+        mono: ['SFMono-Regular', 'Consolas', 'monospace'],
       },
       boxShadow: {
-        'card': '0 2px 8px rgba(0,0,0,0.04)',
-        'header': '0 1px 4px rgba(0,0,0,0.04)',
-        'input': '0 -2px 8px rgba(0,0,0,0.06)',
+        'card': 'var(--cs-shadow-sm)',
+        'header': 'var(--cs-shadow-sm)',
+        'input': 'var(--cs-shadow-input)',
       },
       backgroundImage: {
-        'gradient-pink-purple': 'linear-gradient(135deg, #FF6B9D 0%, #B5A6FF 100%)',
-        'gradient-pink': 'linear-gradient(135deg, #FF6B9D 0%, #F273B3 100%)',
-        'gradient-purple-light': 'linear-gradient(135deg, rgba(181,166,255,0.15) 0%, rgba(255,196,242,0.15) 100%)',
+        'gradient-pink-purple': 'var(--cs-gradient-action)',
+        'gradient-pink': 'var(--cs-gradient-action)',
+        'gradient-purple-light': 'var(--cs-gradient-subtle)',
+        'gradient-pastel': 'var(--cs-gradient-hero)',
       }
     },
   },

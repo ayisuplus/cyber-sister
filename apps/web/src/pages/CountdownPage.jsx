@@ -1,12 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useToolsStore } from '../stores/toolsStore'
 import Header from '../components/layout/Header'
 import { Plus, Trash2, Timer } from 'lucide-react'
-import { differenceInDays, format } from 'date-fns'
+import { differenceInDays } from 'date-fns'
 
 export default function CountdownPage() {
   const { countdowns, addCountdown, deleteCountdown } = useToolsStore()
+  const loadCountdowns = useToolsStore(s => s.loadCountdowns)
   const [showForm, setShowForm] = useState(false)
+  useEffect(() => {
+    loadCountdowns()
+  }, [loadCountdowns])
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
 
@@ -22,7 +26,7 @@ export default function CountdownPage() {
   today.setHours(0, 0, 0, 0)
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-page overflow-hidden">
       <Header title="倒数日" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -80,13 +84,13 @@ export default function CountdownPage() {
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder="倒数日名称"
-              className="w-full h-10 bg-bg-input rounded-xl px-4 text-sm outline-none"
+              className="w-full h-10 bg-surface-input rounded-xl px-4 text-sm outline-none"
             />
             <input
               type="date"
               value={date}
               onChange={e => setDate(e.target.value)}
-              className="w-full h-10 bg-bg-input rounded-xl px-4 text-sm outline-none"
+              className="w-full h-10 bg-surface-input rounded-xl px-4 text-sm outline-none"
             />
             <div className="flex gap-2">
               <button onClick={handleAdd} className="flex-1 h-10 bg-brand-pink text-white text-sm rounded-xl">

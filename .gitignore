@@ -50,3 +50,6 @@ data/analytics.jsonl
 
 # 测试覆盖率产物
 coverage/
+
+# Agent 协调工具的机器本地瞬时状态（含机器特定路径），不入库
+.coordination/

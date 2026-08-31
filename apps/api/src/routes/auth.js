@@ -1,147 +1,153 @@
 import { Router } from 'express'
 import crypto from 'crypto'
+import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client.js'
 import { validatePhone, validateCode, validate } from '../utils/validate.js'
 import logger from '../utils/logger.js'
-import { generateToken, generateRefreshToken, verifyRefreshToken, REFRESH_TOKEN_AGE_MS } from '../middleware/auth.js'
-import { cacheIncr, cacheGet, cacheDel } from '../utils/redis.js'
+import {
+  generateToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+  REFRESH_TOKEN_AGE_MS,
+} from '../middleware/auth.js'
 
 const router = Router()
+const APP_ENV = process.env.APP_ENV || 'development'
+const IS_INTERNAL = APP_ENV === 'internal'
+const INTERNAL_CODE = process.env.INTERNAL_TEST_CODE || ''
+const ALLOWED_PHONES = new Set(
+  (process.env.INTERNAL_TEST_PHONES || '')
+    .split(',')
+    .map((phone) => phone.trim())
+    .filter(Boolean),
+)
 
-// Mock 验证码配置：仅开发环境使用，生产环境拒绝
-const MOCK_CODE = process.env.MOCK_VERIFICATION_CODE || '888888'
-const isProduction = process.env.NODE_ENV === 'production'
+const MAX_LOGIN_ATTEMPTS = 5
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000
+const LOCKOUT_DURATION_MS = 30 * 60 * 1000
+// 只按手机号哈希计数：共享 6 位内测码下，按 IP 计数可被换 IP 绕过
+const MAX_TRACKED_ATTEMPTS = 10000
+export const loginAttempts = new Map()
 
-// 防暴力破解配置
-const MAX_LOGIN_ATTEMPTS = 5       // 最大尝试次数
-const LOCKOUT_DURATION = 30 * 60    // 锁定时间（秒）
-const ATTEMPT_TTL = 900             // 失败计数过期时间（15 分钟）
+class RefreshTokenRejectedError extends Error {}
 
-// Refresh Token Cookie 配置
 const REFRESH_COOKIE_OPTIONS = {
-  httpOnly: true,       // JS 无法访问，防 XSS 窃取
-  secure: isProduction, // 生产环境仅 HTTPS
-  sameSite: 'lax',       // 防止 CSRF
-  path: '/api/auth',     // 仅 /api/auth 路径携带
+  httpOnly: true,
+  secure: IS_INTERNAL || process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  path: '/api/auth',
   maxAge: REFRESH_TOKEN_AGE_MS,
 }
 
-/**
- * 对 refresh token 做 SHA-256 哈希后存入数据库（不存明文）
- */
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
 
-/**
- * 存储 refresh token 到数据库
- */
-function storeRefreshToken(userId, rawToken) {
-  const tokenHash = hashToken(rawToken)
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_AGE_MS)
-  return prisma.refreshToken.create({
-    data: { userId, tokenHash, expiresAt },
-  })
+function constantTimeCodeEquals(input, expected) {
+  if (typeof input !== 'string' || typeof expected !== 'string') return false
+  const inputDigest = crypto.createHash('sha256').update(input).digest()
+  const expectedDigest = crypto.createHash('sha256').update(expected).digest()
+  return crypto.timingSafeEqual(inputDigest, expectedDigest)
 }
 
-/**
- * 验证并撤销数据库中的 refresh token
- */
-async function validateAndRevokeRefreshToken(rawToken) {
-  if (!rawToken) return false
-  const tokenHash = hashToken(rawToken)
-  const stored = await prisma.refreshToken.findFirst({
-    where: { tokenHash, revoked: false, expiresAt: { gt: new Date() } },
-  })
-  if (!stored) return false
-  // 标记为已撤销（防止重复使用）
-  await prisma.refreshToken.update({
-    where: { id: stored.id },
-    data: { revoked: true },
-  })
-  return stored
+function attemptKey(phone) {
+  return crypto.createHash('sha256').update(phone).digest('hex').slice(0, 16)
 }
 
-// 发送验证码（开发环境 Mock，生产环境需对接真实短信服务）
-router.post('/send-code', validate([
-  { field: 'phone', validate: validatePhone },
-]), (req, res) => {
-  const { phone } = req.body
-
-  if (isProduction) {
-    // TODO: 对接真实短信服务（阿里云/腾讯云短信）
-    return res.status(501).json({ error: '短信服务未配置' })
+function getAttempt(key) {
+  const attempt = loginAttempts.get(key)
+  if (!attempt) return null
+  const now = Date.now()
+  if ((attempt.lockedUntil && attempt.lockedUntil > now) || attempt.windowEndsAt > now) return attempt
+  loginAttempts.delete(key)
+  return null
+}
+// 有界容量：插入前超出上限时清扫过期项，防止计数表无限增长
+export function sweepLoginAttempts(now = Date.now()) {
+  for (const [key, attempt] of loginAttempts) {
+    const expired = (!attempt.lockedUntil || attempt.lockedUntil <= now)
+      && attempt.windowEndsAt <= now
+    if (expired) loginAttempts.delete(key)
   }
+}
 
-  logger.warn('⚠️ 开发环境：使用 Mock 验证码发送', { phone, mockCode: MOCK_CODE })
-  res.json({ success: true, message: '验证码已发送' })
-})
+function recordFailedAttempt(key) {
+  const previous = getAttempt(key)
+  const failures = (previous?.failures || 0) + 1
+  const attempt = {
+    failures,
+    windowEndsAt: previous?.windowEndsAt || Date.now() + ATTEMPT_WINDOW_MS,
+    lockedUntil: failures >= MAX_LOGIN_ATTEMPTS ? Date.now() + LOCKOUT_DURATION_MS : null,
+  }
+  loginAttempts.set(key, attempt)
+  if (loginAttempts.size > MAX_TRACKED_ATTEMPTS) sweepLoginAttempts()
+  return attempt
+}
 
-// 验证码登录
+function invalidCredentials(res, key) {
+  const attempt = recordFailedAttempt(key)
+  if (attempt.failures >= MAX_LOGIN_ATTEMPTS) {
+    return res.status(429).json({ error: '登录尝试次数过多，请稍后再试' })
+  }
+  return res.status(401).json({ error: '手机号或验证码错误' })
+}
+
+function storeRefreshToken(client, userId, rawToken) {
+  return client.refreshToken.create({
+    data: {
+      userId,
+      tokenHash: hashToken(rawToken),
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_AGE_MS),
+    },
+  })
+}
+
+function rejectRefreshToken(res) {
+  res.clearCookie('refreshToken', { path: '/api/auth' })
+  return res.status(401).json({ error: 'RefreshToken无效，请重新登录' })
+}
+
 router.post('/login', validate([
   { field: 'phone', validate: validatePhone },
   { field: 'code', validate: validateCode },
 ]), async (req, res) => {
+  const { phone, code } = req.body
+  const key = attemptKey(phone)
+  const previous = getAttempt(key)
+  if (previous?.lockedUntil && previous.lockedUntil > Date.now()) {
+    return res.status(429).json({ error: '登录尝试次数过多，请稍后再试' })
+  }
+
+  if (!IS_INTERNAL || !ALLOWED_PHONES.has(phone) || !constantTimeCodeEquals(code, INTERNAL_CODE)) {
+    logger.warn('内测登录校验失败', { ip: req.ip })
+    return invalidCredentials(res, key)
+  }
+
   try {
-    const { phone, code } = req.body
-
-    // 检查是否被锁定
-    const attempts = await cacheGet(`login_attempts:${phone}`)
-    if (attempts && attempts >= MAX_LOGIN_ATTEMPTS) {
-      logger.warn('账户登录被锁定', { phone, attempts })
-      return res.status(429).json({
-        error: `登录尝试次数过多，请 ${LOCKOUT_DURATION / 60} 分钟后再试`,
-      })
-    }
-
-    // 生产环境拒绝 Mock 验证码
-    if (isProduction && code === MOCK_CODE) {
-      logger.error('🚨 生产环境检测到 Mock 验证码使用！', { phone })
-      await cacheIncr(`login_attempts:${phone}`, ATTEMPT_TTL)
-      return res.status(400).json({ error: '验证码错误' })
-    }
-
-    // 验证码校验（开发环境：Mock code 或任意 6 位数字）
-    if (code !== MOCK_CODE) {
-      await cacheIncr(`login_attempts:${phone}`, ATTEMPT_TTL)
-      return res.status(400).json({ error: '验证码错误' })
-    }
-
-    if (!isProduction) {
-      logger.warn('⚠️ 开发环境：Mock 验证码登录', { phone })
-    }
-
-    // 查找或创建用户
-    let user = await prisma.user.findUnique({
-      where: { phone },
-    })
-
+    let user = await prisma.user.findUnique({ where: { phone } })
     if (!user) {
-      user = await prisma.user.create({
-        data: {
-          phone,
-          nickname: '小仙女',
-          persona: 'toxic',
-        },
-      })
-      logger.info('新用户注册', { userId: user.id, phone })
+      try {
+        user = await prisma.user.create({
+          data: { phone, nickname: '内测用户', persona: 'toxic' },
+        })
+        logger.info('新内测用户注册', { userId: user.id })
+      } catch (error) {
+        // 并发注册同一手机号：唯一约束冲突后回读已创建的用户，继续签发 token
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          user = await prisma.user.findUnique({ where: { phone } })
+        }
+        if (!user) throw error
+      }
     }
 
     const token = generateToken({ userId: user.id, phone: user.phone })
-    const refreshToken = generateRefreshToken({ userId: user.id })
+    // jti 保证同一秒内签发的多个 refresh token 也具有不同哈希。
+    const refreshToken = generateRefreshToken({ userId: user.id, jti: crypto.randomUUID() })
+    await storeRefreshToken(prisma, user.id, refreshToken)
+    loginAttempts.delete(key)
 
-    // 登录成功，重置失败计数
-    await cacheDel(`login_attempts:${phone}`)
-
-    // 将 refresh token 哈希存入数据库
-    await storeRefreshToken(user.id, refreshToken)
-
-    logger.info('用户登录成功', { userId: user.id, phone })
-
-    // refreshToken 设为 httpOnly cookie（防 XSS），access token 返回 body
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
-
-    res.json({
+    return res.json({
       token,
       user: {
         id: user.id,
@@ -154,70 +160,95 @@ router.post('/login', validate([
     })
   } catch (error) {
     logger.error('登录失败', { error: error.message })
-    res.status(500).json({ error: '登录失败，请稍后重试' })
+    return res.status(500).json({ error: '登录失败，请稍后重试' })
   }
 })
 
-// 刷新Token（从 httpOnly cookie 读取 refreshToken）
 router.post('/refresh', async (req, res) => {
-  try {
-    // 优先从 cookie 读取，兼容旧版 body 方式
-    const rawToken = req.cookies?.refreshToken || req.body?.refreshToken
-    if (!rawToken) {
-      return res.status(400).json({ error: '缺少refreshToken' })
-    }
-
-    // 先验证 JWT 签名
-    const decoded = verifyRefreshToken(rawToken)
-
-    // 验证数据库中的 token（防重放攻击：一次使用即撤销）
-    const stored = await validateAndRevokeRefreshToken(rawToken)
-    if (!stored) {
-      return res.status(401).json({ error: 'RefreshToken已失效，请重新登录' })
-    }
-
-    // 验证用户是否存在
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-    })
-    if (!user) {
-      return res.status(401).json({ error: '用户不存在' })
-    }
-
-    // 生成新的 token pair
-    const newToken = generateToken({ userId: user.id, phone: user.phone })
-    const newRefreshToken = generateRefreshToken({ userId: user.id })
-    await storeRefreshToken(user.id, newRefreshToken)
-
-    // 设置新的 httpOnly cookie
-    res.cookie('refreshToken', newRefreshToken, REFRESH_COOKIE_OPTIONS)
-
-    res.json({ token: newToken })
-  } catch (error) {
-    logger.warn('Token刷新失败', { error: error.message })
-    res.clearCookie('refreshToken', { path: '/api/auth' })
-    res.status(401).json({ error: 'RefreshToken已过期，请重新登录' })
+  const rawToken = req.cookies?.refreshToken
+  if (!rawToken) {
+    return res.status(401).json({ error: 'RefreshToken无效，请重新登录' })
   }
-})
 
-// 退出登录（清除 cookie + 撤销所有 refresh token）
-router.post('/logout', async (req, res) => {
+  let decoded
   try {
-    // 撤销该用户所有未过期的 refresh token
-    const userId = req.user?.userId
-    if (userId) {
-      await prisma.refreshToken.updateMany({
-        where: { userId, revoked: false },
+    decoded = verifyRefreshToken(rawToken)
+    if (typeof decoded.userId !== 'string' || !decoded.userId) {
+      throw new RefreshTokenRejectedError()
+    }
+  } catch {
+    logger.warn('Token刷新失败', { result: 'refresh_invalid' })
+    return rejectRefreshToken(res)
+  }
+
+  const tokenHash = hashToken(rawToken)
+  let newRefreshToken
+  let token
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const revoked = await tx.refreshToken.updateMany({
+        where: {
+          tokenHash,
+          userId: decoded.userId,
+          revoked: false,
+          expiresAt: { gt: new Date() },
+        },
         data: { revoked: true },
       })
-      logger.info('用户退出登录，已撤销所有 refresh token', { userId })
-    }
+      if (revoked.count !== 1) throw new RefreshTokenRejectedError()
+
+      const user = await tx.user.findUnique({ where: { id: decoded.userId } })
+      if (!user) throw new RefreshTokenRejectedError()
+      // 白名单复核：手机号被移出内测名单后，撤销该用户全部未过期 refresh token
+      if (IS_INTERNAL && !ALLOWED_PHONES.has(user.phone)) {
+        await tx.refreshToken.updateMany({
+          where: { userId: user.id, revoked: false, expiresAt: { gt: new Date() } },
+          data: { revoked: true },
+        })
+        throw new RefreshTokenRejectedError()
+      }
+
+      newRefreshToken = generateRefreshToken({ userId: user.id, jti: crypto.randomUUID() })
+      await storeRefreshToken(tx, user.id, newRefreshToken)
+      token = generateToken({ userId: user.id, phone: user.phone })
+    })
   } catch (error) {
-    logger.warn('撤销 refresh token 失败', { error: error.message })
+    if (error instanceof RefreshTokenRejectedError) {
+      logger.warn('Token刷新失败', { result: 'refresh_invalid' })
+      return rejectRefreshToken(res)
+    }
+
+    logger.error('Token刷新依赖不可用', { result: 'refresh_unavailable' })
+    return res.status(503).json({
+      error: '刷新服务暂时不可用，请稍后重试',
+      code: 'REFRESH_UNAVAILABLE',
+    })
+  }
+
+  res.cookie('refreshToken', newRefreshToken, REFRESH_COOKIE_OPTIONS)
+  return res.json({ token })
+})
+
+router.post('/logout', async (req, res) => {
+  const rawToken = req.cookies?.refreshToken
+  if (rawToken) {
+    try {
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash: hashToken(rawToken), revoked: false },
+        data: { revoked: true },
+      })
+    } catch (error) {
+      logger.warn('撤销 refresh token 失败', { error: error.message })
+      return res.status(503).json({
+        error: '退出服务暂时不可用，请稍后重试',
+        code: 'LOGOUT_UNAVAILABLE',
+      })
+    }
   }
 
   res.clearCookie('refreshToken', { path: '/api/auth' })
-  res.json({ success: true })
+  return res.json({ success: true })
 })
 
 export default router

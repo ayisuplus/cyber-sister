@@ -41,7 +41,7 @@ export function authMiddleware(req, res, next) {
 
 export function generateToken(payload) {
   return jwt.sign({ ...payload, type: TOKEN_TYPE_ACCESS }, JWT_SECRET, {
-    expiresIn: '7d',
+    expiresIn: '15m',
     algorithm: JWT_ALGORITHM,
   })
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authService } from '../services/authService'
+import { useChatStore } from './chatStore'
 
 export const useAuthStore = create(
   persist(
@@ -10,28 +11,22 @@ export const useAuthStore = create(
       isLoggedIn: false,
 
       login: async (phone, code) => {
-        try {
-          const response = await authService.login(phone, code)
-          const { token, user } = response
+        const response = await authService.login(phone, code)
+        const { token, user } = response
 
-          set({
-            token,
-            user,
-            isLoggedIn: true,
-          })
+        set({
+          token,
+          user,
+          isLoggedIn: true,
+        })
 
-          return user
-        } catch (error) {
-          throw error
-        }
+        return user
       },
 
-      logout: () => {
-        set({
-          token: null,
-          user: null,
-          isLoggedIn: false,
-        })
+      logout: async () => {
+        await authService.logout()
+        useChatStore.getState().reset()
+        set({ token: null, user: null, isLoggedIn: false })
       },
 
       refreshAuth: async () => {
@@ -43,14 +38,17 @@ export const useAuthStore = create(
           return response.token
         } catch (error) {
           // 刷新失败，清除登录状态
-          get().logout()
+          useChatStore.getState().reset()
+          set({ token: null, user: null, isLoggedIn: false })
           throw error
         }
       },
 
-      updatePersona: (persona) => {
+      updatePersona: async (persona) => {
+        const response = await authService.updatePersona(persona)
         const user = get().user
-        if (user) set({ user: { ...user, persona } })
+        if (user) set({ user: { ...user, persona: response.persona } })
+        return response.persona
       },
 
       updateProfile: (updates) => {

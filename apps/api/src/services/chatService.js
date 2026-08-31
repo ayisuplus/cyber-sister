@@ -1,33 +1,41 @@
 /**
- * 对话服务
- * 封装会话和消息的业务逻辑，路由层只做参数验证和响应
+ * 对话服务：归属校验、外部回退授权、危机阻断和消息事务。
  */
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
-import { generateResponse, detectCrisis } from './llmService.js'
+import {
+  generateResponse,
+  detectCrisis,
+} from './llmService.js'
+import { getCrisisIntervention } from './detection.js'
+import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import logger from '../utils/logger.js'
-import { cacheGet, cacheSet, cacheDel } from '../utils/redis.js'
 
-const CONVERSATIONS_CACHE_TTL = 120  // 会话列表缓存 2 分钟
-const convCacheKey = (userId) => `chat:conversations:${userId}`
+const MAX_HISTORY_MESSAGES = 19
+// 记忆注入上限：按重要度/更新时间截断，避免全量载入撑爆上下文
+const MAX_MEMORIES_FOR_PROMPT = 200
+const DEFAULT_CONVERSATION_PAGE_SIZE = 20
+const MAX_CONVERSATION_PAGE_SIZE = 50
+const DEFAULT_MESSAGE_PAGE_SIZE = 50
+const MAX_MESSAGE_PAGE_SIZE = 100
 
-/**
- * 失效用户的会话列表缓存
- */
-async function invalidateConvCache(userId) {
-  await cacheDel(convCacheKey(userId))
+function normalizePagination(page, limit, defaultLimit, maxLimit) {
+  const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1
+  const normalizedLimit = Number.isInteger(limit) && limit > 0
+    ? Math.min(limit, maxLimit)
+    : defaultLimit
+  return { skip: (normalizedPage - 1) * normalizedLimit, take: normalizedLimit }
 }
 
-/**
- * 获取用户的会话列表（含最新一条消息预览，缓存 2 分钟）
- */
-export async function listConversations(userId) {
-  const cached = await cacheGet(convCacheKey(userId))
-  if (cached) return cached
-
-  const conversations = await prisma.conversation.findMany({
+export function listConversations(userId, { page, limit } = {}) {
+  const { skip, take } = normalizePagination(
+    page, limit, DEFAULT_CONVERSATION_PAGE_SIZE, MAX_CONVERSATION_PAGE_SIZE,
+  )
+  return prisma.conversation.findMany({
     where: { userId },
     orderBy: { updatedAt: 'desc' },
+    skip,
+    take,
     include: {
       messages: {
         orderBy: { createdAt: 'desc' },
@@ -36,112 +44,174 @@ export async function listConversations(userId) {
     },
   })
 
-  await cacheSet(convCacheKey(userId), conversations, CONVERSATIONS_CACHE_TTL)
-  return conversations
 }
 
-/**
- * 创建新会话
- */
-export async function createConversation(userId, { title = '赛博姐妹', persona = 'toxic' } = {}) {
+export async function createConversation(userId, { title = '赛博姐妹' } = {}) {
   const conversation = await prisma.conversation.create({
-    data: { userId, title, persona },
+    data: { userId, title },
   })
   logger.info('新建会话', { conversationId: conversation.id, userId })
-  await invalidateConvCache(userId)
   return conversation
 }
 
-/**
- * 获取会话详情（含所有消息）
- */
-export async function getConversation(conversationId, userId) {
+export async function getConversation(conversationId, userId, { page, limit } = {}) {
+  const messagePagination = normalizePagination(
+    page, limit, DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE,
+  )
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, userId },
     include: {
-      messages: { orderBy: { createdAt: 'asc' } },
+      messages: { orderBy: { createdAt: 'asc' }, ...messagePagination },
     },
   })
-  if (!conversation) {
-    throw new HttpError('会话不存在', 404)
-  }
+  if (!conversation) throw new HttpError('会话不存在', 404)
   return conversation
 }
 
-/**
- * 删除会话（级联删除消息）
- */
 export async function deleteConversation(conversationId, userId) {
   await findOwned('conversation', conversationId, userId, '会话')
   await prisma.conversation.delete({ where: { id: conversationId } })
   logger.info('删除会话', { conversationId, userId })
-  await invalidateConvCache(userId)
+}
+
+async function persistTurn(conversationId, userId, content, response) {
+  const result = await prisma.$transaction(async (tx) => {
+    const userMessage = await tx.message.create({
+      data: { conversationId, role: 'user', content },
+    })
+    const aiMessage = await tx.message.create({
+      data: {
+        conversationId,
+        role: 'assistant',
+        content: response.content,
+        emotion: response.emotion,
+        source: response.source,
+      },
+    })
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    })
+    return { userMessage, aiMessage }
+  })
+
+  return result
+}
+
+async function persistBlockedCrisis(conversationId, userId, content, level) {
+  const intervention = getCrisisIntervention(level)
+  const result = await prisma.$transaction(async (tx) => {
+    const userMessage = await tx.message.create({
+      data: { conversationId, role: 'user', content },
+    })
+    await tx.message.create({
+      data: {
+        conversationId,
+        role: 'assistant',
+        content: intervention.message,
+        emotion: 'concerned',
+        source: 'local_template',
+      },
+    })
+    await tx.crisisLog.create({
+      data: {
+        userId,
+        triggerMsg: null,
+        level,
+        handled: true,
+      },
+    })
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    })
+    return { userMessage }
+  })
+
+  return {
+    status: 'blocked',
+    userMessage: result.userMessage,
+    intervention,
+  }
 }
 
 /**
- * 发送消息并生成 AI 回复
- * @returns {{ userMessage, aiMessage, crisisLevel }}
+ * 发送消息。
+ *
+ * 正常模型回复成功前不写入当前消息，因此超时/供应商失败可以安全重试；
+ * 危机分支例外，它必须先于同意检查并以单个事务留下完整干预记录。
  */
-export async function sendMessage(conversationId, userId, content) {
-  // 验证会话归属
-  const conversation = await findOwned('conversation', conversationId, userId, '会话')
+export async function sendMessage(conversationId, userId, rawContent, requestId) {
+  await findOwned('conversation', conversationId, userId, '会话')
+  const content = rawContent.trim()
 
-  // 保存用户消息
-  const userMsg = await prisma.message.create({
-    data: {
-      conversationId,
-      role: 'user',
-      content: content.trim(),
-    },
-  })
-
-  // 危机检测
   const crisisLevel = detectCrisis(content)
   if (crisisLevel) {
     logger.warn('检测到危机内容', { userId, conversationId, crisisLevel })
-    return { userMessage: userMsg, aiMessage: null, crisisLevel }
+    return persistBlockedCrisis(conversationId, userId, content, crisisLevel)
   }
 
-  // 获取历史消息构建上下文
-  const historyMessages = await prisma.message.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: 'asc' },
-    select: { role: true, content: true },
-  })
-
-  // 获取用户记忆（高重要性 + 未过期），注入对话上下文
-  const userMemories = await prisma.memory.findMany({
-    where: {
-      userId,
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: new Date() } },
-      ],
-    },
-    orderBy: { importance: 'desc' },
-    take: 20,  // 取前 20 条高重要性记忆用于检索
-    select: { content: true, type: true, importance: true },
-  })
-
-  // 生成 AI 回复（传入记忆以个性化）
-  const aiResponse = await generateResponse(content, conversation.persona, historyMessages, userMemories)
-
-  const aiMsg = await prisma.message.create({
-    data: {
-      conversationId,
-      role: 'assistant',
-      content: aiResponse.content,
-      emotion: aiResponse.emotion,
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      persona: true,
+      externalLlmConsent: true,
+      externalLlmConsentVersion: true,
     },
   })
+  if (!user) throw new HttpError('用户不存在', 404)
 
-  // 更新会话时间
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { updatedAt: new Date() },
+  const allowExternal = user.externalLlmConsent === true
+    && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  const modelOptions = { allowExternal }
+  if (allowExternal) {
+    modelOptions.authorizeExternal = async () => {
+      const currentConsent = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
+      })
+      return currentConsent?.externalLlmConsent === true
+        && currentConsent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+    }
+  }
+
+  // 数据库按倒序只取最近 19 条，之后恢复成旧到新；当前消息由 llmService 追加一次。
+  const [descendingHistory, memories] = await Promise.all([
+    prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_HISTORY_MESSAGES,
+      select: { role: true, content: true },
+    }),
+    prisma.memory.findMany({
+      where: {
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
+      take: MAX_MEMORIES_FOR_PROMPT,
+      select: { content: true, type: true, importance: true, tags: true },
+    }),
+  ])
+
+  const history = [...descendingHistory].reverse()
+  const aiResponse = await generateResponse(
+    content,
+    user.persona,
+    history,
+    memories,
+    requestId,
+    modelOptions,
+  )
+  const saved = await persistTurn(conversationId, userId, content, aiResponse)
+
+  logger.debug('消息发送成功', {
+    requestId,
+    conversationId,
+    userId,
+    source: aiResponse.source,
+    provider: aiResponse.provider,
+    model: aiResponse.model,
   })
-
-  logger.debug('消息发送成功', { conversationId, userId })
-  await invalidateConvCache(userId)
-  return { userMessage: userMsg, aiMessage: aiMsg, crisisLevel: null }
+  return { status: 'ok', ...saved, source: aiResponse.source }
 }

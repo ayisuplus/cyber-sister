@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import Header from '../components/layout/Header'
-import { Crown, Check, Zap, Shield, Star, Sparkles } from 'lucide-react'
+import { Crown, Check, Zap, Shield, Sparkles } from 'lucide-react'
 
 const FREE_FEATURES = [
   '正常聊天',
@@ -24,7 +23,6 @@ const VIP_FEATURES = [
 ]
 
 export default function MembershipPage() {
-  const navigate = useNavigate()
   const user = useAuthStore(s => s.user)
   const setVip = useAuthStore(s => s.setVip)
   const [loading, setLoading] = useState(false)
@@ -128,7 +126,7 @@ export default function MembershipPage() {
           <button
             onClick={handleSubscribe}
             disabled={loading}
-            className="w-full h-12 bg-gradient-pink-purple text-white font-semibold rounded-[23px] shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
+            className="w-full h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-[23px] shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {loading ? '处理中...' : (
               <>

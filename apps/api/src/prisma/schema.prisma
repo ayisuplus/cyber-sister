@@ -11,25 +11,29 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(uuid())
-  phone       String   @unique
-  nickname    String?
-  avatarUrl   String?   @map("avatar_url")
-  persona     String   @default("toxic")
-  isVip       Boolean  @default(false) @map("is_vip")
-  vipExpireAt DateTime? @map("vip_expire_at")
-  birthDate   DateTime? @map("birth_date")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                          String    @id @default(uuid())
+  phone                       String    @unique
+  nickname                    String?
+  avatarUrl                   String?   @map("avatar_url")
+  persona                     String    @default("toxic")
+  externalLlmConsent          Boolean?  @map("external_llm_consent")
+  externalLlmConsentVersion   String?   @map("external_llm_consent_version")
+  externalLlmConsentUpdatedAt DateTime? @map("external_llm_consent_updated_at")
+  isVip                       Boolean   @default(false) @map("is_vip")
+  vipExpireAt                 DateTime? @map("vip_expire_at")
+  birthDate                   DateTime? @map("birth_date")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
-  conversations Conversation[]
-  memories      Memory[]
-  todos         Todo[]
-  countdowns    Countdown[]
-  periodRecords PeriodRecord[]
-  reminders     Reminder[]
-  crisisLogs    CrisisLog[]
-  refreshTokens RefreshToken[]
+  conversations     Conversation[]
+  memories          Memory[]
+  todos             Todo[]
+  countdowns        Countdown[]
+  periodRecords     PeriodRecord[]
+  reminders         Reminder[]
+  crisisLogs        CrisisLog[]
+  refreshTokens     RefreshToken[]
+  llmRuntimeConfigs LlmRuntimeConfig[] @relation("LlmRuntimeConfigUpdatedBy")
 
   @@map("users")
 }
@@ -38,7 +42,6 @@ model Conversation {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   title     String?
-  persona   String   @default("toxic")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -55,33 +58,33 @@ model Message {
   role           String
   content        String
   emotion        String?
+  source         String?
   importance     Int      @default(3)
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
-  @@index([createdAt])
+  @@index([conversationId, createdAt])
   @@map("messages")
 }
 
 model Memory {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  type      String    // episodic | semantic | procedural
-  content   String
-  entities  String?   // JSON字符串存储
-  importance Int      @default(5)
-  tags      String?   // JSON数组字符串存储
-  expiresAt DateTime? @map("expires_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  type       String // episodic | semantic | procedural
+  content    String
+  entities   String? // JSON字符串存储
+  importance Int       @default(5)
+  tags       String? // JSON数组字符串存储
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([type])
-  @@index([importance])
+  @@index([userId, importance, createdAt])
   @@map("memories")
 }
 
@@ -129,14 +132,14 @@ model PeriodRecord {
 model Reminder {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  type      String   // water | sleep | custom
+  type      String // water | sleep | period
   time      String
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@unique([userId, type])
   @@map("reminders")
 }
 
@@ -159,7 +162,7 @@ model CrisisLog {
 model RefreshToken {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  tokenHash String   @map("token_hash")  // SHA-256 hash of the refresh token
+  tokenHash String   @unique @map("token_hash") // SHA-256 hash of the refresh token
   expiresAt DateTime @map("expires_at")
   revoked   Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
@@ -167,6 +170,26 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([tokenHash])
+  @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// 安装实例级的本地模型配置，不属于任何单个聊天用户。
+// v1 只允许无 API Key 的 llama.cpp，敏感凭据不落库。
+model LlmRuntimeConfig {
+  id              String    @id @default("local")
+  provider        String    @default("llamacpp")
+  baseUrl         String    @map("base_url")
+  model           String
+  enabled         Boolean   @default(true)
+  revision        Int       @default(1)
+  lastVerifiedAt  DateTime? @map("last_verified_at")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("LlmRuntimeConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([updatedByUserId])
+  @@map("llm_runtime_configs")
 }

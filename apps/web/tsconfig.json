@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/**/*.test.js",
+    "src/**/*.test.jsx",
+    "src/test",
+    "src/pages/CountdownPage.jsx",
+    "src/pages/MembershipPage.jsx",
+    "src/pages/PeriodPage.jsx",
+    "src/pages/SettingsPage.jsx",
+    "src/pages/TodoPage.jsx",
+    "src/stores/toolsStore.js"
+  ]
+}

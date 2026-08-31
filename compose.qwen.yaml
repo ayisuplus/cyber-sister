@@ -1,0 +1,11 @@
+# Optional external-fallback overlay. The base Compose file remains fully local.
+services:
+  api:
+    environment:
+      GATEWAY_QWEN_API_KEY_FILE: /run/secrets/qwen_api_key
+    secrets:
+      - qwen_api_key
+
+secrets:
+  qwen_api_key:
+    file: ${GATEWAY_QWEN_API_KEY_FILE:?set GATEWAY_QWEN_API_KEY_FILE for the Qwen fallback overlay}

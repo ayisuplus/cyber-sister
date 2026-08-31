@@ -1,0 +1,161 @@
+name: cyber-sister-internal
+
+x-api-env: &api-env
+  env_file:
+    - ${RUNTIME_ENV_FILE:?export RUNTIME_ENV_FILE as the absolute private env file path}
+  restart: unless-stopped
+  networks:
+    - app
+    - database
+    - model
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cyber_sister}
+      POSTGRES_USER: ${POSTGRES_USER:-cyber_sister}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cyber_sister} -d ${POSTGRES_DB:-cyber_sister}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - database
+
+  migration:
+    image: ${API_IMAGE_REPOSITORY:-cyber-sister-api}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      POSTGRES_DB: ${POSTGRES_DB:-cyber_sister}
+      POSTGRES_USER: ${POSTGRES_USER:-cyber_sister}
+      DATABASE_HOST: postgres
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    networks:
+      - database
+    healthcheck:
+      disable: true
+    command:
+      - pnpm
+      - --filter
+      - cyber-sister-server
+      - db:migrate:deploy
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${API_IMAGE_REPOSITORY:-cyber-sister-api}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    <<: *api-env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+      INTERNAL_TEST_CODE_FILE: /run/secrets/internal_test_code
+      INTERNAL_TEST_PHONES_FILE: /run/secrets/internal_test_phones
+      INSTANCE_ADMIN_PHONES_FILE: /run/secrets/instance_admin_phones
+    secrets:
+      - database_password
+      - jwt_secret
+      - jwt_refresh_secret
+      - internal_test_code
+      - internal_test_phones
+      - instance_admin_phones
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    extra_hosts:
+      # Linux Docker: let the API reach a llama.cpp process running on the host.
+      - "host.docker.internal:host-gateway"
+
+  web:
+    image: ${WEB_IMAGE_REPOSITORY:-cyber-sister-web}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    networks:
+      - app
+
+  makeup:
+    image: ${MAKEUP_IMAGE_REPOSITORY:-cyber-sister-makeup}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
+    build:
+      context: .
+      dockerfile: packages/makeup-skill/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      MAIN_API_INTERNAL_URL: http://api:3000
+      PORT: 3001
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN in the private env file}
+    networks:
+      - app
+    depends_on:
+      api:
+        condition: service_healthy
+
+  edge:
+    image: nginxinc/nginx-unprivileged:1.27.4-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+      makeup:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDRESS:?set BIND_ADDRESS to the VPN or private interface address}:80:8080"
+      - "${BIND_ADDRESS:?set BIND_ADDRESS to the VPN or private interface address}:443:8443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in the private env file}
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ${TLS_CERT_PATH:?set TLS_CERT_PATH in .env}:/run/tls/tls.crt:ro
+      - ${TLS_KEY_PATH:?set TLS_KEY_PATH in .env}:/run/tls/tls.key:ro
+    restart: unless-stopped
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+  database:
+    driver: bridge
+    internal: true
+  model:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres-data:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?set POSTGRES_PASSWORD_FILE in the private env file}
+  database_password:
+    file: ${DATABASE_PASSWORD_FILE:?set DATABASE_PASSWORD_FILE in the private env file}
+  jwt_secret:
+    file: ${JWT_SECRET_FILE:?set JWT_SECRET_FILE in the private env file}
+  jwt_refresh_secret:
+    file: ${JWT_REFRESH_SECRET_FILE:?set JWT_REFRESH_SECRET_FILE in the private env file}
+  internal_test_code:
+    file: ${INTERNAL_TEST_CODE_FILE:?set INTERNAL_TEST_CODE_FILE in the private env file}
+  internal_test_phones:
+    file: ${INTERNAL_TEST_PHONES_FILE:?set INTERNAL_TEST_PHONES_FILE in the private env file}
+  instance_admin_phones:
+    file: ${INSTANCE_ADMIN_PHONES_FILE:?set INSTANCE_ADMIN_PHONES_FILE in the private env file}

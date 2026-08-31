@@ -1,47 +1,29 @@
-# 多阶段构建 - 生产环境
-FROM node:20-alpine AS builder
+# syntax=docker/dockerfile:1.7
+# Build context must be the repository root so workspace:* packages are available.
+FROM node:20.19-alpine AS runtime
 
-WORKDIR /app
+ENV NODE_ENV=production
+WORKDIR /workspace
 
-# 复制依赖文件
-COPY package*.json ./
+RUN corepack enable && corepack prepare pnpm@11.5.1 --activate
 
-# 安装依赖
-RUN npm ci --only=production
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
+COPY packages/makeup-skill/package.json packages/makeup-skill/package.json
 
-# 复制源代码
-COPY . .
+RUN pnpm install --frozen-lockfile --prod --filter cyber-sister-server...
 
-# 生成Prisma客户端
-RUN npx prisma generate
+COPY --chown=node:node apps/api apps/api
+COPY --chown=node:node packages/llm-gateway packages/llm-gateway
 
-# 生产阶段
-FROM node:20-alpine AS production
+RUN pnpm --filter cyber-sister-server exec prisma generate --schema src/prisma/schema.prisma
 
-WORKDIR /app
-
-# 安装生产依赖
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package.json ./
-
-# 创建非root用户
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-
-# 更改文件所有权
-RUN chown -R nodejs:nodejs /app
-
-# 切换到非root用户
-USER nodejs
-
-# 暴露端口
+USER node
 EXPOSE 3000
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# 启动应用
-CMD ["node", "src/app.js"]
+CMD ["pnpm", "--filter", "cyber-sister-server", "start"]

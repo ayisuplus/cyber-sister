@@ -1,134 +1,180 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Brain, Edit3, Plus, Save, Tag, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
-import { Brain, Search, Trash2, Star, Tag } from 'lucide-react'
-
-// Mock记忆数据
-const MOCK_MEMORIES = [
-  { id: '1', type: 'semantic', content: '用户叫小雨，在上海工作，做产品经理', importance: 9, tags: ['基本信息'], createdAt: '2026-07-01' },
-  { id: '2', type: 'semantic', content: '不吃香菜，对芒果过敏', importance: 8, tags: ['饮食', '健康'], createdAt: '2026-07-03' },
-  { id: '3', type: 'episodic', content: '上周和老板吵架了，因为项目方向问题', importance: 6, tags: ['工作', '情绪'], createdAt: '2026-07-08' },
-  { id: '4', type: 'semantic', content: '男朋友叫小明，异地恋，在北京', importance: 8, tags: ['感情'], createdAt: '2026-07-05' },
-  { id: '5', type: 'episodic', content: '最近在减肥，目标是瘦到100斤', importance: 5, tags: ['健康'], createdAt: '2026-07-10' },
-  { id: '6', type: 'procedural', content: '喜欢听毒舌风格的回复，不要太温柔', importance: 7, tags: ['偏好'], createdAt: '2026-07-02' },
-]
+import { memoryService } from '../services/memoryService'
 
 const TYPE_LABELS = {
-  semantic: { label: '语义记忆', color: 'bg-brand-purple/10 text-brand-purple' },
-  episodic: { label: '情景记忆', color: 'bg-brand-blue/10 text-brand-blue' },
-  procedural: { label: '程序记忆', color: 'bg-brand-green/10 text-brand-green' },
+  semantic: '语义记忆',
+  episodic: '情景记忆',
+  procedural: '程序记忆',
 }
 
+const EMPTY_FORM = { type: 'semantic', content: '', importance: 5, tags: '' }
+
 export default function MemoriesPage() {
-  const [memories, setMemories] = useState(MOCK_MEMORIES)
-  const [filter, setFilter] = useState('all')
-  const [search, setSearch] = useState('')
+  const contentRef = useRef(null)
+  const [memories, setMemories] = useState([])
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [editingId, setEditingId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
 
-  const filtered = memories.filter(m => {
-    if (filter !== 'all' && m.type !== filter) return false
-    if (search && !m.content.includes(search)) return false
-    return true
-  })
+  const load = async () => {
+    setLoading(true)
+    setMessage('')
+    try {
+      setMemories(await memoryService.list())
+    } catch {
+      setMessage('记忆加载失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const handleDelete = (id) => {
-    setMemories(prev => prev.filter(m => m.id !== id))
+  useEffect(() => { load() }, [])
+
+  const resetForm = () => {
+    setForm(EMPTY_FORM)
+    setEditingId(null)
+  }
+
+  const save = async (event) => {
+    event.preventDefault()
+    if (!form.content.trim()) {
+      setMessage('请输入要记住的内容')
+      contentRef.current?.focus()
+      return
+    }
+    setSaving(true)
+    setMessage('')
+    const payload = {
+      type: form.type,
+      content: form.content.trim(),
+      importance: Number(form.importance),
+      tags: form.tags.split(/[,，]/).map(tag => tag.trim()).filter(Boolean),
+    }
+    try {
+      if (editingId) {
+        const updated = await memoryService.update(editingId, payload)
+        setMemories(current => current.map(memory => memory.id === editingId ? updated : memory))
+        setMessage('记忆已更新')
+      } else {
+        const created = await memoryService.create(payload)
+        setMemories(current => [created, ...current])
+        setMessage('记忆已创建')
+      }
+      resetForm()
+    } catch {
+      setMessage('记忆保存失败，请重试')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const edit = (memory) => {
+    setEditingId(memory.id)
+    setForm({
+      type: memory.type,
+      content: memory.content,
+      importance: memory.importance,
+      tags: Array.isArray(memory.tags) ? memory.tags.join('，') : '',
+    })
+    requestAnimationFrame(() => contentRef.current?.focus())
+  }
+
+  const remove = async (id) => {
+    setMessage('')
+    try {
+      await memoryService.remove(id)
+      setMemories(current => current.filter(memory => memory.id !== id))
+      if (editingId === id) resetForm()
+      setMessage('记忆已删除')
+    } catch {
+      setMessage('删除失败，请重试')
+    }
+  }
+
+  const clear = async () => {
+    if (!window.confirm('确定清空全部记忆吗？此操作无法撤销。')) return
+    setMessage('')
+    try {
+      await memoryService.clear()
+      setMemories([])
+      resetForm()
+      setMessage('全部记忆已清空')
+    } catch {
+      setMessage('清空失败，请重试')
+    }
   }
 
   return (
     <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
-      <Header title="记忆管理" showBack />
+      <Header title="显式记忆" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {/* 搜索 */}
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="搜索记忆..."
-            className="w-full h-10 bg-white rounded-xl pl-10 pr-4 text-sm outline-none shadow-card"
-          />
+        <p className="text-xs leading-relaxed text-text-secondary">这里只有你主动创建的记忆。系统不会自动提取或推断记忆。</p>
+
+        <form onSubmit={save} className="rounded-[20px] bg-white p-4 shadow-card space-y-3" aria-labelledby="memory-form-title">
+          <h2 id="memory-form-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            {editingId ? <Edit3 size={16} /> : <Plus size={16} />}
+            {editingId ? '编辑记忆' : '创建记忆'}
+          </h2>
+          <div>
+            <label htmlFor="memory-content" className="mb-1 block text-xs text-text-secondary">记忆内容</label>
+            <textarea id="memory-content" ref={contentRef} value={form.content} onChange={event => setForm(current => ({ ...current, content: event.target.value }))} maxLength={500} rows={3} className="w-full rounded-xl bg-bg-input p-3 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="memory-type" className="mb-1 block text-xs text-text-secondary">类型</label>
+              <select id="memory-type" value={form.type} onChange={event => setForm(current => ({ ...current, type: event.target.value }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm">
+                {Object.entries(TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="memory-importance" className="mb-1 block text-xs text-text-secondary">重要度（1–10）</label>
+              <input id="memory-importance" type="number" min="1" max="10" value={form.importance} onChange={event => setForm(current => ({ ...current, importance: Number(event.target.value) }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="memory-tags" className="mb-1 block text-xs text-text-secondary">标签（逗号分隔）</label>
+            <input id="memory-tags" value={form.tags} onChange={event => setForm(current => ({ ...current, tags: event.target.value }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm" />
+          </div>
+          <div className="flex gap-2">
+            {editingId && <button type="button" onClick={resetForm} className="min-h-11 flex-1 rounded-xl border border-border-subtle text-sm text-text-secondary">取消</button>}
+            <button type="submit" disabled={saving} className="min-h-11 flex-1 rounded-xl bg-action-primary hover:bg-action-hover text-sm font-semibold text-text-inverse disabled:opacity-50 flex items-center justify-center gap-2"><Save size={15} />{saving ? '保存中…' : '保存'}</button>
+          </div>
+        </form>
+
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-text-primary">我的记忆（{memories.length}）</h2>
+          {memories.length > 0 && <button type="button" onClick={clear} className="min-h-11 px-3 text-xs text-red-600">清空全部</button>}
         </div>
 
-        {/* 筛选 */}
-        <div className="flex gap-2">
-          {[
-            { key: 'all', label: '全部' },
-            { key: 'semantic', label: '语义' },
-            { key: 'episodic', label: '情景' },
-            { key: 'procedural', label: '程序' },
-          ].map(f => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                filter === f.key ? 'bg-brand-pink text-white' : 'bg-white text-text-secondary'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <p aria-live="polite" className="min-h-5 text-center text-xs text-text-secondary">{message}</p>
 
-        {/* 记忆统计 */}
-        <div className="bg-white rounded-[20px] p-4 shadow-card flex items-center justify-around">
-          <div className="text-center">
-            <p className="text-2xl font-mono font-bold text-brand-purple">{memories.length}</p>
-            <p className="text-xs text-text-muted">总记忆</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-mono font-bold text-brand-pink">{memories.filter(m => m.importance >= 8).length}</p>
-            <p className="text-xs text-text-muted">核心记忆</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-mono font-bold text-brand-green">{memories.filter(m => m.type === 'semantic').length}</p>
-            <p className="text-xs text-text-muted">永久记忆</p>
-          </div>
-        </div>
-
-        {/* 记忆列表 */}
-        <div className="space-y-2">
-          {filtered.map(memory => {
-            const typeInfo = TYPE_LABELS[memory.type]
-            return (
-              <div key={memory.id} className="bg-white rounded-[16px] p-4 shadow-card">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${typeInfo.color}`}>
-                      {typeInfo.label}
-                    </span>
-                    <div className="flex items-center gap-0.5">
-                      {Array.from({ length: Math.min(5, Math.ceil(memory.importance / 2)) }).map((_, i) => (
-                        <Star key={i} size={10} className="text-brand-yellow fill-brand-yellow" />
-                      ))}
-                    </div>
+        {loading ? (
+          <p role="status" className="py-8 text-center text-sm text-text-muted">加载中…</p>
+        ) : memories.length === 0 ? (
+          <div className="py-10 text-center"><Brain size={44} className="mx-auto mb-3 text-text-muted" /><p className="text-sm text-text-muted">还没有记忆</p></div>
+        ) : (
+          <div className="space-y-2">
+            {memories.map(memory => (
+              <article key={memory.id} className="rounded-2xl bg-white p-4 shadow-card">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="rounded-full bg-brand-purple/10 px-2 py-1 text-[10px] text-brand-purple">{TYPE_LABELS[memory.type] || memory.type}</span>
+                  <div className="flex gap-1">
+                    <button type="button" aria-label="编辑这条记忆" onClick={() => edit(memory)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-gray-50 hover:text-brand-purple"><Edit3 size={15} /></button>
+                    <button type="button" aria-label="删除这条记忆" onClick={() => remove(memory.id)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button>
                   </div>
-                  <button
-                    onClick={() => handleDelete(memory.id)}
-                    className="text-text-muted hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
                 </div>
-                <p className="text-sm text-text-primary leading-relaxed">{memory.content}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  {memory.tags.map(tag => (
-                    <span key={tag} className="flex items-center gap-0.5 text-[10px] text-text-muted">
-                      <Tag size={8} />
-                      {tag}
-                    </span>
-                  ))}
-                  <span className="text-[10px] text-text-muted ml-auto">{memory.createdAt}</span>
+                <p className="text-sm leading-relaxed text-text-primary">{memory.content}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-text-muted">
+                  {(memory.tags || []).map(tag => <span key={tag} className="flex items-center gap-1"><Tag size={9} />{tag}</span>)}
+                  <span className="ml-auto">重要度 {memory.importance}</span>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="text-center py-12">
-            <Brain size={48} className="text-text-muted mx-auto mb-3" />
-            <p className="text-text-muted text-sm">没有找到相关记忆</p>
+              </article>
+            ))}
           </div>
         )}
       </div>

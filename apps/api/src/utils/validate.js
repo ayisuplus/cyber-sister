@@ -87,6 +87,11 @@ export function validate(validations) {
 
     for (const { field, validate: validateFn, source = 'body' } of validations) {
       const value = source === 'params' ? req.params[field] : req.body[field]
+      // 校验链只处理字符串：非字符串输入直接 400，避免放行后在 service 层 TypeError 成 500
+      if (value !== undefined && value !== null && typeof value !== 'string') {
+        errors.push({ field, message: `${field}必须是字符串` })
+        continue
+      }
       const error = validateFn(value)
       if (error) {
         errors.push({ field, message: error })

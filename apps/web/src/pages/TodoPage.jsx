@@ -1,11 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useToolsStore } from '../stores/toolsStore'
 import Header from '../components/layout/Header'
 import { Plus, Check, Trash2, Calendar } from 'lucide-react'
 
 export default function TodoPage() {
   const { todos, addTodo, toggleTodo, deleteTodo } = useToolsStore()
+  const loadTodos = useToolsStore(s => s.loadTodos)
   const [newContent, setNewContent] = useState('')
+  useEffect(() => {
+    loadTodos()
+  }, [loadTodos])
   const [showInput, setShowInput] = useState(false)
 
   const handleAdd = () => {
@@ -19,7 +23,7 @@ export default function TodoPage() {
   const doneTodos = todos.filter(t => t.isDone)
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-page overflow-hidden">
       <Header title="待办提醒" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -100,7 +104,7 @@ export default function TodoPage() {
               onKeyDown={e => e.key === 'Enter' && handleAdd()}
               placeholder="输入待办内容..."
               autoFocus
-              className="flex-1 h-10 bg-bg-input rounded-xl px-4 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30"
+              className="flex-1 h-10 bg-surface-input rounded-xl px-4 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30"
             />
             <button
               onClick={handleAdd}

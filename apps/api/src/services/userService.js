@@ -1,23 +1,14 @@
 /**
- * 用户服务
- * 封装用户信息、人格切换、会员管理的业务逻辑
+ * 用户资料、人格和外部模型同意服务。
  */
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
-import { cacheGet, cacheSet, cacheDel } from '../utils/redis.js'
 
-const CACHE_TTL = 300  // 用户信息缓存 5 分钟
-const cacheKey = (userId) => `user:profile:${userId}`
+export const PERSONAS = ['toxic', 'gentle', 'rational']
+export const EXTERNAL_LLM_CONSENT_VERSION = 'qwen-fallback-v1'
 
-/**
- * 获取用户信息（脱敏返回，缓存 5 分钟）
- */
 export async function getProfile(userId) {
-  // 先查缓存
-  const cached = await cacheGet(cacheKey(userId))
-  if (cached) return cached
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -32,22 +23,15 @@ export async function getProfile(userId) {
       createdAt: true,
     },
   })
-  if (!user) {
-    throw new HttpError('用户不存在', 404)
-  }
+  if (!user) throw new HttpError('用户不存在', 404)
 
-  // 写入缓存
-  await cacheSet(cacheKey(userId), user, CACHE_TTL)
   return user
 }
 
-/**
- * 更新用户信息
- */
 export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) {
   const updateData = {}
   if (nickname !== undefined) {
-    if (typeof nickname !== 'string' || nickname.length > 50) {
+    if (typeof nickname !== 'string' || nickname.trim().length > 50) {
       throw new HttpError('昵称不能超过50个字符', 400)
     }
     updateData.nickname = nickname.trim()
@@ -59,67 +43,95 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) 
     updateData.avatarUrl = avatarUrl || null
   }
   if (birthDate !== undefined) {
-    updateData.birthDate = birthDate ? new Date(birthDate) : null
+    const parsedDate = birthDate ? new Date(birthDate) : null
+    if (parsedDate && Number.isNaN(parsedDate.getTime())) {
+      throw new HttpError('出生日期格式不正确', 400)
+    }
+    updateData.birthDate = parsedDate
   }
 
   const user = await prisma.user.update({
     where: { id: userId },
     data: updateData,
     select: {
-      id: true, phone: true, nickname: true, persona: true,
-      isVip: true, vipExpireAt: true, avatarUrl: true, birthDate: true,
+      id: true,
+      phone: true,
+      nickname: true,
+      persona: true,
+      isVip: true,
+      vipExpireAt: true,
+      avatarUrl: true,
+      birthDate: true,
     },
   })
 
   logger.info('用户信息更新', { userId })
-  // 失效缓存
-  await cacheDel(cacheKey(userId))
   return user
 }
 
-/**
- * 切换人格
- */
 export async function switchPersona(userId, persona) {
+  if (!PERSONAS.includes(persona)) {
+    throw new HttpError(`人格必须是以下值之一: ${PERSONAS.join(', ')}`, 400)
+  }
+
   const user = await prisma.user.update({
     where: { id: userId },
     data: { persona },
     select: { persona: true },
   })
   logger.info('人格切换', { userId, persona })
-  // 失效缓存
-  await cacheDel(cacheKey(userId))
   return user
 }
 
-/**
- * 获取会员状态
- */
+export async function getExternalLlmConsent(userId) {
+  const consent = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      externalLlmConsent: true,
+      externalLlmConsentVersion: true,
+      externalLlmConsentUpdatedAt: true,
+    },
+  })
+  if (!consent) throw new HttpError('用户不存在', 404)
+
+  const isCurrentVersion = consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  return {
+    accepted: isCurrentVersion ? consent.externalLlmConsent : null,
+    version: EXTERNAL_LLM_CONSENT_VERSION,
+    updatedAt: isCurrentVersion ? consent.externalLlmConsentUpdatedAt : null,
+  }
+}
+
+export async function updateExternalLlmConsent(userId, accepted) {
+  if (typeof accepted !== 'boolean') {
+    throw new HttpError('accepted必须是布尔值', 400)
+  }
+
+  const updatedAt = new Date()
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      externalLlmConsent: accepted,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+      externalLlmConsentUpdatedAt: updatedAt,
+    },
+  })
+
+  logger.info('外部模型同意状态更新', { userId, accepted, version: EXTERNAL_LLM_CONSENT_VERSION })
+  return { accepted, version: EXTERNAL_LLM_CONSENT_VERSION, updatedAt }
+}
+
 export async function getMembership(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { isVip: true, vipExpireAt: true },
   })
-  return {
-    isVip: user?.isVip || false,
-    vipExpireAt: user?.vipExpireAt || null,
-  }
+  if (!user) throw new HttpError('用户不存在', 404)
+  return { isVip: user.isVip, vipExpireAt: user.vipExpireAt }
 }
 
-/**
- * 开通会员（Mock 实现，30天）
- */
-export async function subscribeMembership(userId) {
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      isVip: true,
-      vipExpireAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    },
-    select: { isVip: true, vipExpireAt: true },
-  })
-  logger.info('会员开通', { userId })
-  // 失效缓存
-  await cacheDel(cacheKey(userId))
-  return { success: true, ...user }
+export function subscribeMembership() {
+  const error = new HttpError('会员功能暂未开放', 409)
+  error.code = 'FEATURE_NOT_AVAILABLE'
+  throw error
 }
