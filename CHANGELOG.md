@@ -13,6 +13,15 @@
 > 实施基线：[`docs/Spec_赛博姐妹_v1.0.md`](docs/Spec_赛博姐妹_v1.0.md)
 > 排期见：[`docs/01-产品/开发计划与路线图.md`](docs/01-产品/开发计划与路线图.md)
 
+### 2026-08-31 仓库收敛与品牌统一
+
+- **单仓库单品牌**：cyber-sister 成为唯一活跃仓库与唯一品牌「赛博姐妹」。原 `AI妆教/` 仓库归档至 `../_archive/AI妆教/`（其最终提交 `f2dc25b` 早已 subtree 并入本仓库，归档前确认工作区干净、无独有内容）
+- **落地页迁入**：主落地页从 `电子闺蜜/landing/` 迁至 `apps/web/public/landing/`（`/landing/` 路径直接可访问），并新增「AI 妆教」板块承接对外叙事，导航栏加入口
+- **品牌统一**：妆教模块不再使用独立品牌「妆语」，统一为「赛博姐妹 AI 妆教」（功能名「妆教」）；独立品牌站 `packages/makeup-skill/brandsite/` 下线（内容可从 git 历史找回）；11 份历史文档加品牌并入横幅
+- **补迁资产**：六张妆容设计参考图迁入 `packages/makeup-skill/design-reference/looks/`（未接入运行时）
+- **安全网**：`.gitignore` 忽略 `mp-models/` 注入产物（36MB MediaPipe 二进制不入库）；移除指向已归档仓库的危险远端 `ai-makeup`
+- **灾后重建**：`packages/` 目录遭外部因素整体删除。`makeup-skill` 155 个文件从 git 完整恢复；`llm-gateway` 与 `design-tokens`（此前从未提交）按消费方契约重建并全部通过验证；模型注入源 `.assets/` 从幸存的 `apps/web/public/mp-models/` 恢复，7 个文件 SHA-256 校验全部通过
+
 ### 已就绪（待随首个内测版发布）
 
 依据 2026-08-31 代码核查，以下能力已实现，等待走完发布验收门（Spec §9）：
