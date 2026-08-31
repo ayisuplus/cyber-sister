@@ -1,6 +1,7 @@
 // fetch 包装 — 超时 + 退避重试 (5xx / 网络错误 / 429) + CSRF 自动注入.
 
-import { withCsrfHeader } from './csrf';
+import { withCsrfHeader, resetCsrfToken } from './csrf';
+import { toApiUrl } from './runtime';
 //
 // 行为:
 // - 单次请求有 timeoutMs 超时 (默认 15s).
@@ -49,6 +50,7 @@ export async function fetchJson<T = unknown>(
   requestUrl: string,
   init: RequestInit & FetchOptions = {},
 ): Promise<T> {
+  requestUrl = toApiUrl(requestUrl);
   let {
     timeoutMs = DEFAULT_TIMEOUT,
     retries = DEFAULT_RETRIES,
@@ -74,18 +76,30 @@ export async function fetchJson<T = unknown>(
   }
   const combinedSignal = ctrl.signal;
 
+  let csrfRetried = false;
   let lastError: unknown = null;
   try {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const res = await fetch(requestUrl, { ...rest, signal: combinedSignal });
         if (!res.ok) {
+          // 403 自愈 (unsafe 方法): CSRF token 可能过期 — 重置缓存重取 token, 重试一次
+          if (res.status === 403 && isUnsafe && !csrfRetried) {
+            csrfRetried = true;
+            resetCsrfToken();
+            try {
+              rest = await withCsrfHeader(rest.method ?? 'POST', rest);
+            } catch {
+              // 重取 token 失败也照发, 由后端再次拒绝
+            }
+            continue;
+          }
           if (isRetriableStatus(res.status) && attempt < retries) {
             lastError = new Error(`HTTP ${res.status}`);
             // fall through to backoff
           } else {
             const text = await res.text().catch(() => '');
-            throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+            throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`, { cause: 'not-retriable' });
           }
         } else {
           // 成功 — 解析 JSON
@@ -98,6 +112,8 @@ export async function fetchJson<T = unknown>(
       } catch (err) {
         // abort 立刻抛 — 不重试
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
+        // 4xx (非 429) 等不可重试 HTTP 错误 — 立刻抛, 不进退避
+        if (err instanceof Error && err.cause === 'not-retriable') throw err;
         // 网络错误 / 上面手动 throw 的 5xx / JSON 错误 — 记录并重试
         lastError = err;
         if (attempt >= retries) break;

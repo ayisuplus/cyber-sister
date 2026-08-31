@@ -3,7 +3,7 @@
 //   GET    /api/teaching-resources/:id         单个详情
 //   POST   /api/teaching-resources             新建 (admin 用途)
 //   DELETE /api/teaching-resources/:id         删除 (admin 用途)
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { TeachingResourceKind } from '../../shared/types.js';
 import { createResource, deleteResource, getResource, listResources } from './_resources.js';
 import { validateBody, type Schema } from '../middleware/validate.js';
@@ -60,6 +60,14 @@ function parseNumberField(input: unknown): number | undefined {
 
 export const resourcesRouter = Router();
 
+function requireDevelopmentAdmin(_req: Request, res: Response, next: NextFunction): void {
+  if (process.env.NODE_ENV !== 'production') {
+    next();
+    return;
+  }
+  res.status(404).json({ error: 'FEATURE_NOT_AVAILABLE' });
+}
+
 // GET /api/teaching-resources?lookId=...
 resourcesRouter.get('/teaching-resources', (req, res) => {
   const list = listResources();
@@ -82,7 +90,7 @@ resourcesRouter.get('/teaching-resources/:id', (req, res) => {
 });
 
 // POST /api/teaching-resources
-resourcesRouter.post('/teaching-resources', validateBody(createSchema), async (req, res) => {
+resourcesRouter.post('/teaching-resources', requireDevelopmentAdmin, validateBody(createSchema), async (req, res) => {
   try {
     const body = req.body as {
       lookId?: unknown;
@@ -121,9 +129,14 @@ resourcesRouter.post('/teaching-resources', validateBody(createSchema), async (r
 });
 
 // DELETE /api/teaching-resources/:id
-resourcesRouter.delete('/teaching-resources/:id', async (req, res) => {
+resourcesRouter.delete('/teaching-resources/:id', requireDevelopmentAdmin, async (req, res) => {
   try {
-    const ok = await deleteResource(req.params.id);
+    const id = req.params.id;
+    if (typeof id !== 'string') {
+      res.status(404).json({ error: 'resource not found' });
+      return;
+    }
+    const ok = await deleteResource(id);
     if (!ok) {
       res.status(404).json({ error: 'resource not found' });
       return;

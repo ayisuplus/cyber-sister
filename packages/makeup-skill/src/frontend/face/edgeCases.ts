@@ -176,7 +176,8 @@ function faceAreaRatio(face: Landmark[]): number {
     maxY = 0;
   let seen = false;
   for (const lm of face) {
-    if (lm.x === 0 && lm.y === 0) continue;
+    // 稀疏数组的空洞 (关键点缺失) 与 (0,0) 哨兵一样视作无效点, 跳过
+    if (!lm || (lm.x === 0 && lm.y === 0)) continue;
     if (lm.x < minX) minX = lm.x;
     if (lm.x > maxX) maxX = lm.x;
     if (lm.y < minY) minY = lm.y;
@@ -458,9 +459,13 @@ export async function readExifOrientation(file: File): Promise<number> {
         // "Exif\0\0"
         if (view.getUint32(offset + 4) === 0x45786966 && view.getUint16(offset + 8) === 0) {
           const tiff = offset + 10;
-          // TIFF header: 0x002A (little) or 0x2A00 (big)
-          const little = view.getUint16(tiff) === 0x002a;
-          const ifd0 = tiff + (little ? 8 : 8);
+          // TIFF header: 字节序标记 'II' (0x4949, little-endian) 或 'MM' (0x4D4D, big-endian)
+          const bom = view.getUint16(tiff);
+          if (bom !== 0x4949 && bom !== 0x4d4d) break;
+          const little = bom === 0x4949;
+          // 魔数 42 按声明的字节序读取
+          if (view.getUint16(tiff + 2, little) !== 0x002a) break;
+          const ifd0 = tiff + 8;
           const numEntries = view.getUint16(ifd0, little);
           for (let i = 0; i < numEntries; i++) {
             const entry = ifd0 + 2 + i * 12;

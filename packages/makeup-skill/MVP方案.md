@@ -1,3 +1,5 @@
+> ℹ️ 历史文档：品牌「妆语」已于 2026-08-31 并入「赛博姐妹」，文中「妆语 / MakeupWhisper」均为历史名称；现行品牌见 docs/02-设计/品牌规范.md（仓库根 docs/）。
+
 # AI妆教 MVP Implementation Plan
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.

@@ -24,9 +24,9 @@ def annotate_image(img_path: str, api_key: str) -> dict | None:
         with open(img_path, "rb") as f:
             img_data = base64.b64encode(f.read()).decode()
         resp = httpx.post(
-            "https://api.minimaxi.com/v1/chat/completions",
+            os.environ["ARCHIVE_LLM_BASE_URL"],
             json={
-                "model": "MiniMax-M3",
+                "model": os.environ["ARCHIVE_LLM_MODEL"],
                 "messages": [{"role": "user", "content": [
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}},
                     {"type": "text", "text": PROMPT},

@@ -1,9 +1,9 @@
-// 妆语 - 主应用入口
+// AI 妆教（赛博姐妹）- 主应用入口
 // 状态机: idle → loading_model → ready → analyzing → analysis_done
 //        → recommending → looks_ready → tutorial_step → tutorial_done → result / error
 // 视觉层: 新拟态 + 毛玻璃 + 粉系调色板,移动端优先 (max-width: 430px)
 
-import { useEffect, useReducer, useRef, Suspense, lazy } from 'react';
+import { useEffect, useReducer, useRef, useState, Suspense, lazy } from 'react';
 import type { FaceFeatures, MakeupLook } from '../shared/types';
 import { loadModel } from './face/loader';
 import {
@@ -18,6 +18,7 @@ import { track, startTimer } from '../shared/analytics';
 import { useToast } from './components/Toast';
 import { compressImage, blobToDataUrl } from './utils/image';
 import { fetchJson } from './utils/fetch';
+import { getMainAccessToken } from './utils/runtime';
 import { reducer, initialState } from './state/appReducer';
 
 import { FloatingOrbs } from './views/FloatingOrbs';
@@ -43,8 +44,14 @@ const ResourcesView = lazy(
 );
 const ResultCard = lazy(() => import(/* webpackChunkName: "result-card" */ './result/ResultCard'));
 
+export const EXPLAIN_REQUEST_TIMEOUT_MS = 70_000;
+
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [explanation, setExplanation] = useState<{
+    text: string;
+    source: 'local_model' | 'qwen' | 'local_template';
+  } | null>(null);
   const imageDataRef = useRef<ImageData | null>(null);
   const landmarksRef = useRef<ReturnType<typeof toSharedLandmarks> | null>(null);
   const featuresRef = useRef<FaceFeatures | null>(null);
@@ -54,6 +61,8 @@ function App() {
   const imageSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const exifOrientationRef = useRef<number>(1);
   const toast = useToast();
+  const selectedLookForExplanation =
+    state.stage === 'looks_ready' ? state.looks[state.selected] : undefined;
 
   // app_open
   useEffect(() => {
@@ -148,12 +157,11 @@ function App() {
     };
   }, [state.stage]);
 
-  // analysis_done → recommending 自动跳
+  // 用户确认分析结果后进入 recommending，再请求确定性推荐。
   useEffect(() => {
-    if (state.stage !== 'analysis_done') return;
+    if (state.stage !== 'recommending') return;
     const features = featuresRef.current;
     if (!features) return;
-    dispatch({ type: 'START_RECOMMEND' });
     const ctrl = new AbortController();
     fetchJson<{ looks: MakeupLook[] }>('/api/recommend', {
       method: 'POST',
@@ -176,6 +184,52 @@ function App() {
       });
     return () => ctrl.abort();
   }, [state.stage, toast]);
+
+  // 只发送规范化标签和 lookId；模型路由与外部回退授权由主 API 统一执行。
+  useEffect(() => {
+    if (state.stage !== 'looks_ready') return;
+    const look = selectedLookForExplanation;
+    const features = featuresRef.current;
+    if (!look || !features) return;
+    const ctrl = new AbortController();
+    setExplanation(null);
+    const token = getMainAccessToken();
+    fetchJson<{
+      explanation: string;
+      source: 'local_model' | 'qwen' | 'local_template';
+    }>('/api/explain', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        features: {
+          faceShape: features.faceShape,
+          skinTone: features.skinTone,
+          eyeType: features.eyeType,
+        },
+        lookId: look.id,
+      }),
+      signal: ctrl.signal,
+      timeoutMs: EXPLAIN_REQUEST_TIMEOUT_MS,
+      retries: 0,
+    })
+      .then((result) => {
+        if (!ctrl.signal.aborted) {
+          setExplanation({ text: result.explanation, source: result.source });
+        }
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) {
+          setExplanation({
+            text: Array.from(look.reason).slice(0, 50).join(''),
+            source: 'local_template',
+          });
+        }
+      });
+    return () => ctrl.abort();
+  }, [state.stage, selectedLookForExplanation]);
 
   // tutorial_step 变化时埋点 + 启动计时
   useEffect(() => {
@@ -200,7 +254,7 @@ function App() {
     state.stage === 'tutorial_step' ? state.look.id : '',
   ]);
 
-  // tutorial_done: 展示 1.8s "恭喜完成",再进 result
+  // tutorial_done 只记录完成；进入总结必须由用户主动触发。
   useEffect(() => {
     if (state.stage !== 'tutorial_done') return;
     const currentLook = state.look;
@@ -210,15 +264,6 @@ function App() {
       total_duration_ms: elapsed,
     });
     tutorialStartRef.current = null;
-    const features = featuresRef.current;
-    if (!features) {
-      dispatch({ type: 'ERROR', message: '分析结果丢失', recoverable: true });
-      return;
-    }
-    const t = setTimeout(() => {
-      dispatch({ type: 'ENTER_RESULT', look: currentLook, features });
-    }, 1800);
-    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.stage, state.stage === 'tutorial_done' ? state.look.id : '']);
 
@@ -226,6 +271,11 @@ function App() {
     imageDataRef.current = null;
     landmarksRef.current = null;
     featuresRef.current = null;
+    tutorialStartRef.current = null;
+    previewUrlRef.current = '';
+    imageSizeRef.current = { width: 0, height: 0 };
+    exifOrientationRef.current = 1;
+    setExplanation(null);
     dispatch({ type: 'RESET' });
   }
 
@@ -339,8 +389,14 @@ function App() {
       <section className="app-card animate-fade-up">
         <div className="card-glass p-6 sm:p-8">
           <header className="text-center mb-6">
-            <h1 className="font-hand text-5xl text-primary">妆语</h1>
-            <div className="mt-1 text-[10px] tracking-[0.4em] text-ink-soft/70">ZHUANG · YU</div>
+            <a
+              href="/tools"
+              className="inline-flex min-h-[44px] items-center text-sm text-ink-soft/70 hover:text-primary"
+            >
+              ← 返回赛博姐妹
+            </a>
+            <h1 className="font-hand text-5xl text-primary">妆教</h1>
+            <div className="mt-1 text-[10px] tracking-[0.4em] text-ink-soft/70">ZHUANG · JIAO</div>
           </header>
 
           {state.stage === 'idle' && <OnboardingView onImagePicked={onPick} />}
@@ -379,6 +435,7 @@ function App() {
               }
               onRetake={reset}
               onOpenTeaching={(lookId) => dispatch({ type: 'OPEN_TEACHING_RESOURCES', lookId })}
+              explanation={explanation}
             />
           )}
           {state.stage === 'tutorial_step' && (
@@ -403,6 +460,14 @@ function App() {
               look={state.look}
               features={featuresRef.current}
               onOpenSurvey={() => dispatch({ type: 'OPEN_SURVEY' })}
+              onContinue={() => {
+                const features = featuresRef.current;
+                if (!features) {
+                  dispatch({ type: 'ERROR', message: '分析结果丢失', recoverable: true });
+                  return;
+                }
+                dispatch({ type: 'ENTER_RESULT', look: state.look, features });
+              }}
             />
           )}
           {state.stage === 'survey' && (

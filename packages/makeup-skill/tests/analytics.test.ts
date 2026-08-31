@@ -124,9 +124,12 @@ afterEach(() => {
 // ---------- POST /api/analytics ----------
 
 describe('POST /api/analytics — 写入 jsonl', () => {
-  it('合法事件 → 200 + 写入一行 jsonl (含 event/props/timestamp/sessionId)', async () => {
+  it('合法事件 → 200 + 写入一行 jsonl，但不持久化客户端属性', async () => {
     const r = await callHandler('post', '/analytics', {
-      body: { event: 'result_share', props: { method: 'image' } },
+      body: {
+        event: 'result_share',
+        props: { authorization: 'Bearer secret', chat: '私密正文' },
+      },
       headers: { 'x-session-id': 'sess-abc' },
     });
     expect(r.status).toBe(200);
@@ -139,7 +142,9 @@ describe('POST /api/analytics — 写入 jsonl', () => {
     expect(lines.length).toBe(1);
     const row = JSON.parse(lines[0]!);
     expect(row.event).toBe('result_share');
-    expect(row.props).toEqual({ method: 'image' });
+    expect(row).not.toHaveProperty('props');
+    expect(content).not.toContain('Bearer secret');
+    expect(content).not.toContain('私密正文');
     expect(typeof row.timestamp).toBe('number');
     expect(row.sessionId).toBe('sess-abc');
   });
@@ -258,9 +263,9 @@ describe('analytics: stats cache', () => {
   });
 });
 
-// ---------- track() 自动附带 sessionId (前端 src/shared/analytics.ts) ----------
+// ---------- 内测 track() 保持本地，不发送事件内容 ----------
 
-describe('track() 自动附带 sessionId', () => {
+describe('track() 内测隐私门', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let store: Map<string, string>;
 
@@ -293,28 +298,18 @@ describe('track() 自动附带 sessionId', () => {
     vi.resetModules();
   });
 
-  it('track 发送的 body 含非空 sessionId', async () => {
+  it('track 不发送事件名或 props', async () => {
     const { track } = await import('../src/shared/analytics');
     track('test_event', { foo: 1 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
-    expect(calls[0]![0]).toBe('/api/analytics');
-    const body = JSON.parse(calls[0]![1].body) as Record<string, unknown>;
-    expect(body.event).toBe('test_event');
-    expect(typeof body.sessionId).toBe('string');
-    expect((body.sessionId as string).length).toBeGreaterThan(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('同一会话内多次 track 使用相同 sessionId', async () => {
+  it('多次 track 也不会创建网络请求', async () => {
     const { track, getSessionId } = await import('../src/shared/analytics');
     track('a');
     track('b');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
-    const id1 = JSON.parse(calls[0]![1].body).sessionId as string;
-    const id2 = JSON.parse(calls[1]![1].body).sessionId as string;
-    expect(id1).toBe(id2);
-    expect(id1).toBe(getSessionId());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getSessionId()).toBe(getSessionId());
   });
 
   it('sessionId 持久化到 localStorage 且不含 PII', async () => {

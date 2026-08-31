@@ -1,14 +1,15 @@
 // MediaPipe FaceLandmarker singleton loader.
-// 模型文件从 /mp-models/ 本地加载,避免 Google CDN 在国内访问慢.
+// 模型文件从应用子路径下的 mp-models 本地加载,避免运行时 CDN 下载.
 // delegate 默认 GPU,设备不支持时降级 CPU (MediaPipe 内部 try/catch 自动处理).
 
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { MODEL_BASE } from '../utils/runtime';
 
 let landmarker: FaceLandmarker | null = null;
 let loadPromise: Promise<FaceLandmarker> | null = null;
 
-const WASM_PATH = '/mp-models/wasm';
-const MODEL_PATH = '/mp-models/face_landmarker.task';
+const WASM_PATH = `${MODEL_BASE}/wasm`;
+const MODEL_PATH = `${MODEL_BASE}/face_landmarker.task`;
 
 /**
  * 加载 MediaPipe FaceLandmarker,首次加载后复用单例.

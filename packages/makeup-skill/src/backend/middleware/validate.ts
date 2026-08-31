@@ -107,6 +107,9 @@ function checkField(field: string, rule: FieldRule, raw: unknown): FieldError | 
       if (typeof raw !== 'object' || Array.isArray(raw) || raw === null) {
         return { field, message: '必须是对象' };
       }
+      if (rule.max !== undefined && Buffer.byteLength(JSON.stringify(raw), 'utf8') > rule.max) {
+        return { field, message: `序列化后需 <= ${rule.max} 字节` };
+      }
       return null;
     }
     case 'enum': {

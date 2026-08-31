@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(fileURLToPath(import.meta.url), '..');
 
 export default defineConfig({
+  base: '/makeup/',
   plugins: [react(), tailwindcss()],
   root: path.join(projectRoot, 'public'),
   resolve: {
@@ -22,15 +23,16 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     proxy: {
-      '/api': {
+      '/makeup/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/makeup\/api/, '/api'),
       },
     },
   },
   build: {
     outDir: path.join(projectRoot, 'dist'),
-    emptyOutDir: false, // keep server.js if present
+    emptyOutDir: true,
     sourcemap: true,
     target: 'es2020',
   },

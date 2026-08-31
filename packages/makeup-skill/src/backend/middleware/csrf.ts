@@ -71,12 +71,14 @@ export function issueCsrfToken() {
 
 /**
  * 中间件: 校验 CSRF token. 仅对 UNSAFE_METHODS 生效.
- * 跳过 /api/health, /api/csrf-token, /api/analytics (后者使用 SameSite + 限流).
+ * 跳过 health / csrf-token / analytics (后者使用 SameSite + 限流).
+ * 注意: 中间件挂在 app.use('/api', ...) 下, Express 已剥掉 '/api' 前缀,
+ * req.path 是挂载点之后的相对路径, 所以这里必须用剥前缀后的路径.
  */
 const SKIP_PATHS = new Set([
-  '/api/health',
-  '/api/csrf-token',
-  '/api/analytics', // 公开埋点端点, 无业务影响
+  '/health',
+  '/csrf-token',
+  '/analytics', // 公开埋点端点, 无业务影响
 ]);
 
 export function requireCsrfToken() {

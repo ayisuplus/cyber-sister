@@ -97,13 +97,13 @@ def text_to_annotation(text: str, keyword: str, api_key: str) -> dict | None:
 关键词：{keyword}
 只返回JSON。"""
 
-        url = "https://api.minimaxi.com/v1/chat/completions"
+        url = os.environ["ARCHIVE_LLM_BASE_URL"]
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "MiniMax-M3",
+            "model": os.environ["ARCHIVE_LLM_MODEL"],
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 500,
         }

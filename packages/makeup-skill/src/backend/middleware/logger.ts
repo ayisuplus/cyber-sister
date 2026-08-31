@@ -1,5 +1,5 @@
 // 结构化请求日志 — 替换原来裸的 console.info.
-// 每条请求一条 JSON,带 method/path/status/duration/requestId.
+// 每条请求一条 JSON,仅带 requestId/结果/耗时，避免记录 URL 查询串或正文.
 // 失败的请求再单独 console.error 一遍,方便聚合.
 
 import type { NextFunction, Request, Response } from 'express';
@@ -14,13 +14,9 @@ export function requestLogger() {
       const line = JSON.stringify({
         t: new Date().toISOString(),
         level,
-        reqId: req.id,
-        method: req.method,
-        path: req.originalUrl,
-        status,
-        durMs: Math.round(durMs * 10) / 10,
-        ip: req.ip,
-        ua: req.headers['user-agent']?.slice(0, 80),
+        requestId: req.id,
+        result: `http_${status}`,
+        latencyMs: Math.round(durMs * 10) / 10,
       });
       if (level === 'error') {
         console.error(line);

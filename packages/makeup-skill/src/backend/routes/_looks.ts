@@ -2,22 +2,23 @@
 // Shared by recommend.ts so look names stay in sync with the canonical data file.
 
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { MakeupLook } from '../../shared/types.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// src/backend/routes/_looks.ts → src/shared/data/looks.json
-const DATA_DIR = join(__dirname, '..', '..', 'shared', 'data');
+// pnpm starts this package with cwd=<package root>; this also survives bundling.
+const DATA_DIR = join(process.cwd(), 'src', 'shared', 'data');
 
 let cache: MakeupLook[] | null = null;
 
 export function loadLooks(): MakeupLook[] {
   if (cache) return cache;
-  const raw = JSON.parse(readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8')) as {
-    looks: MakeupLook[];
-  };
-  cache = raw.looks;
+  const parsed: unknown = JSON.parse(readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'));
+  // 仓库内 JSON 随版本走, 运行时再 narrow 一道防手滑改坏.
+  const looks = (parsed as { looks?: unknown } | null)?.looks;
+  if (!Array.isArray(looks)) {
+    throw new Error('looks.json 缺少 "looks" 数组');
+  }
+  cache = looks as MakeupLook[];
   return cache;
 }
 

@@ -27,7 +27,6 @@ const STATS_CACHE_TTL_MS = 5_000;
 // 落盘行结构 (强制 timestamp,允许 sessionId 为 null)
 interface AnalyticsRow {
   event: string;
-  props: Record<string, unknown>;
   timestamp: number;
   sessionId: string | null;
 }
@@ -87,7 +86,6 @@ function readRows(): AnalyticsRow[] {
       if (typeof obj.event === 'string') {
         rows.push({
           event: obj.event,
-          props: obj.props ?? {},
           timestamp: typeof obj.timestamp === 'number' ? obj.timestamp : 0,
           sessionId: obj.sessionId ?? null,
         });
@@ -106,13 +104,14 @@ export const analyticsRouter = Router();
 
 // 事件名:限 ASCII 字母数字 + 下划线 + 短横线,避免写入奇怪字符
 // 事件名限 ASCII 字母数字 + 下划线 + 短横线, 避免写入奇怪字符
-// props 必须 < 16 KB, sessionId < 128, timestamp 是 unix ms
+// props 仅为兼容旧客户端做大小校验，服务端不会记录或持久化其内容。
+// sessionId < 128, timestamp 是 unix ms
 const EVENT_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const analyticsSchema = {
   event: { type: 'string', required: true, min: 1, max: 64, pattern: EVENT_NAME_PATTERN },
   sessionId: { type: 'string', min: 0, max: 128 },
   timestamp: { type: 'integer', ge: 0, le: 9_999_999_999_999 },
-  props: { type: 'object', min: 0, max: 65_536 },
+  props: { type: 'object', min: 0, max: 16_384 },
 } as const;
 
 // POST /api/analytics — 写入 jsonl
@@ -123,25 +122,19 @@ analyticsRouter.post('/analytics', analyticsLimiter, validateBody(analyticsSchem
     sessionId?: unknown;
     timestamp?: unknown;
   };
-  // props 必须是普通对象;不是就当作空,保证落盘形状稳定.
-  const props: Record<string, unknown> =
-    raw.props && typeof raw.props === 'object' && !Array.isArray(raw.props)
-      ? (raw.props as Record<string, unknown>)
-      : {};
   const sessionId = extractSessionId(req.headers['x-session-id'], raw.sessionId);
   const timestamp = typeof raw.timestamp === 'number' ? raw.timestamp : Date.now();
-  const row: AnalyticsRow = { event: raw.event, props, timestamp, sessionId };
+  const row: AnalyticsRow = { event: raw.event, timestamp, sessionId };
   try {
     ensureFile();
     appendFileSync(JSONL_PATH, JSON.stringify(row) + '\n', 'utf-8');
-  } catch (err) {
-    console.error('[analytics] write failed:', err);
+  } catch {
+    console.error(JSON.stringify({ requestId: req.id, result: 'analytics_write_failed' }));
     res.status(500).json({ error: 'write failed' });
     return;
   }
 
   invalidateStatsCache();
-  console.info('[analytics]', row.event, row.props);
   res.json({ ok: true });
 });
 

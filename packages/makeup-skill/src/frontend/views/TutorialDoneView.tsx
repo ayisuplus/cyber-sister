@@ -15,13 +15,15 @@ interface Props {
   features: FaceFeatures | null;
   /** D9: 打开问卷页回调. */
   onOpenSurvey: () => void;
+  /** User-controlled transition to the result card. */
+  onContinue: () => void;
 }
 
 /**
  * 教学完成页: "恭喜完成" + 进度条过渡 + 收藏入口.
  * 收藏按钮在 1.8s 过渡窗口内可快速点按; 完整收藏体验在 ResultCard 也有.
  */
-export function TutorialDoneView({ look, features, onOpenSurvey }: Props) {
+export function TutorialDoneView({ look, features, onOpenSurvey, onContinue }: Props) {
   const [favorited, setFavorited] = useState<boolean>(() => isFavorited(look.id));
 
   function toggleFavorite() {
@@ -58,7 +60,7 @@ export function TutorialDoneView({ look, features, onOpenSurvey }: Props) {
         🎉
       </div>
       <h2 className="font-serif text-2xl font-bold text-ink mb-2">恭喜完成 {look.name}！</h2>
-      <p className="text-ink-soft/70">正在准备你的专属分享卡…</p>
+      <p className="text-ink-soft/70">教程已完成，你可以继续查看总结。</p>
       <div className="mt-6 mx-auto w-32 progress-track">
         <div
           className="progress-fill animate-shimmer"
@@ -94,6 +96,13 @@ export function TutorialDoneView({ look, features, onOpenSurvey }: Props) {
 
       {/* D9: 问卷入口 — 帮我们做得更好 */}
       <div className="mt-4">
+        <button
+          type="button"
+          onClick={onContinue}
+          className="btn-primary w-full min-h-[48px] mb-3"
+        >
+          查看妆容总结 →
+        </button>
         <button
           type="button"
           onClick={onOpenSurvey}

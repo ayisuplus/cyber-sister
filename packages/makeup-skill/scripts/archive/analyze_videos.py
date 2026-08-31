@@ -105,13 +105,13 @@ def analyze_frame(frame_path: str, api_key: str) -> dict | None:
         with open(frame_path, "rb") as f:
             img_data = base64.b64encode(f.read()).decode()
 
-        url = "https://api.minimaxi.com/v1/chat/completions"
+        url = os.environ["ARCHIVE_LLM_BASE_URL"]
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "MiniMax-M3",
+            "model": os.environ["ARCHIVE_LLM_MODEL"],
             "messages": [{
                 "role": "user",
                 "content": [
@@ -142,13 +142,13 @@ def merge_frame_analyses(frame_analyses: list[dict], api_key: str) -> dict | Non
 
         frames_text = json.dumps(frame_analyses, ensure_ascii=False, indent=2)
 
-        url = "https://api.minimaxi.com/v1/chat/completions"
+        url = os.environ["ARCHIVE_LLM_BASE_URL"]
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "MiniMax-M3",
+            "model": os.environ["ARCHIVE_LLM_MODEL"],
             "messages": [{
                 "role": "user",
                 "content": f"以下是化妆教程视频的多帧分析结果：\n\n{frames_text}\n\n{MERGE_PROMPT}",

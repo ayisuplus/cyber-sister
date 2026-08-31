@@ -15,7 +15,7 @@ import type { NextFunction, Request, Response } from 'express';
  * - img-src 'self' data: blob: — 允许 data: (canvas 截图) + blob: (本地预览)
  * - media-src 'self' blob: — 允许 blob 视频预览
  * - connect-src 'self' — 限制 fetch / XHR / WebSocket 目标
- * - font-src 'self' https://fonts.gstatic.com data: — 允许 Google Fonts
+ * - font-src 'self' data: — 只允许同源或内嵌字体
  * - frame-ancestors 'none' — 防止点击劫持
  * - base-uri 'self' — 限制 <base>
  * - form-action 'self' — 限制 form 提交目标
@@ -30,7 +30,7 @@ function buildContentSecurityPolicy(): string {
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     "connect-src 'self'",
-    "font-src 'self' https://fonts.gstatic.com data:",
+    "font-src 'self' data:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

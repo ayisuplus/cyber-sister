@@ -9,6 +9,8 @@
 // 我们只负责把 token 放到 header. 这样 SameSite 仍然保护 cookie,
 // 而 header 需要 JS 主动设置, 跨站脚本拿不到 (除非他们先破解了 cookie).
 
+import { toApiUrl } from './runtime';
+
 let cachedToken: string | null = null;
 let inflight: Promise<string> | null = null;
 
@@ -20,7 +22,7 @@ export async function ensureCsrfToken(): Promise<string> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const r = await fetch('/api/csrf-token', {
+      const r = await fetch(toApiUrl('/api/csrf-token'), {
         method: 'GET',
         credentials: 'same-origin',
       });

@@ -1,7 +1,4 @@
-// 轻量级事件埋点 — console.log + POST /api/analytics,fire-and-forget.
-// 任何错误不抛,绝不影响 UI.
-
-const ENDPOINT = '/api/analytics';
+// 内测版只保留本地事件调用接口，不发送或记录事件内容.
 const SESSION_ID_KEY = 'makeupwhisper_session_id';
 const SESSION_ID_MAX_LEN = 128;
 
@@ -58,29 +55,8 @@ export function getSessionId(): string {
 }
 
 export function track(event: string, props?: AnalyticsProps): void {
-  const payload = {
-    event,
-    props: props ?? {},
-    timestamp: Date.now(),
-    sessionId: getSessionId(),
-  };
-  // 开发模式方便肉眼看到
-  if (typeof console !== 'undefined') {
-    console.debug('[analytics]', event, props ?? {});
-  }
-  if (typeof fetch === 'undefined') return;
-  try {
-    void fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      keepalive: true,
-    }).catch(() => {
-      /* 静默 */
-    });
-  } catch {
-    /* 静默 */
-  }
+  void event;
+  void props;
 }
 
 /**

@@ -92,12 +92,11 @@ export default function ResultCard({ features, look }: Props) {
       }
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `妆语-${look.name}.png`;
+      a.download = `赛博姐妹-${look.name}.png`;
       a.click();
       haptic('success');
-    } catch (err) {
+    } catch {
       haptic('error');
-      console.warn('save image failed', err);
     }
   }
 
@@ -165,7 +164,7 @@ export default function ResultCard({ features, look }: Props) {
     haptic('tap');
     try {
       await navigator.share({
-        title: `妆语 AI 妆教 — ${look.name}`,
+        title: `赛博姐妹 AI 妆教 — ${look.name}`,
         text: xhsText,
       });
       haptic('success');
@@ -173,7 +172,6 @@ export default function ResultCard({ features, look }: Props) {
       // 用户取消或权限被拒:静默忽略 (AbortError 不算错)
       if (err instanceof Error && err.name !== 'AbortError') {
         haptic('error');
-        console.warn('native share failed', err);
       }
     }
   }
@@ -229,7 +227,7 @@ export default function ResultCard({ features, look }: Props) {
 
         <div className="text-center mb-4 relative">
           <div className="text-[10px] text-ink-soft/70 tracking-[0.4em] uppercase">
-            妆语 AI 妆教
+            赛博姐妹 AI 妆教
           </div>
           <div className="font-hand text-3xl text-primary mt-1">我的脸型报告</div>
         </div>
@@ -278,11 +276,8 @@ export default function ResultCard({ features, look }: Props) {
         </div>
 
         <div className="text-center text-[10px] text-ink-soft/50 mt-4 tracking-widest">
-          妆语 · 让 AI 教你画自己的脸
+          赛博姐妹 · 让 AI 教你画自己的脸
         </div>
-
-        {/* 二维码占位:扫码回看教程. 当前阶段用静态占位 SVG,留好接口由后端 /api/share/qrcode 后续替换. */}
-        <QrPlaceholder lookId={look.id} />
       </div>
 
       {/* 主操作按钮组 */}
@@ -388,67 +383,6 @@ export default function ResultCard({ features, look }: Props) {
   );
 }
 
-// ---------- 二维码占位组件 ----------
-// 当前阶段渲染一个内联 SVG 占位图(灰底 + "QR" 字样).
-// 后续接 /api/share/qrcode?lookId=xxx 返回真实 PNG/SVG dataURL 时,只需替换 <QrPlaceholder /> 内部实现,
-// 其它调用方不受影响.
-
-function QrPlaceholder({ lookId }: { lookId: string }) {
-  return (
-    <div
-      data-testid="qr-placeholder"
-      data-look-id={lookId}
-      className="mt-4 rounded-2xl p-3 flex items-center gap-3"
-      style={{
-        background: 'rgba(255,255,255,0.85)',
-        border: '1.5px dashed rgba(200,107,119,0.4)',
-        backdropFilter: 'blur(8px)',
-      }}
-    >
-      {/* 静态 SVG 占位:96x96 像素,后续由后端接口替换 */}
-      <svg
-        width="72"
-        height="72"
-        viewBox="0 0 72 72"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-label="QR placeholder"
-        role="img"
-      >
-        <defs>
-          <linearGradient id="qrBg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#FDF2F3" />
-            <stop offset="100%" stopColor="#EAB6BC" />
-          </linearGradient>
-        </defs>
-        <rect x="0" y="0" width="72" height="72" rx="12" fill="url(#qrBg)" />
-        {/* 三个定位角标 */}
-        <rect x="6" y="6" width="16" height="16" rx="3" fill="#C86B77" />
-        <rect x="50" y="6" width="16" height="16" rx="3" fill="#C86B77" />
-        <rect x="6" y="50" width="16" height="16" rx="3" fill="#C86B77" />
-        <rect x="10" y="10" width="8" height="8" rx="1" fill="#FFFFFF" />
-        <rect x="54" y="10" width="8" height="8" rx="1" fill="#FFFFFF" />
-        <rect x="10" y="54" width="8" height="8" rx="1" fill="#FFFFFF" />
-        <text
-          x="36"
-          y="42"
-          textAnchor="middle"
-          fontSize="9"
-          fill="#C86B77"
-          fontFamily="sans-serif"
-          fontWeight="bold"
-        >
-          QR
-        </text>
-      </svg>
-      <div className="flex-1 text-xs text-ink-soft/80">
-        <div className="font-semibold text-ink">📱 扫码回看教程</div>
-        <div className="mt-0.5">打开微信扫一扫,跟着视频一步步画</div>
-        <div className="mt-0.5 text-ink-soft/50">lookId: {lookId} (后端接口待接入)</div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- 工具 ----------
 
 function format3(features: FaceFeatures): string {
@@ -475,7 +409,7 @@ function pickTopTips(steps: MakeupStep[], n: number): string[] {
 // 格式:
 //   标题行: emoji + 妆容名 + 适合脸型
 //   正文:   3-5 行闺蜜口吻 (用 "姐妹/宝宝/家人们" 等口语词),包含关键特征和化妆技巧
-//   标签:   #妆语 #妆容推荐 等
+//   标签:   #赛博姐妹 #妆容推荐 等
 
 const XHS_OPENERS = ['姐妹们', '宝宝们', '家人们', '集美们', '宝子们'];
 
@@ -483,7 +417,7 @@ const XHS_OPENERS = ['姐妹们', '宝宝们', '家人们', '集美们', '宝子
  * 生成小红书风格的种草文案.
  * - 标题: 1 行,emoji + 妆容名 + 适合脸型
  * - 正文: 3-5 行, 闺蜜口吻, 包含特征描述 + 化妆技巧
- * - 标签: 末尾 #妆语 #妆容推荐 + 妆容场景 tag
+ * - 标签: 末尾 #赛博姐妹 #妆容推荐 + 妆容场景 tag
  */
 export function buildXiaohongshuText(
   features: FaceFeatures,
@@ -511,10 +445,10 @@ export function buildXiaohongshuText(
   } else {
     bodyLines.push('整体妆面干净不挑皮,通勤约会都能 hold 住。');
   }
-  bodyLines.push('想看完整教程就扫卡片上的二维码回看,姐妹们冲!');
+  bodyLines.push('想跟着完整步骤练就回赛博姐妹继续,姐妹们冲!');
 
   // 标签
-  const tags = ['#妆语', '#妆容推荐', `#${look.scenario.replace(/\s+/g, '')}`, `#${faceCn}`];
+  const tags = ['#赛博姐妹', '#妆容推荐', `#${look.scenario.replace(/\s+/g, '')}`, `#${faceCn}`];
 
   return [title, '', ...bodyLines, '', tags.join(' ')].join('\n');
 }
@@ -530,7 +464,7 @@ function hashStr(s: string): number {
 
 function buildShareText(summary: string, look: MakeupLook, tips: string[]): string {
   return [
-    '🌸 妆语 AI 妆教 — 我的脸型报告',
+    '🌸 赛博姐妹 AI 妆教 — 我的脸型报告',
     `✨ 五官：${summary}`,
     `💄 推荐妆容：${look.name}`,
     `💡 ${tips.length} 个技巧：`,
@@ -580,7 +514,7 @@ function renderCardToPng(
   ctx.fillStyle = '#C86B77';
   ctx.font = 'bold 36px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('妆语 AI 妆教', W / 2, padY + 60);
+  ctx.fillText('赛博姐妹 AI 妆教', W / 2, padY + 60);
   ctx.font = '32px "Ma Shan Zheng", "PingFang SC", cursive';
   ctx.fillStyle = '#C86B77';
   ctx.fillText('我的脸型报告', W / 2, padY + 110);
@@ -625,7 +559,7 @@ function renderCardToPng(
   ctx.fillStyle = '#3F2A2E';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('妆语 · 让 AI 教你画自己的脸', W / 2, H - 30);
+  ctx.fillText('赛博姐妹 · 让 AI 教你画自己的脸', W / 2, H - 30);
 
   return canvas.toDataURL('image/png');
 }

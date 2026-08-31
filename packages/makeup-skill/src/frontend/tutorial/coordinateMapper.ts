@@ -123,7 +123,7 @@ export function mapZoneToCanvas(
 
 /**
  * 计算区域在 Canvas 上的几何中心.
- * - polygon:取所有顶点包围盒的中心
+ * - polygon:取所有顶点映射后坐标的均值中心
  * - ellipse:用 ZoneDefinition.center 指定的归一化关键点
  */
 export function getZoneCenterOnCanvas(
@@ -139,7 +139,7 @@ export function getZoneCenterOnCanvas(
     if (!lm) return null;
     return mapLandmarkToCanvas(lm, layout);
   }
-  // polygon:取 landmarks 索引包围盒中心
+  // polygon:取映射顶点的均值中心
   const points: Array<{ x: number; y: number }> = [];
   for (const idx of def.landmarks) {
     const lm = landmarks[idx];

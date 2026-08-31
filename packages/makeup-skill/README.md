@@ -1,4 +1,4 @@
-# 妆语 MakeupWhisper
+# 赛博姐妹 AI 妆教（原「妆语 MakeupWhisper」，品牌已于 2026-08-31 并入赛博姐妹）
 
 > 上传一张自拍，AI 分析你的脸型 / 五官 / 肤色，给你推荐 3 套适合的妆容，手把手在原图上教你怎么画。
 
@@ -41,7 +41,7 @@
 │  │  ├─ server.ts             入口 + 静态资源 SPA fallback
 │  │  └─ routes/
 │  │     ├─ recommend.ts       确定性妆容评分
-│  │     ├─ explain.ts         LLM 解释（带 fallback）
+│  │     ├─ explain.ts         主 API 模型解释桥接（带 fallback）
 │  │     └─ analytics.ts       JSONL 文件埋点
 │  └─ shared/                  前后端共用
 │     ├─ types.ts              领域类型
@@ -106,13 +106,12 @@ pnpm dev
 │  • canvas overlay render │         │  • /api/analytics        │
 │  • share card render     │         │                          │
 └──────────────────────────┘         └──────────┬───────────────┘
-                                                 │ JSONL
-                                                 ▼
-                                       data/analytics.jsonl
+                                                 ├─ 主 API（本地模型优先）
+                                                 └─ JSONL 埋点
 ```
 
 - **数据流**：自拍 → 浏览器内提取 478 关键点 → 计算 `FaceFeatures`（不上传原图）→ POST `/api/recommend` → 后端返回 3 套妆容 + 评分 → 前端进入分步教学 → 用户在原图 Canvas 上看到每个步骤的覆盖区。
-- **解释层**：前端可在用户点选某个妆容后 POST `/api/explain`，后端优先调用 LLM（OpenAI 兼容），失败/超时回落到确定性文案。
+- **解释层**：前端点选妆容后 POST `/api/explain`；Makeup 只把规范化特征、`lookId` 和用户令牌转发给主 API，由主 API 统一执行本地优先模型路由。未登录、主 API 失败或模型不可用时回落到确定性文案。
 - **埋点**：所有关键事件（`app_open` / `model_load` / `analysis_complete` / `tutorial_step` / `result_share` 等）通过 `track()` fire-and-forget 上报到 `/api/analytics`，写入 `data/analytics.jsonl`。
 
 ## 6. 状态机

@@ -1,33 +1,31 @@
-/* Google Fonts: 必须在 @import 'tailwindcss' 之前 (Tailwind v4 会展开成 @layer 规则) */
-@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;600;700&family=Long+Cang&display=swap');
+@import '../../../design-tokens/tokens.css';
 @import 'tailwindcss';
 
 /* =========================================================================
-   妆语 · 主题色板
-   主色 #C86B77 (深玫瑰粉) / 辅 #EAB6BC (中等粉) / 背景 #FFF5F6 (淡粉白)
-   阴影统一用粉色调,绝不用灰色阴影
+   妆教 · 共享语义主题
+   四个低饱和色只承担表面，正文、操作和状态使用高对比语义色。
    ========================================================================= */
 @theme {
-  --color-primary: #c86b77;
-  --color-primary-soft: #eab6bc;
-  --color-primary-deep: #a8505d;
-  --color-secondary: #eab6bc;
-  --color-accent: #c86b77;
-  --color-ink: #3f2a2e;
-  --color-ink-soft: #6b4f54;
-  --color-bg: #fff5f6;
-  --color-bg-soft: #fdf2f3;
-  --color-card: #ffffff;
-  --color-rose-50: #fff5f6;
-  --color-rose-100: #fdf2f3;
-  --color-rose-200: #f8dde0;
-  --color-rose-300: #eab6bc;
-  --color-rose-400: #d88891;
-  --color-rose-500: #c86b77;
-  --color-rose-600: #a8505d;
+  --color-primary: var(--cs-action-primary);
+  --color-primary-soft: var(--cs-pastel-blush);
+  --color-primary-deep: var(--cs-action-primary-hover);
+  --color-secondary: var(--cs-pastel-mist);
+  --color-accent: var(--cs-status-info);
+  --color-ink: var(--cs-text-primary);
+  --color-ink-soft: var(--cs-text-secondary);
+  --color-bg: var(--cs-pastel-apricot);
+  --color-bg-soft: var(--cs-surface-page);
+  --color-card: var(--cs-surface-card);
+  --color-rose-50: var(--cs-pastel-blush);
+  --color-rose-100: var(--cs-pastel-apricot);
+  --color-rose-200: var(--cs-border-subtle);
+  --color-rose-300: var(--cs-pastel-mist);
+  --color-rose-400: var(--cs-border-control);
+  --color-rose-500: var(--cs-action-primary);
+  --color-rose-600: var(--cs-action-primary-hover);
 
-  --font-hand: 'Ma Shan Zheng', 'ZCOOL XiaoWei', 'Long Cang', 'PingFang SC', cursive;
-  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+  --font-hand: 'STKaiti', 'KaiTi', '楷体', 'PingFang SC', 'Microsoft YaHei', cursive;
+  --font-serif: 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
   --font-sans:
     'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
     sans-serif;
@@ -36,15 +34,15 @@
   --radius-card-lg: 32px;
   --radius-pill: 9999px;
 
-  --shadow-pink-sm: 0 4px 12px rgba(200, 107, 119, 0.08);
-  --shadow-pink-md: 0 8px 24px rgba(200, 107, 119, 0.12);
-  --shadow-pink-lg: 0 16px 40px rgba(200, 107, 119, 0.16);
-  --shadow-pink-glow: 0 0 32px rgba(234, 182, 188, 0.4);
+  --shadow-pink-sm: 0 4px 12px rgb(59 50 55 / 6%);
+  --shadow-pink-md: var(--cs-shadow-card);
+  --shadow-pink-lg: 0 16px 40px rgb(59 50 55 / 10%);
+  --shadow-pink-glow: 0 0 32px rgb(222 240 245 / 60%);
 
   /* Neumorphism 凹凸阴影对 */
-  --shadow-neu-out: 8px 8px 20px rgba(200, 107, 119, 0.15), -8px -8px 20px rgba(255, 255, 255, 0.9);
+  --shadow-neu-out: 8px 8px 20px rgb(59 50 55 / 8%), -8px -8px 20px rgb(255 255 255 / 90%);
   --shadow-neu-in:
-    inset 4px 4px 10px rgba(200, 107, 119, 0.12), inset -4px -4px 10px rgba(255, 255, 255, 0.85);
+    inset 4px 4px 10px rgb(59 50 55 / 6%), inset -4px -4px 10px rgb(255 255 255 / 85%);
 }
 
 /* =========================================================================

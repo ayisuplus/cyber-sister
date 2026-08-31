@@ -12,6 +12,16 @@ import {
 } from '../src/frontend/state/appReducer';
 import { SurveyView } from '../src/frontend/views/SurveyView';
 
+const look = {
+  id: 'look_1',
+  name: '清冷白开水妆',
+  scenario: '日常通勤',
+  suitableFor: ['oval'],
+  reason: '匹配',
+  steps: [],
+  productHints: [],
+};
+
 // ---------- 埋点 mock ----------
 
 const trackCalls: Array<{ event: string; props?: Record<string, unknown> }> = [];
@@ -45,31 +55,28 @@ function renderSurvey(onClose: () => void = () => {}): string {
 // ---------- Reducer ----------
 
 describe('survey reducer', () => {
-  it('OPEN_SURVEY → { stage: "survey" }', () => {
+  it('OPEN_SURVEY 只允许从 tutorial_done 进入并保留原妆容', () => {
     const next = reducer(initialState, { type: 'OPEN_SURVEY' });
-    expect(next).toEqual({ stage: 'survey' });
+    expect(next).toEqual(initialState);
+    expect(reducer({ stage: 'tutorial_done', look }, { type: 'OPEN_SURVEY' })).toEqual({
+      stage: 'survey',
+      look,
+    });
   });
 
-  it('CLOSE_SURVEY → { stage: "idle" } 从 survey', () => {
-    const next = reducer({ stage: 'survey' }, { type: 'CLOSE_SURVEY' });
-    expect(next).toEqual({ stage: 'idle' });
+  it('CLOSE_SURVEY 返回打开问卷前的 tutorial_done', () => {
+    const next = reducer({ stage: 'survey', look }, { type: 'CLOSE_SURVEY' });
+    expect(next).toEqual({ stage: 'tutorial_done', look });
   });
 
   it('OPEN_SURVEY 从非 idle 阶段也可进入 survey', () => {
     const tutorialDone: AppState = {
       stage: 'tutorial_done',
-      look: {
-        id: 'look_1',
-        name: '清冷白开水妆',
-        scenario: '日常通勤',
-        suitableFor: ['oval'],
-        reason: '匹配',
-        steps: [],
-        productHints: [],
-      },
+      look,
     };
     expect(reducer(tutorialDone, { type: 'OPEN_SURVEY' })).toEqual({
       stage: 'survey',
+      look,
     });
   });
 
@@ -80,7 +87,7 @@ describe('survey reducer', () => {
 
   it('AppState 联合类型包含 survey stage', () => {
     // 编译期已验证; 运行时确认字面量.
-    const s: AppState = { stage: 'survey' };
+    const s: AppState = { stage: 'survey', look };
     expect(s.stage).toBe('survey');
   });
 });

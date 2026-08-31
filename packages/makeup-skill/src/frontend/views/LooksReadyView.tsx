@@ -8,6 +8,7 @@ export function LooksReadyView({
   onStart,
   onRetake,
   onOpenTeaching,
+  explanation,
 }: {
   looks: MakeupLook[];
   selected: number;
@@ -15,6 +16,10 @@ export function LooksReadyView({
   onStart: () => void;
   onRetake: () => void;
   onOpenTeaching: (lookId: string) => void;
+  explanation: {
+    text: string;
+    source: 'local_model' | 'qwen' | 'local_template';
+  } | null;
 }) {
   const selectedLook = looks[selected] ?? null;
 
@@ -52,6 +57,19 @@ export function LooksReadyView({
             }}
           />
         ))}
+      </div>
+
+      <div className="card-soft p-4 mb-5" aria-live="polite">
+        <div className="text-xs text-ink-soft/60 mb-1">
+          {explanation?.source === 'qwen'
+            ? '云端备用模型解释'
+            : explanation?.source === 'local_model'
+              ? '本机模型解释'
+              : '本地模板解释'}
+        </div>
+        <p className="text-sm text-ink/90 leading-relaxed">
+          {explanation?.text ?? selectedLook?.reason ?? '正在准备解释…'}
+        </p>
       </div>
 
       <div className="space-y-2">

@@ -4,11 +4,9 @@
 // 排序: 总分降序,平局时按 look.id 字典序 (保证确定性).
 
 import { Router } from 'express';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import type { FaceFeatures, MakeupLook } from '../../shared/types';
 import { validateBody, type Schema } from '../middleware/validate.js';
+import { loadLooks } from './_looks.js';
 
 // ---------- FaceFeatures schema (所有字段都 optional,缺省回 unknown) ----------
 const FACE_SHAPES = ['oval', 'round', 'square', 'heart', 'long', 'diamond', 'unknown'] as const;
@@ -61,24 +59,9 @@ const featureSchema: Schema = {
   confidence: { type: 'number', ge: 0, le: 1 },
 };
 
-// ---------- 数据加载 (启动时读一次,缓存到内存) ----------
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, '..', '..', 'shared', 'data');
-
-// 类型守卫:本地 JSON 文件 (它在仓库内随版本走),运行时再 narrow 一道.
-function isLooksFile(v: unknown): v is { looks: MakeupLook[] } {
-  if (!v || typeof v !== 'object') return false;
-  const candidate = v as { looks?: unknown };
-  return Array.isArray(candidate.looks);
-}
-
-const LOOKS: MakeupLook[] = (() => {
-  const parsed: unknown = JSON.parse(readFileSync(join(DATA_DIR, 'looks.json'), 'utf-8'));
-  if (!isLooksFile(parsed)) {
-    throw new Error('looks.json 缺少 "looks" 数组');
-  }
-  return parsed.looks;
-})();
+// ---------- 数据加载 ----------
+// 统一走 _looks.ts 的 loadLooks() (带缓存 + resetLooksCache 测试钩子),
+// 不再各自为政地模块级自读 looks.json.
 
 // ---------- 评分 ----------
 interface ScoredLook {
@@ -168,7 +151,7 @@ function buildReason(
  * 排序键: score desc, look.id asc (确定性).
  */
 export function recommendLooks(features: FaceFeatures, topN = 3): ScoredLook[] {
-  const scored = LOOKS.map((l) => scoreLook(l, features));
+  const scored = loadLooks().map((l) => scoreLook(l, features));
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.look.id.localeCompare(b.look.id);

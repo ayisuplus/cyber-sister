@@ -1,60 +1,23 @@
-# MediaPipe 模型文件
+# MediaPipe 受控模型资产
 
-> 这里存放 MediaPipe FaceLandmarker 运行所需的 `.task` 模型 + WASM 文件,**不**走 Google CDN.
+MediaPipe `.task` 与 WASM 二进制不进入 Git，也不会在浏览器运行时下载。运维必须在构建前将已批准的文件按 `model-assets.lock.json` 的相对路径放到 `packages/makeup-skill/.assets/`。
 
-## 下载步骤
+正式构建会先执行 `pnpm --filter ai-makeup-tutor verify:model-assets`：逐个核对清单和 SHA-256，通过后才复制到本目录。文件缺失、摘要不匹配、清单占位值或越界路径都会使构建失败。
 
-### 1. FaceLandmarker `.task` 模型 (≈ 4 MB)
-
-到 [Google AI Edge 官方模型托管](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task) 下载 `face_landmarker.task`,放到本目录:
+预期的受控源目录结构：
 
 ```
-public/mp-models/face_landmarker.task
-```
-
-### 2. WASM 文件 (≈ 8 MB)
-
-到 `@mediapipe/tasks-vision` npm 包内的 `vision_bundle_web_dts` 目录,把 `wasm/` 子目录整个复制过来,或直接从 unpkg/jsdelivr 下载:
-
-```bash
-# 创建目录后用 curl 取 wasm 文件
-mkdir -p public/mp-models/wasm
-# 从 jsdelivr 拉 @mediapipe/tasks-vision 0.10.35 的 wasm
-for f in vision_wasm_internal.js vision_wasm_internal.wasm vision_wasm_internal.worker.js; do
-  curl -L -o public/mp-models/wasm/$f \
-    https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/$f
-done
-```
-
-如果你 `pnpm install` 后,文件已经存在于:
-
-```
-node_modules/@mediapipe/tasks-vision/wasm/
-```
-
-直接复制过来即可:
-
-```bash
-# Windows PowerShell
-Copy-Item -Recurse node_modules/@mediapipe/tasks-vision/wasm/* public/mp-models/wasm/
-```
-
-### 3. 目录结构 (完成后)
-
-```
-public/mp-models/
+.assets/
 ├── face_landmarker.task
-├── README.md
 └── wasm/
     ├── vision_wasm_internal.js
     ├── vision_wasm_internal.wasm
-    └── vision_wasm_internal.worker.js
+    ├── vision_wasm_module_internal.js
+    ├── vision_wasm_module_internal.wasm
+    ├── vision_wasm_nosimd_internal.js
+    └── vision_wasm_nosimd_internal.wasm
 ```
 
-## 模型找不到时的行为
+资产批准后，把实际 SHA-256 写入 `model-assets.lock.json`；不要在构建脚本中跳过校验，也不要把二进制直接复制进 Git 工作区作为发布来源。
 
-`src/frontend/face/loader.ts` 加载失败时:
-
-- 网络错误 → 上层 catch 后进入 `error` 状态,提示"网络不太稳定,请刷新重试"
-- 文件缺失 (404) → 同样的 error 状态
-- GPU 不支持 → 自动降级到 CPU 重试一次
+浏览器只从同源 `/makeup/mp-models/` 加载通过校验的产物。GPU 不支持时会本地降级到 CPU；模型缺失或损坏时流程进入明确错误态，不回退到 CDN。

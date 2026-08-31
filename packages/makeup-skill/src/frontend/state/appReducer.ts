@@ -24,8 +24,13 @@ export type AppState =
     }
   | { stage: 'tutorial_done'; look: MakeupLook }
   | { stage: 'result'; look: MakeupLook; features: FaceFeatures }
-  | { stage: 'teaching_resources'; lookId: string }
-  | { stage: 'survey' }
+  | {
+      stage: 'teaching_resources';
+      lookId: string;
+      looks: MakeupLook[];
+      selected: number;
+    }
+  | { stage: 'survey'; look: MakeupLook }
   | { stage: 'error'; message: string; recoverable: boolean };
 
 export type Action =
@@ -66,6 +71,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (state.stage !== 'loading_model') return state;
       return { stage: 'loading_model', progress: action.progress };
     case 'MODEL_READY':
+      if (state.stage !== 'loading_model') return state;
       return {
         stage: 'ready',
         imageData: action.imageData,
@@ -74,19 +80,25 @@ export function reducer(state: AppState, action: Action): AppState {
         imageHeight: action.imageHeight,
       };
     case 'START_ANALYZE':
+      if (state.stage !== 'ready') return state;
       return { stage: 'analyzing' };
     case 'ANALYSIS_DONE':
+      if (state.stage !== 'analyzing') return state;
       return {
         stage: 'analysis_done',
         features: action.features,
         warnings: action.warnings,
       };
     case 'START_RECOMMEND':
+      if (state.stage !== 'analysis_done') return state;
       return { stage: 'recommending' };
     case 'LOOKS_READY':
+      if (state.stage !== 'recommending') return state;
       return { stage: 'looks_ready', looks: action.looks, selected: action.selected };
     case 'SELECT_LOOK':
       if (state.stage !== 'looks_ready') return state;
+      // 越界下标拒绝 (与 NEXT/PREV_STEP 的防护一致)
+      if (action.index < 0 || action.index >= state.looks.length) return state;
       return { ...state, selected: action.index };
     case 'START_TUTORIAL':
       if (state.stage !== 'looks_ready') return state;
@@ -112,20 +124,32 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, stepIndex: Math.max(0, state.stepIndex - 1) };
     case 'GOTO_STEP':
       if (state.stage !== 'tutorial_step') return state;
+      // 越界下标拒绝
+      if (action.index < 0 || action.index >= state.look.steps.length) return state;
       return { ...state, stepIndex: action.index };
     case 'TUTORIAL_DONE':
       if (state.stage !== 'tutorial_step') return state;
       return { stage: 'tutorial_done', look: state.look };
     case 'ENTER_RESULT':
+      if (state.stage !== 'tutorial_done') return state;
       return { stage: 'result', look: action.look, features: action.features };
     case 'OPEN_TEACHING_RESOURCES':
-      return { stage: 'teaching_resources', lookId: action.lookId };
+      if (state.stage !== 'looks_ready') return state;
+      return {
+        stage: 'teaching_resources',
+        lookId: action.lookId,
+        looks: state.looks,
+        selected: state.selected,
+      };
     case 'CLOSE_TEACHING_RESOURCES':
-      return { stage: 'idle' };
+      if (state.stage !== 'teaching_resources') return state;
+      return { stage: 'looks_ready', looks: state.looks, selected: state.selected };
     case 'OPEN_SURVEY':
-      return { stage: 'survey' };
+      if (state.stage !== 'tutorial_done') return state;
+      return { stage: 'survey', look: state.look };
     case 'CLOSE_SURVEY':
-      return { stage: 'idle' };
+      if (state.stage !== 'survey') return state;
+      return { stage: 'tutorial_done', look: state.look };
     case 'ERROR':
       return { stage: 'error', message: action.message, recoverable: action.recoverable };
     case 'RESET':

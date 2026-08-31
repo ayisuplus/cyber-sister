@@ -12,6 +12,8 @@ import globals from 'globals';
 export default [
   {
     ignores: [
+      // .assets 是构建前经 SHA-256 校验的受控资产暂存区（gitignored），不是源码。
+      '.assets/**',
       'dist/**',
       'node_modules/**',
       'coverage/**',

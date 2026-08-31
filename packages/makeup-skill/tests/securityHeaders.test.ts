@@ -49,6 +49,8 @@ describe('securityHeaders: CSP', () => {
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'self'");
     expect(csp).toContain("form-action 'self'");
+    expect(csp).toContain("font-src 'self' data:");
+    expect(csp).not.toContain('fonts.gstatic.com');
   });
 
   it('CSP does NOT allow unsafe-eval in script-src', async () => {

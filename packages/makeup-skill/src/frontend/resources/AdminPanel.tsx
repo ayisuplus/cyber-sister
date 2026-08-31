@@ -1,5 +1,5 @@
 // 教学资源管理面板 — 用于添加和删除教学资源.
-// 触发方式: 在 ResourcesView 中长按 "妆语" logo 触发.
+// 触发方式: 在 ResourcesView 中长按 "妆教" logo 触发.
 
 import { useRef, useState } from 'react';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types';
@@ -20,7 +20,8 @@ interface CreateResourcePayload {
   videoUrl?: string;
   durationSec?: number;
   author?: string;
-  tags: string[];
+  // 后端只收逗号分隔字符串 (validateBody 会拒绝数组), 类型与运行态保持一致
+  tags: string;
 }
 
 // ---------- 组件 ----------
@@ -43,7 +44,7 @@ export default function AdminPanel({
     kind: 'article',
     title: '',
     summary: '',
-    tags: [],
+    tags: '',
   });
   const [tagsInput, setTagsInput] = useState('');
 
@@ -66,7 +67,7 @@ export default function AdminPanel({
         kind: 'article',
         title: '',
         summary: '',
-        tags: [],
+        tags: '',
       });
       setTagsInput('');
       haptic('success');

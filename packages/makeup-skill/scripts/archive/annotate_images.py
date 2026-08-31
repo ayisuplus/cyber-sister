@@ -106,13 +106,13 @@ def call_vision_api(image_path: str, retry: int = 2) -> dict | None:
             mime = {"jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(suffix, "image/jpeg")
 
             # MiniMax Vision API
-            url = "https://api.minimaxi.com/v1/chat/completions"
+            url = os.environ["ARCHIVE_LLM_BASE_URL"]
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
             payload = {
-                "model": "MiniMax-M3",
+                "model": os.environ["ARCHIVE_LLM_MODEL"],
                 "messages": [
                     {
                         "role": "user",

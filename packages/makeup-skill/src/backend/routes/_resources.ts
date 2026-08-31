@@ -11,13 +11,11 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import type { TeachingResource, TeachingResourceKind } from '../../shared/types.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// src/backend/routes/_resources.ts → src/shared/data/teaching-resources.json
-const DATA_DIR = join(__dirname, '..', '..', 'shared', 'data');
+// pnpm starts this package with cwd=<package root>; this also survives bundling.
+const DATA_DIR = join(process.cwd(), 'src', 'shared', 'data');
 // 测试时可通过 TEACHING_RESOURCES_FILE 环境变量重定向 (用于隔离 + 临时目录).
 function getStoragePath(): string {
   const override = process.env.TEACHING_RESOURCES_FILE;

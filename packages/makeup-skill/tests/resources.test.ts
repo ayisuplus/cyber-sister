@@ -305,6 +305,22 @@ describe('DELETE /teaching-resources/:id', () => {
   });
 });
 
+describe('生产环境不暴露资源管理写接口', () => {
+  it('POST 与 DELETE 均统一返回 404，且 POST 不先泄露校验细节', async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const post = await callHandler('post', '/teaching-resources', { body: { unexpected: true } });
+      const remove = await callHandler('delete', `/teaching-resources/${seedId}`);
+      expect(post).toEqual({ status: 404, body: { error: 'FEATURE_NOT_AVAILABLE' } });
+      expect(remove).toEqual({ status: 404, body: { error: 'FEATURE_NOT_AVAILABLE' } });
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
+  });
+});
+
 // ---------- 持久化行为 ----------
 
 describe('持久化', () => {

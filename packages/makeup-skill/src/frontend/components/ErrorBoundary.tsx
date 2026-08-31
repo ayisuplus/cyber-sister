@@ -24,13 +24,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    track('app_error', {
-      message: error.message,
-      stack: error.stack?.slice(0, 200),
-      componentStack: info.componentStack?.slice(0, 200),
-    });
-    // 也打 console.error 方便开发定位
-    console.error('[ErrorBoundary] caught:', error, info);
+    track('app_error');
+    void error;
+    void info;
   }
 
   reset = () => {
@@ -42,11 +38,11 @@ export class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state;
     if (!error) return this.props.children;
     if (this.props.fallback) return this.props.fallback(error, this.reset);
-    return <DefaultFallback error={error} onRetry={this.reset} />;
+    return <DefaultFallback onRetry={this.reset} />;
   }
 }
 
-function DefaultFallback({ error, onRetry }: { error: Error; onRetry: () => void }) {
+function DefaultFallback({ onRetry }: { onRetry: () => void }) {
   return (
     <main className="app-shell">
       <section className="app-card animate-fade-up">
@@ -60,12 +56,6 @@ function DefaultFallback({ error, onRetry }: { error: Error; onRetry: () => void
           </div>
           <h1 className="font-serif text-2xl font-bold text-ink mb-2">出错了</h1>
           <p className="text-sm text-ink-soft/70 mb-6">页面遇到了一些意外,可以刷新一下重试</p>
-          <details className="text-left text-xs text-ink-soft/60 mb-6 bg-white/40 rounded-xl p-3">
-            <summary className="cursor-pointer text-ink-soft/80">错误详情</summary>
-            <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px]">
-              {error.message}
-            </pre>
-          </details>
           <button type="button" onClick={onRetry} className="btn-primary w-full">
             再试一次
           </button>

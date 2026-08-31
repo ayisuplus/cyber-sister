@@ -1,8 +1,10 @@
-// ResultCard 单元测试 — 覆盖闺蜜种草文案 / QR 占位 / 复制反馈.
+// ResultCard 单元测试 — 覆盖闺蜜种草文案与复制反馈.
 // 文案函数是纯函数,可以直接 import 测试;组件部分测试关键渲染分支.
 
 import { describe, it, expect } from 'vitest';
-import { buildXiaohongshuText } from '../src/frontend/result/ResultCard';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ResultCard, { buildXiaohongshuText } from '../src/frontend/result/ResultCard';
 import type { FaceFeatures, MakeupLook, MakeupStep } from '../src/shared/types';
 
 // ---------- 测试夹具 ----------
@@ -84,10 +86,23 @@ describe('buildXiaohongshuText — 闺蜜种草文案', () => {
     expect(text).toContain('由内向外');
   });
 
-  it('末尾包含 # 标签 (#妆语 + #妆容推荐)', () => {
+  it('末尾包含 # 标签 (#赛博姐妹 + #妆容推荐)', () => {
     const text = buildXiaohongshuText(baseFeatures(), baseLook());
-    expect(text).toContain('#妆语');
+    expect(text).toContain('#赛博姐妹');
     expect(text).toContain('#妆容推荐');
+  });
+
+  it('不宣称存在二维码回看能力', () => {
+    const text = buildXiaohongshuText(baseFeatures(), baseLook());
+    expect(text).not.toContain('二维码');
+    expect(text).not.toContain('扫码');
+  });
+
+  it('结果卡界面不渲染伪二维码或扫码入口', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResultCard, { features: baseFeatures(), look: baseLook() }),
+    );
+    expect(html).not.toMatch(/二维码|扫码|qr[-_ ]?code/iu);
   });
 
   it('unknown 特征时不抛错,仍输出可分享文案', () => {
@@ -96,6 +111,6 @@ describe('buildXiaohongshuText — 闺蜜种草文案', () => {
       baseLook(),
     );
     expect(text.length).toBeGreaterThan(20);
-    expect(text).toContain('#妆语');
+    expect(text).toContain('#赛博姐妹');
   });
 });

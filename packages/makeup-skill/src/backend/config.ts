@@ -5,7 +5,9 @@ function readInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : fallback;
+  // 拒绝 0/负数: 这类值对限额/端口/尺寸没有合法语义,
+  // 放行会毒化下游 (如 RATE_LIMIT_*=0 让 express-rate-limit 封死全部请求).
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function readStr(name: string, fallback: string): string {
@@ -13,19 +15,20 @@ function readStr(name: string, fallback: string): string {
   return raw && raw.length > 0 ? raw : fallback;
 }
 
+/** Prefer the plural allowlist, while accepting Compose's singular variable. */
+export function resolveCorsOrigins(env: NodeJS.ProcessEnv): string {
+  return env.CORS_ORIGINS?.trim() || env.CORS_ORIGIN?.trim() || '';
+}
+
 export const config = {
   // ---------- Server ----------
   port: readInt('PORT', 3001),
-  /** Comma-separated allowlist of CORS origins. Empty = use dev default. */
-  corsOrigins: readStr('CORS_ORIGINS', ''),
+  /** Comma-separated allowlist. CORS_ORIGINS takes precedence over CORS_ORIGIN. */
+  corsOrigins: resolveCorsOrigins(process.env),
   /** Production 模式 (会收紧 CORS / 错误信息 / 静态文件缓存). */
   nodeEnv: readStr('NODE_ENV', 'development'),
-
-  // ---------- Upload ----------
-  uploadDir: readStr('UPLOAD_DIR', 'public/uploads'),
-  maxUploadBytes: readInt('MAX_UPLOAD_BYTES', 8 * 1024 * 1024), // 8 MB
-  /** 上传后保留时间 (ms);到期文件由后台清扫. */
-  uploadTtlMs: readInt('UPLOAD_TTL_MS', 24 * 60 * 60 * 1000), // 24h
+  /** Main API that owns normalized explanation, model routing, and consent. */
+  mainApiInternalUrl: readStr('MAIN_API_INTERNAL_URL', 'http://localhost:3000'),
 
   // ---------- Generation (图像生成已剥离;IMAGE_GEN_* 配置已移除) ----------
   // job store 字段保留以兼容旧 .env,当前未被核心流程使用.
@@ -36,8 +39,7 @@ export const config = {
   staticMaxAgeSec: readInt('STATIC_MAX_AGE_SEC', 3600),
 
   // ---------- Rate limits (per minute per IP) ----------
-  // Overridden by RATE_LIMIT_GLOBAL / RATE_LIMIT_UPLOAD / etc.
+  // Overridden by RATE_LIMIT_GLOBAL / RATE_LIMIT_ANALYTICS / etc.
   rateLimitGlobal: readInt('RATE_LIMIT_GLOBAL', 120),
-  rateLimitUpload: readInt('RATE_LIMIT_UPLOAD', 10),
   rateLimitAnalytics: readInt('RATE_LIMIT_ANALYTICS', 60),
 } as const;

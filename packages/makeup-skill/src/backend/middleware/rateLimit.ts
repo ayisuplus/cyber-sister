@@ -20,8 +20,9 @@ const baseOptions: Partial<Options> = {
       retryAfter: res.getHeader('Retry-After'),
     });
   },
-  // 健康检查永不限流
-  skip: (req) => req.path === '/api/health',
+  // 健康检查永不限流. 注意 limiter 挂在 app.use('/api', ...) 下,
+  // Express 已剥掉 '/api' 前缀, req.path 是相对路径.
+  skip: (req) => req.path === '/health',
 };
 
 function makeLimiter(name: string, defaultLimit: number) {
@@ -41,9 +42,6 @@ function readLimit(name: string, fallback: number): number {
 
 /** 全局宽松限流:所有 /api 路由. */
 export const globalLimiter = makeLimiter('global', config.rateLimitGlobal);
-
-/** 上传:大 payload,容易耗盘. */
-export const uploadLimiter = makeLimiter('upload', config.rateLimitUpload);
 
 /** analytics 写入:IO 密集. */
 export const analyticsLimiter = makeLimiter('analytics', config.rateLimitAnalytics);

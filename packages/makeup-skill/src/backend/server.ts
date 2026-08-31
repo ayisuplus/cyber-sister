@@ -1,17 +1,15 @@
-// 妆语 backend — Express 5 + 安全中间件 + 业务路由.
+// 赛博姐妹 AI 妆教 backend — Express 5 + 安全中间件 + 业务路由.
 // 中间件顺序: requestId → logger → security (helmet) → CORS → rateLimit → 路由.
 // 同时托管 Vite 构建产物 (dist/) 作为前端静态站点,支持 SPA fallback.
 
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { existsSync, mkdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { recommendRouter } from './routes/recommend';
 import { explainRouter } from './routes/explain';
 import { analyticsRouter } from './routes/analytics';
-import { uploadRouter } from './routes/upload';
 import { resourcesRouter } from './routes/resources';
 import { config } from './config.js';
 import { requestId } from './middleware/requestId.js';
@@ -22,18 +20,13 @@ import { cookieParser, issueCsrfToken, requireCsrfToken } from './middleware/csr
 
 // ---------- 路径与配置 ----------
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// dist 在 backend 同级的 ../../dist;tsx 启动时 __dirname = src/backend,目标 = <root>/dist
-const DIST_DIR = resolve(__dirname, '..', '..', 'dist');
-const PUBLIC_DIR = resolve(__dirname, '..', '..', 'public');
-const UPLOAD_DIR = resolve(PUBLIC_DIR, 'uploads');
-const RESULTS_DIR = resolve(PUBLIC_DIR, 'results');
+// pnpm starts this package with cwd=<package root> in both tsx and bundled modes.
+// Avoid deriving runtime paths from __dirname because bundling moves server.js.
+const PACKAGE_ROOT = process.cwd();
+const DIST_DIR = resolve(PACKAGE_ROOT, 'dist');
+const PUBLIC_DIR = resolve(PACKAGE_ROOT, 'public');
 const PORT = config.port;
 const isProd = config.nodeEnv === 'production';
-
-for (const d of [UPLOAD_DIR, RESULTS_DIR]) {
-  if (!existsSync(d)) mkdirSync(d, { recursive: true });
-}
 
 // ---------- 应用 ----------
 
@@ -63,7 +56,7 @@ app.use(
 );
 // 3b) 补齐 CSP / Permissions-Policy / Referrer-Policy / COOP 等头
 app.use(securityHeaders());
-// 4) CORS — 开发时允许 localhost,生产走白名单 (CORS_ORIGINS 逗号分隔)
+// 4) CORS — 开发时允许 localhost；生产无白名单时不发送跨域许可头。
 const corsOrigins = config.corsOrigins
   ? config.corsOrigins
       .split(',')
@@ -72,16 +65,20 @@ const corsOrigins = config.corsOrigins
   : null;
 app.use(
   cors({
-    origin: corsOrigins ?? [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      /^https?:\/\/localhost(:\d+)?$/,
-    ],
+    origin:
+      corsOrigins ??
+      (isProd
+        ? false
+        : [
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            /^https?:\/\/localhost(:\d+)?$/,
+          ]),
     credentials: true,
     maxAge: 600,
   }),
 );
-// 5) Body parsing — 全局限制小,大文件走 /api/upload 单独处理
+// 5) Body parsing — 只接受小型规范化 JSON；图片始终留在浏览器。
 app.use(express.json({ limit: '256kb' }));
 // 5b) 解析 Cookie header (供 CSRF 中间件用)
 app.use(cookieParser());
@@ -91,14 +88,14 @@ app.use(cookieParser());
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    name: '妆语 MakeupWhisper',
+    name: '赛博姐妹 AI 妆教',
     uptime: process.uptime(),
     timestamp: Date.now(),
   });
 });
 
 // ---------- CSRF token 端点 (用于客户端初始化,同样需在限流前) ----------
-app.get('/api/csrf-token', issueCsrfToken);
+app.get('/api/csrf-token', issueCsrfToken());
 
 // 6) 全局限流 — 健康检查与 CSRF token 端点已前置
 app.use('/api', globalLimiter);
@@ -107,7 +104,6 @@ app.use('/api', requireCsrfToken());
 
 // ---------- 业务路由 ----------
 
-app.use('/api', uploadRouter);
 app.use('/api', recommendRouter);
 app.use('/api', explainRouter);
 app.use('/api', analyticsRouter);
@@ -145,49 +141,49 @@ if (existsSync(DIST_DIR)) {
   });
 } else {
   // dev 模式:dist 还没构建,只跑后端
-  console.warn(`[妆语] dist/ 不存在 (${DIST_DIR}),跳过静态文件服务`);
+  console.warn(`[妆教] dist/ 不存在 (${DIST_DIR}),跳过静态文件服务`);
 }
 
 // ---------- 错误处理 ----------
 
 // 404:所有未匹配的请求
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    path: req.url,
-    method: req.method,
-  });
+  res.status(404).json({ error: 'Not Found', reqId: req.id });
 });
 
 // 通用错误中间件(4 参数签名才会被 Express 识别为 error handler)
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  // body-parser 等中间件错误自带 status (畸形 JSON 400 / 超大 body 413), 不要一律压成 500
+  const rawStatus =
+    (err as { status?: unknown } | null)?.status ??
+    (err as { statusCode?: unknown } | null)?.statusCode ??
+    500;
+  const statusCode =
+    typeof rawStatus === 'number' && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
   const message = err instanceof Error ? err.message : 'Internal Server Error';
-  // 生产:不暴露内部错误细节
-  const safe = isProd ? 'Internal Server Error' : message;
+  // 4xx 是客户端错误, 透传 message; 5xx 生产态不暴露内部细节
+  const safe = statusCode < 500 ? message : isProd ? 'Internal Server Error' : message;
   console.error(
     JSON.stringify({
       t: new Date().toISOString(),
       level: 'error',
       reqId: req.id,
-      err: message,
-      stack: err instanceof Error ? err.stack : undefined,
+      result: 'internal_error',
     }),
   );
-  res.status(500).json({ error: safe, reqId: req.id });
+  res.status(statusCode).json({ error: safe, reqId: req.id });
 });
 
 // ---------- 启动 ----------
 
 const server = app.listen(PORT, () => {
-  console.info(`[妆语] backend listening on http://localhost:${PORT}`);
-  console.info(`[妆语] env=${config.nodeEnv}`);
-  console.info(`[妆语] uploads: ${UPLOAD_DIR}`);
-  console.info(`[妆语] results: ${RESULTS_DIR}`);
+  console.info(`[妆教] backend listening on http://localhost:${PORT}`);
+  console.info(`[妆教] env=${config.nodeEnv}`);
   console.info(
-    `[妆语] rate limits: global=${config.rateLimitGlobal}/min upload=${config.rateLimitUpload}/min analytics=${config.rateLimitAnalytics}/min`,
+    `[妆教] rate limits: global=${config.rateLimitGlobal}/min analytics=${config.rateLimitAnalytics}/min`,
   );
   if (existsSync(DIST_DIR)) {
-    console.info(`[妆语] static site: ${DIST_DIR}`);
+    console.info(`[妆教] static site: ${DIST_DIR}`);
   }
 });
 
@@ -196,17 +192,17 @@ let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.info(`[妆语] received ${signal}, closing server…`);
+  console.info(`[妆教] received ${signal}, closing server…`);
   server.close((err) => {
     if (err) {
-      console.error('[妆语] error closing server:', err);
+      console.error(JSON.stringify({ result: 'shutdown_failed' }));
       process.exit(1);
     }
     process.exit(0);
   });
   // 5s 强制退出
   setTimeout(() => {
-    console.warn('[妆语] forced exit after timeout');
+    console.warn('[妆教] forced exit after timeout');
     process.exit(1);
   }, 5000).unref();
 }
