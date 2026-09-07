@@ -7,6 +7,7 @@ import { consentService } from '../services/consentService'
 import { migrationService, userService } from '../services/userService'
 import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl'
 import Header from '../components/layout/Header'
+import ImportMigration from '../components/profile/ImportMigration'
 import TabBar from '../components/layout/TabBar'
 
 import { PERSONAS } from '../features/personas'
@@ -321,6 +322,7 @@ export default function ProfilePage() {
           <button type="button" disabled={exporting} onClick={handleExport} className="mt-3 min-h-11 w-full rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover focus:ring-2 focus:ring-status-info disabled:opacity-50">
             {exporting ? '正在导出…' : '导出我的全部数据（JSON）'}
           </button>
+          <ImportMigration />
         </section>
         <section aria-labelledby="consent-settings-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
           <h2 id="consent-settings-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">

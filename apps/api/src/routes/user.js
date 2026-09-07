@@ -3,6 +3,7 @@ import { createImageUpload } from '../utils/imageUpload.js'
 import { validateEnum, validate } from '../utils/validate.js'
 import * as userService from '../services/userService.js'
 import { buildUserExport } from '../services/exportService.js'
+import { previewImport, applyImport } from '../services/importService.js'
 import { deleteAsset, readAsset, saveAsset } from '../services/userAssetService.js'
 import logger from '../utils/logger.js'
 
@@ -34,6 +35,25 @@ router.get('/export', async (req, res) => {
   } catch (error) {
     logger.error('导出用户数据失败', { error: error.message, userId: req.user.userId })
     sendError(res, error, '导出用户数据失败')
+  }
+})
+
+// 数据迁移导入：预览绝不落库；应用只落用户逐条确认的候选，全走既有校验与红线闸。
+router.post('/import/preview', async (req, res) => {
+  try {
+    res.json(await previewImport(req.user.userId, req.body))
+  } catch (error) {
+    logger.error('导入预览失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '导入预览失败')
+  }
+})
+
+router.post('/import/apply', async (req, res) => {
+  try {
+    res.json(await applyImport(req.user.userId, req.body))
+  } catch (error) {
+    logger.error('导入应用失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '导入应用失败')
   }
 })
 
