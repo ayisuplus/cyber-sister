@@ -61,7 +61,7 @@
 
 | 文档 | 状态 | 说明 |
 |------|------|------|
-| [`architecture/local-first-capabilities.md`](architecture/local-first-capabilities.md) | ✅ 当前有效 | **本地优先与能力扩展边界**。模型扩展面与能力扩展面的硬约束 |
+| [`architecture/local-first-capabilities.md`](architecture/local-first-capabilities.md) | ✅ 当前有效 | **能力扩展边界**（2026-09-07 云端切割后修订：云端唯一路径，原「本地优先」）。模型扩展面与能力扩展面的硬约束 |
 | [`架构设计文档.md`](架构设计文档.md) | ⚠️ 参考 | 架构概览，细节以 Spec 与代码为准 |
 | [`frontend-architecture-v4.md`](frontend-architecture-v4.md) | ⚠️ 参考 | 前端架构，部分内容已被实现超越 |
 | [`04-开发/API文档.md`](04-开发/API文档.md) | ✅ 当前有效 | 全部 REST 端点、请求/响应示例、错误码、脱敏与日志约定 |
@@ -210,7 +210,7 @@
 | 3 | `PRD_Web版.md` 的人格与工具箱范围与 Spec 不一致 | `PRD_Web版.md` | ⚠️ 以 Spec 为准 |
 | 4 | 代码默认人格为 `toxic`，是否为产品意图未确认 | `routes/auth.js` | ⚠️ 待裁定 |
 | 5 | 多数 `architecture/` 文档为历史归档，易被误读 | `architecture/` | ✅ 已物理移入 `09-参考/历史归档/` 并在本索引标注 |
-| 6 | 虚拟试衣/化妆页面可导航，但生图恒 503 | `routes/virtualStudio.js` | ✅ 已裁定：保持“接入中”占位 |
+| 6 | 虚拟试衣/化妆页面与生图接口 | `routes/virtualStudio.js` | ✅ 已关闭：2026-09-07 随云端切割整体下线 |
 | 7 | 仓库没有 GitHub Actions 工作流 | `.github/` | ⚠️ 本周期不新增 CI |
 | 8 | `packages/llm-gateway` 尚无直接测试 | `packages/llm-gateway/` | 🛠 流式工作包补齐 |
 | 9 | 原始语料与 `dev.db` 曾被 Git 跟踪 | 数据治理 | ✅ 已迁出当前树；未改写历史 |

@@ -6,6 +6,29 @@
 **当前处于内测准备阶段，尚未发布正式版本。**
 
 ---
+### 2026-09-07 云端切割：砍本地模型 + 砍服务器侧执行能力（BREAKING，用户拍板）
+
+**破坏性变更（用户可感知）**
+- **聊天切换为云端唯一路径**：目标用户是手机用户，跑不了本地模型。llama.cpp 管理页、实例级模型配置表（`LlmRuntimeConfig`，新增 drop 迁移）、实例管理员中间件、网关本地 provider 全部删除。供应商槽 `GATEWAY_QWEN_*`（供应商中立）成为唯一 provider。
+- **同意版本升级 `cloud-primary-v1`**：云端从「可选备用」变成「唯一聊天路径」，数据处理的范围与目的实质变化，旧版同意（`qwen-fallback-v1`）全部自动回到未选择状态，首次进入聊天须经首屏同意门重新授权。同意门不变且更强：每次云端调用前服务端重读同意状态，撤回授权会拦截尚未发出的请求；记忆候选、日记/手帐/阅读/自习短评走同一同意门。
+- **虚拟试衣间/虚拟化妆间下线**：云端部署下「本机」语义不再成立，服务器侧生图与多租户共享主机不可兼得；能力注册表只留美颜相机（MediaPipe WASM 全程浏览器内处理，照片真不上传）。
+- **错误码收敛**：`LOCAL_LLM_NOT_CONFIGURED` / `LOCAL_LLM_UNAVAILABLE` 删除，改为 `CLOUD_NOT_CONSENTED`（未同意）与 `LLM_UNAVAILABLE`（供应商不可用）；消息来源徽标收敛为「云端模型 / 本地安全模板」。
+- **落地页诚实化**：删除全部未经代码兑现的宣称——「四层记忆系统 · 北邮 MemoryOS」「8 种情绪识别 · DPO 微调」「Qwen3-8B 本地部署 + vLLM」「端到端加密」「99.9% 可用性」「24h 在线陪伴」「内测用户证言（白名单仅 2 个手机号）」「Powered by 火山引擎」「18 元/月 + 7 天免费体验」。替换为逐条可验证的真实宣称，并新增「我们不做的事」板块（不做虚拟恋人 / 不抽卡 / 不用对话训练模型）。
+
+**安全移除（多租户云端下的共享服务器执行面）**
+- `bash_run`（API 进程用户上下文任意 shell，旁挂 JWT 签名密钥与数据库口令）
+- 内置浏览器五件套（`browser_open/read/click/type/close`，Playwright 驱动真实 Chromium）
+- 工作模式本机生图（`generate_image`）与 ComfyUI 适配层；API 镜像系统 Chromium 与 compose `shm_size` 同步移除
+- SKILL.md 技能加载、JS 插件、MCP 连接（默认均为开启态，含 filesystem MCP 示例）
+- `web_search` 保留但换实现：Playwright 抓 Bing → 普通 HTTP 抓 DuckDuckGo（`searchService.js`），不再有浏览器进程与用户可控导航面
+
+**工程治理（内部）**
+- 工作模式剩余工具：日程四件、`calc_convert`、`web_search`（写作/翻译/计划由提示词承担）；聊天模式 18→17 个工具。
+- 新增 `modelStatusService`（web，只读 `/llm/status`）与 `searchService`（api）；`llmFeatureService.getLlmStatus` 收敛为 `mode: external_primary` 恒值 + `local: { configured:false, state:'removed' }`。
+- `runtime.js` 删除 `LOCAL_LLM_ALLOWED_ORIGINS` 校验；供应商规则改为「内测环境只允许 qwen」。
+- 提交在途工作安全网（917 语料文件与 dev.db 停止跟踪，私有副本 917/917 SHA-256 校验通过）后才执行切割，保证 7 个从未提交的切割目标可恢复。
+- 全量门禁：API lint 0 errors / 508 测试 / 覆盖率 92.01/80.14/93.21/93；Web lint 0 / typecheck 0 / 506 测试 / build / e2e 34 / 覆盖率 95.25/89.26/89.9/95.25，全部通过。
+
 
 ## [未发布] — 内测准备中
 

@@ -1,4 +1,4 @@
-# Optional external-fallback overlay. The base Compose file remains fully local.
+# 云端供应商覆盖层（2026-09-07 云端切割后为**必需**：云端模型是聊天的唯一路径）。
 services:
   api:
     environment:
@@ -8,4 +8,4 @@ services:
 
 secrets:
   qwen_api_key:
-    file: ${GATEWAY_QWEN_API_KEY_FILE:?set GATEWAY_QWEN_API_KEY_FILE for the Qwen fallback overlay}
+    file: ${GATEWAY_QWEN_API_KEY_FILE:?set GATEWAY_QWEN_API_KEY_FILE for the cloud provider overlay}

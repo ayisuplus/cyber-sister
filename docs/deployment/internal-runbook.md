@@ -6,8 +6,8 @@
 
 - Docker Engine 与支持 `service_completed_successfully` 的 Docker Compose v2。
 - 指向主机的内测域名，以及该域名对应的 PEM 证书和私钥。
-- 已启动并加载 GGUF 的 llama.cpp server；运行在宿主机时必须允许 API 容器通过 host gateway 访问。
-- 产品负责人批准的 `qwen-fallback-v1` 可选云端备用文案与危机资源清单；资源记录官方来源和核验日期。
+- 聊天模型只走云端：经批准的云端模型（供应商槽 `GATEWAY_QWEN_*`）及其 Base URL、模型名和 Key 文件。
+- 产品负责人批准的 `cloud-primary-v1` 云端模型同意文案与危机资源清单；资源记录官方来源和核验日期。
 
 内测仅允许白名单成年测试者从 VPN 或可信私网访问。
 
@@ -19,12 +19,11 @@
 - `POSTGRES_DB`、`POSTGRES_USER`
 - `POSTGRES_PASSWORD_FILE`、`DATABASE_PASSWORD_FILE`、`JWT_SECRET_FILE`、`JWT_REFRESH_SECRET_FILE`
 - `INTERNAL_TEST_PHONES_FILE`、`INSTANCE_ADMIN_PHONES_FILE`、`INTERNAL_TEST_CODE_FILE`
-- `LOCAL_LLM_ALLOWED_ORIGINS`，至少包含实际使用的 llama.cpp 精确 origin
 - `APP_DOMAIN`、`BIND_ADDRESS`、`IMAGE_TAG`、`TLS_CERT_PATH`、`TLS_KEY_PATH`
 
 每个 `*_FILE` 都指向仓库外的独立只读文件：数据库口令、两个至少 32 字符的 JWT 密钥、六位内测码、逗号分隔的手机号白名单和其中作为实例管理员的手机号。`POSTGRES_PASSWORD_FILE` 与 `DATABASE_PASSWORD_FILE` 内容必须相同，但必须是两个独立文件，以便分别授予 PostgreSQL 容器用户和 API 容器用户读取权限。文件内容不加引号，末尾换行会被安全移除。Compose 以只读 secret 挂载到对应容器，凭据不会作为环境变量注入。
 
-纯本地部署不要配置任何 `GATEWAY_QWEN_*`。如需启用云端备用，再提供 Qwen Base URL、模型名和 Key 文件，并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。旧的外部同意版本不会沿用。
+聊天模型为云端唯一路径：必须提供 Qwen Base URL、模型名和 Key 文件（`GATEWAY_QWEN_*`），并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。同意版本为 `cloud-primary-v1`，旧的外部同意版本不会沿用，用户进入聊天首屏需重新同意；未同意时云端调用次数为零。
 
 模型调用的总预算固定为 60 秒；Nginx 与主 Web API 客户端等待 75 秒。这个顺序不得倒置，否则客户端可能先报失败，而服务端稍后仍持久化成功结果。
 
@@ -56,7 +55,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" up -d --pull never
 docker compose --env-file "$RUNTIME_ENV_FILE" ps
 ```
 
-`BIND_ADDRESS` 必须是 VPN 或可信私网接口地址，不能使用 `0.0.0.0`。同一个私密文件供 Compose 插值并作为 API 的非密钥运行配置；migration 只挂载数据库口令，Makeup 不持有任何模型凭据，所有模型调用统一交给主 API。
+`BIND_ADDRESS` 必须是 VPN 或可信私网接口地址，不能使用 `0.0.0.0`。同一个私密文件供 Compose 插值并作为 API 的非密钥运行配置；migration 只挂载数据库口令，所有模型调用统一交给主 API。
 
 `IMAGE_TAG` 必须每次唯一（例如发布号加 Git SHA），一经构建不得复用。构建后保存 Compose 镜像清单，并在发布记录中保留 image ID/registry digest；同时离线保留上一组镜像或确认私有仓库仍可按 digest 拉取：
 
@@ -78,14 +77,13 @@ docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api pnpm --filter cyber-s
 至少验证：
 
 - `http://域名` 强制跳转到 HTTPS，refresh cookie 保持 `Secure`。
-- `/api/health/live` 返回进程存活；`/api/health/ready` 在 PostgreSQL 可用时成功。模型未配置不能阻止管理员打开设置页。
+- `/api/health/live` 返回进程存活；`/api/health/ready` 在 PostgreSQL 可用时成功。
 - 数据库不可用时 ready 失败，恢复后无需重启即可重新成功。
-- 实例管理员进入“本地模型与 llama.cpp”，自动发现或填写允许地址、完成连接测试并保存；普通用户只能看到去敏状态。
-- `/api/llm/status` 正确区分 `not_configured`、`loading`、`ready` 和 `unavailable`。
-- 登录、刷新、退出、同意三态、聊天、人格、记忆、危机阻断和虚拟房间生图完成冒烟测试。
+- `/api/llm/status` 恒为 `external_primary`；`local` 段固定为 `{ configured:false, state:'removed' }`。
+- 登录、刷新、退出、云端模型同意（`cloud-primary-v1`，重新同意与撤回拦截）、聊天、人格、记忆和危机阻断完成冒烟测试。
 - 日志不含提示词、聊天/记忆正文、手机号、凭据或图片。
 
-真实 Qwen 只用于人工风格验收，并且必须在密钥已提供后再次获得外部调用批准。本地成功、未选择或撤回授权时都必须验证 Qwen 零调用。
+真实外部模型只用于人工风格验收，并且必须在密钥已提供后再次获得外部调用批准。未同意（未选择）或撤回授权时都必须验证云端调用为零。
 
 ## 5. 备份与回滚
 
@@ -136,6 +134,6 @@ docker compose --env-file "$RUNTIME_ENV_FILE" up -d --no-build --pull never
 - 核心 E2E、关键页面 axe 自动检查和人工键盘/缩放/reduced-motion 验收通过。
 - 危机与人格冻结输入集通过。
 - 只读代码审查没有未解决的 P0/P1。
-- 产品负责人已书面批准外部模型文案和危机资源清单。
+- 产品负责人已书面批准云端模型同意文案（`cloud-primary-v1`）和危机资源清单。
 
 任何一项未满足，都不能标记为可发布内测镜像。
