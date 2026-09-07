@@ -23,7 +23,7 @@
 - `web_search` 保留但换实现：Playwright 抓 Bing → 普通 HTTP 抓 DuckDuckGo（`searchService.js`），不再有浏览器进程与用户可控导航面
 
 **工程治理（内部）**
-- 工作模式剩余工具：日程四件、`calc_convert`、`web_search`（写作/翻译/计划由提示词承担）；聊天模式 18→17 个工具。
+- 工作模式工具 14→6：日程四件、`calc_convert`、`web_search`（写作/翻译/计划由提示词承担）；聊天模式保持 18 个工具（含 `web_search`）。
 - 新增 `modelStatusService`（web，只读 `/llm/status`）与 `searchService`（api）；`llmFeatureService.getLlmStatus` 收敛为 `mode: external_primary` 恒值 + `local: { configured:false, state:'removed' }`。
 - `runtime.js` 删除 `LOCAL_LLM_ALLOWED_ORIGINS` 校验；供应商规则改为「内测环境只允许 qwen」。
 - 提交在途工作安全网（917 语料文件与 dev.db 停止跟踪，私有副本 917/917 SHA-256 校验通过）后才执行切割，保证 7 个从未提交的切割目标可恢复。

@@ -57,9 +57,8 @@ Authorization: Bearer <access_token>
 
 | 状态码 + code | 含义 |
 |---------------|------|
-| 503 `LOCAL_LLM_NOT_CONFIGURED` | 本地模型未配置 |
-| 503 `LOCAL_LLM_UNAVAILABLE` | 本地模型不可用且无已授权云端备用 |
-| 503 `LLM_UNAVAILABLE` | 已授权云端备用但所有候选都不可用 |
+| 503 `CLOUD_NOT_CONSENTED` | 需要先在「我的 → 云端模型」同意使用云端模型 |
+| 503 `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
 
 ### 健康端点
 
@@ -68,7 +67,7 @@ Authorization: Bearer <access_token>
 | `GET /api/health/live` | 进程存活 |
 | `GET /api/health/ready` | 依赖就绪，可随依赖恢复自动恢复 |
 
-> ready **不把**用户尚未启动的消费级本地模型判为应用宕机——本地模型未加载时应用仍 ready。
+> ready **不把**云端模型暂时不可用判为应用宕机——模型不可用时应用仍 ready。
 
 ---
 
@@ -186,7 +185,7 @@ Authorization: Bearer <access_token>
 ```json
 {
   "accepted": null,
-  "version": "qwen-fallback-v1",
+  "version": "cloud-primary-v1",
   "updatedAt": null
 }
 ```
@@ -203,11 +202,11 @@ Authorization: Bearer <access_token>
 
 **行为要点（重要）**
 
-- 该同意**只控制可选云端备用**，不是使用本地聊天的前置条件
-- 未选择、拒绝、撤回时，仍可正常使用本地聊天，但 **Qwen 调用次数必须为零**
-- 同意版本不是 `qwen-fallback-v1` 时按**未选择**处理
-- 服务端在每个外部候选发出请求前**重新读取**同意状态——用户可在本地模型等待期间撤回
-- 页面**不得**用同意弹窗阻断本地聊天
+- 聊天只有云端一条路径：该同意是使用聊天的**前置条件**
+- 未选择、拒绝、撤回时聊天不可用，且**云端调用次数必须为零**
+- 同意版本不是 `cloud-primary-v1` 时按**未选择**处理（旧版同意自动失效，用户进聊天首屏需重新同意）
+- 服务端在每次外部请求发出前**重新读取**同意状态——撤回会拦住尚未发出的请求
+- 页面在聊天首屏引导同意/重新同意，不同意则聊天不可用
 
 ### GET /api/user/membership
 
@@ -256,7 +255,7 @@ Authorization: Bearer <access_token>
   "status": "ok",
   "userMessage": { "id": "...", "role": "user", "content": "...", "createdAt": "..." },
   "aiMessage":   { "id": "...", "role": "assistant", "content": "...", "createdAt": "..." },
-  "source": "local_model"
+  "source": "qwen"
 }
 ```
 
@@ -264,8 +263,7 @@ Authorization: Bearer <access_token>
 
 | 值 | 含义 |
 |----|------|
-| `local_model` | 本地 llama.cpp 生成 |
-| `qwen` | 云端备用生成（需用户已同意） |
+| `qwen` | 云端模型生成（需用户已同意） |
 | `local_template` | 确定性本地模板（降级） |
 
 ---
@@ -293,9 +291,8 @@ Authorization: Bearer <access_token>
 | 状态码 | code | 说明 |
 |--------|------|------|
 | 400 | — | 消息内容为空或超长 |
-| 503 | `LOCAL_LLM_NOT_CONFIGURED` | 本地模型未配置 |
-| 503 | `LOCAL_LLM_UNAVAILABLE` | 本地不可用且无已授权备用 |
-| 503 | `LLM_UNAVAILABLE` | 已授权备用也全部不可用 |
+| 503 | `CLOUD_NOT_CONSENTED` | 未同意使用云端模型 |
+| 503 | `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
 
 > **任何模型失败时该次消息都不持久化**，前端保留输入供重试。
 
@@ -333,7 +330,7 @@ Authorization: Bearer <access_token>
 ```
 data: {"event":"delta","text":"我在听，"}
 
-data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"source":"local_model"}
+data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"source":"qwen"}
 
 ```
 
@@ -345,7 +342,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 |-------|------|------|
 | `delta` | `text` | 增量文本，客户端按到达顺序追加渲染 |
 | `replace` | `content` | 输出命中安全过滤时整体替换此前已下发的全部文本 |
-| `done` | `status:"ok"`、`userMessage`、`aiMessage`、`source` | 生成完成并已落库；`source` 取值同 JSON 端点（`local_model`/`qwen`/`local_template`） |
+| `done` | `status:"ok"`、`userMessage`、`aiMessage`、`source` | 生成完成并已落库；`source` 取值同 JSON 端点（`qwen`/`local_template`） |
 | `blocked` | `status:"blocked"`、`userMessage`、`intervention` | 危机阻断；语义同 JSON 端点的 blocked 响应 |
 | `error` | `code` | 生成失败，本帧之前下发的文本一律作废 |
 
@@ -357,9 +354,8 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 | code | 说明 |
 |------|------|
-| `LOCAL_LLM_NOT_CONFIGURED` | 本地模型未配置 |
-| `LOCAL_LLM_UNAVAILABLE` | 本地不可用且无已授权备用 |
-| `LLM_UNAVAILABLE` | 已授权备用也全部不可用 |
+| `CLOUD_NOT_CONSENTED` | 未同意使用云端模型 |
+| `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
 | `STREAM_FAILED` | 流中断或服务端中途失败 |
 
 > **持久化保证：中途失败、断线或客户端取消时该次消息完全不落库；只有完整成功（`done`）才落库，且只落库一组（用户消息 + AI 消息）。** 危机阻断（`blocked`）沿用 JSON 端点语义，在一个事务内写入用户消息、干预回复与唯一一条 `CrisisLog`。前端在收到 `error` 或流中断时移除临时气泡并保留原输入供重试。
@@ -372,7 +368,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 **智能体工具回路（2026-09-04 起）**
 
-两个发送端点共用同一智能体回路（参考 pi-agent-core 的 agent loop 收敛实现）：模型可以把整段回复写成一个工具调用 JSON（`{"tool":"<注册名>","args":{...}}`），服务端执行后将结果以 system 消息回喂，最多 3 轮，随后强制文本回复，仍输出工具 JSON 则以本地模板兜底。工具域只覆盖产品自身能力——待办/倒数日/经期/提醒/日记/手帐（`add_todo`、`list_todos`、`complete_todo`、`delete_todo`、`add_countdown`、`list_countdowns`、`delete_countdown`、`record_period`、`period_status`、`list_reminders`、`set_reminder`、`add_diary`、`diary_status`、`check_habit`、`habit_status`），全部经对应领域服务的既有校验作用于当前用户，不执行任意代码；记忆不开放给工具（仍只能经「帮我记住」由用户确认）。同一签名（工具+参数）在同一回路中去重执行，重复调用只回喂「已执行」提示。
+两个发送端点共用同一智能体回路（参考 pi-agent-core 的 agent loop 收敛实现）：模型可以把整段回复写成一个工具调用 JSON（`{"tool":"<注册名>","args":{...}}`），服务端执行后将结果以 system 消息回喂，最多 3 轮，随后强制文本回复，仍输出工具 JSON 则以本地模板兜底。工具域只覆盖产品自身能力——日程/倒数日/经期/提醒/日记/手帐/阅读/自习/联网搜索（`add_todo`、`list_todos`、`complete_todo`、`delete_todo`、`add_countdown`、`list_countdowns`、`delete_countdown`、`record_period`、`period_status`、`list_reminders`、`set_reminder`、`add_diary`、`diary_status`、`check_habit`、`habit_status`、`log_reading`、`log_study`、`web_search`），全部经对应领域服务的既有校验作用于当前用户，不执行任意代码、不驱动浏览器、不在服务器执行 shell（联网搜索走 DuckDuckGo 普通 HTTP）；记忆不开放给工具（仍只能经「帮我记住」由用户确认）。同一签名（工具+参数）在同一回路中去重执行，重复调用只回喂「已执行」提示。
 
 当轮执行过工具时，`done`/`POST /messages` 响应中的 `aiMessage` 携带 `toolRuns: [{tool, ok, summary}]`（未执行为 `null`），历史消息同样返回该字段；前端据此在回复下方渲染动作标签。
 
@@ -401,7 +397,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ### POST /api/memories/suggestions — 按需记忆建议（W3）
 
-用户在聊天中主动请求“帮我记住”时，由**本地模型**从一条消息临时抽取候选记忆。
+用户在聊天中主动请求“帮我记住”时，由**云端模型**从一条消息临时抽取候选记忆（与聊天同一同意门）。
 
 **请求**
 
@@ -427,10 +423,10 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 |--------|------|------|
 | 400 | — | `messageId` 缺失，或目标消息不是用户发送的 |
 | 404 | — | 消息不存在或不属于当前用户 |
-| 503 | `LOCAL_LLM_NOT_CONFIGURED` | 本地模型尚未配置 |
-| 503 | `LOCAL_LLM_UNAVAILABLE` | 本地模型暂时不可用 |
+| 503 | `CLOUD_NOT_CONSENTED` | 未同意使用云端模型 |
+| 503 | `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
 
-**隐私性质**：候选仅由 llama.cpp 本地模型生成（`allowExternal=false`，无任何云端回退）；候选为**本地、临时**数据，只存在于响应体，不写数据库；经用户确认后才可通过既有 `POST /api/memories` 落库。日志只记 requestId 与结果计数，不记消息或候选内容。
+**隐私性质**：候选由云端模型生成，与聊天走同一同意门（未同意返回 `CLOUD_NOT_CONSENTED`）与同一脱敏规则；候选为**临时**数据，只存在于响应体，不落库；经用户确认后才可通过既有 `POST /api/memories` 落库。日志只记 requestId 与结果计数，不记消息或候选内容。
 
 ---
 
@@ -446,7 +442,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 | DELETE | `/api/diary/:day` | 删除该日日记 |
 | POST | `/api/diary/:day/comment` | 生成/复用 AI 闺蜜回应 → `{aiComment, source, reused}` |
 
-`mood ∈ happy|neutral|sad|angry|anxious`（与聊天情绪同词表）。回应幂等：已存在直接复用不重复消耗；模型失败 503 `{code∈LOCAL_LLM_NOT_CONFIGURED|LOCAL_LLM_UNAVAILABLE|LLM_UNAVAILABLE}`。回应生成：人格 + 心情 + 脱敏正文，同意门与聊天一致（外部主用模式同 Spec §3.1）。
+`mood ∈ happy|neutral|sad|angry|anxious`（与聊天情绪同词表）。回应幂等：已存在直接复用不重复消耗；模型失败 503 `{code∈CLOUD_NOT_CONSENTED|LLM_UNAVAILABLE}`。回应生成：人格 + 心情 + 脱敏正文，同意门与聊天一致（云端唯一路径同 Spec §3.1）。
 
 ## 六、手帐习惯 `/api/habits`（2026-09-04 起）
 
@@ -459,7 +455,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 | POST | `/api/habits/:id/checkin` | 切换当天打卡 → `{checked, day}` |
 | POST | `/api/habits/cheer` | 聚合鼓励 → `{cheer, source}`；无习惯 `{cheer:null}` |
 
-连续天数（streak）：今天已打则从今天回数，否则从昨天回数。鼓励只把习惯名/连续天数/今日完成计数送入模型（不送任何正文内容），同意门同上；模型失败 503 同家族。
+连续天数（streak）：今天已打则从今天回数，否则从昨天回数。鼓励只把习惯名/连续天数/今日完成计数送入模型（不送任何正文内容），同意门同上；模型失败 503 同家族（`CLOUD_NOT_CONSENTED`/`LLM_UNAVAILABLE`）。
 
 ---
 
@@ -481,7 +477,23 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ### GET /api/llm/status
 
-登录用户可查看**去敏后**的本地模型状态与云端备用状态。
+登录用户可查看**去敏后**的模型状态。聊天为云端唯一路径，响应形状：
+
+```json
+{
+  "mode": "external_primary",
+  "local": { "configured": false, "state": "removed" },
+  "externalFallback": {
+    "configured": true,
+    "primary": true,
+    "consent": null,
+    "version": "cloud-primary-v1"
+  }
+}
+```
+
+- `mode` 恒为 `external_primary`；`local` 段固定 `{configured:false, state:'removed'}`，仅为兼容既有消费方读取
+- `externalFallback.consent` 三态同 `/api/user/external-llm-consent`；`version` 为当前同意版本 `cloud-primary-v1`
 
 ---
 
@@ -496,54 +508,9 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ---
 
-## 十、虚拟试衣 / 化妆间 `/api/virtual`
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/virtual/image-gen/status` | 生图能力状态 |
-| POST | `/api/virtual/image-gen/generations` | 生成妆效/穿搭预览（multipart，需本机 ComfyUI 在线） |
 
-生图走**本机 ComfyUI**（`IMAGE_GEN_PROVIDER=comfy`，默认），不接外部生图 API；照片经本机 API 内存转发给本机 ComfyUI，不落库。
-
-**GET `/image-gen/status` 响应**：`{ available, configured, provider, reason }`；`reason` ∈ `null | IMAGE_GEN_NOT_CONFIGURED | IMAGE_GEN_UNAVAILABLE | IMAGE_GEN_NOT_IMPLEMENTED`（仅 `provider=external` 时）。
-
-**POST `/image-gen/generations`**：`multipart/form-data`，字段：
-
-| 字段 | 必填 | 约束 |
-|------|------|------|
-| `photo` | 是 | 图片文件，≤8MB，仅 `image/jpeg` / `image/png` / `image/webp` |
-| `scene` | 是 | `makeup` \| `fitting` |
-| `itemId` | 是 | 目录条目 id，1–64 字符 |
-| `note` | 否 | ≤200 字符 |
-
-- 201：`{ imageDataUrl, scene, itemId, provider }`（`imageDataUrl` 为 base64 data URL）
-- 400：缺照片 / 超限 / MIME 不符 / 字段校验失败 / 未知 itemId
-- 503：`IMAGE_GEN_NOT_CONFIGURED`（未配置）/ `IMAGE_GEN_UNAVAILABLE`（ComfyUI 离线、超时或执行失败）
-
-> ComfyUI 不在线时入口诚实显示"接入中"，不得伪装可用；提示词由主模型把目录描述改写为英文提示词，主模型不可用时退化为目录描述直拼。
-
----
-
-## 十一、本地模型管理 `/api/admin/llm/local`（实例管理员）
-
-需 `instanceAdminMiddleware`，仅实例管理员（白名单子集）可访问。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/detect` | 自动发现候选 llama.cpp |
-| POST | `/test` | 测试连接 |
-| GET | `/config` | 读取当前配置 |
-| PUT | `/config` | 保存配置 |
-
-**约束（重要）**
-
-- 服务端只接受 `LOCAL_LLM_ALLOWED_ORIGINS` 中的**精确**地址
-- **不跟随重定向**
-- **不从页面接收密钥**——地址与模型由管理员保存，密钥只来自部署环境
-
----
-
-## 十二、日志规范（实现约定）
+## 十、日志规范（实现约定）
 
 日志**只允许**记录：
 
@@ -578,7 +545,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
           POST   /api/chat/conversations/:id/messages/stream (SSE)
           DELETE /api/chat/conversations/:id
 记忆      CRUD   /api/memories
-          POST   /api/memories/suggestions (本地临时候选，不落库)
+          POST   /api/memories/suggestions (临时候选，不落库)
 工具箱    CRUD   /api/tools/{todos,countdowns,period,reminders}
 日记      CRUD   /api/diary/:day
           POST   /api/diary/:day/comment  (幂等 AI 回应)
@@ -588,9 +555,6 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
           GET    /api/tools/weather        (409 关闭)
 模型      GET    /api/llm/status
 合规      *      /api/compliance/usage/*
-虚拟      GET    /api/virtual/image-gen/status
-          POST   /api/virtual/image-gen/generations  (multipart，本机 ComfyUI)
-管理员    *      /api/admin/llm/local/*     (实例管理员)
 健康      GET    /api/health/live
           GET    /api/health/ready
 ```
