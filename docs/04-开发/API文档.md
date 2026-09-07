@@ -216,6 +216,103 @@ Authorization: Bearer <access_token>
 
 订阅会员（内测未接入真实支付）。
 
+### PUT /api/user/roleplay — 设置角色扮演
+
+**请求**
+
+```json
+{ "name": "合租室友", "setting": "爱做饭，经常喊我一起吃饭" }
+```
+
+- `name` 必填，trim 后 1–20 字符；`setting` 必填，1–200 字符
+- `DELETE /api/user/roleplay` 清除角色扮演
+
+**恋人红线（400）**：`name` 或 `setting` 任一命中亲密关系词表（恋人/情侣/爱人/老婆/老公/妻子/丈夫/夫君/娘子/相公/媳妇/女朋友/男朋友/女友/男友/网恋对象/暧昧对象/虚拟恋人/伴侣/灵魂伴侣/红颜知己/蓝颜知己/主人/主仆）即拒绝，不落库：
+
+```json
+{ "error": "角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象" }
+```
+
+普通非亲密关系（合租室友、同桌等）不受影响。迁移导入复用同一道闸。
+
+### GET /api/user/export — 一键导出全部数据
+
+登录用户导出单 JSON 包，响应头 `Content-Disposition: attachment; filename="cyber-sister-export-<yyyy-MM-dd>.json"`。永久免费，无会员门槛。
+
+**响应 200 结构**
+
+```json
+{
+  "version": 1,
+  "product": "赛博姐妹 cyber-sister",
+  "exportedAt": "2026-09-07T08:00:00.000Z",
+  "user": {
+    "nickname": "...", "persona": "toxic", "roleName": "...", "roleSetting": "...",
+    "birthDate": "...", "externalLlmConsent": { "accepted": true, "version": "cloud-primary-v1" },
+    "createdAt": "..."
+  },
+  "memories": [ { "type": "semantic", "content": "...", "importance": 7, "tags": ["..."], "createdAt": "..." } ],
+  "conversations": [ { "messages": [ { "role": "user", "content": "...", "emotion": null,
+      "source": "qwen", "importance": null, "toolRuns": null, "createdAt": "..." } ] } ],
+  "todos": [], "countdowns": [], "periodRecords": [], "reminders": [],
+  "diaryEntries": [], "habits": [ { "checkins": [] } ],
+  "books": [ { "notes": [] } ],
+  "studySessions": []
+}
+```
+
+- `user` 段**不含** id、phone 与任何凭据
+- **不导出**：refresh token（凭据，绝不外发）、危机日志（安全运维数据）、头像/背景等二进制资产（v1 边界）
+
+### POST /api/user/import/preview — 迁移预览（不落库）
+
+两种输入：自家导出包 JSON（自动识别 `version` + `product` 字段），或纯角色文本：
+
+```json
+{ "format": "persona-text", "roleName": "...", "roleSetting": "..." }
+```
+
+**响应 200**
+
+```json
+{
+  "format": "cyber-sister-export",
+  "role": { "name": "...", "setting": "...", "ok": false, "error": "角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象" },
+  "persona": { "id": "toxic", "ok": true },
+  "memoryCandidates": [ { "type": "semantic", "content": "...", "importance": 7, "tags": [] } ],
+  "memoriesSkipped": 2,
+  "notes": ["对话/日记/手帐/日程等数据段 v1 不导入"]
+}
+```
+
+- v1 导入对象仅三类：角色扮演（`roleName`/`roleSetting`）、人格 id、显式记忆候选；对话/日记/手帐/日程等数据段不导入，`notes` 如实说明
+- 角色命中恋人红线时 `role.ok:false` 并带原因；人格 id 非法时 `persona.ok:false`
+- 云端模型同意状态**绝不导入**——须用户主动重新同意 `cloud-primary-v1`
+- 预览**绝不落库**；记忆候选单批最多 100 条
+
+### POST /api/user/import/apply — 迁移应用
+
+**请求**
+
+```json
+{
+  "role": { "name": "...", "setting": "..." },
+  "persona": "toxic",
+  "memories": [ { "type": "semantic", "content": "...", "importance": 7, "tags": [] } ]
+}
+```
+
+- 角色经 `updateRolePlay`（长度 + 恋人红线双闸，400 透传）；人格经 `switchPersona`；记忆经 `createMemory` 既有校验
+- 与现有记忆做规范化去重（NFKC + trim + 小写），候选之间同样查重；重复/非法按 skipped 计数
+
+**响应 200**
+
+```json
+{ "roleApplied": true, "personaApplied": true, "memoriesApplied": 8, "memoriesSkipped": 2 }
+```
+
+**错误**：三者全空时 400 `没有可导入的内容`。
+
 ---
 
 ## 三、聊天 `/api/chat`
@@ -538,6 +635,10 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
           PUT    /api/user/external-llm-consent
           GET    /api/user/membership
           POST   /api/user/membership/subscribe
+          PUT    /api/user/roleplay        (恋人红线 400)
+          GET    /api/user/export          (一键导出 JSON)
+          POST   /api/user/import/preview  (预览不落库)
+          POST   /api/user/import/apply
 聊天      GET    /api/chat/conversations
           POST   /api/chat/conversations
           GET    /api/chat/conversations/:id
