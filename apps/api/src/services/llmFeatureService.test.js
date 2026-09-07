@@ -30,7 +30,7 @@ describe('云端模型状态', () => {
     expect(result).toEqual({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, primary: true, consent: null, version: 'qwen-fallback-v1' },
+      externalFallback: { configured: true, primary: true, consent: null, version: 'cloud-primary-v1' },
     })
     expect(JSON.stringify(result)).not.toContain('baseUrl')
   })
@@ -38,7 +38,7 @@ describe('云端模型状态', () => {
   it('已同意的用户返回 consent=true', async () => {
     mocks.userFindUnique.mockResolvedValue({
       externalLlmConsent: true,
-      externalLlmConsentVersion: 'qwen-fallback-v1',
+      externalLlmConsentVersion: 'cloud-primary-v1',
     })
     const result = await getLlmStatus('user-1')
     expect(result.externalFallback.consent).toBe(true)

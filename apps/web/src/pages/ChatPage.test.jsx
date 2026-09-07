@@ -80,7 +80,7 @@ describe('ChatPage', () => {
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'qwen-fallback-v1' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v1' },
     })
   })
 
@@ -242,7 +242,7 @@ describe('ChatPage 帮我记住入口', () => {
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'qwen-fallback-v1' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v1' },
     })
   })
 
@@ -384,7 +384,7 @@ describe('ChatPage 云端同意门', () => {
   const statusWith = ({ configured = true, consent = null } = {}) => ({
     mode: 'external_primary',
     local: { configured: false, state: 'removed' },
-    externalFallback: { configured, consent, version: 'qwen-fallback-v1' },
+    externalFallback: { configured, consent, version: 'cloud-primary-v1' },
   })
 
   it('prompts for consent when the cloud provider is configured but consent is undecided', async () => {

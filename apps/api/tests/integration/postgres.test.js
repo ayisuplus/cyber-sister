@@ -80,7 +80,7 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
             phone,
             persona: 'rational',
             externalLlmConsent: true,
-            externalLlmConsentVersion: 'qwen-fallback-v1',
+            externalLlmConsentVersion: 'cloud-primary-v1',
             externalLlmConsentUpdatedAt: new Date(),
           },
         })
@@ -128,7 +128,7 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
       expect(created.user).toMatchObject({
         persona: 'rational',
         externalLlmConsent: true,
-        externalLlmConsentVersion: 'qwen-fallback-v1',
+        externalLlmConsentVersion: 'cloud-primary-v1',
       })
       expect(created.conversation.messages).toHaveLength(2)
       expect(created.conversation.messages[1]).toMatchObject({ source: 'local_template' })

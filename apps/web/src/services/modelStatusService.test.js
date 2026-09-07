@@ -16,7 +16,7 @@ describe('modelStatusService', () => {
       data: {
         mode: 'external_primary',
         local: { configured: false, state: 'removed' },
-        externalFallback: { configured: true, primary: true, consent: null, version: 'qwen-fallback-v1' },
+        externalFallback: { configured: true, primary: true, consent: null, version: 'cloud-primary-v1' },
       },
     })
 

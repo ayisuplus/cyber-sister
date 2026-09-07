@@ -10,7 +10,7 @@ import logger from '../utils/logger.js'
 import { VALID_PERSONA_IDS } from '../../../../packages/llm-gateway/src/personas.js'
 
 export const PERSONAS = [...VALID_PERSONA_IDS]
-export const EXTERNAL_LLM_CONSENT_VERSION = 'qwen-fallback-v1'
+export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v1'
 
 export async function getProfile(userId) {
   const user = await prisma.user.findUnique({

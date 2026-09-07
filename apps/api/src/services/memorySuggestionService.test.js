@@ -37,7 +37,7 @@ const USER_ID = 'user-1'
 const MESSAGE_ID = 'msg-1'
 const REQUEST_ID = 'req-1'
 const USER_MESSAGE = { id: MESSAGE_ID, role: 'user', content: '我超喜欢吃火锅，每周五都去' }
-const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'qwen-fallback-v1' }
+const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v1' }
 
 function modelOutput(items) {
   mocks.gatewayComplete.mockResolvedValue({

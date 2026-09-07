@@ -31,10 +31,10 @@ const mockChatBootstrap = async (page, accepted) => {
   })
   await page.route('**/api/user/external-llm-consent', route => {
     if (route.request().method() === 'GET') {
-      return json(route, 200, { accepted, version: 'qwen-fallback-v1', updatedAt: null })
+      return json(route, 200, { accepted, version: 'cloud-primary-v1', updatedAt: null })
     }
     const choice = route.request().postDataJSON().accepted
-    return json(route, 200, { accepted: choice, version: 'qwen-fallback-v1', updatedAt: '2026-08-29T00:00:00.000Z' })
+    return json(route, 200, { accepted: choice, version: 'cloud-primary-v1', updatedAt: '2026-08-29T00:00:00.000Z' })
   })
 }
 
@@ -105,7 +105,7 @@ test('persona switches immediately and explicit memories support CRUD', async ({
   let memories = []
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
     accepted: true,
-    version: 'qwen-fallback-v1',
+    version: 'cloud-primary-v1',
     updatedAt: '2026-08-29T00:00:00.000Z',
   }))
   await page.route('**/api/user/persona', route => json(route, 200, {
@@ -422,9 +422,9 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
   await seedAuth(page)
   await page.route('**/api/user/external-llm-consent', route => {
     if (route.request().method() === 'GET') {
-      return json(route, 200, { accepted: true, version: 'qwen-fallback-v1', updatedAt: null })
+      return json(route, 200, { accepted: true, version: 'cloud-primary-v1', updatedAt: null })
     }
-    return json(route, 200, { accepted: true, version: 'qwen-fallback-v1', updatedAt: '2026-09-05T00:00:00.000Z' })
+    return json(route, 200, { accepted: true, version: 'cloud-primary-v1', updatedAt: '2026-09-05T00:00:00.000Z' })
   })
   const conversations = [{
     id: 'c-chat',
@@ -628,7 +628,7 @@ test('study: run a pomodoro, finish early and record it', async ({ page }) => {
 test('roleplay: set and clear a custom role on profile', async ({ page }) => {
   await seedAuth(page)
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
-    accepted: true, version: 'qwen-fallback-v1', updatedAt: '2026-08-29T00:00:00.000Z',
+    accepted: true, version: 'cloud-primary-v1', updatedAt: '2026-08-29T00:00:00.000Z',
   }))
   let saved = null
   await page.route('**/api/user/roleplay', route => {

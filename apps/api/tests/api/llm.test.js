@@ -40,7 +40,7 @@ describe('云端模型 API 路由合同', () => {
       id: 'tester',
       phone: '13900139000',
       externalLlmConsent: false,
-      externalLlmConsentVersion: 'qwen-fallback-v1',
+      externalLlmConsentVersion: 'cloud-primary-v1',
     })
     process.env.GATEWAY_QWEN_BASE_URL = 'https://example.invalid/v1'
     process.env.GATEWAY_QWEN_MODEL = 'qwen-model'
@@ -60,7 +60,7 @@ describe('云端模型 API 路由合同', () => {
     expect(response.body).toEqual({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, primary: true, consent: false, version: 'qwen-fallback-v1' },
+      externalFallback: { configured: true, primary: true, consent: false, version: 'cloud-primary-v1' },
     })
     expect(JSON.stringify(response.body)).not.toContain('baseUrl')
   })

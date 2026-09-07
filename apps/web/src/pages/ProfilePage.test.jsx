@@ -68,7 +68,7 @@ describe('ProfilePage 云端模型同意', () => {
     mocks.resolveAssetUrl.mockResolvedValue(null)
     mocks.consentGet.mockResolvedValue({
       accepted: null,
-      version: 'qwen-fallback-v1',
+      version: 'cloud-primary-v1',
       updatedAt: null,
     })
   })
@@ -76,7 +76,7 @@ describe('ProfilePage 云端模型同意', () => {
   it('presents the cloud model as the only chat path with an explicit consent gate', async () => {
     renderPage()
 
-    expect(await screen.findByText(/qwen-fallback-v1 · 尚未选择/)).toBeInTheDocument()
+    expect(await screen.findByText(/cloud-primary-v1 · 尚未选择/)).toBeInTheDocument()
     expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
     expect(screen.getByText(/拒绝或撤回后聊天不可用/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '暂不开启' })).toBeEnabled()
@@ -85,7 +85,7 @@ describe('ProfilePage 云端模型同意', () => {
 
   it('records explicit acceptance for the cloud model', async () => {
     const user = userEvent.setup()
-    mocks.consentUpdate.mockResolvedValue({ accepted: true, version: 'qwen-fallback-v1' })
+    mocks.consentUpdate.mockResolvedValue({ accepted: true, version: 'cloud-primary-v1' })
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '允许云端模型' }))
@@ -96,7 +96,7 @@ describe('ProfilePage 云端模型同意', () => {
 
   it('records refusal or withdrawal which makes chat unavailable', async () => {
     const user = userEvent.setup()
-    mocks.consentUpdate.mockResolvedValue({ accepted: false, version: 'qwen-fallback-v1' })
+    mocks.consentUpdate.mockResolvedValue({ accepted: false, version: 'cloud-primary-v1' })
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '暂不开启' }))
@@ -112,7 +112,7 @@ describe('ProfilePage 角色扮演', () => {
     mocks.resolveAssetUrl.mockResolvedValue(null)
     mocks.consentGet.mockResolvedValue({
       accepted: null,
-      version: 'qwen-fallback-v1',
+      version: 'cloud-primary-v1',
       updatedAt: null,
     })
   })
@@ -161,7 +161,7 @@ describe('ProfilePage 装扮区', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.authState.user = { nickname: '小赛', persona: 'gentle' }
-    mocks.consentGet.mockResolvedValue({ accepted: null, version: 'qwen-fallback-v1', updatedAt: null })
+    mocks.consentGet.mockResolvedValue({ accepted: null, version: 'cloud-primary-v1', updatedAt: null })
     mocks.resolveAssetUrl.mockResolvedValue(null)
   })
 

@@ -301,7 +301,7 @@ export default function ProfilePage() {
             <Shield size={16} className="text-brand-green" />
             云端模型
           </h2>
-          <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'qwen-fallback-v1'} · {consentLabel}。聊天由经批准的云端模型提供：你的消息（经脱敏，最多 20 条消息与最多 5 条相关显式记忆）会发送到该模型处理；拒绝或撤回后聊天不可用。</p>
+          <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'cloud-primary-v1'} · {consentLabel}。聊天由经批准的云端模型提供：你的消息（经脱敏，最多 20 条消息与最多 5 条相关显式记忆）会发送到该模型处理；拒绝或撤回后聊天不可用。</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" disabled={savingConsent} onClick={() => handleConsent(false)} className="min-h-11 rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">暂不开启</button>
             <button type="button" disabled={savingConsent} onClick={() => handleConsent(true)} className="min-h-12 rounded-xl bg-action-primary hover:bg-action-hover text-xs font-semibold text-text-inverse focus:ring-2 focus:ring-status-info disabled:opacity-50" style={{ boxShadow: 'var(--cs-shadow-button)' }}>允许云端模型</button>
