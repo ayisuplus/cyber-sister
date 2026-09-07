@@ -3,7 +3,7 @@ import { Heart, Sparkles } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
 import { useComplianceStore } from '../stores/complianceStore'
-import { localModelService } from '../services/localModelService'
+import { modelStatusService } from '../services/modelStatusService'
 import ChatHeader from '../components/chat/ChatHeader'
 import CloudFallbackNotice, { CLOUD_FALLBACK_DISMISSED_KEY } from '../components/chat/CloudFallbackNotice'
 import MessageBubble from '../components/chat/MessageBubble'
@@ -16,27 +16,16 @@ import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
 import TabBar from '../components/layout/TabBar'
 
-const getSendErrorMessage = (requestError, llmMode) => {
+const getSendErrorMessage = (requestError) => {
   const responseError = requestError.response?.data?.error
   // 流式错误直接携带 code；HTTP 层错误沿用 JSON 端点错误体
   const code = requestError.code || requestError.response?.data?.code || responseError?.code || responseError
 
-  if (llmMode === 'external_primary') {
-    if (code === 'LOCAL_LLM_UNAVAILABLE') {
-      return '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'
-    }
-    if (code === 'LLM_UNAVAILABLE' || code === 'LOCAL_LLM_NOT_CONFIGURED') {
-      return '云端模型暂时不可用。原输入已保留，请稍后重试。'
-    }
-  }
-  if (code === 'LOCAL_LLM_NOT_CONFIGURED') {
-    return '本地模型尚未连接，请前往“我的 → 本地模型”查看设置。原输入已保留。'
-  }
-  if (code === 'LOCAL_LLM_UNAVAILABLE') {
-    return '本地模型暂时不可用，且没有在未授权时转发到云端。原输入已保留，请稍后重试。'
+  if (code === 'CLOUD_NOT_CONSENTED') {
+    return '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'
   }
   if (code === 'LLM_UNAVAILABLE') {
-    return '本地模型与已授权的云端备用均不可用。原输入已保留，请稍后重试。'
+    return '云端模型暂时不可用。原输入已保留，请稍后重试。'
   }
   return '消息发送失败，原输入已保留，请重试。'
 }
@@ -50,8 +39,6 @@ export default function ChatPage() {
   const isTyping = useChatStore(state => state.isTyping)
   const isSending = useChatStore(state => state.isSending)
   const sendMessage = useChatStore(state => state.sendMessage)
-  const llmMode = useChatStore(state => state.llmMode)
-  const setLlmMode = useChatStore(state => state.setLlmMode)
   const loadConversations = useChatStore(state => state.loadConversations)
   const checkFirstVisit = useComplianceStore(state => state.checkFirstVisit)
   const startSession = useComplianceStore(state => state.startSession)
@@ -63,22 +50,20 @@ export default function ChatPage() {
     loadConversations()
     checkFirstVisit()
   }, [checkFirstVisit, loadConversations])
-  // 本地模型不可用且云端备用已配置但用户未表态时，主动引导授权；拉取失败静默，不影响聊天
+  // 云端模型未获同意时主动引导授权（100% 用户的首屏门）；拉取失败静默，不影响其它 UI
   useEffect(() => {
     if (sessionStorage.getItem(CLOUD_FALLBACK_DISMISSED_KEY) === 'true') return undefined
     let cancelled = false
-    localModelService.getStatus()
+    modelStatusService.getStatus()
       .then((status) => {
         if (cancelled) return
-        setLlmMode(status?.mode === 'external_primary' ? 'external_primary' : 'local_first')
-        const shouldPrompt = status?.local?.state !== 'ready'
-          && status?.externalFallback?.configured === true
+        const shouldPrompt = status?.externalFallback?.configured === true
           && status?.externalFallback?.consent === null
-        if (shouldPrompt) setFallbackNoticeState(status.local.state)
+        if (shouldPrompt) setFallbackNoticeState('consent_required')
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [setLlmMode])
+  }, [])
 
   // 使用时长合规：进入聊天开始计时，每分钟检查一次，离开即结算
   useEffect(() => {
@@ -101,7 +86,7 @@ export default function ChatPage() {
       if (result?.status === 'blocked') setIntervention(result.intervention)
       return true
     } catch (requestError) {
-      setError(getSendErrorMessage(requestError, llmMode))
+      setError(getSendErrorMessage(requestError))
       return false
     }
   }
@@ -131,7 +116,7 @@ export default function ChatPage() {
       <div className="relative flex min-w-0 flex-1 flex-col">
       <ChatHeader />
       {fallbackNoticeState !== null && (
-        <CloudFallbackNotice localState={fallbackNoticeState} onClose={() => setFallbackNoticeState(null)} primary={llmMode === 'external_primary'} />
+        <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
       )}
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide">
@@ -152,7 +137,7 @@ export default function ChatPage() {
             <h1 className="mb-2 text-lg font-semibold text-text-primary">嗨，我是你的赛博姐妹</h1>
             <p className="max-w-[260px] text-center text-sm leading-relaxed text-text-secondary">
               有什么想聊的，随时找我。<br />
-              <span className="text-xs text-text-muted">我是 AI，会优先在本地陪你梳理想法。</span>
+              <span className="text-xs text-text-muted">我是 AI，聊天由经批准的云端模型提供。</span>
             </p>
 
             <div className="mt-6 flex flex-wrap justify-center gap-2">

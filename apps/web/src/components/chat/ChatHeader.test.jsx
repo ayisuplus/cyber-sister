@@ -1,16 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 import ChatHeader from './ChatHeader'
 
-vi.mock('../../services/chatService', () => ({
-  chatService: {
-    getWorkStatus: vi.fn(),
-  },
-}))
 
-import { chatService } from '../../services/chatService'
 
 describe('ChatHeader', () => {
   beforeEach(() => {
@@ -29,7 +23,7 @@ describe('ChatHeader', () => {
     render(<ChatHeader />)
 
     expect(screen.getByText('这是 AI，不是真人')).toBeInTheDocument()
-    expect(screen.getByText('AI 生成 · 本地优先')).toBeInTheDocument()
+    expect(screen.getByText('AI 生成 · 云端模型')).toBeInTheDocument()
   })
 
   it.each([
@@ -76,7 +70,6 @@ describe('ChatHeader', () => {
 
   it('clicking 工作 switches the store to work mode and swaps the persona badge for the work badge', async () => {
     useAuthStore.setState({ user: { id: 'u1', persona: 'gentle' } })
-    chatService.getWorkStatus.mockResolvedValue({ browser: { enabled: true, running: false, headed: true } })
 
     render(<ChatHeader />)
     fireEvent.click(screen.getByRole('button', { name: '工作' }))
@@ -84,29 +77,9 @@ describe('ChatHeader', () => {
     expect(useChatStore.getState().chatMode).toBe('work')
     expect(await screen.findByText('工作模式')).toBeInTheDocument()
     expect(screen.queryByText('包容·耐心·讲道理')).not.toBeInTheDocument()
-    expect(await screen.findByText('浏览器已就绪')).toBeInTheDocument()
+    // 云端切割后内置浏览器已删除：工作模式不再渲染任何浏览器状态徽标
+    expect(screen.queryByText('浏览器已就绪')).not.toBeInTheDocument()
+    expect(screen.queryByText('浏览器未启用')).not.toBeInTheDocument()
   })
 
-  it('shows 浏览器未启用 when the browser is disabled', async () => {
-    chatService.getWorkStatus.mockResolvedValue({ browser: { enabled: false, running: false, headed: false } })
-    useAuthStore.setState({ user: null })
-    useChatStore.setState({ chatMode: 'work' })
-
-    render(<ChatHeader />)
-
-    expect(await screen.findByText('浏览器未启用')).toBeInTheDocument()
-  })
-
-  it('hides the browser chip when the status request fails', async () => {
-    chatService.getWorkStatus.mockRejectedValue(new Error('offline'))
-    useAuthStore.setState({ user: null })
-    useChatStore.setState({ chatMode: 'work' })
-
-    render(<ChatHeader />)
-
-    await waitFor(() => expect(chatService.getWorkStatus).toHaveBeenCalled())
-    expect(screen.queryByText('浏览器已就绪')).toBeNull()
-    expect(screen.queryByText('浏览器未启用')).toBeNull()
-    expect(screen.getByText('工作模式')).toBeInTheDocument()
-  })
 })

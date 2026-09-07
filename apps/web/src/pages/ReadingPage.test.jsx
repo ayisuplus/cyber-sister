@@ -83,7 +83,7 @@ describe('ReadingPage', () => {
   it('renders the note comment after 让姐妹看看 succeeds', async () => {
     mocks.listBooks.mockResolvedValue([BOOK])
     mocks.listNotes.mockResolvedValue([NOTE])
-    mocks.requestNoteComment.mockResolvedValue({ aiComment: '这段写得真好，我也被戳了一下。', source: 'local_model', reused: false })
+    mocks.requestNoteComment.mockResolvedValue({ aiComment: '这段写得真好，我也被戳了一下。', source: 'qwen', reused: false })
     renderPage()
 
     await screen.findByText('有庆那段看得心里发紧')
@@ -93,17 +93,17 @@ describe('ReadingPage', () => {
     expect(mocks.requestNoteComment).toHaveBeenCalledWith('n1')
   })
 
-  it('points to local model settings when LOCAL_LLM_NOT_CONFIGURED', async () => {
+  it('points to consent the cloud model when CLOUD_NOT_CONSENTED', async () => {
     mocks.listBooks.mockResolvedValue([BOOK])
     mocks.listNotes.mockResolvedValue([NOTE])
-    mocks.requestNoteComment.mockRejectedValue({ response: { data: { code: 'LOCAL_LLM_NOT_CONFIGURED', error: '本地模型未配置' } } })
+    mocks.requestNoteComment.mockRejectedValue({ response: { data: { code: 'CLOUD_NOT_CONSENTED', error: '需要你先同意使用云端模型才能聊天' } } })
     renderPage()
 
     await screen.findByText('有庆那段看得心里发紧')
     await userEvent.click(screen.getByRole('button', { name: /让姐妹看看/ }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('还没有配置本地模型')
-    expect(screen.getByRole('link', { name: /本地模型/ })).toHaveAttribute('href', '/profile/local-model')
+    expect(alert.textContent).toContain('还没有同意使用云端模型')
+    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
   })
 })

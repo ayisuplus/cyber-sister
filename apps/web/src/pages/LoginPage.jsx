@@ -67,10 +67,10 @@ export default function LoginPage() {
         <img src="/design-assets/hero-login.png" alt="" loading="lazy" className="relative z-10 mb-4 max-h-36 w-auto max-w-full rounded-2xl object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
 
         <h1 className="relative z-10 mb-2 text-3xl font-bold tracking-tight text-text-primary">赛博姐妹</h1>
-        <p className="relative z-10 text-sm font-medium text-text-secondary">本地优先，像闺蜜一样好好说话</p>
-        <span className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full bg-surface-card px-3 py-1.5 text-xs font-medium text-status-local shadow-card">
+        <p className="relative z-10 text-sm font-medium text-text-secondary">像闺蜜一样好好说话</p>
+        <span className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full bg-surface-card px-3 py-1.5 text-xs font-medium text-status-info shadow-card">
           <ShieldCheck size={14} aria-hidden="true" />
-          默认先使用部署服务器上的本地模型
+          聊天由经批准的云端模型提供，用你的同意才开放
         </span>
       </div>
 

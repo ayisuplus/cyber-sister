@@ -39,7 +39,6 @@ model User {
   readingNotes      ReadingNote[]
   studySessions     StudySession[]
   refreshTokens     RefreshToken[]
-  llmRuntimeConfigs LlmRuntimeConfig[] @relation("LlmRuntimeConfigUpdatedBy")
 
   @@map("users")
 }
@@ -184,25 +183,6 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
-// 安装实例级的本地模型配置，不属于任何单个聊天用户。
-// v1 只允许无 API Key 的 llama.cpp，敏感凭据不落库。
-model LlmRuntimeConfig {
-  id              String    @id @default("local")
-  provider        String    @default("llamacpp")
-  baseUrl         String    @map("base_url")
-  model           String
-  enabled         Boolean   @default(true)
-  revision        Int       @default(1)
-  lastVerifiedAt  DateTime? @map("last_verified_at")
-  updatedByUserId String?   @map("updated_by_user_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  updatedBy User? @relation("LlmRuntimeConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-
-  @@index([updatedByUserId])
-  @@map("llm_runtime_configs")
-}
 
 model DiaryEntry {
   id              String   @id @default(uuid())

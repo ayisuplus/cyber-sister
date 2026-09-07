@@ -314,7 +314,7 @@ async function runAgentTurns(content, persona, history, memories, requestId, mod
     // eslint-disable-next-line no-await-in-loop
     const run = await executeToolCall(userId, call, executedSignatures, mode)
     toolRounds += 1
-    if (!run.deduplicated) toolRuns.push({ tool: run.tool, ok: run.ok, summary: run.summary, ...(run.imageId ? { imageId: run.imageId } : {}) })
+    if (!run.deduplicated) toolRuns.push({ tool: run.tool, ok: run.ok, summary: run.summary })
     loopHistory = [...loopHistory, { role: 'assistant', content: aiResponse.content }]
     extraSystem.push({ role: 'system', content: run.feedback })
     if (toolRounds >= MAX_AGENT_TOOL_ROUNDS) {
@@ -416,7 +416,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
     // eslint-disable-next-line no-await-in-loop
     const run = await executeToolCall(userId, toolcall, executedSignatures, mode)
     toolRounds += 1
-    if (!run.deduplicated) toolRuns.push({ tool: run.tool, ok: run.ok, summary: run.summary, ...(run.imageId ? { imageId: run.imageId } : {}) })
+    if (!run.deduplicated) toolRuns.push({ tool: run.tool, ok: run.ok, summary: run.summary })
     loopHistory = [
       ...loopHistory,
       { role: 'assistant', content: JSON.stringify({ tool: toolcall.name, args: toolcall.args }) },

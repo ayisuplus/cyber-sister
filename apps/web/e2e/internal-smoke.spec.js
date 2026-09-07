@@ -59,20 +59,19 @@ test('login is keyboard-accessible and has no serious axe findings', async ({ pa
   await expectNoSeriousAxeFindings(page)
 })
 
-test('local model failure never forces cloud consent and preserves the original input', async ({ page }) => {
+test('cloud provider failure shows honest unavailability and preserves the original input', async ({ page }) => {
   await seedAuth(page)
   await mockChatBootstrap(page, null)
   await page.route('**/api/chat/conversations/conversation-e2e/messages/stream', route => (
-    json(route, 503, { error: '本地模型不可用', code: 'LOCAL_LLM_UNAVAILABLE' })
+    json(route, 503, { error: '云端模型暂时不可用', code: 'LLM_UNAVAILABLE' })
   ))
   await page.goto('/chat')
 
-  await expect(page.getByRole('dialog', { name: /云端备用模型/ })).toHaveCount(0)
   const input = page.getByRole('textbox', { name: '聊天消息' })
   await input.fill('这条消息需要重试')
   await page.getByRole('button', { name: '发送消息' }).click()
 
-  await expect(page.getByText(/本地模型暂时不可用，且没有在未授权时转发到云端/)).toBeVisible()
+  await expect(page.getByText(/云端模型暂时不可用/)).toBeVisible()
   await expect(input).toHaveValue('这条消息需要重试')
   await expectNoSeriousAxeFindings(page)
 })
@@ -161,38 +160,6 @@ test('persona switches immediately and explicit memories support CRUD', async ({
   await expect(page.getByText('还没有记忆')).toBeVisible()
 })
 
-test('installation admin can one-click fill a llama.cpp connection', async ({ page }) => {
-  await seedAuth(page)
-  await page.route('**/api/llm/status', route => json(route, 200, {
-    mode: 'local_first',
-    local: { configured: false, state: 'not_configured' },
-    externalFallback: { configured: false, consent: null, version: 'qwen-fallback-v1' },
-  }))
-  await page.route('**/api/admin/llm/local/config', route => json(route, 200, {
-    enabled: false,
-    baseUrl: null,
-    model: null,
-    revision: 0,
-    lastVerifiedAt: null,
-    apiKeyConfigured: false,
-  }))
-  await page.route('**/api/admin/llm/local/detect', route => json(route, 200, {
-    preset: route.request().postDataJSON().preset,
-    baseUrl: 'http://host.docker.internal:8080/v1',
-    models: ['friend-8b'],
-    model: 'friend-8b',
-    state: 'ready',
-    apiKeyConfigured: false,
-  }))
-
-  await page.goto('/profile/local-model')
-  await page.getByRole('button', { name: '自动发现并填写' }).click()
-
-  await expect(page.getByLabel('llama.cpp 地址')).toHaveValue('http://host.docker.internal:8080/v1')
-  await expect(page.getByRole('combobox', { name: '模型' })).toHaveValue('friend-8b')
-  await expect(page.getByText(/部署服务器，不是你当前使用的手机/)).toBeVisible()
-  await expectNoSeriousAxeFindings(page)
-})
 
 test('streaming chat settles deltas into the persisted messages from done', async ({ page }) => {
   await seedAuth(page)
@@ -213,7 +180,7 @@ test('streaming chat settles deltas into the persisted messages from done', asyn
           status: 'ok',
           userMessage: { id: 'u-stream-1', role: 'user', content: '最近有点累', createdAt: '2026-09-04T00:00:00.000Z' },
           aiMessage: { id: 'a-stream-1', role: 'assistant', content: '我在听，慢慢说。', createdAt: '2026-09-04T00:00:01.000Z' },
-          source: 'local_model',
+          source: 'qwen',
         },
       ]),
     })
@@ -233,7 +200,7 @@ test('streaming chat settles deltas into the persisted messages from done', asyn
   await expect(page.getByText('我在听，慢慢说。')).toBeVisible()
   await expect(page.getByText('我在听，慢慢说。')).toHaveCount(1)
   await expect(page.getByText('最近有点累')).toHaveCount(1)
-  await expect(page.getByText('本机模型')).toBeVisible()
+  await expect(page.getByText('云端模型', { exact: true })).toBeVisible()
   await expect(input).toHaveValue('')
 })
 
@@ -280,7 +247,7 @@ test('a blocked stream response shows the crisis intervention without a provider
   await expect(page.getByRole('alertdialog', { name: '我很担心你' })).toContainText('固定且已批准的干预内容')
   // 危机命中无模型回复：用户消息落库展示一次，无来源标识的 AI 气泡
   await expect(page.getByText('流式危机输入')).toHaveCount(1)
-  await expect(page.getByText('本机模型')).toHaveCount(0)
+  await expect(page.getByText('云端模型', { exact: true })).toHaveCount(0)
 })
 
 test('a mid-stream error drops the draft reply and keeps the input for retry', async ({ page }) => {
@@ -297,9 +264,9 @@ test('a mid-stream error drops the draft reply and keeps the input for retry', a
   await page.getByRole('button', { name: '发送消息' }).click()
 
   // 中途失败不落库：临时气泡移除，页面给出失败提示，原输入保留供重试
-  await expect(page.getByText('本地模型与已授权的云端备用均不可用。原输入已保留，请稍后重试。')).toBeVisible()
+  await expect(page.getByText('云端模型暂时不可用。原输入已保留，请稍后重试。')).toBeVisible()
   await expect(page.getByText('半截回复')).toHaveCount(0)
-  await expect(page.getByText('这条流会失败')).toHaveCount(0)
+  await expect(page.locator('p.whitespace-pre-wrap', { hasText: '这条流会失败' })).toHaveCount(0)
   await expect(input).toHaveValue('这条流会失败')
 })
 
@@ -354,7 +321,7 @@ test('diary: save an entry and get an AI comment', async ({ page }) => {
     const request = route.request()
     const url = new URL(request.url())
     if (url.pathname.endsWith('/comment')) {
-      return json(route, 200, { aiComment: '桂花展也太会挑日子了，隔着屏幕都替你开心。', source: 'local_model', reused: false })
+      return json(route, 200, { aiComment: '桂花展也太会挑日子了，隔着屏幕都替你开心。', source: 'qwen', reused: false })
     }
     if (request.method() === 'GET' && /\/api\/diary\/\d{4}-\d{2}-\d{2}$/.test(url.pathname)) {
       return json(route, 404, { error: '这一天还没有日记' })
@@ -372,7 +339,7 @@ test('diary: save an entry and get an AI comment', async ({ page }) => {
 
   await page.getByRole('button', { name: '让姐妹看看' }).click()
   await expect(page.getByText('桂花展也太会挑日子了，隔着屏幕都替你开心。')).toBeVisible()
-  await expect(page.getByText('本机模型')).toBeVisible()
+  await expect(page.getByText('云端模型', { exact: true })).toBeVisible()
   await expectNoSeriousAxeFindings(page)
 })
 
@@ -450,36 +417,6 @@ test('schedule: adding an item with today’s date lands in the today group', as
   await expectNoSeriousAxeFindings(page)
 })
 
-test('virtual makeup room walks photo → look → generate to a real preview', async ({ page }) => {
-  await seedAuth(page)
-  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-  let generationRequest = null
-  await page.route('**/api/virtual/image-gen/status', route =>
-    json(route, 200, { available: true, configured: true, provider: 'comfy', reason: null }))
-  await page.route('**/api/virtual/image-gen/generations', route => {
-    generationRequest = route.request()
-    return json(route, 201, { imageDataUrl: tinyPng, scene: 'makeup', itemId: 'peach-date', provider: 'comfy' })
-  })
-  await page.goto('/tools/virtual-makeup')
-
-  await expect(page.getByText('生图能力已就绪')).toBeVisible()
-  await page.getByLabel('选择照片').setInputFiles({
-    name: 'selfie.png',
-    mimeType: 'image/png',
-    buffer: Buffer.from('e2e-photo-bytes'),
-  })
-  await expect(page.getByRole('img', { name: '已选照片预览：selfie.png' })).toBeVisible()
-  await page.getByRole('radio', { name: /蜜桃约会妆/ }).click()
-  await page.getByRole('button', { name: /生成预览/ }).click()
-
-  await expect(page.getByRole('img', { name: '蜜桃约会妆生成预览' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '保存预览' })).toHaveAttribute('download', '赛博姐妹预览.png')
-  // 生成请求必须带上照片与契约字段
-  expect(generationRequest?.method()).toBe('POST')
-  expect(generationRequest?.postData()).toContain('selfie.png')
-  expect(generationRequest?.postData()).toContain('peach-date')
-  await expectNoSeriousAxeFindings(page)
-})
 
 test('work mode: segmented switch creates a work conversation, shows work badge and filters the list', async ({ page, isMobile }) => {
   await seedAuth(page)
@@ -512,9 +449,6 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
     conversations.unshift(created)
     return json(route, 201, created)
   })
-  await page.route('**/api/work/status', route => json(route, 200, {
-    browser: { enabled: true, running: false, headed: true },
-  }))
   await page.route('**/api/chat/conversations/*/messages/stream', route => fulfillStream(route, [
     {
       event: 'done',
@@ -525,16 +459,11 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
         role: 'assistant',
         content: '已按时间顺序整理好。',
         createdAt: '2026-09-05T09:00:01.000Z',
-        toolRuns: [{ tool: 'generate_image', ok: true, summary: '已生成一张图', imageId: 'a1b2c3d4-e5f6-4710-8899-aabbccddeeff.png' }],
+        toolRuns: [{ tool: 'add_todo', ok: true, summary: '已添加日程「整理日程」' }],
       },
-      source: 'local_model',
+      source: 'qwen',
     },
   ]))
-  await page.route('**/api/work/images/*', route => route.fulfill({
-    status: 200,
-    contentType: 'image/png',
-    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
-  }))
   await page.goto('/chat')
 
   // 聊天模式：人格徽章在、列表只有聊天会话（桌面端）
@@ -544,11 +473,11 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
     await expect(page.getByRole('button', { name: /^聊天会话/ })).toBeVisible()
   }
 
-  // 切到工作模式：徽章替换、浏览器状态 chip、占位符与空态切换
+  // 切到工作模式：徽章替换、占位符与空态切换（云端切割后不再有浏览器状态 chip）
   await modeSwitch.getByRole('button', { name: '工作' }).click()
   await expect(page.getByText('工作模式', { exact: true })).toBeVisible()
   await expect(page.getByText('包容·耐心·讲道理')).toHaveCount(0)
-  await expect(page.getByText('浏览器已就绪')).toBeVisible()
+  await expect(page.getByText('浏览器已就绪')).toHaveCount(0)
   await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '把工作交给她…')
   if (!isMobile) {
     await expect(page.getByRole('button', { name: /^聊天会话/ })).toHaveCount(0)
@@ -559,8 +488,8 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
   await page.getByRole('textbox', { name: '聊天消息' }).fill('帮我整理今天的日程')
   await page.getByRole('button', { name: '发送消息' }).click()
   await expect(page.getByText('已按时间顺序整理好。')).toBeVisible()
-  // 生图 chip：鉴权拉取 blob 后渲染缩略图
-  await expect(page.getByAltText('生成的图片')).toBeVisible()
+  // 工具动作 chip 可见（生图 chip 已随切割删除）
+  await expect(page.getByLabel(/已执行：已添加日程/)).toBeVisible()
   // 切回聊天：工作会话从列表消失，聊天会话仍在
   await modeSwitch.getByRole('button', { name: '聊天' }).click()
   await expect(page.getByText('包容·耐心·讲道理')).toBeVisible()

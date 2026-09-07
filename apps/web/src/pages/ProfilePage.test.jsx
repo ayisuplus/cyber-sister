@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   consentGet: vi.fn(),
   consentUpdate: vi.fn(),
-  llmGetStatus: vi.fn(),
   uploadAsset: vi.fn(),
   deleteAsset: vi.fn(),
   fetchAssetUrl: vi.fn(),
@@ -35,9 +34,6 @@ vi.mock('../services/consentService', () => ({
   },
 }))
 
-vi.mock('../services/localModelService', () => ({
-  localModelService: { getStatus: mocks.llmGetStatus },
-}))
 
 vi.mock('../services/userService', () => ({
   userService: {
@@ -66,10 +62,9 @@ import ProfilePage from './ProfilePage'
 
 const renderPage = () => render(<MemoryRouter><ProfilePage /></MemoryRouter>)
 
-describe('ProfilePage cloud fallback consent', () => {
+describe('ProfilePage 云端模型同意', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.llmGetStatus.mockResolvedValue({ mode: 'local_first' })
     mocks.resolveAssetUrl.mockResolvedValue(null)
     mocks.consentGet.mockResolvedValue({
       accepted: null,
@@ -78,41 +73,42 @@ describe('ProfilePage cloud fallback consent', () => {
     })
   })
 
-  it('presents cloud use as optional fallback without blocking local chat', async () => {
+  it('presents the cloud model as the only chat path with an explicit consent gate', async () => {
     renderPage()
 
     expect(await screen.findByText(/qwen-fallback-v1 · 尚未选择/)).toBeInTheDocument()
-    expect(screen.getByText(/始终优先使用本地模型/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保持仅本地' })).toBeEnabled()
+    expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
+    expect(screen.getByText(/拒绝或撤回后聊天不可用/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '暂不开启' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '允许云端模型' })).toBeEnabled()
   })
 
-  it('records explicit acceptance for cloud fallback', async () => {
+  it('records explicit acceptance for the cloud model', async () => {
     const user = userEvent.setup()
     mocks.consentUpdate.mockResolvedValue({ accepted: true, version: 'qwen-fallback-v1' })
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: '允许云端备用' }))
+    await user.click(await screen.findByRole('button', { name: '允许云端模型' }))
 
     expect(mocks.consentUpdate).toHaveBeenCalledWith(true)
-    expect(screen.getByText('已允许本地模型失败时使用云端备用')).toBeInTheDocument()
+    expect(screen.getByText('已允许云端模型，聊天会外发给模型供应商')).toBeInTheDocument()
   })
 
-  it('records refusal or withdrawal while keeping the local mode available', async () => {
+  it('records refusal or withdrawal which makes chat unavailable', async () => {
     const user = userEvent.setup()
     mocks.consentUpdate.mockResolvedValue({ accepted: false, version: 'qwen-fallback-v1' })
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: '保持仅本地' }))
+    await user.click(await screen.findByRole('button', { name: '暂不开启' }))
 
     expect(mocks.consentUpdate).toHaveBeenCalledWith(false)
-    expect(screen.getByText('已关闭云端备用，聊天不会外发给模型供应商')).toBeInTheDocument()
+    expect(screen.getByText('已关闭云端模型，聊天将不可用')).toBeInTheDocument()
   })
 })
 
 describe('ProfilePage 角色扮演', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.llmGetStatus.mockResolvedValue({ mode: 'local_first' })
     mocks.resolveAssetUrl.mockResolvedValue(null)
     mocks.consentGet.mockResolvedValue({
       accepted: null,
@@ -160,33 +156,11 @@ describe('ProfilePage 角色扮演', () => {
   })
 })
 
-describe('ProfilePage 外部主用模式', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.llmGetStatus.mockResolvedValue({ mode: 'external_primary' })
-    mocks.resolveAssetUrl.mockResolvedValue(null)
-    mocks.consentGet.mockResolvedValue({ accepted: null, version: 'qwen-fallback-v1', updatedAt: null })
-  })
-
-  it('describes the cloud model as the chat provider and keeps the consent toggle', async () => {
-    const user = userEvent.setup()
-    mocks.consentUpdate.mockResolvedValue({ accepted: true, version: 'qwen-fallback-v1' })
-    renderPage()
-
-    expect(await screen.findByText('云端模型')).toBeInTheDocument()
-    expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
-    expect(screen.queryByText(/始终优先使用本地模型/)).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: '允许云端模型' }))
-    expect(mocks.consentUpdate).toHaveBeenCalledWith(true)
-  })
-})
 
 describe('ProfilePage 装扮区', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.authState.user = { nickname: '小赛', persona: 'gentle' }
-    mocks.llmGetStatus.mockResolvedValue({ mode: 'local_first' })
     mocks.consentGet.mockResolvedValue({ accepted: null, version: 'qwen-fallback-v1', updatedAt: null })
     mocks.resolveAssetUrl.mockResolvedValue(null)
   })

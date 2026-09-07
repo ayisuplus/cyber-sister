@@ -79,11 +79,6 @@ services:
         condition: service_healthy
       migration:
         condition: service_completed_successfully
-    extra_hosts:
-      # Linux Docker: let the API reach a llama.cpp process running on the host.
-      - "host.docker.internal:host-gateway"
-    # Chromium 无头运行默认挂 /dev/shm；显式给 1GB 防止渲染进程崩溃
-    shm_size: '1gb'
 
   web:
     image: ${WEB_IMAGE_REPOSITORY:-cyber-sister-web}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}

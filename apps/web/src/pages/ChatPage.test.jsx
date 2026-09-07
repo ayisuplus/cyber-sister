@@ -35,8 +35,8 @@ vi.mock('../services/complianceService', () => ({
     getUsageStatus: vi.fn(),
   },
 }))
-vi.mock('../services/localModelService', () => ({
-  localModelService: { getStatus: vi.fn() },
+vi.mock('../services/modelStatusService', () => ({
+  modelStatusService: { getStatus: vi.fn() },
 }))
 
 vi.mock('../services/consentService', () => ({
@@ -50,7 +50,7 @@ vi.mock('../services/memoryService', () => ({
 import { chatService } from '../services/chatService'
 import { complianceService } from '../services/complianceService'
 import { consentService } from '../services/consentService'
-import { localModelService } from '../services/localModelService'
+import { modelStatusService } from '../services/modelStatusService'
 import { memoryService } from '../services/memoryService'
 import { useChatStore } from '../stores/chatStore'
 import { useComplianceStore } from '../stores/complianceStore'
@@ -77,9 +77,10 @@ describe('ChatPage', () => {
     })
     chatService.getConversations.mockResolvedValue([])
     sessionStorage.clear()
-    localModelService.getStatus.mockResolvedValue({
-      local: { configured: true, state: 'ready' },
-      externalFallback: { configured: true, consent: null, version: 'qwen-fallback-v1' },
+    modelStatusService.getStatus.mockResolvedValue({
+      mode: 'external_primary',
+      local: { configured: false, state: 'removed' },
+      externalFallback: { configured: true, consent: true, version: 'qwen-fallback-v1' },
     })
   })
 
@@ -170,9 +171,8 @@ describe('ChatPage', () => {
   })
 
   it.each([
-    [{ code: 'LOCAL_LLM_NOT_CONFIGURED' }, '本地模型尚未连接，请前往“我的 → 本地模型”查看设置。原输入已保留。'],
-    [{ code: 'LOCAL_LLM_UNAVAILABLE' }, '本地模型暂时不可用，且没有在未授权时转发到云端。原输入已保留，请稍后重试。'],
-    [{ code: 'LLM_UNAVAILABLE' }, '本地模型与已授权的云端备用均不可用。原输入已保留，请稍后重试。'],
+    [{ code: 'CLOUD_NOT_CONSENTED' }, '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'],
+    [{ code: 'LLM_UNAVAILABLE' }, '云端模型暂时不可用。原输入已保留，请稍后重试。'],
     [{ message: 'unknown failure' }, '消息发送失败，原输入已保留，请重试。'],
   ])('explains send failure %o without losing the draft', async (errorPayload, expectedMessage) => {
     const user = userEvent.setup()
@@ -205,7 +205,7 @@ describe('ChatPage', () => {
     useChatStore.setState({
       messages: [
         { id: 'u1', role: 'user', content: '旧问题' },
-        { id: 'a1', role: 'assistant', content: '旧回答', source: 'local_model' },
+        { id: 'a1', role: 'assistant', content: '旧回答', source: 'qwen' },
       ],
     })
 
@@ -213,14 +213,14 @@ describe('ChatPage', () => {
 
     expect(screen.getByText('旧问题')).toBeInTheDocument()
     expect(screen.getByText('旧回答')).toBeInTheDocument()
-    expect(screen.getByText('本机模型')).toBeInTheDocument()
+    expect(screen.getByText('云端模型')).toBeInTheDocument()
   })
 })
 
 describe('ChatPage 帮我记住入口', () => {
   const persistedPair = [
     { id: 'u1', role: 'user', content: '我最近在看科幻片' },
-    { id: 'a1', role: 'assistant', content: '推荐《流浪地球》', source: 'local_model' },
+    { id: 'a1', role: 'assistant', content: '推荐《流浪地球》', source: 'qwen' },
   ]
 
   beforeEach(() => {
@@ -239,9 +239,10 @@ describe('ChatPage 帮我记住入口', () => {
       crisisLevel: null,
     })
     chatService.getConversations.mockResolvedValue([])
-    localModelService.getStatus.mockResolvedValue({
-      local: { configured: true, state: 'ready' },
-      externalFallback: { configured: true, consent: null, version: 'qwen-fallback-v1' },
+    modelStatusService.getStatus.mockResolvedValue({
+      mode: 'external_primary',
+      local: { configured: false, state: 'removed' },
+      externalFallback: { configured: true, consent: true, version: 'qwen-fallback-v1' },
     })
   })
 
@@ -360,7 +361,7 @@ describe('ChatPage usage session wiring', () => {
     }
   })
 })
-describe('ChatPage 云端备用引导', () => {
+describe('ChatPage 云端同意门', () => {
   beforeEach(() => {
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     useChatStore.setState({
@@ -380,134 +381,67 @@ describe('ChatPage 云端备用引导', () => {
     sessionStorage.clear()
   })
 
-  const statusWith = ({ state = 'ready', configured = true, consent = null } = {}) => ({
-    local: { configured: true, state },
+  const statusWith = ({ configured = true, consent = null } = {}) => ({
+    mode: 'external_primary',
+    local: { configured: false, state: 'removed' },
     externalFallback: { configured, consent, version: 'qwen-fallback-v1' },
   })
 
-  it('prompts when the local model is unavailable and consent is undecided', async () => {
+  it('prompts for consent when the cloud provider is configured but consent is undecided', async () => {
     const user = userEvent.setup()
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'unavailable' }))
+    modelStatusService.getStatus.mockResolvedValue(statusWith())
     consentService.update.mockResolvedValue({ accepted: true })
     renderPage()
 
-    expect(await screen.findByText('本地模型暂时不可用')).toBeInTheDocument()
+    expect(await screen.findByText('这个姐妹住在云端')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '允许云端备用' }))
+    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
 
     expect(consentService.update).toHaveBeenCalledWith(true)
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
   })
 
   it('stays quiet when consent was already given', async () => {
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'unavailable', consent: true }))
+    modelStatusService.getStatus.mockResolvedValue(statusWith({ consent: true }))
     renderPage()
 
     await act(async () => {})
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
   })
 
   it('stays quiet when consent was already refused', async () => {
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'unavailable', consent: false }))
+    modelStatusService.getStatus.mockResolvedValue(statusWith({ consent: false }))
     renderPage()
 
     await act(async () => {})
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
   })
 
-  it('stays quiet when no cloud fallback is configured', async () => {
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'unavailable', configured: false }))
+  it('stays quiet when no cloud provider is configured', async () => {
+    modelStatusService.getStatus.mockResolvedValue(statusWith({ configured: false }))
     renderPage()
 
     await act(async () => {})
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
-  })
-
-  it('stays quiet while the local model is ready', async () => {
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'ready' }))
-    renderPage()
-
-    await act(async () => {})
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
   })
 
   it('fails silently when the status request itself fails', async () => {
-    localModelService.getStatus.mockRejectedValue(new Error('network down'))
+    modelStatusService.getStatus.mockRejectedValue(new Error('network down'))
     renderPage()
 
     await act(async () => {})
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '今天心情不好' })).toBeInTheDocument()
   })
 
   it('stays quiet for the rest of the session after 暂不', async () => {
     sessionStorage.setItem('cloudFallbackDismissed', 'true')
-    localModelService.getStatus.mockResolvedValue(statusWith({ state: 'unavailable' }))
+    modelStatusService.getStatus.mockResolvedValue(statusWith())
     renderPage()
 
     await act(async () => {})
-    expect(localModelService.getStatus).not.toHaveBeenCalled()
-    expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+    expect(modelStatusService.getStatus).not.toHaveBeenCalled()
+    expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()
   })
 })
 
-describe('ChatPage 外部主用模式', () => {
-  beforeEach(() => {
-    localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
-    sessionStorage.clear()
-    useChatStore.setState({
-      conversations: [], currentConversationId: null, messages: [],
-      isTyping: false, isSending: false, llmMode: null,
-    })
-    useComplianceStore.setState({
-      showCrisisModal: false, showUsageReminder: false, showAIDisclaimer: false, crisisLevel: null,
-    })
-    chatService.getConversations.mockResolvedValue([])
-    localModelService.getStatus.mockResolvedValue({
-      mode: 'external_primary',
-      local: { configured: false, state: 'not_configured' },
-      externalFallback: { configured: true, consent: null, version: 'qwen-fallback-v1' },
-    })
-  })
-
-  it('prompts for cloud consent with primary copy when undecided', async () => {
-    const user = userEvent.setup()
-    consentService.update.mockResolvedValue({ accepted: true })
-    renderPage()
-
-    expect(await screen.findByText('这个姐妹住在云端')).toBeInTheDocument()
-    expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
-    expect(consentService.update).toHaveBeenCalledWith(true)
-  })
-
-  it('explains cloud failure with primary wording', async () => {
-    const user = userEvent.setup()
-    useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.streamMessage.mockRejectedValue({ code: 'LLM_UNAVAILABLE' })
-    renderPage()
-    await act(async () => {}) // 等 llmMode 落库
-
-    const input = screen.getByRole('textbox', { name: '聊天消息' })
-    await user.type(input, '这条会失败')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
-
-    expect(await screen.findByText('云端模型暂时不可用。原输入已保留，请稍后重试。')).toBeInTheDocument()
-    expect(input).toHaveValue('这条会失败')
-  })
-
-  it('guides to the consent toggle when cloud is not yet accepted', async () => {
-    const user = userEvent.setup()
-    useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.streamMessage.mockRejectedValue({ code: 'LOCAL_LLM_UNAVAILABLE' })
-    renderPage()
-    await act(async () => {})
-
-    const input = screen.getByRole('textbox', { name: '聊天消息' })
-    await user.type(input, '这条会失败')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
-
-    expect(await screen.findByText('需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。')).toBeInTheDocument()
-  })
-})

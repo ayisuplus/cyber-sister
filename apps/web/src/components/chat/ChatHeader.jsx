@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
-import { chatService } from '../../services/chatService'
 
 import { getPersona } from '../../features/personas'
 
@@ -16,20 +14,6 @@ export default function ChatHeader() {
   const personaInfo = getPersona(user?.persona)
   const chatMode = useChatStore(state => state.chatMode)
   const setChatMode = useChatStore(state => state.setChatMode)
-  // null=不展示（非工作模式或查询失败），true/false=浏览器已就绪/未启用
-  const [browserReady, setBrowserReady] = useState(null)
-
-  useEffect(() => {
-    if (chatMode !== 'work') {
-      setBrowserReady(null)
-      return undefined
-    }
-    let cancelled = false
-    chatService.getWorkStatus()
-      .then((data) => { if (!cancelled) setBrowserReady(data?.browser?.enabled === true) })
-      .catch(() => { if (!cancelled) setBrowserReady(null) })
-    return () => { cancelled = true }
-  }, [chatMode])
 
   return (
     <>
@@ -67,9 +51,6 @@ export default function ChatHeader() {
         </div>
 
         <div className="flex items-center gap-2">
-          {chatMode === 'work' && browserReady !== null && (
-            <span className="text-[10px] text-text-muted">{browserReady ? '浏览器已就绪' : '浏览器未启用'}</span>
-          )}
           <div role="group" aria-label="会话模式" className="flex rounded-full bg-surface-input p-0.5">
             {MODE_OPTIONS.map(option => {
               const selected = chatMode === option.id
@@ -86,7 +67,7 @@ export default function ChatHeader() {
               )
             })}
           </div>
-          <span className="rounded-full bg-pastel-sprout px-3 py-1.5 text-[10px] font-medium text-status-local">AI 生成 · 本地优先</span>
+          <span className="rounded-full bg-pastel-mist px-3 py-1.5 text-[10px] font-medium text-status-info">AI 生成 · 云端模型</span>
         </div>
       </div>
     </>

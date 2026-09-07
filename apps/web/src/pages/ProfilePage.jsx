@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Brain, ChevronRight, Cpu, Crown, Drama, LogOut, Palette, Shield, Sparkles } from 'lucide-react'
+import { Brain, ChevronRight, Crown, Drama, LogOut, Palette, Shield, Sparkles } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
 import { consentService } from '../services/consentService'
-import { localModelService } from '../services/localModelService'
 import { userService } from '../services/userService'
 import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl'
 import Header from '../components/layout/Header'
@@ -26,7 +25,6 @@ export default function ProfilePage() {
   const [roleName, setRoleName] = useState(user?.roleName ?? '')
   const [roleSetting, setRoleSetting] = useState(user?.roleSetting ?? '')
   const [savingRole, setSavingRole] = useState(false)
-  const [llmMode, setLlmMode] = useState(null)
   const homeBgUrl = useAppearanceStore(s => s.homeBgUrl)
   const chatBgUrl = useAppearanceStore(s => s.chatBgUrl)
   const setBackground = useAppearanceStore(s => s.setBackground)
@@ -35,10 +33,7 @@ export default function ProfilePage() {
   const [busySlot, setBusySlot] = useState(null)
 
   useEffect(() => {
-    consentService.get().then(setConsent).catch(() => setMessage('无法读取云端备用设置'))
-    localModelService.getStatus()
-      .then((status) => setLlmMode(status?.mode === 'external_primary' ? 'external_primary' : 'local_first'))
-      .catch(() => setLlmMode('local_first'))
+    consentService.get().then(setConsent).catch(() => setMessage('无法读取云端模型设置'))
   }, [])
 
   const handlePersonaSwitch = async (persona) => {
@@ -88,9 +83,9 @@ export default function ProfilePage() {
     try {
       const updated = await consentService.update(accepted)
       setConsent(updated)
-      setMessage(accepted ? '已允许本地模型失败时使用云端备用' : '已关闭云端备用，聊天不会外发给模型供应商')
+      setMessage(accepted ? '已允许云端模型，聊天会外发给模型供应商' : '已关闭云端模型，聊天将不可用')
     } catch {
-      setMessage('云端备用设置保存失败，请重试')
+      setMessage('云端模型设置保存失败，请重试')
     } finally {
       setSavingConsent(false)
     }
@@ -304,27 +299,14 @@ export default function ProfilePage() {
         <section aria-labelledby="consent-settings-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
           <h2 id="consent-settings-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             <Shield size={16} className="text-brand-green" />
-            {llmMode === 'external_primary' ? '云端模型' : '云端备用模型'}
+            云端模型
           </h2>
-          {llmMode === 'external_primary' ? (
-            <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'qwen-fallback-v1'} · {consentLabel}。本部署的聊天由经批准的云端模型提供：你的消息（经脱敏，最多 20 条消息与最多 5 条相关显式记忆）会发送到该模型处理；拒绝或撤回后聊天不可用。</p>
-          ) : (
-            <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'qwen-fallback-v1'} · {consentLabel}。赛博姐妹始终优先使用本地模型；只有本地不可用且你接受后，才会向云端发送经脱敏的最多 20 条消息及最多 5 条相关显式记忆。</p>
-          )}
+          <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'qwen-fallback-v1'} · {consentLabel}。聊天由经批准的云端模型提供：你的消息（经脱敏，最多 20 条消息与最多 5 条相关显式记忆）会发送到该模型处理；拒绝或撤回后聊天不可用。</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" disabled={savingConsent} onClick={() => handleConsent(false)} className="min-h-11 rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">{llmMode === 'external_primary' ? '暂不开启' : '保持仅本地'}</button>
-            <button type="button" disabled={savingConsent} onClick={() => handleConsent(true)} className="min-h-12 rounded-xl bg-action-primary hover:bg-action-hover text-xs font-semibold text-text-inverse focus:ring-2 focus:ring-status-info disabled:opacity-50" style={{ boxShadow: 'var(--cs-shadow-button)' }}>{llmMode === 'external_primary' ? '允许云端模型' : '允许云端备用'}</button>
+            <button type="button" disabled={savingConsent} onClick={() => handleConsent(false)} className="min-h-11 rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">暂不开启</button>
+            <button type="button" disabled={savingConsent} onClick={() => handleConsent(true)} className="min-h-12 rounded-xl bg-action-primary hover:bg-action-hover text-xs font-semibold text-text-inverse focus:ring-2 focus:ring-status-info disabled:opacity-50" style={{ boxShadow: 'var(--cs-shadow-button)' }}>允许云端模型</button>
           </div>
         </section>
-
-        <button type="button" onClick={() => navigate('/profile/local-model')} className="min-h-14 w-full rounded-[20px] bg-surface-card border border-border-hairline px-4 flex items-center gap-3">
-          <Cpu size={18} className="text-status-local" />
-          <span className="flex-1 text-left">
-            <span className="block text-sm text-text-primary">本地模型与 llama.cpp</span>
-            <span className="block text-[11px] text-text-muted">查看状态；安装管理员可自动发现并配置</span>
-          </span>
-          <ChevronRight size={16} className="text-text-muted" />
-        </button>
 
         <button type="button" onClick={() => navigate('/profile/memories')} className="min-h-14 w-full rounded-[20px] bg-surface-card px-4 shadow-card flex items-center gap-3">
           <Brain size={18} className="text-status-info" />

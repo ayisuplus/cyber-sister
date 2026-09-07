@@ -40,12 +40,6 @@ describe('root routing', () => {
     expect(await screen.findByRole('heading', { name: '聊天页' })).toBeInTheDocument()
   })
 
-  it('protects and exposes the local model settings route', async () => {
-    window.history.replaceState({}, '', '/profile/local-model')
-    useAuthStore.setState({ token: 'token', user: { id: 'u1' }, isLoggedIn: true })
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: '本地模型页' })).toBeInTheDocument()
-  })
 
   it('protects and exposes the membership route', async () => {
     window.history.replaceState({}, '', '/profile/membership')
@@ -53,22 +47,9 @@ describe('root routing', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { name: '会员页' })).toBeInTheDocument()
   })
-  it('protects and exposes the virtual makeup room route', async () => {
-    window.history.replaceState({}, '', '/tools/virtual-makeup')
-    useAuthStore.setState({ token: 'token', user: { id: 'u1' }, isLoggedIn: true })
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: '虚拟化妆间页' })).toBeInTheDocument()
-  })
 
-  it('protects and exposes the virtual fitting room route', async () => {
-    window.history.replaceState({}, '', '/tools/virtual-fitting')
-    useAuthStore.setState({ token: 'token', user: { id: 'u1' }, isLoggedIn: true })
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: '虚拟试衣间页' })).toBeInTheDocument()
-  })
-
-  it('redirects signed-out visitors away from the virtual rooms', async () => {
-    window.history.replaceState({}, '', '/tools/virtual-makeup')
+  it('redirects signed-out visitors away from protected routes', async () => {
+    window.history.replaceState({}, '', '/settings')
     render(<App />)
     expect(await screen.findByRole('heading', { name: '登录页' })).toBeInTheDocument()
   })

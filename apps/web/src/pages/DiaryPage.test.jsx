@@ -15,7 +15,6 @@ vi.mock('../services/diaryService', () => ({
 }))
 
 import { diaryService } from '../services/diaryService'
-import { useChatStore } from '../stores/chatStore'
 import DiaryPage from './DiaryPage'
 
 const renderPage = () => render(<MemoryRouter><DiaryPage /></MemoryRouter>)
@@ -45,7 +44,6 @@ const todayEntry = (overrides = {}) => ({
 describe('DiaryPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useChatStore.setState({ llmMode: null })
     diaryService.listMonth.mockResolvedValue([])
     diaryService.getDay.mockRejectedValue(notFound())
     diaryService.saveDay.mockImplementation(async (day, data) => ({ id: 'd1', day, ...data, aiComment: null, aiCommentSource: null }))
@@ -112,7 +110,7 @@ describe('DiaryPage', () => {
   it('shows the AI comment after asking the sister', async () => {
     const user = userEvent.setup()
     diaryService.getDay.mockResolvedValue(todayEntry())
-    diaryService.requestComment.mockResolvedValue({ aiComment: '今天辛苦啦，抱抱你', source: 'local_model', reused: false })
+    diaryService.requestComment.mockResolvedValue({ aiComment: '今天辛苦啦，抱抱你', source: 'qwen', reused: false })
 
     renderPage()
 
@@ -121,11 +119,10 @@ describe('DiaryPage', () => {
 
     expect(diaryService.requestComment).toHaveBeenCalledWith(today)
     expect(await screen.findByText('今天辛苦啦，抱抱你')).toBeInTheDocument()
-    expect(screen.getByText('本机模型')).toBeInTheDocument()
+    expect(screen.getByText('云端模型')).toBeInTheDocument()
   })
 
-  it('labels the cloud model as primary under external_primary deployments', async () => {
-    useChatStore.setState({ llmMode: 'external_primary' })
+  it('labels the comment source as cloud model', async () => {
     diaryService.getDay.mockResolvedValue(todayEntry({ aiComment: '云端回应', aiCommentSource: 'qwen' }))
 
     renderPage()
@@ -135,18 +132,18 @@ describe('DiaryPage', () => {
     expect(screen.queryByText('云端备用')).not.toBeInTheDocument()
   })
 
-  it('guides to local model settings when it is not configured', async () => {
+  it('guides to consent the cloud model when it is not consented', async () => {
     const user = userEvent.setup()
     diaryService.getDay.mockResolvedValue(todayEntry())
-    diaryService.requestComment.mockRejectedValue({ response: { status: 503, data: { error: '未配置', code: 'LOCAL_LLM_NOT_CONFIGURED' } } })
+    diaryService.requestComment.mockRejectedValue({ response: { status: 503, data: { error: '未同意', code: 'CLOUD_NOT_CONSENTED' } } })
 
     renderPage()
 
     await screen.findByLabelText('日记内容')
     await user.click(screen.getByRole('button', { name: /让姐妹看看/ }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('还没有配置本地模型')
-    expect(screen.getByRole('link', { name: /本地模型/ })).toHaveAttribute('href', '/profile/local-model')
+    expect(await screen.findByRole('alert')).toHaveTextContent('还没有同意使用云端模型')
+    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
   })
 
   it('shows a retry-later message when the model is unavailable', async () => {

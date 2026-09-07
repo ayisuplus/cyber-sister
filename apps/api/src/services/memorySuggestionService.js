@@ -9,21 +9,18 @@
  * - 输入命中危机检测、或候选含联系方式/证件号/精确位置/医疗内容时，不生成候选。
  * - 日志只记 requestId 与结果计数，不记消息或候选内容。
  */
-import { createGateway } from '@cyber-sister/llm-gateway'
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
 import { detectCrisis } from './detection.js'
 import { MEMORY_TYPES } from './memoryService.js'
 import {
-  buildGatewayEnv,
-  isExternalChatPrimary,
-  LocalLlmNotConfiguredError,
-  LocalLlmUnavailableError,
+  LlmUnavailableError,
+  assertCloudCallable,
+  getGateway,
   MAX_MODEL_MESSAGE_CHARS,
   redactSensitiveText,
 } from './llmService.js'
-import { getStoredLocalConfig, normalizeAndAuthorizeBaseUrl } from './localLlmConfigService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 
 const MAX_CANDIDATES = 2
@@ -146,40 +143,27 @@ async function findOwnedUserMessage(userId, messageId) {
   return message
 }
 
-async function runLocalExtraction(text, requestId, userId) {
-  const externalPrimary = isExternalChatPrimary()
-  const localConfig = await getStoredLocalConfig()
-  if (!localConfig?.enabled && !externalPrimary) throw new LocalLlmNotConfiguredError()
-  let authorizedConfig = null
-  if (localConfig?.enabled) {
-    try {
-      authorizedConfig = { ...localConfig, baseUrl: normalizeAndAuthorizeBaseUrl(localConfig.baseUrl) }
-    } catch {
-      if (!externalPrimary) throw new LocalLlmUnavailableError()
-    }
-  }
-  const gateway = await createGateway(buildGatewayEnv(authorizedConfig), { logger })
-  // 默认部署仅本地（W3-2）；外部主用模式下解释场景与聊天共用同一同意门
-  let allowExternal = false
+async function runCloudExtraction(text, requestId, userId) {
+  const consent = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { externalLlmConsent: true, externalLlmConsentVersion: true },
+  })
+  const allowExternal = consent?.externalLlmConsent === true
+    && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  // 云端切割后记忆候选同样走同意门：未同意不得调用云端模型
+  assertCloudCallable(allowExternal)
   let authorizeExternal
-  if (externalPrimary && userId) {
-    const consent = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-    })
-    allowExternal = consent?.externalLlmConsent === true
-      && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-    if (allowExternal) {
-      authorizeExternal = async () => {
-        const current = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-        })
-        return current?.externalLlmConsent === true
-          && current.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-      }
+  if (allowExternal) {
+    authorizeExternal = async () => {
+      const current = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
+      })
+      return current?.externalLlmConsent === true
+        && current.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
     }
   }
+  const gateway = await getGateway()
   const result = await gateway.complete({
     scene: 'explain',
     requestId,
@@ -190,7 +174,7 @@ async function runLocalExtraction(text, requestId, userId) {
     maxTokens: MAX_SUGGESTION_TOKENS,
     temperature: SUGGESTION_TEMPERATURE,
   })
-  if (!result?.content) throw new LocalLlmUnavailableError()
+  if (!result?.content) throw new LlmUnavailableError()
   return result.content
 }
 
@@ -207,7 +191,7 @@ export async function getMemorySuggestions(userId, messageId, requestId) {
   }
 
   const safeText = redactSensitiveText(message.content).trim().slice(0, MAX_MODEL_MESSAGE_CHARS)
-  const output = await runLocalExtraction(safeText, requestId, userId)
+  const output = await runCloudExtraction(safeText, requestId, userId)
 
   const parsed = extractJsonArray(output)
   if (!parsed) {

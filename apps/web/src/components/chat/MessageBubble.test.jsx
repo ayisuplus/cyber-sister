@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
-import { useChatStore } from '../../stores/chatStore'
 import MessageBubble from './MessageBubble'
 
 vi.mock('../../services/userService', () => ({
@@ -10,33 +9,19 @@ vi.mock('../../services/userService', () => ({
   },
 }))
 
-vi.mock('../../services/chatService', () => ({
-  chatService: {
-    getWorkImageUrl: vi.fn(),
-  },
-}))
 
 
 import { userService } from '../../services/userService'
-import { chatService } from '../../services/chatService'
 
 describe('MessageBubble', () => {
   it.each([
-    ['local_model', '本机模型'],
-    ['qwen', '云端备用'],
+    ['qwen', '云端模型'],
     ['local_template', '本地安全模板'],
   ])('shows the real response source %s', (source, label) => {
     render(<MessageBubble message={{ role: 'assistant', content: '回复', source }} isLast={false} />)
     expect(screen.getByText(label)).toBeInTheDocument()
   })
 
-  it('labels the cloud model as primary when the deployment is external_primary', () => {
-    useChatStore.setState({ llmMode: 'external_primary' })
-    render(<MessageBubble message={{ role: 'assistant', content: '回复', source: 'qwen' }} isLast={false} />)
-    expect(screen.getByText('云端模型')).toBeInTheDocument()
-    expect(screen.queryByText('云端备用')).not.toBeInTheDocument()
-    useChatStore.setState({ llmMode: null })
-  })
 })
 describe('MessageBubble rendering contract', () => {
   it('aligns user messages to the right without avatar or source label', () => {
@@ -126,44 +111,6 @@ describe('MessageBubble tool run chips', () => {
   })
 })
 
-describe('MessageBubble 生成图', () => {
-  it('imageId chip 经鉴权拉取 blob 渲染缩略图，失败时只留文字 chip', async () => {
-    chatService.getWorkImageUrl.mockResolvedValue('blob:mock-image-url')
-    render(
-      <MessageBubble
-        message={{
-          role: 'assistant',
-          content: '画好了',
-          toolRuns: [{ tool: 'generate_image', ok: true, summary: '已生成一张图', imageId: 'a1b2c3d4-e5f6-4710-8899-aabbccddeeff.png' }],
-        }}
-        isLast={false}
-      />,
-    )
-
-    expect(screen.getByLabelText('已执行：已生成一张图')).toBeInTheDocument()
-    const image = await screen.findByAltText('生成的图片')
-    expect(image).toHaveAttribute('src', 'blob:mock-image-url')
-    expect(chatService.getWorkImageUrl).toHaveBeenCalledWith('a1b2c3d4-e5f6-4710-8899-aabbccddeeff.png')
-  })
-
-  it('拉取失败时不渲染图片，只保留文字 chip', async () => {
-    chatService.getWorkImageUrl.mockRejectedValue(new Error('404'))
-    render(
-      <MessageBubble
-        message={{
-          role: 'assistant',
-          content: '画好了',
-          toolRuns: [{ tool: 'generate_image', ok: true, summary: '已生成一张图', imageId: 'gone.png' }],
-        }}
-        isLast={false}
-      />,
-    )
-
-    expect(screen.getByLabelText('已执行：已生成一张图')).toBeInTheDocument()
-    await vi.waitFor(() => expect(chatService.getWorkImageUrl).toHaveBeenCalled())
-    expect(screen.queryByAltText('生成的图片')).toBeNull()
-  })
-})
 
 describe('MessageBubble 用户头像', () => {
   afterEach(() => {

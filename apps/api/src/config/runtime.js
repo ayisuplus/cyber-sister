@@ -133,7 +133,7 @@ export function validateRuntimeConfig(env = process.env) {
     }
     const providers = (env.GATEWAY_PROVIDERS || '').split(',').map((value) => value.trim()).filter(Boolean)
     if (providers.some((provider) => provider !== 'qwen')) {
-      errors.push('内测环境的环境供应商只允许 qwen，llama.cpp 由实例配置管理')
+      errors.push('内测环境的环境供应商只允许 qwen（云端切割后本地模型面已删除）')
     }
   } else if (env.INTERNAL_TEST_CODE) {
     errors.push('固定验证码只能在 APP_ENV=internal 时使用')
@@ -167,27 +167,6 @@ export function validateRuntimeConfig(env = process.env) {
     }
   }
 
-  const allowedOrigins = (env.LOCAL_LLM_ALLOWED_ORIGINS || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-  if (appEnv === 'internal' && allowedOrigins.length === 0) {
-    errors.push('内测环境必须配置 LOCAL_LLM_ALLOWED_ORIGINS')
-  }
-  for (const value of allowedOrigins) {
-    try {
-      const url = new URL(value)
-      if (!['http:', 'https:'].includes(url.protocol)
-        || url.username || url.password || url.search || url.hash
-        || value.replace(/\/$/, '') !== url.origin) {
-        errors.push('LOCAL_LLM_ALLOWED_ORIGINS 只能包含精确 HTTP(S) origin')
-        break
-      }
-    } catch {
-      errors.push('LOCAL_LLM_ALLOWED_ORIGINS 必须是有效的逗号分隔 origin')
-      break
-    }
-  }
 
   if (env.CRISIS_RESOURCES_JSON) {
     try {

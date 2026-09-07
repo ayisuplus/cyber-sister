@@ -7,12 +7,12 @@ describe('ToolsPage', () => {
   it('exposes implemented capabilities as links with honest privacy notes', () => {
     render(<MemoryRouter><ToolsPage /></MemoryRouter>)
 
-    expect(screen.getByRole('link', { name: /虚拟试衣间/ })).toHaveAttribute('href', '/tools/virtual-fitting')
-    expect(screen.getByRole('link', { name: /虚拟化妆间/ })).toHaveAttribute('href', '/tools/virtual-makeup')
+    // 云端切割后虚拟试衣/化妆间已下线，能力注册表只剩浏览器内处理的美颜相机
     expect(screen.getByRole('link', { name: /美颜相机/ })).toHaveAttribute('href', '/tools/beauty-camera')
+    expect(screen.queryByRole('link', { name: /虚拟试衣间/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /虚拟化妆间/ })).not.toBeInTheDocument()
     expect(screen.queryByText('规划中')).not.toBeInTheDocument()
-    expect(screen.getAllByText('可使用')).toHaveLength(3)
-    expect(screen.getAllByText('照片只在本机处理（本地 ComfyUI 生图），不出这台设备')).toHaveLength(2)
+    expect(screen.getAllByText('可使用')).toHaveLength(1)
     expect(screen.getByText('全在本机处理')).toBeInTheDocument()
   })
   it('links every sister toolbox entry to its SPA route', () => {

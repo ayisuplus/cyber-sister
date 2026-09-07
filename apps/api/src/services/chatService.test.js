@@ -385,9 +385,12 @@ describe('chatService.sendMessage', () => {
     expect(options.scene).toBe('work')
     const systemPrompt = options.extraSystem[0].content
     expect(systemPrompt).toContain('当前是工作模式')
-    // WORK_TOOLS 目录进 prompt：日程四件 + 计算 + 浏览器五件
-    for (const name of ['add_todo', 'calc_convert', 'browser_open', 'browser_click', 'web_search']) {
+    // WORK_TOOLS 目录进 prompt：日程四件 + 计算 + 搜索（浏览器/生图/终端已随切割删除）
+    for (const name of ['add_todo', 'calc_convert', 'web_search']) {
       expect(systemPrompt).toContain(`"tool":"${name}"`)
+    }
+    for (const name of ['browser_open', 'generate_image', 'bash_run', 'use_skill']) {
+      expect(systemPrompt).not.toContain(`"tool":"${name}"`)
     }
     // 聊天专属工具与人格提示词不进入工作模式系统提示
     expect(systemPrompt).not.toContain('add_diary')
@@ -722,27 +725,6 @@ describe('chatService 智能体工具回路', () => {
     })
     expect(mocks.messageCreate.mock.calls[1][0].data.toolRuns).toEqual([
       { tool: 'add_todo', ok: true, summary: '已添加待办「周六复诊」' },
-    ])
-  })
-
-  it('JSON 路径：生图工具的 imageId 随 toolRuns 落库', async () => {
-    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
-    mocks.executeToolCall.mockResolvedValue({
-      tool: 'generate_image',
-      ok: true,
-      summary: '已生成一张图',
-      imageId: 'img-uuid.png',
-      feedback: '工具执行结果：{"tool":"generate_image","ok":true,"result":{"imageId":"img-uuid.png"}}',
-    })
-    mocks.generateResponse
-      .mockResolvedValueOnce({ content: '{"tool":"generate_image","args":{"prompt":"a cat"}}', emotion: 'neutral', source: 'local_model', provider: 'llamacpp', model: 'local-model' })
-      .mockResolvedValueOnce({ content: '画好了，看看', emotion: 'neutral', source: 'local_model', provider: 'llamacpp', model: 'local-model' })
-
-    const result = await sendMessage('conversation-1', 'user-1', '画一只猫')
-
-    expect(result.status).toBe('ok')
-    expect(mocks.messageCreate.mock.calls[1][0].data.toolRuns).toEqual([
-      { tool: 'generate_image', ok: true, summary: '已生成一张图', imageId: 'img-uuid.png' },
     ])
   })
 

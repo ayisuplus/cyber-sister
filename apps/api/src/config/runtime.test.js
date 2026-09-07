@@ -18,7 +18,6 @@ function internalEnv(overrides = {}) {
     APP_DOMAIN: 'internal.example.test',
     BIND_ADDRESS: '127.0.0.1',
     IMAGE_TAG: 'test-20260830',
-    LOCAL_LLM_ALLOWED_ORIGINS: 'http://llama:8080,http://host.docker.internal:8080',
     ...overrides,
   }
 }
@@ -30,18 +29,10 @@ describe('本地优先运行配置', () => {
       .toThrow(/INSTANCE_ADMIN_PHONES 必须是 INTERNAL_TEST_PHONES 白名单的子集/)
   })
 
-  it('拒绝带路径或凭据的 LOCAL_LLM_ALLOWED_ORIGINS', () => {
-    expect(() => validateRuntimeConfig(internalEnv({
-      LOCAL_LLM_ALLOWED_ORIGINS: 'http://llama:8080/v1',
-    }))).toThrow(/LOCAL_LLM_ALLOWED_ORIGINS 只能包含精确 HTTP\(S\) origin/)
-    expect(() => validateRuntimeConfig(internalEnv({
-      LOCAL_LLM_ALLOWED_ORIGINS: 'http://user:secret@llama:8080',
-    }))).toThrow(/LOCAL_LLM_ALLOWED_ORIGINS/)
-  })
-
-  it('内测环境必须显式允许至少一个本地模型 origin', () => {
-    expect(() => validateRuntimeConfig(internalEnv({ LOCAL_LLM_ALLOWED_ORIGINS: '' })))
-      .toThrow(/必须配置 LOCAL_LLM_ALLOWED_ORIGINS/)
+  it('内测环境的环境供应商只允许 qwen（本地模型面已删除）', () => {
+    expect(() => validateRuntimeConfig(internalEnv({ GATEWAY_PROVIDERS: 'llamacpp' })))
+      .toThrow(/内测环境的环境供应商只允许 qwen/)
+    expect(() => validateRuntimeConfig(internalEnv({ GATEWAY_PROVIDERS: 'qwen' }))).not.toThrow()
   })
 })
 

@@ -158,14 +158,14 @@ describe('HandbookPage', () => {
   it('shows the cheer card after asking the sister', async () => {
     const user = userEvent.setup()
     habitService.list.mockResolvedValue([habit()])
-    habitService.cheer.mockResolvedValue({ cheer: '坚持就是胜利，我为你骄傲', source: 'local_model' })
+    habitService.cheer.mockResolvedValue({ cheer: '坚持就是胜利，我为你骄傲', source: 'qwen' })
 
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: /姐妹说两句/ }))
 
     expect(await screen.findByText('坚持就是胜利，我为你骄傲')).toBeInTheDocument()
-    expect(screen.getByText('本机模型')).toBeInTheDocument()
+    expect(screen.getByText('云端模型')).toBeInTheDocument()
   })
 
   it('hints to add a habit first when the cheer is null', async () => {
@@ -193,16 +193,16 @@ describe('HandbookPage', () => {
     expect(screen.getByText('喝水')).toBeInTheDocument()
   })
 
-  it('guides to local model settings when it is not configured', async () => {
+  it('guides to consent the cloud model when it is not consented', async () => {
     const user = userEvent.setup()
     habitService.list.mockResolvedValue([habit()])
-    habitService.cheer.mockRejectedValue({ response: { status: 503, data: { error: '未配置', code: 'LOCAL_LLM_NOT_CONFIGURED' } } })
+    habitService.cheer.mockRejectedValue({ response: { status: 503, data: { error: '未同意', code: 'CLOUD_NOT_CONSENTED' } } })
 
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: /姐妹说两句/ }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('还没有配置本地模型')
-    expect(screen.getByRole('link', { name: /本地模型/ })).toHaveAttribute('href', '/profile/local-model')
+    expect(await screen.findByRole('alert')).toHaveTextContent('还没有同意使用云端模型')
+    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
   })
 })

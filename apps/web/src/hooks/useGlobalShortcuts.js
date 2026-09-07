@@ -33,7 +33,7 @@ export default function useGlobalShortcuts() {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
         if (helpOpenRef.current) { setHelp(false); return }
-        if (isTypingTarget(document.activeElement)) document.activeElement.blur()
+        if (isTypingTarget(document.activeElement) && document.activeElement instanceof HTMLElement) document.activeElement.blur()
         return
       }
       // Ctrl/⌘+Shift+O：新建会话（全局生效，先回 /chat 再建；createConversation 无参且自动置为当前会话）
@@ -46,7 +46,8 @@ export default function useGlobalShortcuts() {
       if (event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return
       if (event.key === '/' && pathname === '/chat') {
         event.preventDefault()
-        document.querySelector('[aria-label="聊天消息"]:not([disabled])')?.focus()
+        const chatInput = /** @type {HTMLElement | null} */ (document.querySelector('[aria-label="聊天消息"]:not([disabled])'))
+        chatInput?.focus()
       } else if (event.key === '?') {
         event.preventDefault()
         setHelp(true)

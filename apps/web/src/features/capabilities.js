@@ -1,24 +1,7 @@
+// 能力注册表：导航与展示的唯一来源（local-first-capabilities §2）。
+// 云端切割（2026-09-07）后虚拟试衣/化妆间随本机 ComfyUI 面删除下线；
+// 美颜相机保留——它全程在浏览器内用 MediaPipe WASM 处理，照片不上传。
 export const CAPABILITIES = [
-  {
-    id: 'virtual-fitting-room',
-    title: '虚拟试衣间',
-    description: '在这台设备上选照片、挑单品，由本机 ComfyUI 生成穿搭预览。',
-    status: 'available',
-    href: '/tools/virtual-fitting',
-    icon: 'shirt',
-    tone: 'mist',
-    privacyNote: '照片只在本机处理（本地 ComfyUI 生图），不出这台设备',
-  },
-  {
-    id: 'virtual-makeup-room',
-    title: '虚拟化妆间',
-    description: '在这台设备上选照片、挑妆容，由本机 ComfyUI 生成妆效预览。',
-    status: 'available',
-    href: '/tools/virtual-makeup',
-    icon: 'wand',
-    tone: 'blush',
-    privacyNote: '照片只在本机处理（本地 ComfyUI 生图），不出这台设备',
-  },
   {
     id: 'beauty-camera',
     title: '美颜相机',

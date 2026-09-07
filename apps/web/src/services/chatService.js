@@ -95,18 +95,6 @@ export const chatService = {
     return response.data
   },
 
-  // 工作模式能力状态（浏览器可用性）；失败由调用方静默降级
-  getWorkStatus: async () => {
-    const response = await api.get('/work/status')
-    return response.data
-  },
-
-  // 工作模式生成图：鉴权 GET 取 blob 转对象 URL（<img> 无法带 Authorization 头）
-  getWorkImageUrl: async (imageId) => {
-    const response = await api.get(`/work/images/${imageId}`, { responseType: 'blob' })
-    return URL.createObjectURL(response.data)
-  },
-
   // SSE 流式发送（原生 fetch，需要 ReadableStream，不走 axios）。
   // onEvent 逐事件收到 {event: 'delta'|'replace'|'done'|'blocked'|'error', ...payload}。
   /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void }} [options] */

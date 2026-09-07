@@ -129,7 +129,7 @@ export default function DiaryPage() {
       }))
     } catch (requestError) {
       const code = requestError?.response?.data?.code
-      setCommentError(code === 'LOCAL_LLM_NOT_CONFIGURED' ? 'not_configured' : 'unavailable')
+      setCommentError(code === 'CLOUD_NOT_CONSENTED' ? 'not_consented' : 'unavailable')
     } finally {
       setCommentLoading(false)
     }
@@ -258,9 +258,9 @@ export default function DiaryPage() {
                   {!entry && (
                     <p className="mt-2 text-center text-xs text-text-muted">先保存今天的日记，姐妹才能看到哦</p>
                   )}
-                  {commentError === 'not_configured' && (
+                  {commentError === 'not_consented' && (
                     <p role="alert" className="mt-2 text-xs text-danger">
-                      还没有配置本地模型，去<Link to="/profile/local-model" className="underline">「我的 → 本地模型」</Link>设置好再来吧
+                      还没有同意使用云端模型，去<Link to="/profile" className="underline">「我的 → 云端模型」</Link>开启后再让她看看吧
                     </p>
                   )}
                   {commentError === 'unavailable' && (

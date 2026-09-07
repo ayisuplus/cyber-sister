@@ -2,17 +2,14 @@
  * 对话模型服务。
  *
  * 这里只负责构造最小化、脱敏后的模型上下文，以及把统一网关的失败转换成
- * 可判定的业务错误。是否允许外部回退由 chatService 的版本化授权决定。
+ * 可判定的业务错误。云端切割（2026-09-07）后模型只有云端一条路径：
+ * 供应商槽（GATEWAY_QWEN_*，供应商中立）是唯一 provider，llama.cpp 面已删除。
+ * 是否允许调用云端由 chatService/用户级同意门决定；未同意时云端调用次数为零。
  */
 import { createGateway } from '@cyber-sister/llm-gateway'
 import { classifyToolPrefix } from './agentService.js'
 import logger from '../utils/logger.js'
 import { detectEmotion } from './detection.js'
-import {
-  getStoredLocalConfig,
-  isQwenConfigured,
-  normalizeAndAuthorizeBaseUrl,
-} from './localLlmConfigService.js'
 
 export { detectCrisis, detectEmotion } from './detection.js'
 
@@ -28,47 +25,32 @@ const CHINESE_STOP_WORDS = new Set([
   '一下', '一个', '没有', '不是', '已经', '自己', '我们', '你们', '他们', '因为', '所以',
 ])
 
-let gatewayCache = null
-/** 部署模式：EXTERNAL_CHAT_PRIMARY=true 且外部供应商已配置时，外部模型为聊天主力（本地模型变为可选回退）。 */
-export function isExternalChatPrimary(env = process.env) {
-  return env.EXTERNAL_CHAT_PRIMARY === 'true' && isQwenConfigured(env)
+let gatewayPromise = null
+/** 云端供应商是否已配置（供应商槽 GATEWAY_QWEN_* 三件套齐备）。 */
+export function isCloudProviderConfigured(env = process.env) {
+  return Boolean(env.GATEWAY_QWEN_BASE_URL && env.GATEWAY_QWEN_MODEL && env.GATEWAY_QWEN_API_KEY)
 }
 
-export function buildGatewayEnv(localConfig, env = process.env) {
-  const qwenConfigured = isQwenConfigured(env)
-  const providers = [
-    ...(localConfig ? ['llamacpp'] : []),
-    ...(qwenConfigured ? ['qwen'] : []),
-  ]
-  // 外部主用模式下聊天与解释都先走外部供应商；默认保持本地优先
-  const sceneOrder = isExternalChatPrimary(env) ? [...providers].reverse() : providers
+export function buildGatewayEnv(env = process.env) {
   return {
     ...env,
-    GATEWAY_PROVIDERS: providers.join(','),
-    GATEWAY_LLAMACPP_BASE_URL: localConfig?.baseUrl ?? '',
-    GATEWAY_LLAMACPP_MODEL: localConfig?.model ?? '',
-    GATEWAY_LLAMACPP_API_KEY: '',
-    GATEWAY_LLAMACPP_SCOPE: 'local',
-    GATEWAY_LLAMACPP_SCENES: 'chat,explain',
-    GATEWAY_LLAMACPP_PRIORITY: '1',
+    GATEWAY_PROVIDERS: 'qwen',
     GATEWAY_QWEN_SCOPE: 'external',
-    GATEWAY_QWEN_PRIORITY: '2',
-    GATEWAY_SCENE_chat: sceneOrder.join(','),
-    GATEWAY_SCENE_explain: sceneOrder.join(','),
+    GATEWAY_QWEN_SCENES: 'chat,explain',
+    GATEWAY_QWEN_PRIORITY: '1',
+    GATEWAY_SCENE_chat: 'qwen',
+    GATEWAY_SCENE_explain: 'qwen',
   }
 }
-async function getDynamicGateway(localConfig) {
-  // localConfig 可为 null（外部主用且无本地配置）：缓存键用固定占位
-  const cacheKey = localConfig
-    ? `${localConfig.id}:${localConfig.revision}:${localConfig.baseUrl}:${localConfig.model}`
-    : 'no-local-config'
-  if (!gatewayCache || gatewayCache.key !== cacheKey) {
-    gatewayCache = {
-      key: cacheKey,
-      gateway: await createGateway(buildGatewayEnv(localConfig), { logger }),
-    }
+
+async function getGateway() {
+  if (!gatewayPromise) {
+    gatewayPromise = createGateway(buildGatewayEnv(), { logger }).catch((error) => {
+      gatewayPromise = null
+      throw error
+    })
   }
-  return gatewayCache.gateway
+  return gatewayPromise
 }
 
 export class LlmUnavailableError extends Error {
@@ -80,31 +62,28 @@ export class LlmUnavailableError extends Error {
   }
 }
 
-export class LocalLlmNotConfiguredError extends Error {
+export class CloudConsentRequiredError extends Error {
   constructor() {
-    super('本地模型尚未配置，请联系安装实例管理员')
-    this.name = 'LocalLlmNotConfiguredError'
-    this.code = 'LOCAL_LLM_NOT_CONFIGURED'
+    super('需要你先同意使用云端模型才能聊天')
+    this.name = 'CloudConsentRequiredError'
+    this.code = 'CLOUD_NOT_CONSENTED'
     this.statusCode = 503
   }
 }
 
-export class LocalLlmUnavailableError extends Error {
-  constructor() {
-    super('本地模型暂时不可用，请稍后重试')
-    this.name = 'LocalLlmUnavailableError'
-    this.code = 'LOCAL_LLM_UNAVAILABLE'
-    this.statusCode = 503
-  }
-}
-
-async function isExternalFallbackCurrentlyAuthorized(allowExternal, authorizeExternal) {
-  if (!allowExternal || typeof authorizeExternal !== 'function' || !isQwenConfigured()) return false
+async function isCallCurrentlyAuthorized(allowExternal, authorizeExternal) {
+  if (!allowExternal || typeof authorizeExternal !== 'function') return false
   try {
     return await authorizeExternal() === true
   } catch {
     return false
   }
+}
+
+/** 云端调用前置门：未配置供应商 → LLM_UNAVAILABLE；未同意 → CLOUD_NOT_CONSENTED。 */
+function assertCloudCallable(allowExternal) {
+  if (!isCloudProviderConfigured()) throw new LlmUnavailableError()
+  if (!allowExternal) throw new CloudConsentRequiredError()
 }
 
 /** 仅处理确定性高的常见直接标识符，不声称能够匿名化任意自由文本。 */
@@ -313,21 +292,10 @@ export async function generateResponse(
   const relevantMemories = retrieveRelevantMemories(text, userMemories)
   const memoryContext = buildMemoryContext(relevantMemories)
   const messages = buildModelMessages(text, history)
-  const localConfig = await getStoredLocalConfig()
-  // 外部主用模式：本地模型变为可选，缺失/地址异常不再阻断聊天
-  const externalPrimary = isExternalChatPrimary()
-  if (!localConfig?.enabled && !externalPrimary) throw new LocalLlmNotConfiguredError()
-  let authorizedConfig = null
-  if (localConfig?.enabled) {
-    try {
-      authorizedConfig = { ...localConfig, baseUrl: normalizeAndAuthorizeBaseUrl(localConfig.baseUrl) }
-    } catch {
-      if (!externalPrimary) throw new LocalLlmUnavailableError()
-    }
-  }
+  assertCloudCallable(allowExternal)
   let result
   try {
-    const gw = await getDynamicGateway(authorizedConfig)
+    const gw = await getGateway()
     result = await gw.complete({
       scene,
       requestId,
@@ -345,15 +313,13 @@ export async function generateResponse(
   }
 
   if (!result?.content) {
-    if (await isExternalFallbackCurrentlyAuthorized(allowExternal, authorizeExternal)) {
+    if (await isCallCurrentlyAuthorized(allowExternal, authorizeExternal)) {
       throw new LlmUnavailableError()
     }
-    throw new LocalLlmUnavailableError()
+    throw new CloudConsentRequiredError()
   }
 
-  const responseSource = result.scope === 'external' || result.provider === 'qwen'
-    ? 'qwen'
-    : 'local_model'
+  const responseSource = 'qwen'
   const filtered = filterModelOutput(result.content, text, safePersona, responseSource, scene)
   return {
     content: filtered.content,
@@ -390,8 +356,8 @@ function isUnsafeAccumulation(accumulated) {
  *   { type: 'replace', content, source }                过滤命中：中止上游并给本地安全模板
  *   { type: 'done', content, emotion, source, provider, model }  最终过滤后的完整结果
  *   { type: 'error', reason }                           reason 为固定错误码，绝不含对话内容：
- *     首句产出前按 JSON 端点同语义映射（LOCAL_LLM_NOT_CONFIGURED /
- *     LOCAL_LLM_UNAVAILABLE / LLM_UNAVAILABLE），首句产出后只报 STREAM_FAILED。
+ *     首句产出前按 JSON 端点同语义映射（CLOUD_NOT_CONSENTED /
+ *     LLM_UNAVAILABLE），首句产出后只报 STREAM_FAILED。
  * 调用方 abort signal 时中止上游并安静结束（无 done/error）。
  */
 export async function* generateResponseStream(
@@ -407,21 +373,13 @@ export async function* generateResponseStream(
   const relevantMemories = retrieveRelevantMemories(text, userMemories)
   const memoryContext = buildMemoryContext(relevantMemories)
   const messages = buildModelMessages(text, history)
-  const localConfig = await getStoredLocalConfig()
-  if (!localConfig?.enabled && !isExternalChatPrimary()) {
-    yield { type: 'error', reason: 'LOCAL_LLM_NOT_CONFIGURED' }
+  if (!isCloudProviderConfigured()) {
+    yield { type: 'error', reason: 'LLM_UNAVAILABLE' }
     return
   }
-  let authorizedConfig = null
-  if (localConfig?.enabled) {
-    try {
-      authorizedConfig = { ...localConfig, baseUrl: normalizeAndAuthorizeBaseUrl(localConfig.baseUrl) }
-    } catch {
-      if (!isExternalChatPrimary()) {
-        yield { type: 'error', reason: 'LOCAL_LLM_UNAVAILABLE' }
-        return
-      }
-    }
+  if (!allowExternal) {
+    yield { type: 'error', reason: 'CLOUD_NOT_CONSENTED' }
+    return
   }
 
   // 独立控制器：过滤命中时可以单方面中止上游，同时跟随调用方取消。
@@ -432,7 +390,7 @@ export async function* generateResponseStream(
 
   let gateway
   try {
-    gateway = await getDynamicGateway(authorizedConfig)
+    gateway = await getGateway()
   } catch {
     gateway = null
   }
@@ -520,16 +478,14 @@ export async function* generateResponseStream(
       yield { type: 'error', reason: 'STREAM_FAILED' }
       return
     }
-    const authorized = await isExternalFallbackCurrentlyAuthorized(allowExternal, authorizeExternal)
-    yield { type: 'error', reason: authorized ? 'LLM_UNAVAILABLE' : 'LOCAL_LLM_UNAVAILABLE' }
+    const authorized = await isCallCurrentlyAuthorized(allowExternal, authorizeExternal)
+    yield { type: 'error', reason: authorized ? 'LLM_UNAVAILABLE' : 'CLOUD_NOT_CONSENTED' }
     return
   }
   // 调用方取消或网关安静结束：不落库由调用方保证，这里不发任何收尾事件。
   if (!doneEvent || controller.signal.aborted) return
 
-  const responseSource = doneEvent.scope === 'external' || doneEvent.provider === 'qwen'
-    ? 'qwen'
-    : 'local_model'
+  const responseSource = 'qwen'
   // 尾段随流结束做最终整体过滤，覆盖空内容与跨句命中。
   const filtered = filterModelOutput(fullText, text, safePersona, responseSource, scene)
   if (filtered.filtered) {
@@ -557,26 +513,17 @@ export async function* generateResponseStream(
 }
 
 /**
- * 解释场景与聊天共用同一个本地优先网关（现用于虚拟房间生图提示词改写）。
+ * 解释场景的云端补全（记忆候选抽取复用）。
  * 调用方负责将失败降级为明确标识的本地模板。
+ * 错误语义沿用 CLOUD_NOT_CONSENTED / LLM_UNAVAILABLE。
  */
 export async function generateExplanationWithModel(
   prompt,
   requestId,
   { allowExternal = false, authorizeExternal } = {},
 ) {
-  const localConfig = await getStoredLocalConfig()
-  const externalPrimary = isExternalChatPrimary()
-  if (!localConfig?.enabled && !externalPrimary) throw new LocalLlmNotConfiguredError()
-  let authorizedConfig = null
-  if (localConfig?.enabled) {
-    try {
-      authorizedConfig = { ...localConfig, baseUrl: normalizeAndAuthorizeBaseUrl(localConfig.baseUrl) }
-    } catch {
-      if (!externalPrimary) throw new LocalLlmUnavailableError()
-    }
-  }
-  const gw = await getDynamicGateway(authorizedConfig)
+  assertCloudCallable(allowExternal)
+  const gw = await getGateway()
   const result = await gw.complete({
     scene: 'explain',
     requestId,
@@ -584,26 +531,23 @@ export async function generateExplanationWithModel(
     allowExternal,
     authorizeExternal,
     timeoutMs: 60000,
-    // 推理模型会先消耗思考预算：120 的原文输出预算会被吃成空回复，统一抬高到 1500
+    // 推理模型会先消耗思考预算：过低的原文输出预算会被吃成空回复，统一抬高到 1500
     maxTokens: 1500,
     temperature: 0.7,
   })
   if (!result?.content) {
-    if (await isExternalFallbackCurrentlyAuthorized(allowExternal, authorizeExternal)) {
+    if (await isCallCurrentlyAuthorized(allowExternal, authorizeExternal)) {
       throw new LlmUnavailableError()
     }
-    throw new LocalLlmUnavailableError()
+    throw new CloudConsentRequiredError()
   }
-  return {
-    content: result.content,
-    source: result.scope === 'external' || result.provider === 'qwen' ? 'qwen' : 'local_model',
-  }
+  return { content: result.content, source: 'qwen' }
 }
 
 /**
  * 生成一条人格化的陪伴短评（日记回应、手帐鼓励等非会话主链路复用）。
  * 入参 instruction 描述场景与输出约束；userText 经统一脱敏后作为唯一用户消息。
- * 错误语义沿用 LOCAL_LLM_NOT_CONFIGURED / LOCAL_LLM_UNAVAILABLE / LLM_UNAVAILABLE。
+ * 错误语义沿用 CLOUD_NOT_CONSENTED / LLM_UNAVAILABLE。
  */
 export async function generateCompanionNote(
   { persona = 'toxic', instruction, userText, maxTokens = 1500, temperature = 0.7, timeoutMs = 60000 },
@@ -611,18 +555,8 @@ export async function generateCompanionNote(
   { allowExternal = false, authorizeExternal } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'toxic'
-  const localConfig = await getStoredLocalConfig()
-  const externalPrimary = isExternalChatPrimary()
-  if (!localConfig?.enabled && !externalPrimary) throw new LocalLlmNotConfiguredError()
-  let authorizedConfig = null
-  if (localConfig?.enabled) {
-    try {
-      authorizedConfig = { ...localConfig, baseUrl: normalizeAndAuthorizeBaseUrl(localConfig.baseUrl) }
-    } catch {
-      if (!externalPrimary) throw new LocalLlmUnavailableError()
-    }
-  }
-  const gw = await getDynamicGateway(authorizedConfig)
+  assertCloudCallable(allowExternal)
+  const gw = await getGateway()
   const result = await gw.complete({
     scene: 'chat',
     requestId,
@@ -636,16 +570,15 @@ export async function generateCompanionNote(
     temperature,
   }).catch(() => null)
   if (!result?.content) {
-    if (await isExternalFallbackCurrentlyAuthorized(allowExternal, authorizeExternal)) {
+    if (await isCallCurrentlyAuthorized(allowExternal, authorizeExternal)) {
       throw new LlmUnavailableError()
     }
-    throw new LocalLlmUnavailableError()
+    throw new CloudConsentRequiredError()
   }
-  const source = result.scope === 'external' || result.provider === 'qwen' ? 'qwen' : 'local_model'
-  const filtered = filterModelOutput(result.content, userText, safePersona, source)
+  const filtered = filterModelOutput(result.content, userText, safePersona, 'qwen')
   return { content: filtered.content, source: filtered.source, provider: result.provider, model: result.model }
 }
 
-export function resetDynamicGatewayCache() {
-  gatewayCache = null
+export function resetGatewayCache() {
+  gatewayPromise = null
 }

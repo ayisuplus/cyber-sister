@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 
 const state = vi.hoisted(() => ({
-  config: null,
   users: new Map(),
 }))
 
@@ -16,10 +15,6 @@ vi.mock('../../src/prisma/client.js', () => ({
           .filter((key) => select[key])
           .map((key) => [key, user[key]]))
       },
-    },
-    llmRuntimeConfig: {
-      findUnique: async () => state.config,
-      upsert: vi.fn(),
     },
     $queryRaw: async () => [{ '?column?': 1 }],
     $disconnect: async () => {},
@@ -36,61 +31,58 @@ vi.mock('../../src/utils/usageTracker.js', () => ({
 import app from '../../src/app.js'
 import { generateToken } from '../../src/middleware/auth.js'
 
-describe('本地模型 API 路由合同', () => {
+// 云端切割（2026-09-07）：/api/llm/status 只有一条云端路径；
+// /api/admin/llm/local 已随本地模型面删除（404）。
+describe('云端模型 API 路由合同', () => {
   beforeEach(() => {
-    state.config = null
     state.users.clear()
-    state.users.set('admin', {
-      id: 'admin',
-      phone: '13800138000',
-      externalLlmConsent: null,
-      externalLlmConsentVersion: null,
-    })
     state.users.set('tester', {
       id: 'tester',
       phone: '13900139000',
       externalLlmConsent: false,
       externalLlmConsentVersion: 'qwen-fallback-v1',
     })
+    process.env.GATEWAY_QWEN_BASE_URL = 'https://example.invalid/v1'
+    process.env.GATEWAY_QWEN_MODEL = 'qwen-model'
+    process.env.GATEWAY_QWEN_API_KEY = 'k'
   })
 
   function token(userId, phone) {
-    return { Authorization: `Bearer ${generateToken({ userId, phone })}` }
+    return { Authorization: `Bearer ${generateToken({ userId, phone }) }` }
   }
 
-  it('已登录用户可查看不含内部地址的本地优先状态', async () => {
+  it('已登录用户可查看不含内部地址的云端状态', async () => {
     const response = await request(app)
       .get('/api/llm/status')
       .set(token('tester', '13900139000'))
 
     expect(response.status).toBe(200)
     expect(response.body).toEqual({
-      mode: 'local_first',
-      local: { configured: false, state: 'not_configured' },
-      externalFallback: { configured: true, primary: false, consent: false, version: 'qwen-fallback-v1' },
+      mode: 'external_primary',
+      local: { configured: false, state: 'removed' },
+      externalFallback: { configured: true, primary: true, consent: false, version: 'qwen-fallback-v1' },
     })
     expect(JSON.stringify(response.body)).not.toContain('baseUrl')
   })
 
-  it('只有安装实例管理员可读取详细配置', async () => {
-    const denied = await request(app)
+  it('供应商未配置时 externalFallback.configured 为 false', async () => {
+    delete process.env.GATEWAY_QWEN_BASE_URL
+    delete process.env.GATEWAY_QWEN_MODEL
+    delete process.env.GATEWAY_QWEN_API_KEY
+
+    const response = await request(app)
+      .get('/api/llm/status')
+      .set(token('tester', '13900139000'))
+
+    expect(response.status).toBe(200)
+    expect(response.body.externalFallback.configured).toBe(false)
+  })
+
+  it('本地模型管理端点已删除（404）', async () => {
+    const response = await request(app)
       .get('/api/admin/llm/local/config')
       .set(token('tester', '13900139000'))
-    const allowed = await request(app)
-      .get('/api/admin/llm/local/config')
-      .set(token('admin', '13800138000'))
 
-    expect(denied.status).toBe(403)
-    expect(denied.body.code).toBe('INSTANCE_ADMIN_REQUIRED')
-    expect(allowed.status).toBe(200)
-    expect(allowed.body).toEqual({
-      enabled: false,
-      baseUrl: null,
-      model: null,
-      revision: 0,
-      lastVerifiedAt: null,
-      apiKeyConfigured: false,
-    })
+    expect(response.status).toBe(404)
   })
 })
-

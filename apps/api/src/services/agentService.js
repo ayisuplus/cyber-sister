@@ -3,10 +3,10 @@
  *
  * 参考 pi-agent-core 的 agent loop 设计（模型 → 工具调用 → 结果反馈 → 模型），
  * 但按本产品安全模型收敛：
- * - 工具域只覆盖产品自身能力（待办/倒数日/经期/提醒），全部经 toolService
- *   的既有校验与归属约束作用于当前用户，不执行任意代码。
- * - 协议为模型无关的 JSON 动作格式（整段回复即一个 JSON 对象），
- *   兼容不支持原生 function calling 的本地小模型。
+ * - 工具域只覆盖产品自身能力（日程/倒数日/经期/提醒/日记/手帐/阅读/自习/搜索/计算），
+ *   全部经既有领域服务的校验与归属约束作用于当前用户，不执行任意代码、不驱动浏览器、
+ *   不在服务器执行 shell、不做服务器侧生图。
+ * - 协议为模型无关的 JSON 动作格式（整段回复即一个 JSON 对象）。
  * - 记忆不开放给工具：显式记忆只能经「帮我记住」由用户确认后落库。
  */
 import {
@@ -21,11 +21,8 @@ import { logReading } from './readingService.js'
 import { recordSession } from './studyService.js'
 import { evaluateExpression, convertUnit } from './calcService.js'
 import { HttpError } from '../utils/dbHelpers.js'
-import * as browserService from './browserService.js'
-import { generateWorkImage } from './workImageService.js'
-import { runBash } from './bashService.js'
+import { searchWeb } from './searchService.js'
 import logger from '../utils/logger.js'
-import { listSkillSummaries, loadSkill } from './skillService.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_LIST_ITEMS = 20
@@ -47,13 +44,6 @@ function clip(text, max = MAX_SUMMARY_LENGTH) {
   return value.length > max ? `${value.slice(0, max)}…` : value
 }
 
-function hostOf(url) {
-  try {
-    return new URL(String(url ?? '')).host
-  } catch {
-    return ''
-  }
-}
 
 /** 工具注册表：name → { description(进提示词), run(userId, args) → { summary, result } } */
 const CHAT_TOOLS = {
@@ -244,7 +234,7 @@ const CHAT_TOOLS = {
   web_search: {
     description: '{"tool":"web_search","args":{"query":"搜索关键词"}} 联网搜索最新信息（用户明确要求查新闻/资料/实时信息时使用，返回标题/链接/摘要）',
     run: async (userId, args) => {
-      const search = await browserService.searchWeb(userId, args.query)
+      const search = await searchWeb(userId, args.query)
       return {
         summary: search.results.length > 0 ? `已搜索到${search.results.length}条结果` : '没找到相关结果',
         result: search,
@@ -254,7 +244,7 @@ const CHAT_TOOLS = {
 }
 
 /** 工作模式人格无关的效率助手前言：语气与能力边界说明，置于工具目录之前。 */
-export const WORK_MODE_PREAMBLE = '当前是工作模式：你是用户的效率助手。语气直接、结论先行、少寒暄；不涉及恋爱陪伴话题。你可以：操作日程（增查完删）；联网搜索最新信息；用内置浏览器打开网页并读取/点击/输入；做计算与单位换算；在本机终端执行 shell 命令（查文件、跑脚本、看状态）；用本机生图画图（prompt 用英文写清主体、场景、风格）；起草、总结、改写、翻译文本（直接输出正文，不要声称保存到了任何地方）。做计划与目标管理：用户要做计划或定目标时，先给出结构化拆解（目标→阶段→带日期的行动项），用户确认后用日程工具逐项落到日程；用户问起进度时先查日程再回答。工具不可用时诚实说明。'
+export const WORK_MODE_PREAMBLE = '当前是工作模式：你是用户的效率助手。语气直接、结论先行、少寒暄；不涉及恋爱陪伴话题。你可以：操作日程（增查完删）；联网搜索最新信息；做计算与单位换算；起草、总结、改写、翻译文本（直接输出正文，不要声称保存到了任何地方）。做计划与目标管理：用户要做计划或定目标时，先给出结构化拆解（目标→阶段→带日期的行动项），用户确认后用日程工具逐项落到日程；用户问起进度时先查日程再回答。工具不可用时诚实说明。'
 
 // 工作模式工具注册表：日程四件与 CHAT_TOOLS 共享同一 run 实现（描述改「日程」口径），
 // 计算换算与浏览器工具为工作模式独有。
@@ -291,66 +281,9 @@ const WORK_TOOLS = {
       return { summary: clip(`已换算 ${args.value} ${from} = ${value} ${to}`), result: { value } }
     },
   },
-  browser_open: {
-    description: '{"tool":"browser_open","args":{"url":"http(s)网址"}} 打开网页，返回标题/正文摘要/可操作元素编号',
-    run: async (userId, args) => {
-      const page = await browserService.openPage(userId, args.url)
-      return { summary: clip(`已打开 ${hostOf(page.url)}`), result: page }
-    },
-  },
-  browser_read: {
-    description: '{"tool":"browser_read","args":{}} 重新读取当前页面（导航后元素编号会刷新）',
-    run: async (userId) => {
-      const page = await browserService.readPage(userId)
-      return { summary: clip(`已读取 ${hostOf(page.url) || '当前页面'}`), result: page }
-    },
-  },
-  browser_click: {
-    description: '{"tool":"browser_click","args":{"ref":"元素编号如 e3"}} 点击元素',
-    run: async (userId, args) => {
-      const page = await browserService.clickRef(userId, args.ref)
-      return { summary: clip(`已点击 ${args.ref}`), result: page }
-    },
-  },
-  browser_type: {
-    description: '{"tool":"browser_type","args":{"ref":"元素编号","text":"要输入的文本"}} 在输入框输入文本',
-    run: async (userId, args) => {
-      const page = await browserService.typeIntoRef(userId, args.ref, args.text)
-      return { summary: clip(`已在 ${args.ref} 输入文本`), result: page }
-    },
-  },
-  browser_close: {
-    description: '{"tool":"browser_close","args":{}} 关闭浏览器会话',
-    run: async (userId) => {
-      await browserService.closeSession(userId)
-      return { summary: '已关闭浏览器', result: { closed: true } }
-    },
-  },
   web_search: {
     description: CHAT_TOOLS.web_search.description,
     run: CHAT_TOOLS.web_search.run,
-  },
-  use_skill: {
-    description: '{"tool":"use_skill","args":{"name":"技能名"}} 加载指定技能的完整说明正文并照其执行（可用技能见上方列表）',
-    run: async (_userId, args) => {
-      const skill = await loadSkill(args.name)
-      return { summary: `已加载技能「${clip(skill.name, 20)}」`, result: { name: skill.name, content: skill.content } }
-    },
-  },
-  generate_image: {
-    description: '{"tool":"generate_image","args":{"prompt":"英文画面描述，写清主体+场景+风格"}} 用本机生图画一张图（生图服务不在线时会失败，如实告知用户）',
-    run: async (userId, args) => {
-      const { imageId } = await generateWorkImage(userId, args.prompt)
-      return { summary: '已生成一张图', result: { imageId } }
-    },
-  },
-  bash_run: {
-    description: '{"tool":"bash_run","args":{"command":"shell 命令"}} 在用户本机终端执行命令并取回输出（30 秒超时，输出过长截断；未启用时会失败，如实告知用户）',
-    run: async (userId, args) => {
-      const outcome = await runBash(userId, args.command)
-      const state = outcome.timedOut ? '命令超时已终止' : outcome.exitCode === 0 ? '已执行' : `命令退出码 ${outcome.exitCode}`
-      return { summary: clip(`${state}:${String(args.command ?? '').trim()}`), result: outcome }
-    },
   },
 }
 
@@ -360,20 +293,6 @@ const TOOLS_BY_MODE = { chat: CHAT_TOOLS, work: WORK_TOOLS }
 // 避免把工具 JSON 原文推给用户。
 const ALL_TOOL_NAMES = new Set([...Object.keys(CHAT_TOOLS), ...Object.keys(WORK_TOOLS)])
 
-/** 工作模式扩展注册口：插件/MCP 工具经此进入注册表；冲突名跳过并告警。 */
-export function registerWorkTool(name, tool) {
-  if (!/^[a-z][a-z0-9_]{1,63}$/.test(String(name ?? ''))) {
-    logger.warn('扩展工具名非法，跳过注册', { name })
-    return false
-  }
-  if (Object.hasOwn(WORK_TOOLS, name) || Object.hasOwn(CHAT_TOOLS, name)) {
-    logger.warn('扩展工具与既有工具重名，跳过注册', { name })
-    return false
-  }
-  WORK_TOOLS[name] = tool
-  ALL_TOOL_NAMES.add(name)
-  return true
-}
 
 /** 生成工具使用系统提示（含当天日期，供相对日期解析）。 */
 export function buildToolSystemPrompt(mode = 'chat', today = new Date()) {
@@ -381,9 +300,6 @@ export function buildToolSystemPrompt(mode = 'chat', today = new Date()) {
   return [
     '你可以使用工具帮用户办事（仅当用户明确要求做这些事时使用；普通聊天、情绪陪伴绝对不要用）。',
     catalog,
-    ...(mode === 'work' && listSkillSummaries().length > 0
-      ? ['可用技能（需要时用 use_skill 加载正文）：', ...listSkillSummaries().map((s) => `- ${s.name}：${s.description}`)]
-      : []),
     '规则：',
     '- 调用工具时，整个回复只能是一个 JSON 对象（不要输出任何其它文字、不要用代码块包裹）。',
     '- 工具执行结果会以 system 消息反馈给你，然后你用人格语气正常回复用户，不要复述 JSON 或工具细节。',
@@ -484,8 +400,6 @@ export async function executeToolCall(userId, { name, args }, mode = 'chat') {
       tool: name,
       ok: true,
       summary,
-      // 生图工具的落盘图片标识随动作摘要透传到界面（其余工具无此字段）
-      ...(result?.imageId ? { imageId: result.imageId } : {}),
       feedback: `工具执行结果：${JSON.stringify({ tool: name, ok: true, result })}（已完成，请直接用人格语气回复用户，不要再次调用同一工具。）`,
     }
   } catch (error) {

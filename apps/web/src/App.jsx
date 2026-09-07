@@ -8,9 +8,6 @@ import ToolsPage from './pages/ToolsPage'
 import ProfilePage from './pages/ProfilePage'
 import MemoriesPage from './pages/MemoriesPage'
 import MembershipPage from './pages/MembershipPage'
-import LocalModelPage from './pages/LocalModelPage'
-import VirtualMakeupRoomPage from './pages/VirtualMakeupRoomPage'
-import VirtualFittingRoomPage from './pages/VirtualFittingRoomPage'
 import BeautyCameraPage from './pages/BeautyCameraPage'
 import PeriodPage from './pages/PeriodPage'
 import CountdownPage from './pages/CountdownPage'
@@ -44,9 +41,6 @@ export default function App() {
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/profile/memories" element={<ProtectedRoute><MemoriesPage /></ProtectedRoute>} />
           <Route path="/profile/membership" element={<ProtectedRoute><MembershipPage /></ProtectedRoute>} />
-          <Route path="/profile/local-model" element={<ProtectedRoute><LocalModelPage /></ProtectedRoute>} />
-          <Route path="/tools/virtual-makeup" element={<ProtectedRoute><VirtualMakeupRoomPage /></ProtectedRoute>} />
-          <Route path="/tools/virtual-fitting" element={<ProtectedRoute><VirtualFittingRoomPage /></ProtectedRoute>} />
           <Route path="/tools/beauty-camera" element={<ProtectedRoute><BeautyCameraPage /></ProtectedRoute>} />
           <Route path="/tools/period" element={<ProtectedRoute><PeriodPage /></ProtectedRoute>} />
           <Route path="/tools/countdown" element={<ProtectedRoute><CountdownPage /></ProtectedRoute>} />

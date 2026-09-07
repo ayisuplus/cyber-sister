@@ -99,7 +99,7 @@ export default function HandbookPage() {
       setCheerResult(await habitService.cheer())
     } catch (requestError) {
       const code = requestError?.response?.data?.code
-      setCheerError(code === 'LOCAL_LLM_NOT_CONFIGURED' ? 'not_configured' : 'unavailable')
+      setCheerError(code === 'CLOUD_NOT_CONSENTED' ? 'not_consented' : 'unavailable')
     } finally {
       setCheerLoading(false)
     }
@@ -144,9 +144,9 @@ export default function HandbookPage() {
               {cheerResult && !cheerResult.cheer && (
                 <p className="mt-3 text-center text-xs text-text-muted">先加一个习惯再让姐妹看看</p>
               )}
-              {cheerError === 'not_configured' && (
+              {cheerError === 'not_consented' && (
                 <p role="alert" className="mt-3 text-xs text-danger">
-                  还没有配置本地模型，去<Link to="/profile/local-model" className="underline">「我的 → 本地模型」</Link>设置好再来吧
+                  还没有同意使用云端模型，去<Link to="/profile" className="underline">「我的 → 云端模型」</Link>开启后再让她看看吧
                 </p>
               )}
               {cheerError === 'unavailable' && (

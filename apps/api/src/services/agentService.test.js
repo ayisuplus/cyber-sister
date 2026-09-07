@@ -1,7 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const search = vi.hoisted(() => ({ searchWeb: vi.fn() }))
 
 const db = vi.hoisted(() => ({
   todoFindMany: vi.fn(),
@@ -85,6 +84,7 @@ vi.mock('../prisma/client.js', () => ({
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
+vi.mock('./searchService.js', () => ({ searchWeb: search.searchWeb }))
 
 import {
   buildToolSystemPrompt,
@@ -92,7 +92,6 @@ import {
   executeToolCall,
   executeToolCallOnce,
   parseCompleteToolCall,
-  registerWorkTool,
 } from './agentService.js'
 
 describe('classifyToolPrefix', () => {
@@ -430,12 +429,15 @@ describe('工作模式注册表与模式门', () => {
     vi.clearAllMocks()
   })
 
-  it('buildToolSystemPrompt work 目录含日程/计算/浏览器/生图/终端工具，不含陪伴类工具', () => {
+  it('buildToolSystemPrompt work 目录含日程/计算/搜索，不含陪伴类与已删除的执行类工具', () => {
     const prompt = buildToolSystemPrompt('work')
-    for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'calc_convert', 'browser_open', 'browser_read', 'browser_click', 'browser_type', 'browser_close', 'generate_image', 'bash_run', 'web_search', 'use_skill']) {
+    for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'calc_convert', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
     }
     for (const name of ['add_diary', 'add_countdown', 'record_period', 'set_reminder', 'check_habit', 'log_reading', 'log_study']) {
+      expect(prompt).not.toContain(`"tool":"${name}"`)
+    }
+    for (const name of ['browser_open', 'generate_image', 'bash_run', 'use_skill']) {
       expect(prompt).not.toContain(`"tool":"${name}"`)
     }
   })
@@ -474,107 +476,20 @@ describe('工作模式注册表与模式门', () => {
     expect(cross.summary).toBe('不支持该单位换算')
   })
 
-  it('浏览器未启用时浏览器工具如实失败而不抛出', async () => {
-    delete process.env.BROWSER_ENABLED
-    const run = await executeToolCall('u1', { name: 'browser_open', args: { url: 'https://example.com' } }, 'work')
-    expect(run.ok).toBe(false)
-    expect(run.summary).toBe('工具暂时不可用')
-  })
 
-  it('联网搜索未启用时 web_search 如实失败而不抛出', async () => {
-    delete process.env.SEARCH_ENABLED
+  it('联网搜索上游 503 时如实失败而不抛出', async () => {
+    search.searchWeb.mockRejectedValue(Object.assign(new Error('联网搜索未启用'), { statusCode: 503 }))
     const run = await executeToolCall('u1', { name: 'web_search', args: { query: 'x' } }, 'work')
     expect(run.ok).toBe(false)
     expect(run.summary).toBe('工具暂时不可用')
   })
 
   it('web_search 关键词为空时 400 原文透传给模型', async () => {
-    process.env.SEARCH_ENABLED = 'true'
-    try {
-      const run = await executeToolCall('u1', { name: 'web_search', args: { query: '  ' } }, 'work')
-      expect(run.ok).toBe(false)
-      expect(run.feedback).toContain('搜索关键词不能为空')
-    } finally {
-      delete process.env.SEARCH_ENABLED
-    }
-  })
-
-  it('生图服务未配置时 generate_image 如实失败而不抛出', async () => {
-    delete process.env.IMAGE_GEN_BASE_URL
-    const run = await executeToolCall('u1', { name: 'generate_image', args: { prompt: 'a cat' } }, 'work')
+    search.searchWeb.mockRejectedValue(Object.assign(new Error('搜索关键词不能为空'), { statusCode: 400 }))
+    const run = await executeToolCall('u1', { name: 'web_search', args: { query: '  ' } }, 'work')
     expect(run.ok).toBe(false)
-    expect(run.summary).toBe('工具暂时不可用')
+    expect(run.feedback).toContain('搜索关键词不能为空')
   })
 
-  it('bash_run 未启用时如实失败而不抛出；聊天模式被模式门拒绝', async () => {
-    delete process.env.BASH_ENABLED
-    const off = await executeToolCall('u1', { name: 'bash_run', args: { command: 'echo hi' } }, 'work')
-    expect(off.ok).toBe(false)
-    expect(off.summary).toBe('工具暂时不可用')
-
-    const wrongMode = await executeToolCall('u1', { name: 'bash_run', args: { command: 'echo hi' } }, 'chat')
-    expect(wrongMode.ok).toBe(false)
-    expect(wrongMode.summary).toBe('当前模式不支持该操作')
-  })
-
-  it('bash_run 启用时执行命令并回传退出码与输出', async () => {
-    process.env.BASH_ENABLED = 'true'
-    try {
-      const run = await executeToolCall('u1', { name: 'bash_run', args: { command: `${JSON.stringify(process.execPath)} -e "console.log('agent-bash-ok')"` } }, 'work')
-      expect(run.ok).toBe(true)
-      expect(run.summary).toContain('已执行')
-      expect(run.feedback).toContain('"exitCode":0')
-      expect(run.feedback).toContain('agent-bash-ok')
-    } finally {
-      delete process.env.BASH_ENABLED
-    }
-  })
-  it('use_skill 未启用时如实失败而不抛出；聊天模式被模式门拒绝', async () => {
-    delete process.env.SKILLS_ENABLED
-    const off = await executeToolCall('u1', { name: 'use_skill', args: { name: 'x' } }, 'work')
-    expect(off.ok).toBe(false)
-    expect(off.summary).toBe('工具暂时不可用')
-
-    const wrongMode = await executeToolCall('u1', { name: 'use_skill', args: { name: 'x' } }, 'chat')
-    expect(wrongMode.ok).toBe(false)
-    expect(wrongMode.summary).toBe('当前模式不支持该操作')
-  })
-
-  it('use_skill 启用但技能不存在时 404 原文透传给模型', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'skills-'))
-    process.env.SKILLS_ENABLED = 'true'
-    process.env.SKILLS_DIR = dir
-    try {
-      const run = await executeToolCall('u1', { name: 'use_skill', args: { name: 'ghost' } }, 'work')
-      expect(run.ok).toBe(false)
-      expect(run.feedback).toContain('没有这个技能')
-    } finally {
-      delete process.env.SKILLS_ENABLED
-      delete process.env.SKILLS_DIR
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
 })
 
-describe('registerWorkTool（扩展注册口）', () => {
-  it('注册后流式前缀门立即识别，工作模式可执行', async () => {
-    const ok = registerWorkTool('ext_smoke_probe', {
-      description: '{"tool":"ext_smoke_probe","args":{}} 冒烟探针',
-      run: async () => ({ summary: '探针已执行', result: { probe: 1 } }),
-    })
-    expect(ok).toBe(true)
-    expect(classifyToolPrefix('{"tool":"ext_smoke_probe","args":{}}')).toEqual({ name: 'ext_smoke_probe', args: {} })
-    const run = await executeToolCall('u1', { name: 'ext_smoke_probe', args: {} }, 'work')
-    expect(run.ok).toBe(true)
-    expect(run.summary).toBe('探针已执行')
-  })
-
-  it('非法名与重名注册返回 false 且原工具不被覆盖', async () => {
-    expect(registerWorkTool('Bad-Name', { description: 'x', run: async () => ({}) })).toBe(false)
-    expect(registerWorkTool('add_todo', { description: 'x', run: async () => ({ summary: '覆盖版', result: null }) })).toBe(false)
-    expect(registerWorkTool('ext_dup', { description: '{"tool":"ext_dup","args":{}}', run: async () => ({ summary: '原版', result: null }) })).toBe(true)
-    expect(registerWorkTool('ext_dup', { description: 'x', run: async () => ({ summary: '覆盖版', result: null }) })).toBe(false)
-    const run = await executeToolCall('u1', { name: 'ext_dup', args: {} }, 'work')
-    expect(run.summary).toBe('原版')
-  })
-})

@@ -4,10 +4,8 @@ const mocks = vi.hoisted(() => ({
   messageFindFirst: vi.fn(),
   memoryFindMany: vi.fn(),
   memoryCreate: vi.fn(),
-  getStoredLocalConfig: vi.fn(),
-  normalizeAndAuthorizeBaseUrl: vi.fn((url) => url),
-  isQwenConfigured: vi.fn(() => false),
-  createGateway: vi.fn(),
+  userFindUnique: vi.fn(),
+  getGateway: vi.fn(),
   gatewayComplete: vi.fn(),
 }))
 
@@ -15,14 +13,20 @@ vi.mock('../prisma/client.js', () => ({
   default: {
     message: { findFirst: mocks.messageFindFirst },
     memory: { findMany: mocks.memoryFindMany, create: mocks.memoryCreate },
+    user: { findUnique: mocks.userFindUnique },
   },
 }))
-vi.mock('./localLlmConfigService.js', () => ({
-  getStoredLocalConfig: mocks.getStoredLocalConfig,
-  normalizeAndAuthorizeBaseUrl: mocks.normalizeAndAuthorizeBaseUrl,
-  isQwenConfigured: mocks.isQwenConfigured,
-}))
-vi.mock('@cyber-sister/llm-gateway', () => ({ createGateway: mocks.createGateway }))
+// 保留 llmService 的真实脱敏与错误类，只替换网关装配与同意门前置断言
+vi.mock('./llmService.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getGateway: mocks.getGateway,
+    assertCloudCallable: (allowExternal) => {
+      if (!allowExternal) throw new actual.CloudConsentRequiredError()
+    },
+  }
+})
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -33,14 +37,14 @@ const USER_ID = 'user-1'
 const MESSAGE_ID = 'msg-1'
 const REQUEST_ID = 'req-1'
 const USER_MESSAGE = { id: MESSAGE_ID, role: 'user', content: '我超喜欢吃火锅，每周五都去' }
-const LOCAL_CONFIG = { id: 'local', revision: 1, enabled: true, baseUrl: 'http://127.0.0.1:8080/v1', model: 'local-model' }
+const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'qwen-fallback-v1' }
 
 function modelOutput(items) {
   mocks.gatewayComplete.mockResolvedValue({
     content: JSON.stringify(items),
-    provider: 'llamacpp',
-    model: 'local-model',
-    scope: 'local',
+    provider: 'qwen',
+    model: 'qwen-model',
+    scope: 'external',
   })
 }
 
@@ -50,8 +54,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.messageFindFirst.mockResolvedValue(USER_MESSAGE)
   mocks.memoryFindMany.mockResolvedValue([])
-  mocks.getStoredLocalConfig.mockResolvedValue(LOCAL_CONFIG)
-  mocks.createGateway.mockResolvedValue({ complete: mocks.gatewayComplete })
+  mocks.userFindUnique.mockResolvedValue(CONSENTED)
+  mocks.getGateway.mockResolvedValue({ complete: mocks.gatewayComplete })
   modelOutput([VALID_CANDIDATE])
 })
 
@@ -84,31 +88,40 @@ describe('记忆建议：归属与输入校验（W3-1）', () => {
   })
 })
 
-describe('记忆建议：仅本地模型（W3-2）', () => {
-  it('本地模型未配置时抛 LOCAL_LLM_NOT_CONFIGURED（503）', async () => {
-    mocks.getStoredLocalConfig.mockResolvedValue(null)
+describe('记忆建议：云端同意门（切割后）', () => {
+  it('未同意时抛 CLOUD_NOT_CONSENTED（503），不调用网关', async () => {
+    mocks.userFindUnique.mockResolvedValue({ externalLlmConsent: null, externalLlmConsentVersion: null })
     await expect(getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)).rejects.toMatchObject({
-      code: 'LOCAL_LLM_NOT_CONFIGURED',
+      code: 'CLOUD_NOT_CONSENTED',
       statusCode: 503,
     })
     expect(mocks.gatewayComplete).not.toHaveBeenCalled()
   })
 
-  it('模型不可用（网关返回 null）时抛 LOCAL_LLM_UNAVAILABLE（503），不产生候选', async () => {
+  it('同意版本不匹配时同样视为未同意', async () => {
+    mocks.userFindUnique.mockResolvedValue({ externalLlmConsent: true, externalLlmConsentVersion: 'old-version' })
+    await expect(getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)).rejects.toMatchObject({
+      code: 'CLOUD_NOT_CONSENTED',
+    })
+    expect(mocks.gatewayComplete).not.toHaveBeenCalled()
+  })
+
+  it('模型不可用（网关返回 null）时抛 LLM_UNAVAILABLE（503），不产生候选', async () => {
     mocks.gatewayComplete.mockResolvedValue(null)
     await expect(getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)).rejects.toMatchObject({
-      code: 'LOCAL_LLM_UNAVAILABLE',
+      code: 'LLM_UNAVAILABLE',
       statusCode: 503,
     })
   })
 
-  it('网关调用固定 allowExternal=false 且不提供 authorizeExternal（禁止 Qwen 回退）', async () => {
+  it('已同意时走 explain 场景并提供 authorizeExternal 重读同意', async () => {
     await getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)
     expect(mocks.gatewayComplete).toHaveBeenCalledWith(
-      expect.objectContaining({ scene: 'explain', requestId: REQUEST_ID, allowExternal: false }),
+      expect.objectContaining({ scene: 'explain', requestId: REQUEST_ID, allowExternal: true }),
     )
     const call = mocks.gatewayComplete.mock.calls[0][0]
-    expect(call.authorizeExternal).toBeUndefined()
+    expect(typeof call.authorizeExternal).toBe('function')
+    await expect(call.authorizeExternal()).resolves.toBe(true)
   })
 
   it('送入模型的消息经过脱敏', async () => {
@@ -123,7 +136,7 @@ describe('记忆建议：仅本地模型（W3-2）', () => {
 
 describe('记忆建议：候选校验（W3-3）', () => {
   it('模型输出非 JSON 时返回空候选而不是报错', async () => {
-    mocks.gatewayComplete.mockResolvedValue({ content: '抱歉，我无法理解', scope: 'local' })
+    mocks.gatewayComplete.mockResolvedValue({ content: '抱歉，我无法理解', scope: 'external' })
     const result = await getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)
     expect(result).toEqual({ candidates: [] })
   })
@@ -131,7 +144,7 @@ describe('记忆建议：候选校验（W3-3）', () => {
   it('能从带前后杂文的输出中提取 JSON 数组', async () => {
     mocks.gatewayComplete.mockResolvedValue({
       content: `好的，结果如下：\n${JSON.stringify([VALID_CANDIDATE])}\n以上。`,
-      scope: 'local',
+      scope: 'external',
     })
     const result = await getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)
     expect(result.candidates).toEqual([VALID_CANDIDATE])

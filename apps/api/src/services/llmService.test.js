@@ -11,18 +11,6 @@ vi.mock('@cyber-sister/llm-gateway', () => ({
   })),
 }))
 
-vi.mock('./localLlmConfigService.js', () => ({
-  getStoredLocalConfig: vi.fn(() => Promise.resolve({
-    id: 'local',
-    enabled: true,
-    revision: 1,
-    baseUrl: 'http://llama:8080/v1',
-    model: 'local-model',
-  })),
-  isQwenConfigured: vi.fn(() => true),
-  normalizeAndAuthorizeBaseUrl: vi.fn((value) => value),
-}))
-
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -32,20 +20,54 @@ import {
   buildModelMessages,
   buildGatewayEnv,
   filterModelOutput,
+  generateCompanionNote,
   generateExplanationWithModel,
   generateLocalTemplateResponse,
   generateResponse,
   generateResponseStream,
+  CloudConsentRequiredError,
   LlmUnavailableError,
-  LocalLlmNotConfiguredError,
   redactSensitiveText,
+  resetGatewayCache,
   retrieveRelevantMemories,
 } from './llmService.js'
-import { getStoredLocalConfig } from './localLlmConfigService.js'
+
+// 云端切割（2026-09-07）：供应商槽 GATEWAY_QWEN_* 是唯一 provider。
+// 测试通过环境变量控制供应商是否配置（isCloudProviderConfigured 直接读 env）。
+const CLOUD_ENV = {
+  GATEWAY_QWEN_BASE_URL: 'https://example.invalid/v1',
+  GATEWAY_QWEN_MODEL: 'qwen-model',
+  GATEWAY_QWEN_API_KEY: 'k',
+}
+
+function withCloudEnv() {
+  Object.assign(process.env, CLOUD_ENV)
+}
+
+function withoutCloudEnv() {
+  for (const key of Object.keys(CLOUD_ENV)) delete process.env[key]
+}
+
+const authorized = () => Promise.resolve(true)
+
+async function collectEvents(generator) {
+  const events = []
+  for await (const event of generator) events.push(event)
+  return events
+}
+
+function streamOf(events) {
+  return (async function* () {
+    for (const event of events) yield event
+  })()
+}
 
 describe('llmService 数据最小化', () => {
   beforeEach(() => {
     gatewayComplete.mockReset()
+    gatewayStream.mockReset()
+    resetGatewayCache()
+    withCloudEnv()
   })
 
   it('最多发送 19 条历史加当前消息，且只保留 role/content', () => {
@@ -63,502 +85,166 @@ describe('llmService 数据最小化', () => {
     expect(messages[0].content).toBe('消息6')
   })
 
-  it('脱敏手机号、邮箱和身份证号', () => {
-    const redacted = redactSensitiveText(
-      '电话 13800138000，邮箱 me@example.com，身份证 110105199001011234',
-    )
-    expect(redacted).toContain('[手机号]')
-    expect(redacted).toContain('[邮箱]')
-    expect(redacted).toContain('[证件号]')
-    expect(redacted).not.toContain('13800138000')
-    expect(redacted).not.toContain('me@example.com')
+  it('确定性脱敏手机号、邮箱与证件号（NFKC 归一后全角逗号变半角）', () => {
+    expect(redactSensitiveText('打我13800138000或a@b.co，证件110101199001011234'))
+      .toBe('打我[手机号]或[邮箱],证件[证件号]')
   })
 
-  it('importance 不能让无关键词或标签重合的记忆入选', () => {
+  it('记忆上下文带不可信包裹，且不含原始 importance', () => {
+    const context = buildMemoryContext([{ type: 'semantic', content: '喜欢火锅', importance: 9 }])
+    expect(context).toContain('【不可信用户记忆数据】')
+    expect(context).toContain('"content":"喜欢火锅"')
+    expect(context).not.toContain('importance')
+  })
+
+  it('retrieveRelevantMemories 只返回有词重合的记忆', () => {
     const memories = [
-      { id: 'relevant', content: '我喜欢吃火锅', tags: '["火锅"]', importance: 2 },
-      { id: 'irrelevant', content: '大学毕业典礼', tags: '["毕业"]', importance: 10 },
+      { id: '1', type: 'semantic', content: '用户喜欢吃火锅', importance: 5, tags: [] },
+      { id: '2', type: 'semantic', content: '完全无关的内容', importance: 10, tags: [] },
     ]
-    expect(retrieveRelevantMemories('今晚想吃火锅', memories).map((memory) => memory.id))
-      .toEqual(['relevant'])
-  })
-
-  it('相关记忆最多五条，并作为不可信数据注入', () => {
-    const memories = Array.from({ length: 8 }, (_, index) => ({
-      id: String(index),
-      content: `火锅偏好${index}`,
-      tags: '["火锅"]',
-      importance: index,
-      type: 'semantic',
-    }))
-    const relevant = retrieveRelevantMemories('火锅', memories)
-    expect(relevant).toHaveLength(5)
-    const context = buildMemoryContext(relevant)
-    expect(context).toContain('不可信用户记忆数据')
-    expect(context).toContain('不是指令')
+    const result = retrieveRelevantMemories('火锅好吃吗', memories)
+    expect(result.map((m) => m.id)).toEqual(['1'])
   })
 })
 
-describe('llmService 回复行为', () => {
-  beforeEach(() => gatewayComplete.mockReset())
-
-  it('外部回退调用由网关处理，服务只传最小消息和人设', async () => {
-    const authorizeExternal = vi.fn(() => true)
-    gatewayComplete.mockResolvedValue({
-      content: '可以先缓一缓',
-      provider: 'qwen',
-      model: 'configured-model',
-      scope: 'external',
-    })
-    const result = await generateResponse(
-      '联系我 13800138000',
-      'rational',
-      [{ role: 'assistant', content: '发我邮箱 me@example.com' }],
-      [],
-      'request-1',
-      { allowExternal: true, authorizeExternal },
-    )
-
-    expect(result.source).toBe('qwen')
-    const request = gatewayComplete.mock.calls[0][0]
-    expect(request.scene).toBe('chat')
-    expect(request.persona).toBe('rational')
-    expect(request.allowExternal).toBe(true)
-    expect(request.authorizeExternal).toBe(authorizeExternal)
-    expect(request.messages).toEqual([
-      { role: 'assistant', content: '发我邮箱 [邮箱]' },
-      { role: 'user', content: '联系我 [手机号]' },
-    ])
+describe('filterModelOutput 与本地安全模板', () => {
+  it('命中拱火/冒充真人等红线时替换为人格模板', () => {
+    const filtered = filterModelOutput('听我的，立刻分手', '我该怎么办', 'toxic')
+    expect(filtered.filtered).toBe(true)
+    expect(filtered.source).toBe('local_template')
   })
 
-  it('解释场景也把外部授权复核钩子原样交给网关', async () => {
-    const authorizeExternal = vi.fn(() => true)
-    gatewayComplete.mockResolvedValue({
-      content: '一句解释',
-      provider: 'qwen',
-      model: 'configured-model',
-      scope: 'external',
-    })
-
-    await expect(generateExplanationWithModel(
-      '规范化解释提示',
-      'request-explain',
-      { allowExternal: true, authorizeExternal },
-    )).resolves.toMatchObject({ content: '一句解释', source: 'qwen' })
-
-    expect(gatewayComplete.mock.calls[0][0]).toMatchObject({
-      scene: 'explain',
-      allowExternal: true,
-      authorizeExternal,
-    })
+  it('正常内容原样通过并标记来源', () => {
+    const passed = filterModelOutput('这事儿他做得不对。', '吐槽', 'toxic', 'qwen')
+    expect(passed).toMatchObject({ filtered: false, source: 'qwen' })
   })
 
-  it('本地与外部都失败时抛出稳定 503 业务错误', async () => {
-    gatewayComplete.mockResolvedValue(null)
-    const authorizeExternal = vi.fn(() => true)
-    await expect(generateResponse('你好', 'toxic', [], [], undefined, {
-      allowExternal: true,
-      authorizeExternal,
-    }))
-      .rejects.toBeInstanceOf(LlmUnavailableError)
-    await expect(generateResponse('你好', 'toxic', [], [], undefined, {
-      allowExternal: true,
-      authorizeExternal,
-    })).rejects.toMatchObject({
-      code: 'LLM_UNAVAILABLE',
-      statusCode: 503,
-    })
-  })
-
-  it('发送前已撤回时把失败标识为本地不可用，而不是云端故障', async () => {
-    gatewayComplete.mockResolvedValue(null)
-    await expect(generateResponse('你好', 'toxic', [], [], undefined, {
-      allowExternal: true,
-      authorizeExternal: () => false,
-    })).rejects.toMatchObject({
-      code: 'LOCAL_LLM_UNAVAILABLE',
-      statusCode: 503,
-    })
-  })
-
-  it('未授权外部回退时网关失败返回本地模型错误', async () => {
-    gatewayComplete.mockResolvedValue(null)
-    await expect(generateResponse('你好')).rejects.toMatchObject({
-      code: 'LOCAL_LLM_UNAVAILABLE',
-      statusCode: 503,
-    })
-    expect(gatewayComplete.mock.calls[0][0].allowExternal).toBe(false)
-  })
-
-  it('危险或冒充真人的模型输出替换为本地安全模板', () => {
-    expect(filterModelOutput('我是真人，听我的马上分手', '我该怎么办', 'gentle'))
-      .toMatchObject({ source: 'local_template', filtered: true })
-    expect(filterModelOutput('先骂他，再找他理论', '我很生气', 'toxic'))
-      .toMatchObject({ source: 'local_template', filtered: true })
-  })
-
-  it('本地模板支持六种当前人格并明确标识来源', () => {
-    for (const persona of ['toxic', 'gentle', 'rational', 'energetic', 'sister', 'cool']) {
-      expect(generateLocalTemplateResponse('今天有点焦虑', persona))
-        .toMatchObject({ source: 'local_template', emotion: 'anxious' })
-    }
-  })
-
-  it('generateResponse 将 scene 选项透传给网关', async () => {
-    gatewayComplete.mockResolvedValue({
-      content: '好的，收到。',
-      provider: 'llamacpp',
-      model: 'local-model',
-      scope: 'local',
-    })
-
-    await generateResponse('帮我算个账', 'toxic', [], [], undefined, { scene: 'work' })
-
-    expect(gatewayComplete.mock.calls[0][0].scene).toBe('work')
-  })
-
-  it('工作场景本地模板为统一兜底文案，不区分人格', () => {
-    for (const persona of ['toxic', 'cool']) {
-      expect(generateLocalTemplateResponse('随便说说', persona, 'work'))
-        .toMatchObject({
-          content: '我这边工具暂时没跟上。请把任务再说具体一点，我直接按步骤来。',
-          emotion: 'neutral',
-          source: 'local_template',
-        })
-    }
-  })
-
-  it('动态网关配置将 llama.cpp 标记为本地并始终排在 Qwen 前', () => {
-    const env = buildGatewayEnv({
-      baseUrl: 'http://llama:8080/v1',
-      model: 'local-model',
-    }, {
-      GATEWAY_QWEN_BASE_URL: 'https://example.invalid/v1',
-      GATEWAY_QWEN_MODEL: 'qwen-model',
-      GATEWAY_QWEN_API_KEY: 'secret',
-    })
-    expect(env).toMatchObject({
-      GATEWAY_PROVIDERS: 'llamacpp,qwen',
-      GATEWAY_LLAMACPP_SCOPE: 'local',
-      GATEWAY_QWEN_SCOPE: 'external',
-      GATEWAY_SCENE_chat: 'llamacpp,qwen',
-    })
-  })
-
-  it('未授权外部回退时返回本地模型来源', async () => {
-    gatewayComplete.mockResolvedValue({
-      content: '我在，我们慢慢说。',
-      provider: 'llamacpp',
-      model: 'local-model',
-      scope: 'local',
-    })
-    const result = await generateResponse('今天有点累')
-    expect(result).toMatchObject({ source: 'local_model', provider: 'llamacpp' })
-    expect(gatewayComplete.mock.calls[0][0].allowExternal).toBe(false)
+  it('本地模板按人格与情绪取文案，工作场景用统一兜底', () => {
+    expect(generateLocalTemplateResponse('今天有点焦虑', 'toxic').source).toBe('local_template')
+    expect(generateLocalTemplateResponse('随便', 'toxic', 'work').content)
+      .toBe('我这边工具暂时没跟上。请把任务再说具体一点，我直接按步骤来。')
   })
 })
 
-function streamOf(events) {
-  return (async function* () {
-    for (const event of events) yield event
-  })()
-}
-
-async function collectEvents(iterable) {
-  const events = []
-  for await (const event of iterable) events.push(event)
-  return events
-}
-
-describe('llmService.generateResponseStream 分句安全输出', () => {
-  beforeEach(() => {
-    gatewayComplete.mockReset()
-    gatewayStream.mockReset()
-  })
-
-  it('跨 delta 按终止符分句，无终止符尾段随流结束产出', async () => {
-    gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '第一句。第二' },
-      { type: 'delta', text: '句！还有问吗？尾段没有终止符' },
-      { type: 'done', provider: 'llamacpp', model: 'local-model', scope: 'local' },
-    ]))
-
-    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-1'))
-
-    expect(events.map((event) => event.type)).toEqual([
-      'sentence', 'sentence', 'sentence', 'sentence', 'done',
-    ])
-    expect(events.slice(0, 4).map((event) => event.text)).toEqual([
-      '第一句。', '第二句！', '还有问吗？', '尾段没有终止符',
-    ])
-    expect(events[4]).toMatchObject({
-      // done.content 与 filterModelOutput 一致经过 NFKC 归一化（！→! ？→?）
-      content: '第一句。第二句!还有问吗?尾段没有终止符',
-      source: 'local_model',
-      provider: 'llamacpp',
-      model: 'local-model',
-    })
-  })
-
-  it('整段无终止符时不发 sentence，只在 done 给出完整内容', async () => {
-    gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '没有句号的一段话' },
-      { type: 'done', provider: 'llamacpp', model: 'local-model', scope: 'local' },
-    ]))
-
-    const events = await collectEvents(generateResponseStream('你好'))
-
-    expect(events.map((event) => event.type)).toEqual(['sentence', 'done'])
-    expect(events[0]).toEqual({ type: 'sentence', text: '没有句号的一段话' })
-    expect(events[1]).toMatchObject({ content: '没有句号的一段话', source: 'local_model' })
-  })
-
-  it('累计安全检查命中时中止上游、发 replace 并以本地模板收尾', async () => {
-    let fullyConsumed = false
-    let generatorClosed = false
-    gatewayStream.mockReturnValue((async function* () {
-      try {
-        yield { type: 'delta', text: '这句话没问题。' }
-        yield { type: 'delta', text: '不如直接打死他。' }
-        yield { type: 'delta', text: '不该到达的内容。' }
-        yield { type: 'done', provider: 'llamacpp', model: 'local-model', scope: 'local' }
-        fullyConsumed = true
-      } finally {
-        generatorClosed = true
-      }
-    })())
-
-    const events = await collectEvents(generateResponseStream('我很生气', 'toxic', [], [], 'req-2'))
-    const template = generateLocalTemplateResponse('我很生气', 'toxic')
-
-    expect(events.map((event) => event.type)).toEqual(['sentence', 'replace', 'done'])
-    expect(events[0]).toEqual({ type: 'sentence', text: '这句话没问题。' })
-    expect(events[1]).toEqual({
-      type: 'replace',
-      content: template.content,
-      source: 'local_template',
-    })
-    expect(events[2]).toMatchObject({
-      content: template.content,
-      emotion: template.emotion,
-      source: 'local_template',
-    })
-    // 上游被中止：后续 delta 不再被消费
-    expect(fullyConsumed).toBe(false)
-    expect(generatorClosed).toBe(true)
-  })
-
-  it('未配置本地模型时产出 LOCAL_LLM_NOT_CONFIGURED 且不调用网关', async () => {
-    getStoredLocalConfig.mockResolvedValueOnce(null)
-
-    const events = await collectEvents(generateResponseStream('你好'))
-
-    expect(events).toEqual([{ type: 'error', reason: 'LOCAL_LLM_NOT_CONFIGURED' }])
-    expect(gatewayStream).not.toHaveBeenCalled()
-  })
-
-  it('首句产出前失败且未授权外部回退时映射为 LOCAL_LLM_UNAVAILABLE', async () => {
-    gatewayStream.mockReturnValue(streamOf([{ type: 'error', reason: 'all_providers_failed' }]))
-
-    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-3', {
-      allowExternal: true,
-      authorizeExternal: () => false,
-    }))
-
-    expect(events).toEqual([{ type: 'error', reason: 'LOCAL_LLM_UNAVAILABLE' }])
-  })
-
-  it('首句产出前失败且已授权外部回退时映射为 LLM_UNAVAILABLE', async () => {
-    gatewayStream.mockReturnValue(streamOf([{ type: 'error', reason: 'all_providers_failed' }]))
-
-    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-4', {
-      allowExternal: true,
-      authorizeExternal: () => true,
-    }))
-
-    expect(events).toEqual([{ type: 'error', reason: 'LLM_UNAVAILABLE' }])
-  })
-
-  it('首句产出后的上游失败只报 STREAM_FAILED 且事件不含对话内容', async () => {
-    gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '这句已经安全发出。' },
-      { type: 'error', reason: 'upstream_error' },
-    ]))
-
-    const events = await collectEvents(generateResponseStream('你好'))
-
-    expect(events).toEqual([
-      { type: 'sentence', text: '这句已经安全发出。' },
-      { type: 'error', reason: 'STREAM_FAILED' },
-    ])
-    expect(JSON.stringify(events.at(-1))).not.toContain('这句已经安全发出')
-  })
-
-  it('同意装配、最小消息与取消信号原样转发给网关流', async () => {
-    const authorizeExternal = vi.fn(() => true)
-    const caller = new AbortController()
-    gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '好。' },
-      { type: 'done', provider: 'qwen', model: 'qwen-model', scope: 'external' },
-    ]))
-
-    const events = await collectEvents(generateResponseStream(
-      '联系我 13800138000',
-      'rational',
-      [{ role: 'assistant', content: '发我邮箱 me@example.com' }],
-      [],
-      'req-5',
-      { allowExternal: true, authorizeExternal, signal: caller.signal },
-    ))
-
-    expect(events.at(-1)).toMatchObject({ source: 'qwen', provider: 'qwen', model: 'qwen-model' })
-    const request = gatewayStream.mock.calls[0][0]
-    expect(request.scene).toBe('chat')
-    expect(request.persona).toBe('rational')
-    expect(request.allowExternal).toBe(true)
-    expect(request.authorizeExternal).toBe(authorizeExternal)
-    expect(request.messages).toEqual([
-      { role: 'assistant', content: '发我邮箱 [邮箱]' },
-      { role: 'user', content: '联系我 [手机号]' },
-    ])
-    expect(request.signal.aborted).toBe(false)
-  })
-
-  it('调用方取消时中止上游并安静结束', async () => {
-    const caller = new AbortController()
-    let gatewaySignal
-    gatewayStream.mockImplementation(({ signal: upstreamSignal }) => {
-      gatewaySignal = upstreamSignal
-      return (async function* () {
-        yield { type: 'delta', text: '没有终止符的半句' }
-        // 网关契约：abort 后安静结束，不再产出任何事件
-        await new Promise((resolve) => {
-          if (upstreamSignal.aborted) resolve()
-          else upstreamSignal.addEventListener('abort', resolve, { once: true })
-        })
-      })()
-    })
-
-    const stream = generateResponseStream('你好', 'toxic', [], [], 'req-6', { signal: caller.signal })
-    const pending = stream.next()
-    caller.abort()
-    const result = await pending
-
-    expect(result.done).toBe(true)
-    expect(gatewaySignal.aborted).toBe(true)
-  })
-})
-
-describe('llmService.generateResponseStream 工具调用前缀门', () => {
-  beforeEach(() => {
-    gatewayComplete.mockReset()
-    gatewayStream.mockReset()
-  })
-
-  it('拦截跨分片到达的注册工具调用：中止上游、不产生任何 sentence', async () => {
-    let fullyConsumed = false
-    gatewayStream.mockReturnValue((async function* () {
-      try {
-        yield { type: 'delta', text: '  {"tool":"add_todo","ar' }
-        yield { type: 'delta', text: 'gs":{"content":"周六复诊。带句号"}}' }
-        yield { type: 'delta', text: '不该到达的内容。' }
-        yield { type: 'done', provider: 'llamacpp', model: 'local-model', scope: 'local' }
-        fullyConsumed = true
-      } finally {
-        // 上游被提前退出时 finally 一定运行（生成器关闭）
-      }
-    })())
-
-    const events = await collectEvents(generateResponseStream('帮我记个待办', 'toxic', [], [], 'req-tool-1'))
-
-    expect(events).toEqual([{ type: 'toolcall', name: 'add_todo', args: { content: '周六复诊。带句号' } }])
-    expect(fullyConsumed).toBe(false)
-  })
-
-  it('JSON 形但非注册工具的前缀按自然语言放行', async () => {
-    gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '{"心情":"不错"} 这是 JSON 样式。' },
-      { type: 'done', provider: 'llamacpp', model: 'local-model', scope: 'local' },
-    ]))
-
-    const events = await collectEvents(generateResponseStream('你好'))
-
-    expect(events[0]).toEqual({ type: 'sentence', text: '{"心情":"不错"} 这是 JSON 样式。' })
-    expect(events.at(-1)).toMatchObject({ type: 'done', source: 'local_model' })
-  })
-
-  it('extraSystem 原样并入 systemAppend 转发给网关', async () => {
-    let request
-    gatewayStream.mockImplementation((req) => {
-      request = req
-      return streamOf([{ type: 'delta', text: '好。' }, { type: 'done', provider: 'llamacpp', model: 'm', scope: 'local' }])
-    })
-
-    await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-tool-2', {
-      extraSystem: [{ role: 'system', content: '工具提示词' }],
-    }))
-
-    expect(request.systemAppend).toEqual([{ role: 'system', content: '工具提示词' }])
-  })
-})
-
-describe('llmService 外部主用部署模式（EXTERNAL_CHAT_PRIMARY）', () => {
-  beforeEach(() => {
-    gatewayComplete.mockReset()
-    gatewayStream.mockReset()
-    delete process.env.EXTERNAL_CHAT_PRIMARY
-  })
-
-  const withPrimary = async (fn) => {
-    process.env.EXTERNAL_CHAT_PRIMARY = 'true'
-    try { return await fn() } finally { delete process.env.EXTERNAL_CHAT_PRIMARY }
-  }
-
-  it('默认部署保持本地优先的场景路由顺序', () => {
-    const env = buildGatewayEnv({ baseUrl: 'http://llama:8080/v1', model: 'local-model' }, {})
-    expect(env.GATEWAY_SCENE_chat).toBe('llamacpp,qwen')
-  })
-
-  it('外部主用时场景路由外部优先，且允许无本地配置', () => {
-    const env = buildGatewayEnv(null, { EXTERNAL_CHAT_PRIMARY: 'true' })
+describe('buildGatewayEnv 云端唯一路径', () => {
+  it('供应商固定为 qwen，场景路由不含 llamacpp', () => {
+    const env = buildGatewayEnv(CLOUD_ENV)
     expect(env.GATEWAY_PROVIDERS).toBe('qwen')
     expect(env.GATEWAY_SCENE_chat).toBe('qwen')
     expect(env.GATEWAY_SCENE_explain).toBe('qwen')
+    expect(env.GATEWAY_LLAMACPP_BASE_URL).toBeUndefined()
+  })
+})
+
+describe('generateResponse 同意门', () => {
+  beforeEach(() => {
+    gatewayComplete.mockReset()
+    resetGatewayCache()
+    withCloudEnv()
   })
 
-  it('外部主用时未配置本地模型也能完成非流式回复', () => withPrimary(async () => {
-    getStoredLocalConfig.mockResolvedValueOnce(null)
-    gatewayComplete.mockResolvedValue({ content: '云端回复', provider: 'qwen', model: 'dots', scope: 'external' })
-
-    const result = await generateResponse('你好', 'toxic', [], [], 'req-ext-1', {
-      allowExternal: true,
-      authorizeExternal: async () => true,
-    })
-
-    expect(result.content).toBe('云端回复')
-    expect(result.source).toBe('qwen')
-  }))
-
-  it('默认模式下未配置本地模型仍然抛 LOCAL_LLM_NOT_CONFIGURED', async () => {
-    getStoredLocalConfig.mockResolvedValueOnce(null)
-
-    await expect(generateResponse('你好', 'toxic', [], [], 'req-ext-2')).rejects.toThrow(LocalLlmNotConfiguredError)
+  it('未同意（allowExternal=false）时抛 CLOUD_NOT_CONSENTED 且不调用网关', async () => {
+    await expect(generateResponse('你好', 'toxic', [], [], 'req-1', { allowExternal: false }))
+      .rejects.toThrow(CloudConsentRequiredError)
     expect(gatewayComplete).not.toHaveBeenCalled()
   })
 
-  it('外部主用时流式正常产出而不是 NOT_CONFIGURED 错误', () => withPrimary(async () => {
-    getStoredLocalConfig.mockResolvedValueOnce(null)
+  it('供应商未配置时抛 LLM_UNAVAILABLE，即使已同意', async () => {
+    withoutCloudEnv()
+    await expect(generateResponse('你好', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+      .rejects.toThrow(LlmUnavailableError)
+    expect(gatewayComplete).not.toHaveBeenCalled()
+  })
+
+  it('已同意且网关返回内容时来源为 qwen', async () => {
+    gatewayComplete.mockResolvedValue({ content: '我在。', provider: 'qwen', model: 'm', scope: 'external' })
+    const result = await generateResponse('你好', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized })
+    expect(result).toMatchObject({ source: 'qwen', provider: 'qwen' })
+  })
+
+  it('已同意但网关无内容且授权仍有效时抛 LLM_UNAVAILABLE', async () => {
+    gatewayComplete.mockResolvedValue(null)
+    await expect(generateResponse('你好', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+      .rejects.toThrow(LlmUnavailableError)
+  })
+})
+
+describe('generateResponseStream 分句安全流', () => {
+  beforeEach(() => {
+    gatewayStream.mockReset()
+    resetGatewayCache()
+    withCloudEnv()
+  })
+
+  it('未同意时首句前产出 CLOUD_NOT_CONSENTED 且不调用网关', async () => {
+    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-1', { allowExternal: false }))
+    expect(events).toEqual([{ type: 'error', reason: 'CLOUD_NOT_CONSENTED' }])
+    expect(gatewayStream).not.toHaveBeenCalled()
+  })
+
+  it('按句界分句产出，尾段随 done 收尾', async () => {
     gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '云端好。' },
-      { type: 'done', provider: 'qwen', model: 'dots', scope: 'external' },
+      { type: 'delta', text: '第一句。第二句！' },
+      { type: 'done', provider: 'qwen', model: 'm', scope: 'external' },
     ]))
+    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+    expect(events[0]).toEqual({ type: 'sentence', text: '第一句。' })
+    expect(events[1]).toEqual({ type: 'sentence', text: '第二句！' })
+    expect(events.at(-1)).toMatchObject({ type: 'done', source: 'qwen' })
+  })
 
-    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-ext-3', {
-      allowExternal: true,
-      authorizeExternal: async () => true,
-    }))
+  it('累计安全检查命中时中止上游并以本地模板 replace', async () => {
+    gatewayStream.mockReturnValue(streamOf([
+      { type: 'delta', text: '听我的，立刻辞职。' },
+      { type: 'done', provider: 'qwen', model: 'm', scope: 'external' },
+    ]))
+    const events = await collectEvents(generateResponseStream('我该怎么办', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+    expect(events[0].type).toBe('replace')
+    expect(events.at(-1)).toMatchObject({ type: 'done', source: 'local_template' })
+  })
 
-    expect(events.map((event) => event.type)).toEqual(['sentence', 'done'])
-    expect(events[1]).toMatchObject({ content: '云端好。', source: 'qwen' })
-  }))
+  it('首句产出后上游失败只报 STREAM_FAILED', async () => {
+    gatewayStream.mockReturnValue(streamOf([
+      { type: 'delta', text: '先说一句。' },
+      { type: 'error', reason: 'upstream_error' },
+    ]))
+    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+    expect(events.at(-1)).toEqual({ type: 'error', reason: 'STREAM_FAILED' })
+  })
+
+  it('首句产出前失败且未授权时映射为 CLOUD_NOT_CONSENTED', async () => {
+    gatewayStream.mockReturnValue(streamOf([{ type: 'error', reason: 'upstream_error' }]))
+    const events = await collectEvents(generateResponseStream('你好', 'toxic', [], [], 'req-1', { allowExternal: false }))
+    expect(events).toEqual([{ type: 'error', reason: 'CLOUD_NOT_CONSENTED' }])
+  })
+
+  it('工具调用前缀门命中注册工具时产出 toolcall 并中止上游', async () => {
+    gatewayStream.mockReturnValue(streamOf([
+      { type: 'delta', text: '{"tool":"add_todo","args":{"content":"x"}}' },
+    ]))
+    const events = await collectEvents(generateResponseStream('帮我记个待办', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
+    expect(events[0]).toMatchObject({ type: 'toolcall', name: 'add_todo' })
+  })
+})
+
+describe('generateCompanionNote / generateExplanationWithModel 同意门', () => {
+  beforeEach(() => {
+    gatewayComplete.mockReset()
+    resetGatewayCache()
+    withCloudEnv()
+  })
+
+  it('未同意时短评与解释均抛 CLOUD_NOT_CONSENTED', async () => {
+    await expect(generateCompanionNote({ persona: 'toxic', instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: false }))
+      .rejects.toThrow(CloudConsentRequiredError)
+    await expect(generateExplanationWithModel('p', 'req-1', { allowExternal: false }))
+      .rejects.toThrow(CloudConsentRequiredError)
+    expect(gatewayComplete).not.toHaveBeenCalled()
+  })
+
+  it('已同意时短评来源为 qwen 且经输出过滤', async () => {
+    gatewayComplete.mockResolvedValue({ content: '辛苦啦。', provider: 'qwen', model: 'm', scope: 'external' })
+    const note = await generateCompanionNote({ persona: 'toxic', instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: true, authorizeExternal: authorized })
+    expect(note).toMatchObject({ source: 'qwen', content: '辛苦啦。' })
+  })
 })

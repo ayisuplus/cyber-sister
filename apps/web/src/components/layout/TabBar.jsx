@@ -24,7 +24,7 @@ export default function TabBar() {
   const navigate = useNavigate()
 
   // Sub-pages hide TabBar
-  const hidePaths = ['/profile/memories', '/profile/local-model', '/tools/virtual-makeup', '/tools/virtual-fitting', '/tools/beauty-camera', '/tools/period', '/tools/countdown', '/tools/todo', '/settings']
+  const hidePaths = ['/profile/memories', '/tools/beauty-camera', '/tools/period', '/tools/countdown', '/tools/todo', '/settings']
   if (hidePaths.some(p => location.pathname.startsWith(p))) return null
 
   // 桌面由 AppShell 侧栏承担导航，底部 TabBar 只在手机宽度显示

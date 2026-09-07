@@ -29,7 +29,7 @@ describe('TabBar', () => {
     expect(screen.getByRole('button', { name: '发现' })).toHaveAttribute('aria-current', 'page')
   })
 
-  it.each(['/profile/memories', '/profile/local-model', '/tools/virtual-makeup', '/tools/virtual-fitting'])('stays hidden on the sub-page %s', (path) => {
+  it.each(['/profile/memories', '/tools/beauty-camera', '/tools/period', '/tools/countdown', '/tools/todo', '/settings'])('stays hidden on the sub-page %s', (path) => {
     const { container } = renderAt(path)
 
     expect(container).toBeEmptyDOMElement()

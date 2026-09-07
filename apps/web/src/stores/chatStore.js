@@ -114,9 +114,6 @@ export const useChatStore = create(
     conversations: [],
     currentConversationId: null,
     messages: [],
-    // 部署模式（/api/llm/status 的 mode）：local_first | external_primary，由 ChatPage 拉取写入
-    llmMode: null,
-    setLlmMode: (mode) => set({ llmMode: mode }),
     // 会话级模式归属：chat | work；会话列表按当前模式过滤，新建会话落在当前模式
     chatMode: 'chat',
     setChatMode: (mode) => {

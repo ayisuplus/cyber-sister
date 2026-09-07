@@ -1,8 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useChatStore } from '../../stores/chatStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useAuthedImageUrl } from '../../hooks/useAuthedImageUrl'
-import { chatService } from '../../services/chatService'
 
 const EMOTION_ACCENTS = {
   happy: 'border-status-local',
@@ -12,9 +9,7 @@ const EMOTION_ACCENTS = {
 }
 
 const SOURCE_LABELS = {
-  local_model: { label: '本机模型', className: 'bg-pastel-sprout text-status-local' },
-  // 部署模式为外部主用时，云端模型就是主力而非备用
-  qwen: { label: '云端备用', primaryLabel: '云端模型', className: 'bg-pastel-mist text-status-info' },
+  qwen: { label: '云端模型', className: 'bg-pastel-mist text-status-info' },
   local_template: { label: '本地安全模板', className: 'bg-pastel-apricot text-text-secondary' },
 }
 
@@ -27,41 +22,11 @@ function renderRichText(text) {
   ))
 }
 
-/** 工作模式生图 chip 附图：鉴权拉取 blob → 对象 URL；失败只留文字 chip，不渲染破图 */
-function ToolRunImage({ imageId }) {
-  const [url, setUrl] = useState(null)
-  useEffect(() => {
-    let objectUrl = null
-    let cancelled = false
-    chatService.getWorkImageUrl(imageId)
-      .then((created) => {
-        if (cancelled) {
-          URL.revokeObjectURL(created)
-          return
-        }
-        objectUrl = created
-        setUrl(created)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [imageId])
-
-  if (!url) return null
-  return (
-    <a href={url} target="_blank" rel="noreferrer" className="mt-1 block w-fit">
-      <img src={url} alt="生成的图片" className="max-h-48 rounded-xl border border-border-hairline shadow-card" />
-    </a>
-  )
-}
 
 export default function MessageBubble({ message, isLast }) {
   const isUser = message.role === 'user'
-  const llmMode = useChatStore(state => state.llmMode)
   const source = SOURCE_LABELS[message.source]
-  const sourceLabel = source?.primaryLabel && llmMode === 'external_primary' ? source.primaryLabel : source?.label
+  const sourceLabel = source?.label
   const emotionAccent = EMOTION_ACCENTS[message.emotion] || 'border-transparent'
   const toolRuns = !isUser && Array.isArray(message.toolRuns) ? message.toolRuns : []
   // 用户自定义头像：有则镜像 AI 头像显示在气泡外侧，无则不占位
@@ -101,15 +66,13 @@ export default function MessageBubble({ message, isLast }) {
         {toolRuns.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {toolRuns.map((run, index) => (
-              <span key={`${run.tool}-${index}`} className="inline-flex flex-col">
-                <span
-                  aria-label={`${run.ok ? '已执行' : '执行失败'}：${run.summary}`}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${run.ok ? 'bg-pastel-sprout text-status-local' : 'bg-pastel-blush text-danger'}`}
-                >
-                  <span aria-hidden="true">{run.ok ? '✓' : '✗'}</span>
-                  {run.summary}
-                </span>
-                {run.ok && run.imageId && <ToolRunImage imageId={run.imageId} />}
+              <span
+                key={`${run.tool}-${index}`}
+                aria-label={`${run.ok ? '已执行' : '执行失败'}：${run.summary}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${run.ok ? 'bg-pastel-sprout text-status-local' : 'bg-pastel-blush text-danger'}`}
+              >
+                <span aria-hidden="true">{run.ok ? '✓' : '✗'}</span>
+                {run.summary}
               </span>
             ))}
           </div>
