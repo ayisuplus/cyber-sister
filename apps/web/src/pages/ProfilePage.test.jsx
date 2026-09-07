@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   consentGet: vi.fn(),
   consentUpdate: vi.fn(),
   uploadAsset: vi.fn(),
+  downloadExport: vi.fn(),
   deleteAsset: vi.fn(),
   fetchAssetUrl: vi.fn(),
   setBackground: vi.fn(),
@@ -40,6 +41,9 @@ vi.mock('../services/userService', () => ({
     uploadAsset: mocks.uploadAsset,
     deleteAsset: mocks.deleteAsset,
     fetchAssetUrl: mocks.fetchAssetUrl,
+  },
+  migrationService: {
+    downloadExport: mocks.downloadExport,
   },
 }))
 
@@ -106,6 +110,43 @@ describe('ProfilePage 云端模型同意', () => {
   })
 })
 
+
+describe('ProfilePage 数据与迁移', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.resolveAssetUrl.mockResolvedValue(null)
+    mocks.consentGet.mockResolvedValue({ accepted: null, version: 'cloud-primary-v1', updatedAt: null })
+  })
+
+  it('渲染数据导出区并承诺永久免费', async () => {
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: '数据与迁移' })).toBeInTheDocument()
+    expect(screen.getByText(/永久免费，不设会员门槛/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '导出我的全部数据（JSON）' })).toBeEnabled()
+  })
+
+  it('点击导出触发下载并提示文件名', async () => {
+    const user = userEvent.setup()
+    mocks.downloadExport.mockResolvedValue('cyber-sister-export-2026-09-07.json')
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '导出我的全部数据（JSON）' }))
+
+    expect(mocks.downloadExport).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText(/已导出到 cyber-sister-export-2026-09-07\.json/)).toBeInTheDocument()
+  })
+
+  it('导出失败时提示重试', async () => {
+    const user = userEvent.setup()
+    mocks.downloadExport.mockRejectedValue(new Error('network down'))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '导出我的全部数据（JSON）' }))
+
+    expect(await screen.findByText('导出失败，请重试')).toBeInTheDocument()
+  })
+})
 describe('ProfilePage 角色扮演', () => {
   beforeEach(() => {
     vi.clearAllMocks()

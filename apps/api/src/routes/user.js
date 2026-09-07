@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { createImageUpload } from '../utils/imageUpload.js'
 import { validateEnum, validate } from '../utils/validate.js'
 import * as userService from '../services/userService.js'
+import { buildUserExport } from '../services/exportService.js'
 import { deleteAsset, readAsset, saveAsset } from '../services/userAssetService.js'
 import logger from '../utils/logger.js'
 
@@ -20,6 +21,19 @@ router.get('/profile', async (req, res) => {
   } catch (error) {
     logger.error('获取用户信息失败', { error: error.message, userId: req.user.userId })
     sendError(res, error, '获取用户信息失败')
+  }
+})
+
+// 数据导出：单 JSON 包，含全部用户自有数据；凭据与危机日志绝不外发（exportService 注释）。
+router.get('/export', async (req, res) => {
+  try {
+    const bundle = await buildUserExport(req.user.userId)
+    const day = new Date().toISOString().slice(0, 10)
+    res.setHeader('Content-Disposition', `attachment; filename="cyber-sister-export-${day}.json"`)
+    res.json(bundle)
+  } catch (error) {
+    logger.error('导出用户数据失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '导出用户数据失败')
   }
 })
 

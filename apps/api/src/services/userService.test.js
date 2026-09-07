@@ -37,6 +37,24 @@ describe('userService.updateRolePlay', () => {
     expect(mocks.userUpdate).not.toHaveBeenCalled()
   })
 
+  it('角色名为恋人称谓时抛 400 恋人红线，不落库', async () => {
+    await expect(updateRolePlay('user-1', { name: '我的女朋友', setting: '温柔体贴' }))
+      .rejects.toMatchObject({ message: '角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象', statusCode: 400 })
+    expect(mocks.userUpdate).not.toHaveBeenCalled()
+  })
+
+  it('角色设定含亲密关系描述时抛 400 恋人红线', async () => {
+    await expect(updateRolePlay('user-1', { name: '小晴', setting: '她是我的灵魂伴侣，每天哄我睡觉' }))
+      .rejects.toMatchObject({ statusCode: 400 })
+    expect(mocks.userUpdate).not.toHaveBeenCalled()
+  })
+
+  it('非亲密的普通角色关系不受影响', async () => {
+    mocks.userUpdate.mockImplementation(({ data }) => Promise.resolve(data))
+    const result = await updateRolePlay('user-1', { name: '合租室友', setting: '爱做饭，经常喊我一起吃饭' })
+    expect(result).toEqual({ roleName: '合租室友', roleSetting: '爱做饭，经常喊我一起吃饭' })
+  })
+
   it('合法输入 trim 后落库并返回角色字段', async () => {
     mocks.userUpdate.mockImplementation(({ data }) => Promise.resolve(data))
 

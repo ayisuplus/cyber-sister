@@ -21,8 +21,13 @@ const assetService = vi.hoisted(() => ({
   deleteAsset: vi.fn(),
 }))
 
+const exportService = vi.hoisted(() => ({
+  buildUserExport: vi.fn(),
+}))
+
 vi.mock('../services/userService.js', () => service)
 vi.mock('../services/userAssetService.js', () => assetService)
+vi.mock('../services/exportService.js', () => exportService)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -41,6 +46,29 @@ const httpError = (message, statusCode, code) => Object.assign(new Error(message
 
 beforeEach(() => vi.clearAllMocks())
 
+
+describe('数据导出路由', () => {
+  it('GET /export 返回导出包并带下载头', async () => {
+    exportService.buildUserExport.mockResolvedValue({ version: 1, product: '赛博姐妹 cyber-sister', user: { nickname: '小赛' }, memories: [] })
+
+    const response = await request(app).get('/export')
+
+    expect(response.status).toBe(200)
+    expect(response.headers['content-disposition']).toContain('attachment')
+    expect(response.headers['content-disposition']).toContain('cyber-sister-export-')
+    expect(response.body).toMatchObject({ version: 1, user: { nickname: '小赛' } })
+    expect(exportService.buildUserExport).toHaveBeenCalledWith('user-1')
+  })
+
+  it('service 抛错时兜底 500 与固定文案', async () => {
+    exportService.buildUserExport.mockRejectedValue(new Error('db down'))
+
+    const response = await request(app).get('/export')
+
+    expect(response.status).toBe(500)
+    expect(response.body).toEqual({ error: '导出用户数据失败' })
+  })
+})
 describe('资料路由', () => {
   it('获取资料成功，HttpError 透传状态码，未知错误兜底 500', async () => {
     service.getProfile.mockResolvedValue({ id: 'user-1', nickname: '姐妹' })

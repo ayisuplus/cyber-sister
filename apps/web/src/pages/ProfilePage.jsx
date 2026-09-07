@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Brain, ChevronRight, Crown, Drama, LogOut, Palette, Shield, Sparkles } from 'lucide-react'
+import { Brain, ChevronRight, Crown, Download, Drama, LogOut, Palette, Shield, Sparkles } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
 import { consentService } from '../services/consentService'
-import { userService } from '../services/userService'
+import { migrationService, userService } from '../services/userService'
 import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl'
 import Header from '../components/layout/Header'
 import TabBar from '../components/layout/TabBar'
@@ -31,10 +31,25 @@ export default function ProfilePage() {
   const clearBackground = useAppearanceStore(s => s.clearBackground)
   const avatarUrl = useAuthedImageUrl(user?.avatarUrl)
   const [busySlot, setBusySlot] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     consentService.get().then(setConsent).catch(() => setMessage('无法读取云端模型设置'))
   }, [])
+
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    setMessage('')
+    try {
+      const filename = await migrationService.downloadExport()
+      setMessage(`已导出到 ${filename}：人格、记忆、对话、日记、手帐、日程全部在内`)
+    } catch {
+      setMessage('导出失败，请重试')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const handlePersonaSwitch = async (persona) => {
     if (savingPersona || persona === user?.persona) return
@@ -296,6 +311,17 @@ export default function ProfilePage() {
           </div>
         </section>
 
+
+        <section aria-labelledby="data-migration-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+          <h2 id="data-migration-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <Download size={16} className="text-status-info" />
+            数据与迁移
+          </h2>
+          <p className="mt-2 text-xs leading-relaxed text-text-secondary">你的数据归你。随时可以把人格、角色扮演、显式记忆、全部对话、日记、手帐、日程、倒数日、经期、提醒、阅读和自习导出为一个 JSON 文件带走——永久免费，不设会员门槛，不需要任何理由。</p>
+          <button type="button" disabled={exporting} onClick={handleExport} className="mt-3 min-h-11 w-full rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover focus:ring-2 focus:ring-status-info disabled:opacity-50">
+            {exporting ? '正在导出…' : '导出我的全部数据（JSON）'}
+          </button>
+        </section>
         <section aria-labelledby="consent-settings-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
           <h2 id="consent-settings-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             <Shield size={16} className="text-brand-green" />
