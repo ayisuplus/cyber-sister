@@ -7,11 +7,15 @@ WORKDIR /workspace
 
 RUN corepack enable && corepack prepare pnpm@11.5.1 --activate
 
+# 内置浏览器（工作模式）：容器内强制无头运行；PLAYWRIGHT_* 指向系统 Chromium，跳过自带下载
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-cjk
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
-COPY packages/makeup-skill/package.json packages/makeup-skill/package.json
 
 RUN pnpm install --frozen-lockfile --prod --filter cyber-sister-server...
 

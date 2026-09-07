@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Heart, Sparkles } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
+import { useAppearanceStore } from '../stores/appearanceStore'
 import { useComplianceStore } from '../stores/complianceStore'
 import { localModelService } from '../services/localModelService'
 import ChatHeader from '../components/chat/ChatHeader'
@@ -8,15 +9,26 @@ import CloudFallbackNotice, { CLOUD_FALLBACK_DISMISSED_KEY } from '../components
 import MessageBubble from '../components/chat/MessageBubble'
 import TypingIndicator from '../components/chat/TypingIndicator'
 import InputBar from '../components/chat/InputBar'
+import ConversationPanel from '../components/chat/ConversationPanel'
+import MemorySuggestion from '../components/chat/MemorySuggestion'
 import CrisisModal from '../components/chat/CrisisModal'
 import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
 import TabBar from '../components/layout/TabBar'
 
-const getSendErrorMessage = (requestError) => {
+const getSendErrorMessage = (requestError, llmMode) => {
   const responseError = requestError.response?.data?.error
-  const code = requestError.response?.data?.code || responseError?.code || responseError
+  // 流式错误直接携带 code；HTTP 层错误沿用 JSON 端点错误体
+  const code = requestError.code || requestError.response?.data?.code || responseError?.code || responseError
 
+  if (llmMode === 'external_primary') {
+    if (code === 'LOCAL_LLM_UNAVAILABLE') {
+      return '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'
+    }
+    if (code === 'LLM_UNAVAILABLE' || code === 'LOCAL_LLM_NOT_CONFIGURED') {
+      return '云端模型暂时不可用。原输入已保留，请稍后重试。'
+    }
+  }
   if (code === 'LOCAL_LLM_NOT_CONFIGURED') {
     return '本地模型尚未连接，请前往“我的 → 本地模型”查看设置。原输入已保留。'
   }
@@ -38,11 +50,14 @@ export default function ChatPage() {
   const isTyping = useChatStore(state => state.isTyping)
   const isSending = useChatStore(state => state.isSending)
   const sendMessage = useChatStore(state => state.sendMessage)
+  const llmMode = useChatStore(state => state.llmMode)
+  const setLlmMode = useChatStore(state => state.setLlmMode)
   const loadConversations = useChatStore(state => state.loadConversations)
   const checkFirstVisit = useComplianceStore(state => state.checkFirstVisit)
   const startSession = useComplianceStore(state => state.startSession)
   const endSession = useComplianceStore(state => state.endSession)
   const checkUsageTime = useComplianceStore(state => state.checkUsageTime)
+  const chatBgUrl = useAppearanceStore(s => s.chatBgUrl)
 
   useEffect(() => {
     loadConversations()
@@ -55,6 +70,7 @@ export default function ChatPage() {
     localModelService.getStatus()
       .then((status) => {
         if (cancelled) return
+        setLlmMode(status?.mode === 'external_primary' ? 'external_primary' : 'local_first')
         const shouldPrompt = status?.local?.state !== 'ready'
           && status?.externalFallback?.configured === true
           && status?.externalFallback?.consent === null
@@ -62,7 +78,7 @@ export default function ChatPage() {
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [])
+  }, [setLlmMode])
 
   // 使用时长合规：进入聊天开始计时，每分钟检查一次，离开即结算
   useEffect(() => {
@@ -85,16 +101,37 @@ export default function ChatPage() {
       if (result?.status === 'blocked') setIntervention(result.intervention)
       return true
     } catch (requestError) {
-      setError(getSendErrorMessage(requestError))
+      setError(getSendErrorMessage(requestError, llmMode))
       return false
     }
   }
 
+  // 「帮我记住」入口只跟随最新一条正常回复：最后一条须为已持久化（非临时 id）、
+  // 非流式占位的 assistant 消息，且其前方存在已持久化的 user 消息（建议接口以它为对象）。
+  // blocked 只落库用户消息、流式中最后是临时气泡，均不满足条件，入口自然不出现。
+  const lastMessage = messages[messages.length - 1]
+  const isNormalAssistantReply = Boolean(
+    lastMessage
+    && lastMessage.role === 'assistant'
+    && !lastMessage.streaming
+    && lastMessage.content
+    && !String(lastMessage.id).startsWith('temp-'),
+  )
+  const suggestionUserMessage = isNormalAssistantReply
+    ? messages.slice(0, -1).reverse().find((message) => message.role === 'user' && !String(message.id).startsWith('temp-'))
+    : undefined
+
   return (
-    <div className="flex flex-1 flex-col bg-surface-page">
+    <div
+      className="chat-full relative flex flex-1 bg-transparent"
+      style={chatBgUrl ? { backgroundImage: `url(${chatBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+    >
+      {chatBgUrl && <div className="chat-bg-overlay" aria-hidden="true" />}
+      <ConversationPanel />
+      <div className="relative flex min-w-0 flex-1 flex-col">
       <ChatHeader />
       {fallbackNoticeState !== null && (
-        <CloudFallbackNotice localState={fallbackNoticeState} onClose={() => setFallbackNoticeState(null)} />
+        <CloudFallbackNotice localState={fallbackNoticeState} onClose={() => setFallbackNoticeState(null)} primary={llmMode === 'external_primary'} />
       )}
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide">
@@ -129,8 +166,16 @@ export default function ChatPage() {
         )}
 
         {messages.map((message, index) => (
-          <MessageBubble key={message.id} message={message} isLast={index === messages.length - 1} />
+          // 流式占位气泡尚无内容时不渲染空气泡，此阶段由 TypingIndicator 承担进行中视觉
+          message.streaming && !message.content
+            ? null
+            : <MessageBubble key={message.id} message={message} isLast={index === messages.length - 1} />
         ))}
+
+        {suggestionUserMessage && (
+          // key 绑定回复 id：新回复/切换会话后建议状态随之重置，入口只跟随最新正常回复
+          <MemorySuggestion key={lastMessage.id} userMessageId={suggestionUserMessage.id} />
+        )}
 
         {isTyping && <TypingIndicator />}
         <div ref={messagesEndRef} />
@@ -142,6 +187,7 @@ export default function ChatPage() {
       <CrisisModal intervention={intervention} onClose={() => setIntervention(null)} />
       <AIDisclaimer />
       <UsageReminder />
+      </div>
     </div>
   )
 }

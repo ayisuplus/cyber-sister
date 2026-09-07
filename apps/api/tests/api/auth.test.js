@@ -101,7 +101,7 @@ vi.mock('../../src/utils/usageTracker.js', () => ({
 
 import app from '../../src/app.js'
 import { generateRefreshToken } from '../../src/middleware/auth.js'
-import { loginAttempts, sweepLoginAttempts } from '../../src/routes/auth.js'
+import { loginAttempts, sweepLoginAttempts } from '../../src/services/authService.js'
 
 describe('Auth API', () => {
   const allowedPhone = '13800138000'

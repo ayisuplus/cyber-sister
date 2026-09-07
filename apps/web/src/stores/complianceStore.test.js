@@ -21,6 +21,7 @@ const resetStore = () => useComplianceStore.setState({
   usageStartTime: null,
   usageMinutes: 0,
   hasShownDisclaimer: false,
+  serverUsage: null,
 })
 
 describe('complianceStore AI disclaimer', () => {
@@ -79,6 +80,7 @@ describe('complianceStore usage session', () => {
   })
 
   it('tracks elapsed minutes without nagging below the two-hour line', () => {
+    // 心跳不可用（mock 未设定返回值）→ 回退本地计时
     useComplianceStore.setState({ usageStartTime: Date.now() - 30 * 60_000 })
 
     expect(useComplianceStore.getState().checkUsageTime()).toBe(false)
@@ -91,6 +93,51 @@ describe('complianceStore usage session', () => {
 
     expect(useComplianceStore.getState().checkUsageTime()).toBe(true)
     expect(useComplianceStore.getState().showUsageReminder).toBe(true)
+  })
+
+  it('服务端口径对时后优先于本地时钟：本地未满两小时也按 shouldRemind 提醒', async () => {
+    complianceService.heartbeat.mockResolvedValue({ minutes: 121, shouldRemind: true, isActive: true })
+    useComplianceStore.setState({ usageStartTime: Date.now() - 5 * 60_000 })
+
+    // 首次检查：服务端口径未回来，本地兜底（5 分钟不提醒），同时发出心跳
+    expect(useComplianceStore.getState().checkUsageTime()).toBe(false)
+    expect(complianceService.heartbeat).toHaveBeenCalled()
+    await new Promise((resolve) => { setTimeout(resolve, 0) }) // 等心跳落定
+    expect(useComplianceStore.getState().serverUsage).toEqual({ minutes: 121, shouldRemind: true })
+
+    // 对时后：以服务端口径为准（本地只有 5 分钟也提醒）
+    expect(useComplianceStore.getState().checkUsageTime()).toBe(true)
+    expect(useComplianceStore.getState().usageMinutes).toBe(121)
+    expect(useComplianceStore.getState().showUsageReminder).toBe(true)
+  })
+
+  it('服务端说未到时本地超两小时也不提醒（服务端口径优先）', () => {
+    useComplianceStore.setState({
+      usageStartTime: Date.now() - 200 * 60_000,
+      serverUsage: { minutes: 30, shouldRemind: false },
+    })
+
+    expect(useComplianceStore.getState().checkUsageTime()).toBe(false)
+    expect(useComplianceStore.getState().usageMinutes).toBe(30)
+    expect(useComplianceStore.getState().showUsageReminder).toBe(false)
+  })
+
+  it('心跳失败时维持本地 120 分钟兜底', async () => {
+    complianceService.heartbeat.mockRejectedValue(new Error('offline'))
+    useComplianceStore.setState({ usageStartTime: Date.now() - 121 * 60_000 })
+
+    expect(useComplianceStore.getState().checkUsageTime()).toBe(true)
+    expect(useComplianceStore.getState().showUsageReminder).toBe(true)
+    await new Promise((resolve) => { setTimeout(resolve, 0) }) // 失败不写入服务端口径
+    expect(useComplianceStore.getState().serverUsage).toBeNull()
+  })
+
+  it('startSession 用服务端 start 响应预填计时口径', async () => {
+    complianceService.startUsage.mockResolvedValue({ minutes: 0, shouldRemind: false, isActive: true })
+
+    await useComplianceStore.getState().startSession()
+
+    expect(useComplianceStore.getState().serverUsage).toEqual({ minutes: 0, shouldRemind: false })
   })
 
   it('dismisses the reminder and resets the session clock', () => {

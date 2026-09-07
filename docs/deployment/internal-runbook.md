@@ -8,21 +8,10 @@
 - 指向主机的内测域名，以及该域名对应的 PEM 证书和私钥。
 - 已启动并加载 GGUF 的 llama.cpp server；运行在宿主机时必须允许 API 容器通过 host gateway 访问。
 - 产品负责人批准的 `qwen-fallback-v1` 可选云端备用文案与危机资源清单；资源记录官方来源和核验日期。
-- 受控 MediaPipe/WASM 资产，文件名与 SHA-256 必须匹配 `packages/makeup-skill/model-assets.lock.json`。
 
 内测仅允许白名单成年测试者从 VPN 或可信私网访问。
 
-## 2. 准备受控妆教资产
-
-将资产放入被 Git 忽略的 `packages/makeup-skill/.assets/`。随后执行：
-
-```bash
-pnpm --filter ai-makeup-tutor verify:model-assets
-```
-
-缺失、文件名不符或哈希不符必须使构建失败。不得修改清单来迁就未经核验的文件，也不得在浏览器运行时下载模型或 WASM。
-
-## 3. 准备运行配置
+## 2. 准备运行配置
 
 复制 `deploy/internal.env.example` 到主机上的私密运行配置文件，并设置至少以下值：
 
@@ -37,13 +26,13 @@ pnpm --filter ai-makeup-tutor verify:model-assets
 
 纯本地部署不要配置任何 `GATEWAY_QWEN_*`。如需启用云端备用，再提供 Qwen Base URL、模型名和 Key 文件，并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。旧的外部同意版本不会沿用。
 
-模型调用的总预算固定为 60 秒；妆教服务等待主 API 65 秒，妆教浏览器等待 70 秒，Nginx 与主 Web API 客户端等待 75 秒。这个顺序不得倒置，否则客户端可能先报失败，而服务端稍后仍持久化成功结果。
+模型调用的总预算固定为 60 秒；Nginx 与主 Web API 客户端等待 75 秒。这个顺序不得倒置，否则客户端可能先报失败，而服务端稍后仍持久化成功结果。
 
 file-backed Compose secrets 会保留宿主机数值 UID/权限。固定镜像中的 Node 用户为 UID/GID `1000:1000`；在普通 rootful Docker 主机上，应由管理员把 `DATABASE_PASSWORD_FILE`、两个 JWT、固定码、测试手机号和实例管理员这六个文件设为 `1000:1000`、模式 `0400`。`POSTGRES_PASSWORD_FILE` 单独授予固定 PostgreSQL 镜像中的 postgres 用户读取权限并保持 `0400`。私密目录只允许管理员和对应映射用户遍历。TLS 私钥需让 edge 镜像的非 root nginx 用户可读；不要通过放宽为全局可读来解决。rootless/userns-remap 主机必须按其 UID 映射调整，并以启动前预检结果为准。
 
 如配置 `CRISIS_RESOURCES_JSON`，只允许使用已批准的资源，不得加入未经核验的热线号码或“24 小时”等可用性声明。私密运行配置本身也应设为 `0600`。
 
-## 4. 构建、迁移与启动
+## 3. 构建、迁移与启动
 
 使用不可变版本标签构建并记录镜像摘要。首次启动由一次性 `migration` 服务先执行 `prisma migrate deploy`，成功后 API 和其他服务才会启动。
 
@@ -73,7 +62,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" ps
 
 ```bash
 docker compose --env-file "$RUNTIME_ENV_FILE" images > release-images.txt
-docker compose --env-file "$RUNTIME_ENV_FILE" images -q api web makeup | sort -u | xargs docker image inspect --format '{{.Id}} {{json .RepoTags}} {{json .RepoDigests}}'
+docker compose --env-file "$RUNTIME_ENV_FILE" images -q api web | sort -u | xargs docker image inspect --format '{{.Id}} {{json .RepoTags}} {{json .RepoDigests}}'
 ```
 
 如需预置白名单用户，可在迁移完成后幂等执行：
@@ -84,7 +73,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api pnpm --filter cyber-s
 
 不得用 `prisma db push` 替代迁移。首次基线之后，每次数据库迁移都必须是增量迁移。
 
-## 5. 启动验收
+## 4. 启动验收
 
 至少验证：
 
@@ -93,13 +82,12 @@ docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api pnpm --filter cyber-s
 - 数据库不可用时 ready 失败，恢复后无需重启即可重新成功。
 - 实例管理员进入“本地模型与 llama.cpp”，自动发现或填写允许地址、完成连接测试并保存；普通用户只能看到去敏状态。
 - `/api/llm/status` 正确区分 `not_configured`、`loading`、`ready` 和 `unavailable`。
-- `/makeup/` 及其深链能刷新访问；主应用与妆教可互相返回。
-- 登录、刷新、退出、同意三态、聊天、人格、记忆、危机阻断和妆教解释完成冒烟测试。
+- 登录、刷新、退出、同意三态、聊天、人格、记忆、危机阻断和虚拟房间生图完成冒烟测试。
 - 日志不含提示词、聊天/记忆正文、手机号、凭据或图片。
 
 真实 Qwen 只用于人工风格验收，并且必须在密钥已提供后再次获得外部调用批准。本地成功、未选择或撤回授权时都必须验证 Qwen 零调用。
 
-## 6. 备份与回滚
+## 5. 备份与回滚
 
 每个后续迁移前执行并验证备份：
 
@@ -122,16 +110,16 @@ docker compose --env-file "$RUNTIME_ENV_FILE" exec -T -e RESTORE_DB="$RESTORE_DB
 验证完成后可删除隔离验证库。真正回滚时先停止所有写入入口，恢复到另一个新数据库，修改私密配置中的 `POSTGRES_DB` 指向该恢复库，再启动旧镜像；原数据库保留到回滚验收完成：
 
 ```bash
-docker compose --env-file "$RUNTIME_ENV_FILE" stop edge makeup api
+docker compose --env-file "$RUNTIME_ENV_FILE" stop edge api
 export RESTORE_DB=cyber_sister_restore_release_20260829
 [[ "$RESTORE_DB" =~ ^[a-z][a-z0-9_]{0,62}$ ]] || { echo "RESTORE_DB 非法" >&2; exit 1; }
 docker compose --env-file "$RUNTIME_ENV_FILE" exec -T -e RESTORE_DB="$RESTORE_DB" postgres sh -c 'createdb -U "$POSTGRES_USER" "$RESTORE_DB"'
 docker compose --env-file "$RUNTIME_ENV_FILE" exec -T -e RESTORE_DB="$RESTORE_DB" postgres sh -c 'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$RESTORE_DB"' < cyber-sister-before-migration.dump
 ```
 
-编辑私密文件中的 `POSTGRES_DB` 与上一唯一 `IMAGE_TAG` 后，先用 `docker image inspect` 对照发布记录确认旧 image ID/digest 在本机，再执行下方 `--pull never` 回滚并完成健康、登录、聊天、人格、记忆和妆教验收。
+编辑私密文件中的 `POSTGRES_DB` 与上一唯一 `IMAGE_TAG` 后，先用 `docker image inspect` 对照发布记录确认旧 image ID/digest 在本机，再执行下方 `--pull never` 回滚并完成健康、登录、聊天、人格、记忆验收。
 
-应用回滚使用上一不可变镜像标签。若新迁移与旧代码不兼容，停止写入流量，在独立恢复演练确认过的数据库上执行恢复，再启动旧镜像。不得把“容器能启动”视为回滚成功；必须重新验证认证、聊天、记忆和妆教基础查询。
+应用回滚使用上一不可变镜像标签。若新迁移与旧代码不兼容，停止写入流量，在独立恢复演练确认过的数据库上执行恢复，再启动旧镜像。不得把“容器能启动”视为回滚成功；必须重新验证认证、聊天、记忆基础查询。
 
 将私密文件中的 `IMAGE_TAG` 改为已记录的上一标签后，禁止重新构建并显式启动旧镜像：
 
@@ -141,7 +129,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" up -d --no-build --pull never
 
 初始内测没有历史数据，可重建基线数据库；进入基线后不得重写已发布迁移。备份文件包含用户数据，必须按敏感数据保管，禁止提交仓库。
 
-## 7. 发布门禁
+## 6. 发布门禁
 
 - lint、typecheck、单元/集成测试和构建全部通过。
 - 真实 PostgreSQL 迁移、重启、备份与恢复演练通过。

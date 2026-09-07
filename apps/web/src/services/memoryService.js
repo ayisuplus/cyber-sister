@@ -11,14 +11,23 @@ export const memoryService = {
     const rawTotal = Number(first.data.total)
     const total = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : memories.length
     const totalPages = Math.min(Math.ceil(total / 100), MAX_MEMORY_PAGES)
-    for (let page = 2; page <= totalPages; page += 1) {
-      const response = await api.get('/memories', { params: { page, limit: 100 } })
+    // 第 2..N 页相互独立，并行拉取后按页序拼接
+    const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2)
+    const pages = await Promise.all(
+      pageNums.map((page) => api.get('/memories', { params: { page, limit: 100 } })),
+    )
+    for (const response of pages) {
       memories.push(...(response.data.data || []))
     }
     return memories
   },
   create: async (memory) => {
     const response = await api.post('/memories', memory)
+    return response.data
+  },
+  // 按需记忆建议：以用户消息为对象，候选不落库；失败原样抛出由 UI 内联处理
+  getSuggestions: async (messageId) => {
+    const response = await api.post('/memories/suggestions', { messageId })
     return response.data
   },
   update: async (id, memory) => {

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useToolsStore } from '../stores/toolsStore'
 import Header from '../components/layout/Header'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import EmptyState from '../components/ui/EmptyState'
 import { Plus, Trash2, Timer } from 'lucide-react'
 import { differenceInDays } from 'date-fns'
 
@@ -8,11 +11,20 @@ export default function CountdownPage() {
   const { countdowns, addCountdown, deleteCountdown } = useToolsStore()
   const loadCountdowns = useToolsStore(s => s.loadCountdowns)
   const [showForm, setShowForm] = useState(false)
-  useEffect(() => {
-    loadCountdowns()
-  }, [loadCountdowns])
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadTick, setReloadTick] = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true); setLoadError('')
+    loadCountdowns()
+      .catch(() => { if (alive) setLoadError('加载失败，请检查网络后重试') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [loadCountdowns, reloadTick])
 
   const handleAdd = () => {
     if (!title.trim() || !date) return
@@ -26,15 +38,19 @@ export default function CountdownPage() {
   today.setHours(0, 0, 0, 0)
 
   return (
-    <div className="flex-1 flex flex-col bg-surface-page overflow-hidden">
+    <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
       <Header title="倒数日" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {countdowns.length === 0 ? (
-          <div className="text-center py-12">
-            <Timer size={48} className="text-text-muted mx-auto mb-3" />
-            <p className="text-text-muted text-sm">暂无倒数日</p>
+        {loading ? (
+          <p role="status" className="py-8 text-center text-sm text-text-muted">加载中…</p>
+        ) : loadError ? (
+          <div className="py-8 text-center">
+            <p role="alert" className="text-sm text-danger">{loadError}</p>
+            <Button variant="secondary" className="mt-3" onClick={() => setReloadTick(tick => tick + 1)}>重试</Button>
           </div>
+        ) : countdowns.length === 0 ? (
+          <EmptyState icon={Timer} title="暂无倒数日" />
         ) : (
           <div className="space-y-3">
             {countdowns.map(cd => {
@@ -43,7 +59,7 @@ export default function CountdownPage() {
               const isPast = daysLeft < 0
 
               return (
-                <div key={cd.id} className="bg-white rounded-[20px] p-4 shadow-card">
+                <Card key={cd.id} className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-text-primary">{cd.title}</h3>
@@ -51,7 +67,7 @@ export default function CountdownPage() {
                     </div>
                     <button
                       onClick={() => deleteCountdown(cd.id)}
-                      className="text-text-muted hover:text-red-500 transition-colors"
+                      className="text-text-muted hover:text-danger transition-colors"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -68,7 +84,7 @@ export default function CountdownPage() {
                       </>
                     )}
                   </div>
-                </div>
+                </Card>
               )
             })}
           </div>
@@ -76,7 +92,7 @@ export default function CountdownPage() {
       </div>
 
       {/* 添加表单 */}
-      <div className="px-4 py-3 bg-white shadow-input">
+      <div className="px-4 py-3 bg-surface-card shadow-input">
         {showForm ? (
           <div className="space-y-2">
             <input
@@ -93,7 +109,7 @@ export default function CountdownPage() {
               className="w-full h-10 bg-surface-input rounded-xl px-4 text-sm outline-none"
             />
             <div className="flex gap-2">
-              <button onClick={handleAdd} className="flex-1 h-10 bg-brand-pink text-white text-sm rounded-xl">
+              <button onClick={handleAdd} className="flex-1 h-10 bg-brand-pink text-text-inverse text-sm rounded-xl">
                 添加
               </button>
               <button onClick={() => setShowForm(false)} className="h-10 px-4 text-text-muted text-sm">

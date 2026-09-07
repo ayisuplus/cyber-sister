@@ -7,8 +7,8 @@ export const toolsService = {
     return response.data
   },
 
-  createTodo: async (content, dueDate) => {
-    const response = await api.post('/tools/todos', { content, dueDate })
+  createTodo: async (content, dueDate, dueTime) => {
+    const response = await api.post('/tools/todos', { content, dueDate, dueTime })
     return response.data
   },
 

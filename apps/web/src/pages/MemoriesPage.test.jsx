@@ -173,26 +173,34 @@ describe('MemoriesPage', () => {
     expect(screen.getByText('喜欢桂花味')).toBeInTheDocument()
   })
 
-  it('does not clear anything when the confirmation is rejected', async () => {
+  it('asks for in-app confirmation before clearing and respects cancel', async () => {
     const user = userEvent.setup()
     memoryService.list.mockResolvedValue([sampleMemory])
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '清空全部' }))
 
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveAccessibleName('清空全部记忆')
+    expect(screen.getByText('此操作无法撤销，确定继续吗？')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '取消' }))
+
     expect(memoryService.clear).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.getByText('喜欢桂花味')).toBeInTheDocument()
   })
 
-  it('clears every memory after confirmation', async () => {
+  it('clears every memory only after confirming in the dialog', async () => {
     const user = userEvent.setup()
     memoryService.list.mockResolvedValue([sampleMemory])
     memoryService.clear.mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '清空全部' }))
+    expect(memoryService.clear).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '确认清空' }))
 
     expect(memoryService.clear).toHaveBeenCalled()
     expect(await screen.findByText('全部记忆已清空')).toBeInTheDocument()
@@ -203,10 +211,10 @@ describe('MemoriesPage', () => {
     const user = userEvent.setup()
     memoryService.list.mockResolvedValue([sampleMemory])
     memoryService.clear.mockRejectedValue(new Error('offline'))
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '清空全部' }))
+    await user.click(screen.getByRole('button', { name: '确认清空' }))
 
     expect(await screen.findByText('清空失败，请重试')).toBeInTheDocument()
     expect(screen.getByText('喜欢桂花味')).toBeInTheDocument()

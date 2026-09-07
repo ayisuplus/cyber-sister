@@ -19,7 +19,7 @@ export default class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-surface-page px-8 text-center">
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 bg-transparent px-8 text-center">
           <p className="text-sm font-semibold text-text-primary">这一页出了点问题</p>
           <p className="text-xs leading-relaxed text-text-secondary">你的数据都还在。返回上一页或刷新重试。</p>
           <button

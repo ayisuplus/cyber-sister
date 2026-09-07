@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', () => ({
   default: {
@@ -6,9 +6,11 @@ vi.mock('./api', () => ({
     post: vi.fn(),
     delete: vi.fn(),
   },
+  getPersistedToken: vi.fn(),
+  refreshAccessToken: vi.fn(),
 }))
 
-import api from './api'
+import api, { getPersistedToken, refreshAccessToken } from './api'
 import { chatService } from './chatService'
 
 describe('chatService', () => {
@@ -21,7 +23,7 @@ describe('chatService', () => {
 
     expect(api.get).toHaveBeenCalledWith('/chat/conversations')
     expect(list).toEqual([{ id: 'c1' }])
-    expect(api.post).toHaveBeenCalledWith('/chat/conversations')
+    expect(api.post).toHaveBeenCalledWith('/chat/conversations', { mode: 'chat' })
     expect(created).toEqual({ id: 'c2' })
   })
 
@@ -34,20 +36,157 @@ describe('chatService', () => {
     expect(result.messages).toEqual([{ id: 'm1' }])
   })
 
-  it('sends a message to the given conversation', async () => {
-    api.post.mockResolvedValue({ data: { status: 'ok' } })
-
-    const result = await chatService.sendMessage('c1', '你好')
-
-    expect(api.post).toHaveBeenCalledWith('/chat/conversations/c1/messages', { content: '你好' })
-    expect(result).toEqual({ status: 'ok' })
-  })
-
   it('deletes a conversation by id', async () => {
     api.delete.mockResolvedValue({ data: {} })
 
     await chatService.deleteConversation('c1')
 
     expect(api.delete).toHaveBeenCalledWith('/chat/conversations/c1')
+  })
+})
+
+describe('chatService.streamMessage', () => {
+  const fetchMock = vi.fn()
+
+  const sseResponse = (chunks, status = 200) => {
+    const encoder = new TextEncoder()
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      body: new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+          controller.close()
+        },
+      }),
+      json: vi.fn(),
+    }
+  }
+
+  const collectEvents = async (conversationId = 'c1', content = '你好', options = {}) => {
+    const events = []
+    await chatService.streamMessage(conversationId, content, {
+      ...options,
+      onEvent: (event) => events.push(event),
+    })
+    return events
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockReset()
+    getPersistedToken.mockReset()
+    refreshAccessToken.mockReset()
+    getPersistedToken.mockReturnValue('access-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts to the stream endpoint with bearer token, credentials and JSON body', async () => {
+    fetchMock.mockResolvedValue(sseResponse(['data: {"event":"done","status":"ok"}\n\n']))
+
+    await collectEvents('c1', '你好')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/chat/conversations/c1/messages/stream')
+    expect(options.method).toBe('POST')
+    expect(options.credentials).toBe('include')
+    expect(options.headers.Authorization).toBe('Bearer access-token')
+    expect(options.headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(options.body)).toEqual({ content: '你好' })
+  })
+
+  it('sends anonymously when no token is persisted', async () => {
+    getPersistedToken.mockReturnValue(null)
+    fetchMock.mockResolvedValue(sseResponse(['data: {"event":"done","status":"ok"}\n\n']))
+
+    await collectEvents()
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it('parses data frames split across chunks, ignoring heartbeat comments, blank lines and broken frames', async () => {
+    fetchMock.mockResolvedValue(sseResponse([
+      'data: {"event":"delta","text":"你',
+      '好"}\n\n: ping\n\n\ndata: {"event":"delta","text":"！"}\n\ndata: {broken json\n\ndata: {"event":"done","status":"ok"}\n\n',
+    ]))
+
+    const events = await collectEvents()
+
+    expect(events).toEqual([
+      { event: 'delta', text: '你好' },
+      { event: 'delta', text: '！' },
+      { event: 'done', status: 'ok' },
+    ])
+  })
+
+  it('refreshes once and retries the original request on a 401 before the first business event', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 401, json: vi.fn() })
+      .mockResolvedValueOnce(sseResponse(['data: {"event":"done","status":"ok"}\n\n']))
+    getPersistedToken.mockReturnValueOnce('expired-token').mockReturnValue('fresh-token')
+    refreshAccessToken.mockResolvedValue('fresh-token')
+
+    const events = await collectEvents()
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer expired-token')
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh-token')
+    expect(events).toEqual([{ event: 'done', status: 'ok' }])
+  })
+
+  it('never refreshes twice: a second 401 clears the persisted session and rejects', async () => {
+    localStorage.setItem('cyber-sister-auth', JSON.stringify({ state: { token: 'fresh-token' } }))
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: vi.fn() })
+    refreshAccessToken.mockResolvedValue('fresh-token')
+
+    await expect(collectEvents()).rejects.toMatchObject({ code: 'UNAUTHORIZED', status: 401 })
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(localStorage.getItem('cyber-sister-auth')).toBeNull()
+  })
+
+  it('propagates a refresh failure without issuing the retry', async () => {
+    const refreshFailure = new Error('refresh rejected')
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: vi.fn() })
+    refreshAccessToken.mockRejectedValue(refreshFailure)
+
+    await expect(collectEvents()).rejects.toBe(refreshFailure)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects non-401 failures with the error body code attached', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: vi.fn().mockResolvedValue({ error: '本地模型不可用', code: 'LLM_UNAVAILABLE' }),
+    })
+
+    await expect(collectEvents()).rejects.toMatchObject({
+      message: '本地模型不可用',
+      code: 'LLM_UNAVAILABLE',
+      status: 503,
+    })
+    expect(refreshAccessToken).not.toHaveBeenCalled()
+  })
+
+  it('passes the abort signal to fetch and propagates abort errors', async () => {
+    const controller = new AbortController()
+    const abortError = new DOMException('The operation was aborted', 'AbortError')
+    fetchMock.mockImplementation((url, options) => {
+      expect(options.signal).toBe(controller.signal)
+      return Promise.reject(abortError)
+    })
+
+    const events = []
+    await expect(
+      chatService.streamMessage('c1', '你好', { signal: controller.signal, onEvent: (event) => events.push(event) })
+    ).rejects.toBe(abortError)
+    expect(events).toEqual([])
   })
 })

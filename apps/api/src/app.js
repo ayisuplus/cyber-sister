@@ -9,16 +9,25 @@ import authRoutes from './routes/auth.js'
 import chatRoutes from './routes/chat.js'
 import userRoutes from './routes/user.js'
 import toolsRoutes from './routes/tools.js'
+import diaryRoutes from './routes/diary.js'
+import habitsRoutes from './routes/habits.js'
+import readingRoutes from './routes/reading.js'
+import studyRoutes from './routes/study.js'
 import memoriesRoutes from './routes/memories.js'
 import complianceRoutes from './routes/compliance.js'
 import virtualStudioRoutes from './routes/virtualStudio.js'
 import llmRoutes from './routes/llm.js'
+import workRoutes from './routes/work.js'
 import localLlmAdminRoutes from './routes/localLlmAdmin.js'
+import asrRoutes from './routes/asr.js'
 import { authMiddleware } from './middleware/auth.js'
 import { instanceAdminMiddleware } from './middleware/instanceAdmin.js'
 import logger from './utils/logger.js'
 import prisma from './prisma/client.js'
 import usageTracker from './utils/usageTracker.js'
+import { closeBrowser } from './services/browserService.js'
+import { initWorkExtensions } from './services/workExtensionService.js'
+import { closeMcpClients } from './services/mcpService.js'
 import { validateRuntimeConfig } from './config/runtime.js'
 
 const APP_ENV = process.env.APP_ENV || 'development'
@@ -132,9 +141,15 @@ if (APP_ENV === 'internal') {
   })
 }
 app.use('/api/tools', authMiddleware, toolsRoutes)
+app.use('/api/diary', authMiddleware, diaryRoutes)
+app.use('/api/habits', authMiddleware, habitsRoutes)
 app.use('/api/memories', authMiddleware, memoriesRoutes)
 app.use('/api/virtual', authMiddleware, virtualStudioRoutes)
+app.use('/api/reading', authMiddleware, readingRoutes)
+app.use('/api/study', authMiddleware, studyRoutes)
 app.use('/api/compliance', authMiddleware, complianceRoutes)
+app.use('/api/work', authMiddleware, workRoutes)
+app.use('/api/asr', authMiddleware, asrRoutes)
 
 app.use((_req, res) => {
   res.status(404).json({ error: '接口不存在' })
@@ -195,6 +210,9 @@ if (!isTestEnv) {
     : app.listen(PORT, () => {
         logger.info(`赛博姐妹 API 服务运行在端口 ${PORT}`, { environment: APP_ENV })
       })
+  // 工作模式扩展（技能/插件/MCP）异步初始化，不阻塞 listen；
+  // MCP 连接就绪前模型看不到扩展工具，如实无能力。
+  initWorkExtensions().catch((error) => logger.error('工作模式扩展初始化失败', { error: error.message }))
 }
 
 let isShuttingDown = false
@@ -202,9 +220,10 @@ async function gracefulShutdown(signal) {
   if (isShuttingDown) return
   isShuttingDown = true
   logger.info(`收到 ${signal} 信号，开始优雅关闭`)
-
   const closeDependencies = async () => {
     try {
+      await closeBrowser()
+      await closeMcpClients()
       await prisma.$disconnect()
       usageTracker.destroy()
     } catch (error) {

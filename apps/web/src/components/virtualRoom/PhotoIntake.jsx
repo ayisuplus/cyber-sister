@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, ShieldCheck } from 'lucide-react'
 
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
-// 隐私合同：照片只在浏览器本地用 ObjectURL 预览，绝不随请求上传。
+// 隐私合同：照片在本机用 ObjectURL 预览；仅在用户点击生成时随请求发送到本机 API
+// （同机转发给本地 ComfyUI 生图），不出这台设备、不落库。
 export default function PhotoIntake({ onPhotoChange }) {
   const inputRef = useRef(null)
   const [preview, setPreview] = useState(null)
@@ -25,12 +26,12 @@ export default function PhotoIntake({ onPhotoChange }) {
       return
     }
     if (file.size > MAX_PHOTO_BYTES) {
-      setError('照片不能超过 10MB，请换一张小一点的')
+      setError('照片不能超过 8MB，请换一张小一点的')
       return
     }
     setError('')
     setPreview({ url: URL.createObjectURL(file), name: file.name })
-    onPhotoChange({ name: file.name })
+    onPhotoChange({ name: file.name, file })
   }
 
   const clearPhoto = () => {
@@ -66,7 +67,7 @@ export default function PhotoIntake({ onPhotoChange }) {
       )}
       <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-status-local">
         <ShieldCheck size={13} aria-hidden="true" />
-        照片只在这台设备上预览，不会上传
+        照片只在本机处理（本地 ComfyUI 生图），不出这台设备
       </p>
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
     </div>

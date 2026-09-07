@@ -51,14 +51,22 @@ export const useAuthStore = create(
         return response.persona
       },
 
+      updateRolePlay: async ({ name, setting }) => {
+        const response = await authService.updateRolePlay({ name, setting })
+        const user = get().user
+        if (user) set({ user: { ...user, roleName: response.roleName, roleSetting: response.roleSetting } })
+        return response
+      },
+
+      clearRolePlay: async () => {
+        await authService.clearRolePlay()
+        const user = get().user
+        if (user) set({ user: { ...user, roleName: null, roleSetting: null } })
+      },
+
       updateProfile: (updates) => {
         const user = get().user
         if (user) set({ user: { ...user, ...updates } })
-      },
-
-      setVip: (isVip) => {
-        const user = get().user
-        if (user) set({ user: { ...user, isVip } })
       },
     }),
     {

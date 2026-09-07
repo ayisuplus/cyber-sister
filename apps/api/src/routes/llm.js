@@ -18,16 +18,5 @@ router.get('/status', async (req, res) => {
   }
 })
 
-router.post('/explain', async (req, res) => {
-  try {
-    res.json(await llmFeatureService.explainMakeup(
-      req.user.userId,
-      req.body,
-      req.requestId,
-    ))
-  } catch (error) {
-    sendError(res, error, '生成妆教解释失败')
-  }
-})
 
 export default router

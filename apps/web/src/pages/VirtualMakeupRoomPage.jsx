@@ -6,7 +6,7 @@ export default function VirtualMakeupRoomPage() {
   return (
     <VirtualRoomShell
       title="虚拟化妆间"
-      intro="在这台设备上选一张照片和一款妆容。生图能力接入后，这里会生成上妆预览。"
+      intro="在这台设备上选一张照片和一款妆容，由本机 ComfyUI 生成上妆预览，照片不出这台设备。"
       scene="makeup"
       items={MAKEUP_LOOKS}
       itemNoun="妆容"

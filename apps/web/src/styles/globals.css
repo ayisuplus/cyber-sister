@@ -4,74 +4,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Backward-compatible Web aliases while remaining pages migrate.
-   Shared --cs-* values live in packages/design-tokens/tokens.css. */
+/* Shared --cs-* values live in packages/design-tokens/tokens.css. */
 :root {
   --cs-gradient-action: linear-gradient(135deg, var(--cs-action-primary) 0%, var(--cs-action-primary-hover) 100%);
 
-  --color-primary: var(--cs-action-primary);
-  --color-primary-light: var(--cs-pastel-blush);
-  --color-primary-dark: var(--cs-action-hover);
-  --color-secondary: var(--cs-focus-info);
-  --color-secondary-light: var(--cs-pastel-mist);
-  --color-secondary-dark: var(--cs-focus-info);
-  --color-tertiary: var(--cs-pastel-apricot);
-  --color-success: var(--cs-status-local);
-  --color-warning: var(--cs-warning);
-  --color-error: var(--cs-danger);
-  --color-info: var(--cs-focus-info);
-  --text-primary: var(--cs-text-primary);
-  --text-secondary: var(--cs-text-secondary);
-  --text-muted: var(--cs-text-muted);
-  --text-inverse: var(--cs-text-inverse);
-  --bg-main: var(--cs-surface-card);
-  --bg-page: var(--cs-surface-page);
-  --bg-subtle: var(--cs-pastel-blush);
-  --bg-muted: var(--cs-surface-muted);
-  --bg-input: var(--cs-surface-input);
-  --border-subtle: var(--cs-border-subtle);
-  --border-default: var(--cs-border-default);
-  --gradient-pink: var(--cs-gradient-action);
-  --gradient-hero: var(--cs-gradient-hero);
-  --gradient-warm: var(--cs-gradient-warm);
-  --gradient-bubble: var(--cs-gradient-bubble);
-  --gradient-subtle: var(--cs-gradient-subtle);
-  --shadow-sm: var(--cs-shadow-sm);
-  --shadow-md: var(--cs-shadow-md);
-  --shadow-lg: var(--cs-shadow-lg);
-  --shadow-card: var(--cs-shadow-sm);
-  --shadow-header: var(--cs-shadow-sm);
-  --shadow-input: var(--cs-shadow-input);
-  --shadow-phone: var(--cs-shadow-phone);
-  --shadow-glow: var(--cs-shadow-button);
-  --shadow-btn: var(--cs-shadow-button);
-
-  /* Border Radius */
-  --radius-sm: 12px;
-  --radius-md: 16px;
-  --radius-lg: 20px;
-  --radius-xl: 24px;
-  --radius-2xl: 32px;
-  --radius-pill: 50px;
-  --radius-full: 50%;
-
-  /* Spacing */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-  --space-10: 40px;
-  --space-12: 48px;
-
-  /* Transitions */
+  /* Transitions（TabBar 与 .animate-slide-in 在用） */
   --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --transition-fast: 150ms var(--ease-out);
   --transition-normal: 250ms var(--ease-out);
-  --transition-slow: 350ms var(--ease-out);
 }
 
 /* ===== Reset ===== */
@@ -90,11 +31,8 @@ html {
 body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  background: var(--bg-page);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: var(--text-primary);
+  background: var(--cs-surface-page);
+  color: var(--cs-text-primary);
   line-height: 1.5;
   letter-spacing: 0.01em;
 }
@@ -102,9 +40,6 @@ body {
 #root {
   width: 100%;
   height: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
 }
 
 /* ===== Typography ===== */
@@ -128,12 +63,12 @@ h1, h2, h3 {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-primary-light);
+  background: var(--cs-pastel-blush);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary);
+  background: var(--cs-action-primary);
 }
 
 /* ===== Animations ===== */
@@ -231,71 +166,194 @@ h1, h2, h3 {
 
 .animate-shimmer {
   background: linear-gradient(90deg,
-    var(--bg-input) 25%,
-    var(--bg-main) 50%,
-    var(--bg-input) 75%
+    var(--cs-surface-input) 25%,
+    var(--cs-surface-card) 50%,
+    var(--cs-surface-input) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* ===== Phone Frame ===== */
-.phone-frame {
-  width: 393px;
-  height: 852px;
-  background: var(--bg-main);
-  position: relative;
-  overflow: hidden;
-  border-radius: 40px;
-  box-shadow: var(--shadow-phone);
+
+/* 展示型衬线标题（优雅编辑风格） */
+.display-serif {
+  font-family: 'Songti SC', 'SimSun', Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.01em;
+}
+
+/* ===== App Shell（桌面/平板布局） ===== */
+.app-shell {
   display: flex;
-  flex-direction: column;
+  height: 100vh;
+  width: 100%;
 }
-
-/* Mobile: full screen */
-@media (max-width: 640px) {
-  .phone-frame {
-    width: 100%;
-    height: 100%;
-    border-radius: 0;
-    box-shadow: none;
+.app-main {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  /* 自定义主页背景落在壳上：基底色收到这里，叠加层相对它定位 */
+  position: relative;
+  background-color: var(--cs-surface-page);
+}
+.app-main > * {
+  flex: 1;
+  min-width: 0;
+  /* 页面内容压在全页背景叠加层之上 */
+  position: relative;
+}
+@media (min-width: 641px) {
+  .app-main {
+    /* 环境光晕：pastel 径向渐变在四角，打破平面感 */
+    background:
+      radial-gradient(560px 420px at 88% -8%, var(--cs-pastel-blush) 0%, transparent 62%),
+      radial-gradient(480px 380px at -6% 104%, var(--cs-pastel-lavender) 0%, transparent 60%),
+      radial-gradient(520px 400px at 30% 112%, var(--cs-pastel-mist) 0%, transparent 58%),
+      var(--cs-surface-page);
+  }
+  .app-main > * {
+    max-width: 960px;
+    background: transparent;
+  }
+}
+@media (min-width: 1024px) {
+  /* 聊天是双栏视图，允许更宽 */
+  .app-main > *.chat-full {
+    max-width: 1240px;
   }
 }
 
-/* Tablet: slightly larger frame */
-@media (min-width: 641px) and (max-width: 1024px) {
-  .phone-frame {
+/* 自定义背景叠加层：tokens 是全色值 var()，透明度修饰符不可用，必须用 color-mix。
+   百分比经深色图实机校验：app 88% / chat 70% 下正文与弱化文字均可辨 */
+.app-bg-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--cs-surface-page) 88%, transparent);
+}
+.chat-bg-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--cs-surface-page) 70%, transparent);
+}
+
+.app-sidebar {
+  display: none;
+}
+@media (min-width: 641px) {
+  .app-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 216px;
+    flex-shrink: 0;
+    background: var(--cs-surface-card);
+    border-right: 1px solid var(--cs-border-hairline);
+    padding: 20px 12px;
+  }
+  .app-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px 16px;
+    border-bottom: 1px solid var(--cs-border-hairline);
+    margin-bottom: 12px;
+  }
+  .app-sidebar-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    background: var(--cs-gradient-action);
+    color: var(--cs-text-inverse);
+    font-weight: 700;
+  }
+  .app-sidebar-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--cs-text-primary);
+  }
+  .app-sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .app-sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: var(--cs-radius-control);
+    font-size: 14px;
+    color: var(--cs-text-muted);
+    text-decoration: none;
+    transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out);
+  }
+  .app-sidebar-link:hover {
+    background: var(--cs-pastel-blush);
+    color: var(--cs-action-primary);
+  }
+  .app-sidebar-link-active {
+    background: var(--cs-pastel-blush);
+    color: var(--cs-action-primary);
+    font-weight: 600;
+  }
+  .app-sidebar-foot {
+    margin-top: auto;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--cs-text-muted);
+  }
+}
+/* 裸路由（登录页）：居中卡片 + 环境渐变底 */
+.app-shell-bare {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cs-gradient-hero);
+  padding: 24px;
+}
+.app-shell-bare > * {
+  flex: 1;
+  min-width: 0;
+}
+@media (min-width: 641px) {
+  .app-shell-bare > * {
+    flex: none;
     width: 420px;
-    height: 900px;
+    max-height: 92vh;
+    border-radius: var(--cs-radius-sheet);
+    box-shadow: var(--cs-shadow-lg);
   }
 }
+.display-serif {
+  font-family: 'Songti SC', 'SimSun', Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.01em;
+}
 
+/* 悬停抬升（卡片/可点面） */
+.hover-lift {
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--cs-shadow-md);
+}
+
+/* 滚动入场 */
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-reveal-up {
+  animation: revealUp 0.5s var(--ease-out) both;
+}
 /* ===== Utility Classes ===== */
-
-.bg-gradient-brand {
-  background: var(--gradient-pink);
-}
-
-.bg-gradient-hero {
-  background: var(--gradient-hero);
-}
-
-.bg-gradient-warm {
-  background: var(--gradient-warm);
-}
-
-.text-gradient {
-  background: var(--gradient-pink);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.glass {
-  background: color-mix(in srgb, var(--cs-surface-card) 80%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
 
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 8px);

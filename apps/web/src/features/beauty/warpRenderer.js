@@ -19,8 +19,9 @@ const CLIP_EXPANSION_PX = 0.75
  */
 export function drawWarpedTriangles(sourceCanvas, triangles, targetCanvas) {
   const target = targetCanvas || createSiblingCanvas(sourceCanvas)
-  target.width = sourceCanvas.width
-  target.height = sourceCanvas.height
+  // 写 width/height 即使值不变也会触发 backing store 重分配并清空画布：仅尺寸变化时写
+  if (target.width !== sourceCanvas.width) target.width = sourceCanvas.width
+  if (target.height !== sourceCanvas.height) target.height = sourceCanvas.height
   const ctx = target.getContext('2d')
   if (!ctx) return target
 

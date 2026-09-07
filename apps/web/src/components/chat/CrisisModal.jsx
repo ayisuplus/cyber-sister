@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { Heart, Phone } from 'lucide-react'
-import useDialogFocusTrap from './useDialogFocusTrap'
+import useDialogFocusTrap from '../ui/useDialogFocusTrap'
 
 export default function CrisisModal({ intervention, onClose }) {
   const dialogRef = useRef(null)
@@ -13,8 +13,8 @@ export default function CrisisModal({ intervention, onClose }) {
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-5">
       <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="crisis-title" aria-describedby="crisis-message" className="w-full max-w-[340px] rounded-3xl bg-surface-card p-6 text-center shadow-xl">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-          <Heart size={32} className="text-red-500" />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-pastel-blush">
+          <Heart size={32} className="text-danger" />
         </div>
         <h2 id="crisis-title" className="text-lg font-bold text-text-primary">我很担心你</h2>
         <p id="crisis-message" className="mt-3 text-sm leading-relaxed text-text-secondary">{intervention.message}</p>
@@ -26,12 +26,12 @@ export default function CrisisModal({ intervention, onClose }) {
               const number = typeof resource === 'string' ? null : resource.number
               const guidance = typeof resource === 'string' ? null : resource.guidance
               return number ? (
-                <a key={`${label}-${number}`} href={`tel:${number}`} className="flex min-h-11 items-center gap-3 rounded-xl bg-gray-50 p-3 text-left hover:bg-gray-100">
+                <a key={`${label}-${number}`} href={`tel:${number}`} className="flex min-h-11 items-center gap-3 rounded-xl bg-surface-muted p-3 text-left hover:bg-pastel-blush">
                   <Phone size={16} className="shrink-0 text-brand-pink" />
                   <span className="text-sm text-text-primary">{label}：{number}</span>
                 </a>
               ) : (
-                <p key={label} className="rounded-xl bg-gray-50 p-3 text-left text-sm text-text-primary">
+                <p key={label} className="rounded-xl bg-surface-muted p-3 text-left text-sm text-text-primary">
                   <strong className="block">{label}</strong>
                   {guidance && <span className="mt-1 block text-xs text-text-secondary">{guidance}</span>}
                 </p>

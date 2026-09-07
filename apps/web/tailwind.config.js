@@ -12,6 +12,7 @@ export default {
           mist: 'var(--cs-pastel-mist)',
           sprout: 'var(--cs-pastel-sprout)',
           apricot: 'var(--cs-pastel-apricot)',
+          lavender: 'var(--cs-pastel-lavender)',
         },
         surface: {
           page: 'var(--cs-surface-page)',
@@ -42,23 +43,13 @@ export default {
           muted: 'var(--cs-text-muted)',
           inverse: 'var(--cs-text-inverse)',
         },
-        bg: {
-          main: 'var(--cs-surface-card)',
-          message: 'var(--cs-surface-page)',
-          input: 'var(--cs-surface-input)',
-        },
         border: {
           subtle: 'var(--cs-border-subtle)',
           default: 'var(--cs-border-default)',
-          DEFAULT: 'var(--cs-border-default)',
           hairline: 'var(--cs-border-hairline)',
         }
       },
       borderRadius: {
-        'sm': '10px',
-        'md': '16px',
-        'lg': '20px',
-        'pill': '25px',
         'control': 'var(--cs-radius-control)',
         'card': 'var(--cs-radius-card)',
         'sheet': 'var(--cs-radius-sheet)',
@@ -72,12 +63,15 @@ export default {
         'card': 'var(--cs-shadow-sm)',
         'header': 'var(--cs-shadow-sm)',
         'input': 'var(--cs-shadow-input)',
+        'button': 'var(--cs-shadow-button)',
       },
       backgroundImage: {
         'gradient-pink-purple': 'var(--cs-gradient-action)',
         'gradient-pink': 'var(--cs-gradient-action)',
         'gradient-purple-light': 'var(--cs-gradient-subtle)',
         'gradient-pastel': 'var(--cs-gradient-hero)',
+        'bubble-user': 'var(--cs-gradient-bubble-user)',
+        'bubble-ai': 'var(--cs-gradient-bubble-ai)',
       }
     },
   },

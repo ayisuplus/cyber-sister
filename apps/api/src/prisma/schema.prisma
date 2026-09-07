@@ -1,4 +1,3 @@
-// 赛博姐妹数据库Schema
 // 生产环境使用PostgreSQL，开发环境可使用Docker PostgreSQL或本地安装
 
 generator client {
@@ -22,6 +21,8 @@ model User {
   isVip                       Boolean   @default(false) @map("is_vip")
   vipExpireAt                 DateTime? @map("vip_expire_at")
   birthDate                   DateTime? @map("birth_date")
+  roleName                    String?   @map("role_name")
+  roleSetting                 String?   @map("role_setting")
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -31,7 +32,12 @@ model User {
   countdowns        Countdown[]
   periodRecords     PeriodRecord[]
   reminders         Reminder[]
+  diaryEntries      DiaryEntry[]
+  habits            Habit[]
   crisisLogs        CrisisLog[]
+  books             Book[]
+  readingNotes      ReadingNote[]
+  studySessions     StudySession[]
   refreshTokens     RefreshToken[]
   llmRuntimeConfigs LlmRuntimeConfig[] @relation("LlmRuntimeConfigUpdatedBy")
 
@@ -42,6 +48,7 @@ model Conversation {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   title     String?
+  mode      String   @default("chat") // chat | work
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -59,6 +66,7 @@ model Message {
   content        String
   emotion        String?
   source         String?
+  toolRuns       Json?    @map("tool_runs")
   importance     Int      @default(3)
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -93,6 +101,8 @@ model Todo {
   userId    String    @map("user_id")
   content   String
   dueDate   DateTime? @map("due_date")
+  // 'HH:mm' 本地时间，无日期语义，仅随 dueDate 展示与排序；设置时间必须先有日期
+  dueTime   String?   @map("due_time")
   isDone    Boolean   @default(false) @map("is_done")
   createdAt DateTime  @default(now()) @map("created_at")
 
@@ -192,4 +202,107 @@ model LlmRuntimeConfig {
 
   @@index([updatedByUserId])
   @@map("llm_runtime_configs")
+}
+
+model DiaryEntry {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  // 日期契约同经期/倒数日：'yyyy-MM-dd' 按 UTC 零点存储，前端按本地日历日解析比较
+  day             DateTime
+  mood            String // happy | neutral | sad | angry | anxious（与聊天情绪同词表）
+  content         String
+  aiComment       String?  @map("ai_comment")
+  aiCommentSource String?  @map("ai_comment_source")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+  @@map("diary_entries")
+}
+
+model Habit {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  name       String
+  icon       String // 固定图标集键（droplet | moon | dumbbell | book | flower | pen）
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkins  HabitCheckin[]
+
+  @@index([userId])
+  @@map("habits")
+}
+
+model HabitCheckin {
+  id        String   @id @default(uuid())
+  habitId   String   @map("habit_id")
+  userId    String   @map("user_id")
+  // 本地日历日（同日记契约，UTC 零点存储）
+  day       DateTime
+  createdAt DateTime @default(now()) @map("created_at")
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, day])
+  @@index([userId, day])
+  @@map("habit_checkins")
+}
+
+model Book {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  title       String
+  author      String?
+  status      String        @default("reading") // want | reading | finished
+  totalPages  Int?          @map("total_pages")
+  currentPage Int           @default(0) @map("current_page")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes ReadingNote[]
+
+  @@index([userId])
+  @@map("books")
+}
+
+model ReadingNote {
+  id              String   @id @default(uuid())
+  bookId          String   @map("book_id")
+  userId          String   @map("user_id")
+  page            Int?
+  content         String
+  aiComment       String?  @map("ai_comment")
+  aiCommentSource String?  @map("ai_comment_source")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([bookId])
+  @@index([userId, createdAt])
+  @@map("reading_notes")
+}
+
+model StudySession {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  subject         String?
+  plannedMinutes  Int      @map("planned_minutes")
+  actualMinutes   Int      @map("actual_minutes")
+  note            String?
+  aiComment       String?  @map("ai_comment")
+  aiCommentSource String?  @map("ai_comment_source")
+  startedAt       DateTime @map("started_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("study_sessions")
 }

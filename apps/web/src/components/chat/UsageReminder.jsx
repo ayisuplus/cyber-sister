@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useComplianceStore } from '../../stores/complianceStore'
-import useDialogFocusTrap from './useDialogFocusTrap'
+import useDialogFocusTrap from '../ui/useDialogFocusTrap'
 import { Clock } from 'lucide-react'
 
 export default function UsageReminder() {

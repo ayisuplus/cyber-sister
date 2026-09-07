@@ -1,7 +1,6 @@
 # 赛博姐妹（Cyber Sister）智能体产品需求文档 PRD V5.0
 
-> [!IMPORTANT]
-> 历史/未来方案归档：本文不代表 2026-10-01 内测实现。当前以仓库根 README、`docs/Spec_赛博姐妹_v1.0.md` 和 `docs/deployment/internal-runbook.md` 为准；微服务、Kubernetes、Redis、向量数据库、模型训练与公开发布均为后置方案。
+> ⚠️ 参考：产品意图与调研背景的战略参考（项目契约 source of truth #4）；非实现合同，实施以 Spec 与源码为准
 
 **文档版本**：V5.0（基于深度调研优化版）
 **更新日期**：2026年7月12日

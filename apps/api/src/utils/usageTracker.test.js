@@ -148,3 +148,42 @@ describe('usageTracker 使用计时', () => {
     expect(usageTracker.sessions.has('u2')).toBe(true)
   })
 })
+describe('业务日界（Asia/Shanghai）', () => {
+  beforeEach(() => {
+    usageTracker.sessions.clear()
+  })
+
+  it('UTC 2026-08-31 17:00（北京 9/1 01:00）的日期键是 2026-09-01', () => {
+    const utcEvening = new Date('2026-08-31T17:00:00.000Z').getTime()
+    expect(usageTracker._getDateKey(utcEvening)).toBe('2026-09-01')
+  })
+
+  it('会话跨过 UTC 零点但未到北京零点时不清零当日累计', () => {
+    // 北京 2026-08-31 00:30（UTC 8/30 16:30）开始，当日已累计 60 分钟
+    vi.setSystemTime(new Date('2026-08-30T16:30:00.000Z'))
+    usageTracker.start('tz-user')
+    const session = usageTracker.sessions.get('tz-user')
+    session.dailyTotal = 60 * 60 * 1000
+    expect(session.currentDate).toBe('2026-08-31')
+
+    // UTC 已跨入 2026-08-31（00:30Z），但北京仍是 8/31 08:30，不得清零
+    vi.setSystemTime(new Date('2026-08-31T00:30:00.000Z'))
+    usageTracker.getStatus('tz-user')
+    expect(session.currentDate).toBe('2026-08-31')
+    expect(session.dailyTotal).toBe(60 * 60 * 1000)
+  })
+
+  it('跨过北京零点才清零当日累计', () => {
+    // 北京 2026-08-31 23:30（UTC 15:30）开始
+    vi.setSystemTime(new Date('2026-08-31T15:30:00.000Z'))
+    usageTracker.start('tz-user-2')
+    const session = usageTracker.sessions.get('tz-user-2')
+    session.dailyTotal = 30 * 60 * 1000
+
+    // 北京 2026-09-01 00:30（UTC 8/31 16:30）→ 清零
+    vi.setSystemTime(new Date('2026-08-31T16:30:00.000Z'))
+    usageTracker.getStatus('tz-user-2')
+    expect(session.currentDate).toBe('2026-09-01')
+    expect(session.dailyTotal).toBe(0)
+  })
+})

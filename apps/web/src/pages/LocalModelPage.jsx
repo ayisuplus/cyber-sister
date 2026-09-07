@@ -157,7 +157,7 @@ export default function LocalModelPage() {
   const localState = status?.local?.state || 'not_configured'
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-surface-page">
+    <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
       <Header title="本地模型" showBack />
       <main className="flex-1 overflow-y-auto px-4 py-5">
         <section aria-labelledby="local-status-title" className="rounded-3xl bg-pastel-sprout p-5 shadow-card">

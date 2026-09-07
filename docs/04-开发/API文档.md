@@ -16,7 +16,6 @@
 | 服务 | 路径 |
 |------|------|
 | 主 API | `/api/*` |
-| 妆教解释 | `/makeup/api/*`（Vite base 为 `/makeup/`） |
 
 ### 鉴权
 
@@ -313,6 +312,72 @@ Authorization: Bearer <access_token>
 
 ---
 
+### POST /api/chat/conversations/:id/messages/stream — 发送消息（SSE 流式）
+
+与 `POST /messages` 等价的流式版本：业务校验、危机检测、模型选择与记忆注入规则完全一致，仅响应改为 Server-Sent Events 逐条下发。旧 JSON 端点 `POST /messages` 保持原契约不变，两个端点长期并存。
+
+**请求**
+
+```json
+{ "content": "今天被老板骂了，好烦" }
+```
+
+`content` 校验与 JSON 端点一致：必填，trim 后长度 1–10000。
+
+---
+
+**响应 200 — `Content-Type: text/event-stream`**
+
+纯 `data` 帧编码（无 `event:` 行），帧间以空行分隔：
+
+```
+data: {"event":"delta","text":"我在听，"}
+
+data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"source":"local_model"}
+
+```
+
+连接空闲时每 **15 秒**下发一次注释心跳帧 `: ping`，仅用于保活，客户端必须忽略。
+
+**事件类型**
+
+| event | 字段 | 说明 |
+|-------|------|------|
+| `delta` | `text` | 增量文本，客户端按到达顺序追加渲染 |
+| `replace` | `content` | 输出命中安全过滤时整体替换此前已下发的全部文本 |
+| `done` | `status:"ok"`、`userMessage`、`aiMessage`、`source` | 生成完成并已落库；`source` 取值同 JSON 端点（`local_model`/`qwen`/`local_template`） |
+| `blocked` | `status:"blocked"`、`userMessage`、`intervention` | 危机阻断；语义同 JSON 端点的 blocked 响应 |
+| `error` | `code` | 生成失败，本帧之前下发的文本一律作废 |
+
+每条消息以 `done`/`blocked`/`error` 之一收尾，终态帧之后连接关闭。
+
+---
+
+**error.code 语义**
+
+| code | 说明 |
+|------|------|
+| `LOCAL_LLM_NOT_CONFIGURED` | 本地模型未配置 |
+| `LOCAL_LLM_UNAVAILABLE` | 本地不可用且无已授权备用 |
+| `LLM_UNAVAILABLE` | 已授权备用也全部不可用 |
+| `STREAM_FAILED` | 流中断或服务端中途失败 |
+
+> **持久化保证：中途失败、断线或客户端取消时该次消息完全不落库；只有完整成功（`done`）才落库，且只落库一组（用户消息 + AI 消息）。** 危机阻断（`blocked`）沿用 JSON 端点语义，在一个事务内写入用户消息、干预回复与唯一一条 `CrisisLog`。前端在收到 `error` 或流中断时移除临时气泡并保留原输入供重试。
+
+---
+
+**部署备注**：反向代理必须对该路径关闭响应缓冲并保持长连接，否则事件会被整段攒批、长连接被读超时切断。本仓库 `deploy/nginx.conf` 已为该路径单独配置 `proxy_buffering off` 与长读超时，其余 `/api/` 路径行为不变。
+
+---
+
+**智能体工具回路（2026-09-04 起）**
+
+两个发送端点共用同一智能体回路（参考 pi-agent-core 的 agent loop 收敛实现）：模型可以把整段回复写成一个工具调用 JSON（`{"tool":"<注册名>","args":{...}}`），服务端执行后将结果以 system 消息回喂，最多 3 轮，随后强制文本回复，仍输出工具 JSON 则以本地模板兜底。工具域只覆盖产品自身能力——待办/倒数日/经期/提醒/日记/手帐（`add_todo`、`list_todos`、`complete_todo`、`delete_todo`、`add_countdown`、`list_countdowns`、`delete_countdown`、`record_period`、`period_status`、`list_reminders`、`set_reminder`、`add_diary`、`diary_status`、`check_habit`、`habit_status`），全部经对应领域服务的既有校验作用于当前用户，不执行任意代码；记忆不开放给工具（仍只能经「帮我记住」由用户确认）。同一签名（工具+参数）在同一回路中去重执行，重复调用只回喂「已执行」提示。
+
+当轮执行过工具时，`done`/`POST /messages` 响应中的 `aiMessage` 携带 `toolRuns: [{tool, ok, summary}]`（未执行为 `null`），历史消息同样返回该字段；前端据此在回复下方渲染动作标签。
+
+---
+
 ## 四、记忆 `/api/memories`
 
 内测为**显式记忆**：系统不自动提取，不由模型推断。
@@ -334,14 +399,76 @@ Authorization: Bearer <access_token>
 | `importance` | 重要度，仅在相关结果内排序 |
 | `tags` | 标签，用于与当前输入做确定性重合匹配 |
 
+### POST /api/memories/suggestions — 按需记忆建议（W3）
+
+用户在聊天中主动请求“帮我记住”时，由**本地模型**从一条消息临时抽取候选记忆。
+
+**请求**
+
+```json
+{ "messageId": "msg-uuid" }
+```
+
+- 只接受**当前用户拥有**的 `role=user` 消息 ID。
+
+**响应**
+
+```json
+{ "candidates": [{ "type": "semantic", "content": "用户喜欢吃火锅", "importance": 7, "tags": ["饮食"] }] }
+```
+
+- `candidates` 最多 2 项，字段约束与 `POST /api/memories` 创建接口一致（type 三选一、importance 1–10、tags 最多 10 项、content 最长 2000 字），越界候选直接丢弃。
+- 与现有记忆做规范化精确去重；输入命中危机检测、或候选含联系方式/证件号/精确位置/医疗内容时返回 `{ "candidates": [] }`。
+- 模型输出无法解析为 JSON 时同样返回空候选，不报错。
+
+**错误语义**
+
+| 状态码 | code | 场景 |
+|--------|------|------|
+| 400 | — | `messageId` 缺失，或目标消息不是用户发送的 |
+| 404 | — | 消息不存在或不属于当前用户 |
+| 503 | `LOCAL_LLM_NOT_CONFIGURED` | 本地模型尚未配置 |
+| 503 | `LOCAL_LLM_UNAVAILABLE` | 本地模型暂时不可用 |
+
+**隐私性质**：候选仅由 llama.cpp 本地模型生成（`allowExternal=false`，无任何云端回退）；候选为**本地、临时**数据，只存在于响应体，不写数据库；经用户确认后才可通过既有 `POST /api/memories` 落库。日志只记 requestId 与结果计数，不记消息或候选内容。
+
 ---
 
-## 五、工具箱 `/api/tools`
+## 五、日记 `/api/diary`（2026-09-04 起）
+
+按本地日历日一记（userId+day 唯一，UTC 零点存储契约同经期/倒数日）。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET/POST | `/api/tools/todos` | 待办列表 / 新增 |
-| PUT/DELETE | `/api/tools/todos/:id` | 更新 / 删除待办 |
+| GET | `/api/diary?month=yyyy-MM` | 月列表（day 降序；month 非法 400） |
+| GET | `/api/diary/:day` | 单日详情；无记录 404 |
+| PUT | `/api/diary/:day` | 新增/覆盖 `{content(1–2000), mood}`；内容变更会清空旧 AI 回应 |
+| DELETE | `/api/diary/:day` | 删除该日日记 |
+| POST | `/api/diary/:day/comment` | 生成/复用 AI 闺蜜回应 → `{aiComment, source, reused}` |
+
+`mood ∈ happy|neutral|sad|angry|anxious`（与聊天情绪同词表）。回应幂等：已存在直接复用不重复消耗；模型失败 503 `{code∈LOCAL_LLM_NOT_CONFIGURED|LOCAL_LLM_UNAVAILABLE|LLM_UNAVAILABLE}`。回应生成：人格 + 心情 + 脱敏正文，同意门与聊天一致（外部主用模式同 Spec §3.1）。
+
+## 六、手帐习惯 `/api/habits`（2026-09-04 起）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/habits` | `[{id, name, icon, checkedToday, streak, recentDays}]`（近 30 天打卡日） |
+| POST | `/api/habits` | 创建 `{name(1–20), icon}`；icon ∈ `droplet|moon|dumbbell|book|flower|pen`；活跃上限 12 |
+| PATCH | `/api/habits/:id` | 改名/换图标（归属校验） |
+| DELETE | `/api/habits/:id` | 归档（历史打卡保留） |
+| POST | `/api/habits/:id/checkin` | 切换当天打卡 → `{checked, day}` |
+| POST | `/api/habits/cheer` | 聚合鼓励 → `{cheer, source}`；无习惯 `{cheer:null}` |
+
+连续天数（streak）：今天已打则从今天回数，否则从昨天回数。鼓励只把习惯名/连续天数/今日完成计数送入模型（不送任何正文内容），同意门同上；模型失败 503 同家族。
+
+---
+
+## 七、工具箱 `/api/tools`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET/POST | `/api/tools/todos` | 日程列表 / 新增（`content` 必填；`dueDate` 可选 `yyyy-MM-dd`，`dueTime` 可选 `HH:mm` 且需先有日期） |
+| PUT/DELETE | `/api/tools/todos/:id` | 更新（content / dueDate / dueTime / isDone）/ 删除日程 |
 | GET/POST | `/api/tools/countdowns` | 倒数日列表 / 新增 |
 | DELETE | `/api/tools/countdowns/:id` | 删除倒数日 |
 | GET/POST | `/api/tools/period` | 经期记录读取 / 记录 |
@@ -350,50 +477,15 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 六、模型状态与妆教解释 `/api/llm`
+## 八、模型状态 `/api/llm`
 
 ### GET /api/llm/status
 
 登录用户可查看**去敏后**的本地模型状态与云端备用状态。
 
-### POST /api/llm/explain
-
-妆教解释生成。
-
-**请求**
-
-```json
-{
-  "features": {
-    "faceShape": "round",
-    "skinTone": "warm_medium",
-    "eyeType": "almond"
-  },
-  "lookId": "look_xxx"
-}
-```
-
-**响应**
-
-```json
-{
-  "explanation": "不超过 50 个 Unicode 字符的解释",
-  "source": "local_model"
-}
-```
-
-**约束**
-
-- 只接受**规范化**的 `features` 与 `lookId`
-- 服务端按 `lookId` 解析内置妆容，**不接受**任意提示词或完整妆容对象
-- 未登录、主 API 或模型异常时返回**透明标识**的确定性本地解释
-- 解释**最长 50 个 Unicode 字符**
-- Makeup 复用主应用 access token，转发规范化特征与 `lookId`；主 API 统一执行本地优先路由
-- **图片与视频帧不进入这条请求链**
-
 ---
 
-## 七、合规与使用时长 `/api/compliance`
+## 九、合规与使用时长 `/api/compliance`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -404,19 +496,35 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 八、虚拟试衣 / 化妆间 `/api/virtual`
+## 十、虚拟试衣 / 化妆间 `/api/virtual`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/virtual/image-gen/status` | 生图能力状态 |
-| POST | `/api/virtual/image-gen/generations` | ⚠️ **恒返回 503 `IMAGE_GEN_NOT_CONFIGURED`** |
+| POST | `/api/virtual/image-gen/generations` | 生成妆效/穿搭预览（multipart，需本机 ComfyUI 在线） |
 
-> 内测未接入生图 provider。入口必须诚实显示"接入中"，不得伪装可用。
-> 照片只在浏览器本地选择预览，不上传。
+生图走**本机 ComfyUI**（`IMAGE_GEN_PROVIDER=comfy`，默认），不接外部生图 API；照片经本机 API 内存转发给本机 ComfyUI，不落库。
+
+**GET `/image-gen/status` 响应**：`{ available, configured, provider, reason }`；`reason` ∈ `null | IMAGE_GEN_NOT_CONFIGURED | IMAGE_GEN_UNAVAILABLE | IMAGE_GEN_NOT_IMPLEMENTED`（仅 `provider=external` 时）。
+
+**POST `/image-gen/generations`**：`multipart/form-data`，字段：
+
+| 字段 | 必填 | 约束 |
+|------|------|------|
+| `photo` | 是 | 图片文件，≤8MB，仅 `image/jpeg` / `image/png` / `image/webp` |
+| `scene` | 是 | `makeup` \| `fitting` |
+| `itemId` | 是 | 目录条目 id，1–64 字符 |
+| `note` | 否 | ≤200 字符 |
+
+- 201：`{ imageDataUrl, scene, itemId, provider }`（`imageDataUrl` 为 base64 data URL）
+- 400：缺照片 / 超限 / MIME 不符 / 字段校验失败 / 未知 itemId
+- 503：`IMAGE_GEN_NOT_CONFIGURED`（未配置）/ `IMAGE_GEN_UNAVAILABLE`（ComfyUI 离线、超时或执行失败）
+
+> ComfyUI 不在线时入口诚实显示"接入中"，不得伪装可用；提示词由主模型把目录描述改写为英文提示词，主模型不可用时退化为目录描述直拼。
 
 ---
 
-## 九、本地模型管理 `/api/admin/llm/local`（实例管理员）
+## 十一、本地模型管理 `/api/admin/llm/local`（实例管理员）
 
 需 `instanceAdminMiddleware`，仅实例管理员（白名单子集）可访问。
 
@@ -435,7 +543,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 十、日志规范（实现约定）
+## 十二、日志规范（实现约定）
 
 日志**只允许**记录：
 
@@ -467,15 +575,21 @@ Authorization: Bearer <access_token>
           POST   /api/chat/conversations
           GET    /api/chat/conversations/:id
           POST   /api/chat/conversations/:id/messages
+          POST   /api/chat/conversations/:id/messages/stream (SSE)
           DELETE /api/chat/conversations/:id
 记忆      CRUD   /api/memories
+          POST   /api/memories/suggestions (本地临时候选，不落库)
 工具箱    CRUD   /api/tools/{todos,countdowns,period,reminders}
+日记      CRUD   /api/diary/:day
+          POST   /api/diary/:day/comment  (幂等 AI 回应)
+手帐      CRUD   /api/habits/:id
+          POST   /api/habits/:id/checkin
+          POST   /api/habits/cheer        (聚合数据鼓励)
           GET    /api/tools/weather        (409 关闭)
-模型/妆教 GET    /api/llm/status
-          POST   /api/llm/explain
+模型      GET    /api/llm/status
 合规      *      /api/compliance/usage/*
 虚拟      GET    /api/virtual/image-gen/status
-          POST   /api/virtual/image-gen/generations  (503 未接入)
+          POST   /api/virtual/image-gen/generations  (multipart，本机 ComfyUI)
 管理员    *      /api/admin/llm/local/*     (实例管理员)
 健康      GET    /api/health/live
           GET    /api/health/ready

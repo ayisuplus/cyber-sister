@@ -83,6 +83,21 @@ describe('待办', () => {
     const withoutDate = await createTodo('u1', { content: '买花' })
     expect(withoutDate.dueDate).toBeNull()
   })
+
+  it('创建日程可带时间；无日期带时间或格式非法都拒绝', async () => {
+    db.todoCreate.mockImplementation(({ data }) => Promise.resolve({ id: 't2', ...data }))
+
+    const withTime = await createTodo('u1', { content: '复诊', dueDate: '2026-09-06', dueTime: '09:30' })
+    expect(withTime.dueTime).toBe('09:30')
+    expect(withTime.dueDate).toEqual(new Date('2026-09-06'))
+
+    await expect(createTodo('u1', { content: '复诊', dueTime: '09:30' })).rejects.toMatchObject({
+      statusCode: 400,
+      message: '设置时间前请先选择日期',
+    })
+    await expect(createTodo('u1', { content: '复诊', dueDate: '2026-09-06', dueTime: '25:00' })).rejects.toMatchObject({ statusCode: 400 })
+    await expect(createTodo('u1', { content: '复诊', dueDate: '下周二' })).rejects.toMatchObject({ statusCode: 400 })
+  })
   it('待办内容必须为 1 到 500 个字符', async () => {
     db.todoCreate.mockImplementation(({ data }) => Promise.resolve({ id: 't1', ...data }))
 
@@ -125,11 +140,27 @@ describe('待办', () => {
     })
   })
 
+  it('更新日程时间：无日期的既有日程不能补时间', async () => {
+    db.todoFindFirst.mockResolvedValue({ id: 't1', userId: 'u1', dueDate: null })
+    await expect(updateTodo('u1', 't1', { dueTime: '08:00' })).rejects.toMatchObject({
+      statusCode: 400,
+      message: '设置时间前请先选择日期',
+    })
+    expect(db.todoUpdate).not.toHaveBeenCalled()
+
+    db.todoFindFirst.mockResolvedValue({ id: 't1', userId: 'u1', dueDate: new Date('2026-09-06') })
+    db.todoUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 't1', ...data }))
+    await updateTodo('u1', 't1', { dueTime: '08:00' })
+    expect(db.todoUpdate).toHaveBeenCalledWith({ where: { id: 't1' }, data: { dueTime: '08:00' } })
+    await updateTodo('u1', 't1', { dueTime: '' })
+    expect(db.todoUpdate).toHaveBeenLastCalledWith({ where: { id: 't1' }, data: { dueTime: null } })
+  })
+
   it('更新他人待办返回 404 且不写库', async () => {
     db.todoFindFirst.mockResolvedValue(null)
     await expect(updateTodo('u2', 't1', { isDone: true })).rejects.toMatchObject({
       statusCode: 404,
-      message: '待办不存在',
+      message: '日程不存在',
     })
     expect(db.todoUpdate).not.toHaveBeenCalled()
   })

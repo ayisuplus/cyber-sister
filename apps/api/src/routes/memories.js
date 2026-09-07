@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import * as memoryService from '../services/memoryService.js'
+import * as memorySuggestionService from '../services/memorySuggestionService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -18,6 +19,21 @@ router.post('/', async (req, res) => {
   } catch (error) {
     logger.error('创建记忆失败', { error: error.message, userId: req.user.userId })
     sendError(res, error, '创建记忆失败')
+  }
+})
+
+// 按需记忆建议（W3）：候选为本地模型临时生成，不落库，用户确认后才可经 POST / 创建
+router.post('/suggestions', async (req, res) => {
+  try {
+    const result = await memorySuggestionService.getMemorySuggestions(
+      req.user.userId,
+      req.body?.messageId,
+      req.requestId,
+    )
+    res.json(result)
+  } catch (error) {
+    logger.error('生成记忆建议失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '生成记忆建议失败')
   }
 })
 

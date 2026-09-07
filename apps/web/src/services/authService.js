@@ -18,4 +18,12 @@ export const authService = {
     const response = await api.put('/user/persona', { persona })
     return response.data
   },
+  updateRolePlay: async (data) => {
+    const response = await api.put('/user/roleplay', data)
+    return response.data
+  },
+  clearRolePlay: async () => {
+    const response = await api.delete('/user/roleplay')
+    return response.data
+  },
 }

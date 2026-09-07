@@ -82,4 +82,26 @@ describe('drawWarpedTriangles', () => {
     target.getContext = vi.fn(() => null)
     expect(drawWarpedTriangles(source, [], target)).toBe(target)
   })
+
+  it('同尺寸目标画布不重写 width/height（避免 backing store 重分配），尺寸变化才写', () => {
+    const { canvas: source } = makeFakeCanvasWithDoc(20, 20)
+    const target = makeFakeCanvas(20, 20)
+    const widthSetter = vi.fn()
+    const heightSetter = vi.fn()
+    let w = 20
+    let h = 20
+    Object.defineProperty(target, 'width', { get: () => w, set: widthSetter })
+    Object.defineProperty(target, 'height', { get: () => h, set: heightSetter })
+
+    drawWarpedTriangles(source, [], target)
+    expect(widthSetter).not.toHaveBeenCalled()
+    expect(heightSetter).not.toHaveBeenCalled()
+
+    // 源尺寸变化：写一次新尺寸
+    source.width = 32
+    drawWarpedTriangles(source, [], target)
+    expect(widthSetter).toHaveBeenCalledTimes(1)
+    expect(widthSetter).toHaveBeenCalledWith(32)
+    expect(heightSetter).not.toHaveBeenCalled()
+  })
 })

@@ -26,6 +26,8 @@ import BeautyCameraPage from './BeautyCameraPage'
 
 const NATURAL_SETTINGS = { smooth: 25, whiten: 20, slim: 10, eye: 10 }
 const OFF_SETTINGS = { smooth: 0, whiten: 0, slim: 0, eye: 0 }
+// 静态模式第三参：landmarks 缓存键（源图版本号）
+const LANDMARK_KEY_ARG = expect.objectContaining({ landmarkKey: expect.any(Number) })
 
 function renderPage() {
   return render(<MemoryRouter><BeautyCameraPage /></MemoryRouter>)
@@ -120,14 +122,14 @@ describe('BeautyCameraPage', () => {
     await pickPhoto()
 
     expect(screen.getByRole('tab', { name: '选照片' })).toHaveAttribute('aria-selected', 'true')
-    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), NATURAL_SETTINGS)
+    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), NATURAL_SETTINGS, LANDMARK_KEY_ARG)
     expect(screen.getByRole('img', { name: '美颜效果' })).toBeInTheDocument()
   })
 
   it('拍照捕获当前帧后进入处理流程', async () => {
     await captureStill()
 
-    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), NATURAL_SETTINGS)
+    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), NATURAL_SETTINGS, LANDMARK_KEY_ARG)
     expect(screen.getByRole('img', { name: '美颜效果' })).toBeInTheDocument()
   })
 
@@ -138,7 +140,7 @@ describe('BeautyCameraPage', () => {
     fireEvent.change(screen.getByLabelText('磨皮'), { target: { value: '80' } })
 
     await waitFor(() => expect(processImageMock).toHaveBeenCalled())
-    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), { ...NATURAL_SETTINGS, smooth: 80 })
+    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), { ...NATURAL_SETTINGS, smooth: 80 }, LANDMARK_KEY_ARG)
   })
 
   it('选择预设会应用整组参数', async () => {
@@ -148,8 +150,57 @@ describe('BeautyCameraPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '原图' }))
 
     await waitFor(() => expect(processImageMock).toHaveBeenCalled())
-    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), OFF_SETTINGS)
+    expect(processImageMock).toHaveBeenLastCalledWith(expect.anything(), OFF_SETTINGS, LANDMARK_KEY_ARG)
     expect(screen.getByRole('button', { name: '原图' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('同一帧内连续滑杆变更被 rAF 合并：只触发一次重新处理，用最新参数', async () => {
+    await captureStill()
+    processImageMock.mockClear()
+
+    const slider = screen.getByLabelText('磨皮')
+    fireEvent.change(slider, { target: { value: '60' } })
+    fireEvent.change(slider, { target: { value: '70' } })
+    fireEvent.change(slider, { target: { value: '80' } })
+
+    await waitFor(() => expect(processImageMock).toHaveBeenCalledTimes(1))
+    expect(processImageMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { ...NATURAL_SETTINGS, smooth: 80 },
+      LANDMARK_KEY_ARG,
+    )
+  })
+
+  it('处理中再改滑杆：串行补跑最新设置，过期结果不渲染', async () => {
+    const drawSpy = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: drawSpy })
+    await captureStill()
+    await waitFor(() => expect(drawSpy).toHaveBeenCalled())
+    processImageMock.mockClear()
+    drawSpy.mockClear()
+
+    const staleCanvas = document.createElement('canvas')
+    const freshCanvas = document.createElement('canvas')
+    let resolveFirst
+    processImageMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementation(() => freshCanvas)
+
+    const slider = screen.getByLabelText('磨皮')
+    fireEvent.change(slider, { target: { value: '60' } }) // 第一轮开始（在飞）
+    await waitFor(() => expect(processImageMock).toHaveBeenCalledTimes(1))
+    fireEvent.change(slider, { target: { value: '80' } }) // 在飞期间又改：记 pending
+
+    resolveFirst(staleCanvas) // 第一轮带着旧参数完成
+    await waitFor(() => expect(processImageMock).toHaveBeenCalledTimes(2)) // 串行补跑
+    expect(processImageMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { ...NATURAL_SETTINGS, smooth: 80 },
+      LANDMARK_KEY_ARG,
+    )
+    // jsdom 的 canvas 元素结构相同、深比较不可区分，必须按引用判断
+    await waitFor(() => expect(drawSpy.mock.calls.some(([frame]) => frame === freshCanvas)).toBe(true))
+    expect(drawSpy.mock.calls.some(([frame]) => frame === staleCanvas)).toBe(false) // 过期结果不渲染
   })
 
   it('长按看原图期间切换为原图，松开恢复效果图', async () => {

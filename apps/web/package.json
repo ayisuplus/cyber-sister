@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src vite.config.js vitest.config.js playwright.config.js e2e",
-    "pree2e": "pnpm build && pnpm --filter ai-makeup-tutor build:frontend",
+    "pree2e": "pnpm build",
     "e2e": "playwright test"
   },
   "dependencies": {

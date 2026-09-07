@@ -45,6 +45,9 @@ export default function BeautyCameraPage() {
   const sourceCanvasRef = useRef(null)
   const processedRef = useRef(null)
   const photoUrlRef = useRef(null)
+  const sourceVersionRef = useRef(0) // 源图版本号：换图/重拍递增，作 landmarks 缓存键
+  // 静态模式处理调度：processing 在飞守卫（与相机 rAF 循环同思路）+ generation 判过期
+  const staticJobRef = useRef({ processing: false, pending: false, rafId: 0, generation: 0 })
   const settingsRef = useRef(settings)
   const showOriginalRef = useRef(showOriginal)
   const tierRef = useRef(0) // 当前性能档位（TIERS 下标）
@@ -73,9 +76,11 @@ export default function BeautyCameraPage() {
 
   // 本地美颜处理：任何失败都不影响看原图，照片始终不出设备。
   // processImage 是异步的（引擎推理需要时间），失败时回退原图。
-  const runBeauty = useCallback(async (frameCanvas, nextSettings) => {
+  // 静态模式传 landmarkKey：同一源图只检测一次，滑杆只重跑滤镜/形变。
+  const runBeauty = useCallback(async (frameCanvas, nextSettings, landmarkKey) => {
     try {
-      const result = await getPipeline().processImage(frameCanvas, nextSettings)
+      const options = landmarkKey != null ? { landmarkKey } : undefined
+      const result = await getPipeline().processImage(frameCanvas, nextSettings, options)
       processedRef.current = result
       setEngineError('')
       return result
@@ -178,19 +183,47 @@ export default function BeautyCameraPage() {
   }, [mode, captured, runBeauty, applyFrameTiming])
 
   // 静态画面（拍照结果或选中的照片）：设置变化时重新处理，长按对比时直接画原图。
+  // 并发守卫（与相机模式的 processing 守卫同思路）：
+  // a) rAF 合并同一帧内的连续 settings 变更（拖滑杆每个 tick 不会各起一条全流水线）；
+  // b) 上一轮还在处理时只记 pending，结束后用最新设置补跑一轮（in-flight 串行化）；
+  // c) generation 判过期：已有更新设置时，过期结果不渲染。
   useEffect(() => {
+    const job = staticJobRef.current
+    job.generation += 1
+    const generation = job.generation
     if (!captured) return undefined
     const source = sourceCanvasRef.current
     if (!source) return undefined
     if (showOriginal) {
+      cancelAnimationFrame(job.rafId)
+      job.pending = false
       displayRef.current?.draw(source)
       return undefined
     }
-    let stale = false
-    runBeauty(source, settings).then((output) => {
-      if (!stale && output) displayRef.current?.draw(output)
-    })
-    return () => { stale = true }
+    const launch = (gen) => {
+      if (job.processing) {
+        job.pending = true
+        return
+      }
+      job.processing = true
+      runBeauty(source, settingsRef.current, sourceVersionRef.current)
+        .then((output) => {
+          if (output && gen === job.generation && !job.pending) {
+            displayRef.current?.draw(output)
+          }
+        })
+        .finally(() => {
+          job.processing = false
+          if (job.pending) {
+            job.pending = false
+            // 补跑用最新 generation（读取最新 settings），过期轮次的结果不渲染
+            job.rafId = requestAnimationFrame(() => launch(job.generation))
+          }
+        })
+    }
+    cancelAnimationFrame(job.rafId)
+    job.rafId = requestAnimationFrame(() => launch(generation))
+    return () => { cancelAnimationFrame(job.rafId) }
   }, [captured, settings, showOriginal, runBeauty])
 
   const handleCapture = () => {
@@ -202,6 +235,7 @@ export default function BeautyCameraPage() {
     fitCanvas(source, width, height)
     const ctx = source.getContext('2d')
     if (ctx) ctx.drawImage(video, 0, 0, source.width, source.height)
+    sourceVersionRef.current += 1 // 新源图：landmarks 缓存失效
     setCaptured(true)
   }
 
@@ -229,6 +263,7 @@ export default function BeautyCameraPage() {
     fitCanvas(source, width, height)
     const ctx = source.getContext('2d')
     if (ctx) ctx.drawImage(img, 0, 0, source.width, source.height)
+    sourceVersionRef.current += 1 // 新源图：landmarks 缓存失效
     setCaptured(true)
   }
 
@@ -272,7 +307,7 @@ export default function BeautyCameraPage() {
   const showControls = captured || (mode === 'camera' && streaming)
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-surface-page">
+    <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
       <Header title="美颜相机" showBack />
       <main className="flex-1 overflow-y-auto px-4 py-5">
         <section className="rounded-3xl bg-pastel-mist p-5 shadow-card">
@@ -333,12 +368,12 @@ export default function BeautyCameraPage() {
                 <div className="relative overflow-hidden rounded-2xl bg-black">
                   <BeautyCanvas ref={displayRef} label={showOriginal ? '原图预览' : '美颜实时预览'} />
                   {!streaming && (
-                    <p className="absolute inset-0 flex items-center justify-center text-sm text-white">
+                    <p className="absolute inset-0 flex items-center justify-center text-sm text-text-inverse">
                       正在打开相机…
                     </p>
                   )}
                   {degraded && (
-                    <p role="status" className="absolute bottom-2 left-2 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
+                    <p role="status" className="absolute bottom-2 left-2 rounded-full bg-black/60 px-3 py-1 text-xs text-text-inverse">
                       当前设备较慢，已自动降低画质保持流畅
                     </p>
                   )}

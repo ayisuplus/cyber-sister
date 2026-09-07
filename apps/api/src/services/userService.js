@@ -4,8 +4,12 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
+// 人格 id 的唯一权威是 llm-gateway 的 personas.js（其导出面冻结，勿改网关包；
+// 网关 exports 仅暴露包根，故按相对路径直连 personas.js）。
+// 本服务只消费 id 集合，无附加 UI 文案字段。
+import { VALID_PERSONA_IDS } from '../../../../packages/llm-gateway/src/personas.js'
 
-export const PERSONAS = ['toxic', 'gentle', 'rational']
+export const PERSONAS = [...VALID_PERSONA_IDS]
 export const EXTERNAL_LLM_CONSENT_VERSION = 'qwen-fallback-v1'
 
 export async function getProfile(userId) {
@@ -20,6 +24,8 @@ export async function getProfile(userId) {
       vipExpireAt: true,
       avatarUrl: true,
       birthDate: true,
+      roleName: true,
+      roleSetting: true,
       createdAt: true,
     },
   })
@@ -62,6 +68,8 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) 
       vipExpireAt: true,
       avatarUrl: true,
       birthDate: true,
+      roleName: true,
+      roleSetting: true,
     },
   })
 
@@ -81,6 +89,30 @@ export async function switchPersona(userId, persona) {
   })
   logger.info('人格切换', { userId, persona })
   return user
+}
+
+export async function updateRolePlay(userId, { name, setting }) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 20) {
+    throw new HttpError('角色名必须为1到20个字符', 400)
+  }
+  if (typeof setting !== 'string' || !setting.trim() || setting.trim().length > 200) {
+    throw new HttpError('角色设定必须为1到200个字符', 400)
+  }
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { roleName: name.trim(), roleSetting: setting.trim() },
+    select: { roleName: true, roleSetting: true },
+  })
+  logger.info('设置角色扮演', { userId })
+  return user
+}
+
+export async function clearRolePlay(userId) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { roleName: null, roleSetting: null },
+  })
+  logger.info('清除角色扮演', { userId })
 }
 
 export async function getExternalLlmConsent(userId) {

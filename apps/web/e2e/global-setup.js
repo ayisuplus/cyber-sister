@@ -4,7 +4,6 @@ import { dirname, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../dist')
-const MAKEUP_DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../../../packages/makeup-skill/dist')
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -21,7 +20,7 @@ function staticHandler(root, prefix = '/') {
   const rootBoundary = `${root}${sep}`
   return async (request, response) => {
     const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname
-    if (pathname.startsWith('/api/') || pathname.startsWith('/makeup/api/')) {
+    if (pathname.startsWith('/api/')) {
       response.writeHead(404, { 'Content-Type': 'application/json' })
       response.end('{"error":"unmocked API request"}')
       return
@@ -72,9 +71,6 @@ function close(server) {
 }
 
 export default async function globalSetup() {
-  const servers = await Promise.all([
-    listen(WEB_DIST, '/', 4173),
-    listen(MAKEUP_DIST, '/makeup/', 4174),
-  ])
-  return async () => Promise.all(servers.map(close))
+  const server = await listen(WEB_DIST, '/', 4173)
+  return async () => close(server)
 }

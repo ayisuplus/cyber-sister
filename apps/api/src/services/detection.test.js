@@ -15,6 +15,8 @@ import {
   CRISIS_HIGH_RISK,
   CRISIS_MEDIUM_RISK,
   EMOTION_KEYWORDS,
+  NORMALIZED_HIGH_RISK,
+  NORMALIZED_MEDIUM_RISK,
   getCrisisIntervention,
 } from './detection.js'
 
@@ -208,5 +210,26 @@ describe('detectCrisis 归一化绕过与亲昵误判回归', () => {
 
   it('亲昵语境不掩护同句的真实自我伤害表达', () => {
     expect(detectCrisis('想死你了，我也想自杀')).toBe('high')
+  })
+})
+describe('预计算归一化数组与实时归一化等价', () => {
+  it('预计算数组与原始关键词一一对应，且不含归一化会剥离的字符', () => {
+    expect(NORMALIZED_HIGH_RISK).toHaveLength(CRISIS_HIGH_RISK.length)
+    expect(NORMALIZED_MEDIUM_RISK).toHaveLength(CRISIS_MEDIUM_RISK.length)
+    for (const word of [...NORMALIZED_HIGH_RISK, ...NORMALIZED_MEDIUM_RISK]) {
+      expect(word.length).toBeGreaterThan(0)
+      // 归一化的不动点：空白/标点/符号/控制/格式/组合字符已剥离，NFKC+小写已收敛
+      expect(word).not.toMatch(/[\s\p{P}\p{S}\p{Cc}\p{Cf}\p{Mn}]/u)
+      expect(word.normalize('NFKC').toLowerCase()).toBe(word)
+    }
+  })
+
+  it.each([...CRISIS_HIGH_RISK])('高风险「%s」逐字拆开后仍按 high 命中', (word) => {
+    // 只有预计算数组与运行时归一化结果一致，拆写形态才能命中
+    expect(detectCrisis([...word].join(' '))).toBe('high')
+  })
+
+  it.each([...CRISIS_MEDIUM_RISK])('中风险「%s」逐字拆开后仍按 medium 命中', (word) => {
+    expect(detectCrisis([...word].join(' '))).toBe('medium')
   })
 })

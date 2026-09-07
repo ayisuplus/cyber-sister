@@ -1,7 +1,7 @@
 import api from './api'
 
-// 生图能力本期为诚实接缝：status 恒 available=false，generations 恒 503。
-// 请求体只带契约白名单字段（scene / itemId / 可选 note），绝不发送照片或文件。
+// 生图走本机 ComfyUI：照片以 multipart 只发送到本机 API（同机转发给本地 ComfyUI），
+// 不经过任何外部服务；请求只带契约白名单字段（photo / scene / itemId / 可选 note）。
 export const virtualStudioService = {
   getImageGenStatus: async () => {
     const response = await api.get('/virtual/image-gen/status')
@@ -9,12 +9,15 @@ export const virtualStudioService = {
   },
 
   /**
-   * @param {{ scene: 'makeup' | 'fitting', itemId: string, note?: string }} input
+   * @param {{ scene: 'makeup' | 'fitting', itemId: string, note?: string, photo: File }} input
    */
-  requestGeneration: async ({ scene, itemId, note }) => {
-    const payload = { scene, itemId }
-    if (note) payload.note = note
-    const response = await api.post('/virtual/image-gen/generations', payload)
+  requestGeneration: async ({ scene, itemId, note, photo }) => {
+    const formData = new FormData()
+    formData.append('scene', scene)
+    formData.append('itemId', itemId)
+    if (note) formData.append('note', note)
+    formData.append('photo', photo)
+    const response = await api.postForm('/virtual/image-gen/generations', formData)
     return response.data
   },
 }

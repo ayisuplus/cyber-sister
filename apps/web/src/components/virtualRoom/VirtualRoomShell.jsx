@@ -20,7 +20,7 @@ export default function VirtualRoomShell({ title, intro, scene, items, itemNoun,
   const selectedItem = items.find(item => item.id === selectedId) || null
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-surface-page">
+    <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
       <Header title={title} showBack />
       <main className="flex-1 overflow-y-auto px-4 py-5">
         <section className={`rounded-3xl p-5 shadow-card ${toneClass}`}>
@@ -32,7 +32,7 @@ export default function VirtualRoomShell({ title, intro, scene, items, itemNoun,
               <h1 className="text-base font-semibold text-text-primary">{title}</h1>
               <p className="mt-1 text-xs leading-relaxed text-text-secondary">{intro}</p>
               <span className="mt-3 inline-flex rounded-full bg-surface-card px-3 py-1 text-xs font-semibold text-status-local">
-                照片不出浏览器 · 生图接入中
+                照片只在本机处理（本地 ComfyUI 生图），不出这台设备
               </span>
             </div>
           </div>
@@ -59,7 +59,7 @@ export default function VirtualRoomShell({ title, intro, scene, items, itemNoun,
             <StepBadge>3</StepBadge>
             生成预览
           </h2>
-          <GeneratePanel scene={scene} photoName={photo?.name} selectedItem={selectedItem} itemNoun={itemNoun} />
+          <GeneratePanel scene={scene} photo={photo} selectedItem={selectedItem} itemNoun={itemNoun} />
         </section>
       </main>
       <TabBar />

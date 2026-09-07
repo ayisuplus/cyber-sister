@@ -9,7 +9,6 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
-COPY packages/makeup-skill/package.json packages/makeup-skill/package.json
 RUN pnpm install --frozen-lockfile --filter cyber-sister-client...
 
 COPY packages/design-tokens packages/design-tokens

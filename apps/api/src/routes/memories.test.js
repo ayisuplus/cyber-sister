@@ -10,7 +10,12 @@ const service = vi.hoisted(() => ({
   clearAllMemories: vi.fn(),
 }))
 
+const suggestionService = vi.hoisted(() => ({
+  getMemorySuggestions: vi.fn(),
+}))
+
 vi.mock('../services/memoryService.js', () => service)
+vi.mock('../services/memorySuggestionService.js', () => suggestionService)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -99,5 +104,56 @@ describe('记忆路由', () => {
     const fail = await request(app).delete('/')
     expect(fail.status).toBe(500)
     expect(fail.body).toEqual({ error: '清空记忆失败' })
+  })
+})
+
+describe('记忆建议路由（W3）', () => {
+  it('成功返回候选并透传 userId 与 messageId', async () => {
+    const candidates = [{ type: 'semantic', content: '用户喜欢吃火锅', importance: 7, tags: ['饮食'] }]
+    suggestionService.getMemorySuggestions.mockResolvedValue({ candidates })
+    const res = await request(app).post('/suggestions').send({ messageId: 'msg-1' })
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ candidates })
+    expect(suggestionService.getMemorySuggestions).toHaveBeenCalledWith('user-1', 'msg-1', undefined)
+  })
+
+  it('归属校验失败（消息不存在）透传 404', async () => {
+    suggestionService.getMemorySuggestions.mockRejectedValue(
+      Object.assign(new Error('消息不存在'), { statusCode: 404 }),
+    )
+    const res = await request(app).post('/suggestions').send({ messageId: 'msg-x' })
+    expect(res.status).toBe(404)
+    expect(res.body).toEqual({ error: '消息不存在' })
+  })
+
+  it('非 user 消息拒绝透传 400', async () => {
+    suggestionService.getMemorySuggestions.mockRejectedValue(
+      Object.assign(new Error('只能对用户发送的消息生成记忆候选'), { statusCode: 400 }),
+    )
+    const res = await request(app).post('/suggestions').send({ messageId: 'msg-1' })
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ error: '只能对用户发送的消息生成记忆候选' })
+  })
+
+  it('本地模型不可用透传 503 与 LOCAL_LLM_* 错误码', async () => {
+    suggestionService.getMemorySuggestions.mockRejectedValue(
+      Object.assign(new Error('本地模型暂时不可用，请稍后重试'), {
+        statusCode: 503,
+        code: 'LOCAL_LLM_UNAVAILABLE',
+      }),
+    )
+    const res = await request(app).post('/suggestions').send({ messageId: 'msg-1' })
+    expect(res.status).toBe(503)
+    expect(res.body).toEqual({
+      error: '本地模型暂时不可用，请稍后重试',
+      code: 'LOCAL_LLM_UNAVAILABLE',
+    })
+  })
+
+  it('未知异常兜底 500', async () => {
+    suggestionService.getMemorySuggestions.mockRejectedValue(new Error('db down'))
+    const res = await request(app).post('/suggestions').send({ messageId: 'msg-1' })
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ error: '生成记忆建议失败' })
   })
 })

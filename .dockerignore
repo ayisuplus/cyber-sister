@@ -15,12 +15,6 @@
 **/*.p12
 **/*.pfx
 **/dev.db
-packages/makeup-skill/public/uploads
-packages/makeup-skill/public/results
-# Never inherit ignored/stale runtime model binaries from the checkout. The
-# verifier copies only approved .assets entries into this target during build.
-packages/makeup-skill/public/mp-models/*.task
-packages/makeup-skill/public/mp-models/wasm/
 tools/mediacrawler
 tools/data-pipeline/data
 **/__pycache__

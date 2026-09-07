@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { addDays, parseISO, startOfDay } from 'date-fns'
 
 vi.mock('../services/toolsService', () => ({
   toolsService: {
@@ -44,7 +45,7 @@ describe('toolsStore todos', () => {
     toolsService.getTodos.mockRejectedValue(new Error('offline'))
     useToolsStore.setState({ todos: [{ id: 'keep' }] })
 
-    await useToolsStore.getState().loadTodos()
+    await expect(useToolsStore.getState().loadTodos()).rejects.toThrow('offline')
 
     expect(useToolsStore.getState().todos).toEqual([{ id: 'keep' }])
   })
@@ -55,7 +56,7 @@ describe('toolsStore todos', () => {
 
     const created = await useToolsStore.getState().addTodo('新待办', '2026-09-01')
 
-    expect(toolsService.createTodo).toHaveBeenCalledWith('新待办', '2026-09-01')
+    expect(toolsService.createTodo).toHaveBeenCalledWith('新待办', '2026-09-01', undefined)
     expect(created.id).toBe('t2')
     expect(useToolsStore.getState().todos.map(t => t.id)).toEqual(['t2', 't1'])
   })
@@ -129,7 +130,7 @@ describe('toolsStore countdowns', () => {
     toolsService.getCountdowns.mockRejectedValue(new Error('offline'))
     useToolsStore.setState({ countdowns: [{ id: 'keep' }] })
 
-    await useToolsStore.getState().loadCountdowns()
+    await expect(useToolsStore.getState().loadCountdowns()).rejects.toThrow('offline')
 
     expect(useToolsStore.getState().countdowns).toEqual([{ id: 'keep' }])
   })
@@ -143,25 +144,49 @@ describe('toolsStore period records', () => {
     expect(useToolsStore.getState().getDaysUntilPeriod()).toBeNull()
   })
 
+  // 经期记录在 store 加载边界已归一化：startDay/endDay 为本地日历日零点
+  const makeRecord = (id, startDate, endDate, cycleDays = 28) => ({
+    id,
+    startDate,
+    endDate,
+    cycleDays,
+    startDay: startOfDay(parseISO(startDate)),
+    endDay: endDate ? startOfDay(parseISO(endDate)) : null,
+  })
+
   it('predicts the next period from the latest record and its cycle', () => {
     useToolsStore.setState({
       periodRecords: [
-        { id: 'p-old', startDate: '2026-07-01', cycleDays: 28 },
-        { id: 'p-new', startDate: '2026-08-01', cycleDays: 30 },
+        makeRecord('p-old', '2026-07-01', null, 28),
+        makeRecord('p-new', '2026-08-01', null, 30),
       ],
     })
 
     const next = useToolsStore.getState().getNextPeriodDate()
 
-    // 与服务端一致按 ISO 日期解析（UTC 午夜），再顺延一个周期
-    const expected = new Date('2026-08-01')
-    expected.setDate(expected.getDate() + 30)
-    expect(next).toEqual(expected)
+    // 按本地日历日解析 '2026-08-01'，再顺延一个周期（与时区无关的日历日语义）
+    expect(next).toEqual(addDays(startOfDay(parseISO('2026-08-01')), 30))
+  })
+
+  it('gives an exact deterministic countdown with a fixed today', () => {
+    vi.useFakeTimers()
+    try {
+      // 固定「今天」为本地 2026-09-01 上午（避免依赖真实墙钟）
+      vi.setSystemTime(new Date(2026, 8, 1, 10, 30))
+      useToolsStore.setState({
+        periodRecords: [makeRecord('p1', '2026-08-20', null, 28)],
+      })
+
+      // 下次 = 8-20 + 28 天 = 9-17；9-01 → 9-17 恰为 16 个日历日
+      expect(useToolsStore.getState().getDaysUntilPeriod()).toBe(16)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('never reports a negative countdown for overdue predictions', () => {
     useToolsStore.setState({
-      periodRecords: [{ id: 'p1', startDate: '2000-01-01', cycleDays: 28 }],
+      periodRecords: [makeRecord('p1', '2000-01-01', null, 28)],
     })
 
     expect(useToolsStore.getState().getDaysUntilPeriod()).toBe(0)
@@ -169,8 +194,8 @@ describe('toolsStore period records', () => {
 
   it('does not mutate the stored record order when computing the prediction', () => {
     const records = [
-      { id: 'p-old', startDate: '2026-07-01', cycleDays: 28 },
-      { id: 'p-new', startDate: '2026-08-01', cycleDays: 30 },
+      makeRecord('p-old', '2026-07-01', null, 28),
+      makeRecord('p-new', '2026-08-01', null, 30),
     ]
     useToolsStore.setState({ periodRecords: records })
 
@@ -187,7 +212,7 @@ describe('toolsStore period records', () => {
     axiosError.config = { headers: { Authorization: 'Bearer secret-token' } }
     toolsService.getTodos.mockRejectedValue(axiosError)
 
-    await useToolsStore.getState().loadTodos()
+    await useToolsStore.getState().loadTodos().catch(() => {})
 
     expect(errorSpy).toHaveBeenCalledWith('加载待办列表失败:', 500)
     const logged = JSON.stringify(errorSpy.mock.calls)
@@ -200,18 +225,33 @@ describe('toolsStore period records', () => {
     networkError.name = 'AxiosError'
     toolsService.getTodos.mockRejectedValue(networkError)
 
-    await useToolsStore.getState().loadTodos()
+    await useToolsStore.getState().loadTodos().catch(() => {})
 
     expect(errorSpy).toHaveBeenCalledWith('加载待办列表失败:', 'AxiosError')
   })
 
   it('adds a record with the default 28-day cycle', async () => {
-    toolsService.createPeriodRecord.mockResolvedValue({ id: 'p1', startDate: '2026-08-30', cycleDays: 28 })
+    toolsService.createPeriodRecord.mockResolvedValue({ id: 'p1', startDate: '2026-08-30', endDate: null, cycleDays: 28 })
 
     const record = await useToolsStore.getState().addPeriodRecord('2026-08-30', null)
 
     expect(toolsService.createPeriodRecord).toHaveBeenCalledWith('2026-08-30', null, 28)
-    expect(useToolsStore.getState().periodRecords[0]).toEqual(record)
+    // 服务端原样记录入列，并在加载边界归一化出本地日历日字段
+    expect(useToolsStore.getState().periodRecords[0]).toMatchObject(record)
+    expect(useToolsStore.getState().periodRecords[0].startDay).toEqual(startOfDay(parseISO('2026-08-30')))
+    expect(useToolsStore.getState().periodRecords[0].endDay).toBeNull()
+  })
+
+  it('normalizes loaded records to local calendar days', async () => {
+    toolsService.getPeriodRecords.mockResolvedValue([
+      { id: 'p1', startDate: '2026-08-29', endDate: '2026-08-31', cycleDays: 28 },
+    ])
+
+    await useToolsStore.getState().loadPeriodRecords()
+
+    const [record] = useToolsStore.getState().periodRecords
+    expect(record.startDay).toEqual(startOfDay(parseISO('2026-08-29')))
+    expect(record.endDay).toEqual(startOfDay(parseISO('2026-08-31')))
   })
 
   it('keeps records when loading fails', async () => {
@@ -219,7 +259,7 @@ describe('toolsStore period records', () => {
     toolsService.getPeriodRecords.mockRejectedValue(new Error('offline'))
     useToolsStore.setState({ periodRecords: [{ id: 'keep' }] })
 
-    await useToolsStore.getState().loadPeriodRecords()
+    await expect(useToolsStore.getState().loadPeriodRecords()).rejects.toThrow('offline')
 
     expect(useToolsStore.getState().periodRecords).toEqual([{ id: 'keep' }])
   })

@@ -1,6 +1,6 @@
 # 赛博姐妹（Cyber Sister）
 
-面向中国区白名单成年测试者的中文 AI 姐妹内测版。当前架构是单机 Docker Compose 模块化单体：主 Web、Node.js API、PostgreSQL、默认连接部署主机上的 llama.cpp，以及同源挂载在 `/makeup/` 的独立妆教模块。Qwen 仅是用户明确授权后的可选云端备用。
+面向中国区白名单成年测试者的中文 AI 姐妹内测版。当前架构是单机 Docker Compose 模块化单体：主 Web、Node.js API、PostgreSQL、默认连接部署主机上的 llama.cpp。Qwen 仅是用户明确授权后的可选云端备用。
 
 ## 当前内测范围
 
@@ -9,11 +9,10 @@
 - 实例管理员可在页面自动发现、测试并保存受控 llama.cpp；普通用户只能查看状态。
 - `qwen-fallback-v1` 云端备用同意、拒绝与撤回；未选择或拒绝不影响本地聊天。
 - 用户显式创建、编辑、删除和清空的轻量记忆。
-- 姐妹工具箱：经期记录与预测、倒数日、待办清单、提醒设置（喝水/睡觉/经期）。
+- 姐妹工具箱：经期记录与预测、倒数日、日程（按天时间线，可带日期与时间）、提醒设置（喝水/睡觉/经期）。
 - 中高风险输入服务端阻断；危机资源文案须经产品负责人核验后配置。
-- 主应用中的妆教入口及 `/makeup/` 本地图片/视频帧分析流程。
 
-虚拟试衣间和虚拟化妆间已提供可导航页面：照片只在浏览器本地选择预览（不上传）、静态款式/单品目录可选；生图将走外部 API，本期未接入——生成入口诚实显示“接入中”（`POST /api/virtual/image-gen/generations` 恒返回 503 `IMAGE_GEN_NOT_CONFIGURED`）。天气（现有路由为假数据，内测环境保持 409 关闭）、会员、支付、真实短信、自动记忆提取、向量检索、流式输出、模型训练、微服务/Kubernetes 和公开发布均不属于本次内测。
+虚拟试衣间和虚拟化妆间已接入**本机 ComfyUI 生图**（不接外部生图 API）：选照片、挑妆容/单品后由本地模型生成预览；照片经浏览器 → 本机 API → 本机 ComfyUI 在内存中流转，不落库、不送外部服务。ComfyUI 未在线时入口诚实显示“接入中”（503 `IMAGE_GEN_NOT_CONFIGURED` / `IMAGE_GEN_UNAVAILABLE`）。天气（现有路由为假数据，内测环境保持 409 关闭）、会员、支付、真实短信、自动记忆提取、向量检索、模型训练、微服务/Kubernetes 和公开发布均不属于本次内测。
 
 ## 仓库结构
 
@@ -22,9 +21,11 @@
 | `apps/web` | React/Vite 主应用 |
 | `apps/api` | Express/Prisma API 与 PostgreSQL 迁移 |
 | `packages/llm-gateway` | 非流式 OpenAI-compatible 模型网关 |
-| `packages/makeup-skill` | 独立妆教前端与解释 API |
-| `packages/design-tokens` | 主应用、妆教及未来能力共享的四色语义令牌 |
+| `packages/design-tokens` | 主应用及未来能力共享的四色语义令牌 |
 | `deploy` | Nginx TLS 配置、环境示例与部署手册 |
+| `tools` | 数据准备与采集工具：`data-pipeline`=数据准备工具；`mediacrawler`=采集工具，不属于主应用构建 |
+| `docs` | 产品、架构、合规、用户文档，索引与状态标签见 `docs/README.md` |
+| `.github` | Issue 模板与 PR 模板（合规与安全必查清单） |
 
 当前视觉与插画规范见 [`docs/UI设计系统规范_V3.0.md`](docs/UI设计系统规范_V3.0.md)。
 
@@ -77,9 +78,10 @@ pnpm db:migrate:deploy && pnpm db:seed && pnpm dev
 
 注意：运行 `pnpm test` 前先停掉 dev API——`node --watch` 进程会占用 Prisma 引擎文件，导致 `pretest` 的 `prisma generate` 在 Windows 上 EPERM 失败。
 
+工作模式的内置浏览器（agent 直接操控本机 Chromium，dev 默认弹可见窗口）默认关闭；启用需在 dev 主机一次性执行 `pnpm --filter cyber-sister-server exec playwright-core install chromium` 并以 `BROWSER_ENABLED=true` 启动 API。不想弹窗设 `BROWSER_HEADED=false`；Chromium 下载失败时可用 `BROWSER_CHROMIUM_PATH` 指向系统已装 Chrome。容器部署走镜像内系统 Chromium，强制无头。
+
 另起终端 `pnpm dev:web`（Vite 把 `/api` 代理到 `localhost:3000`，浏览器不受 CORS_ORIGIN 限制），用白名单手机号 + 固定码登录。未配置 llama.cpp 时聊天接口返回 `LOCAL_LLM_NOT_CONFIGURED`，属预期降级；管理员登录后可在「本地模型」页指向 `LOCAL_LLM_ALLOWED_ORIGINS` 内的 llama.cpp。
 
-未注入并登记获批 SHA-256 的 MediaPipe/WASM 资产时，`pnpm build` 按设计失败关闭。
 
 业务服务只通过 `prisma migrate deploy` 应用数据库迁移，禁止使用 `prisma db push`。运行配置示例见 [`deploy/internal.env.example`](deploy/internal.env.example)；数据库口令、JWT、手机号白名单、固定码和可选 Qwen Key 只通过仓库外的只读 secret 文件挂载。llama.cpp 地址和模型由实例管理员保存到 PostgreSQL 的实例级配置中，服务端只接受 `LOCAL_LLM_ALLOWED_ORIGINS` 中的精确地址。
 

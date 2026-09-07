@@ -13,12 +13,22 @@ import { drawWarpedTriangles } from './warpRenderer'
 
 /**
  * @param {{ engine: BeautyEngine }} deps
- * @returns {{ processImage: (sourceCanvas: Canvas, settings?: Partial<BeautySettings>) => Promise<Canvas> }}
+ * @returns {{ processImage: (sourceCanvas: Canvas, settings?: Partial<BeautySettings>, options?: { landmarkKey?: unknown }) => Promise<Canvas> }}
  */
 export function createBeautyPipeline({ engine }) {
   if (!engine || typeof engine.detectImage !== 'function') {
     throw new TypeError('createBeautyPipeline 需要 { engine }，且 engine 必须暴露 detectImage()')
   }
+
+  // 形变目标画布跨帧复用：避免每帧新建 canvas（backing store 分配 + GC 压力）。
+  // 调用方拿到返回值应立即消费（绘制/导出），下一次同尺寸调用会覆写。
+  /** @type {Canvas | null} */
+  let warpTarget = null
+
+  // 静态照片模式的 landmarks 缓存：同一源图（landmarkKey 相同）只检测一次，
+  // 滑杆调整只重跑滤镜/形变；换图（key 变化）即失效重检。
+  /** @type {{ key: unknown, landmarks: import('./faceGeometry').Landmark[] | null }} */
+  let landmarkCache = { key: null, landmarks: null }
 
   /**
    * @param {Canvas} source
@@ -33,15 +43,35 @@ export function createBeautyPipeline({ engine }) {
     return copy
   }
 
+  /**
+   * @param {Canvas} source
+   * @returns {Canvas}
+   */
+  const getWarpTarget = (source) => {
+    if (!warpTarget) {
+      const doc = source.ownerDocument || document
+      warpTarget = /** @type {Canvas} */ (doc.createElement('canvas'))
+    }
+    return warpTarget
+  }
+
   return {
     /**
      * 处理一帧/一张图：返回新的 canvas；检测不到人脸时返回原图拷贝（不做任何修饰）。
      * @param {Canvas} sourceCanvas
      * @param {Partial<BeautySettings>} settings 缺省项按 0（不处理）
+     * @param {{ landmarkKey?: unknown }} [options] 传 landmarkKey 时按 key 缓存检测结果
      * @returns {Promise<Canvas>}
      */
-    async processImage(sourceCanvas, settings = {}) {
-      const landmarks = await engine.detectImage(sourceCanvas)
+    async processImage(sourceCanvas, settings = {}, options = {}) {
+      const { landmarkKey } = options
+      let landmarks
+      if (landmarkKey != null && landmarkCache.key === landmarkKey) {
+        landmarks = landmarkCache.landmarks
+      } else {
+        landmarks = await engine.detectImage(sourceCanvas)
+        if (landmarkKey != null) landmarkCache = { key: landmarkKey, landmarks }
+      }
       const working = copyCanvas(sourceCanvas)
       if (!landmarks) return working
 
@@ -60,7 +90,7 @@ export function createBeautyPipeline({ engine }) {
       if (slim > 0 || eye > 0) {
         const warpMap = buildWarpMap(landmarks, { slim, eye })
         const triangles = computeWarpTriangles(width, height, warpMap, engine.tessellation ?? [])
-        return drawWarpedTriangles(working, triangles)
+        return drawWarpedTriangles(working, triangles, getWarpTarget(sourceCanvas))
       }
 
       return working

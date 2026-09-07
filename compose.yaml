@@ -82,6 +82,8 @@ services:
     extra_hosts:
       # Linux Docker: let the API reach a llama.cpp process running on the host.
       - "host.docker.internal:host-gateway"
+    # Chromium 无头运行默认挂 /dev/shm；显式给 1GB 防止渲染进程崩溃
+    shm_size: '1gb'
 
   web:
     image: ${WEB_IMAGE_REPOSITORY:-cyber-sister-web}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
@@ -92,31 +94,12 @@ services:
     networks:
       - app
 
-  makeup:
-    image: ${MAKEUP_IMAGE_REPOSITORY:-cyber-sister-makeup}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
-    build:
-      context: .
-      dockerfile: packages/makeup-skill/Dockerfile
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      MAIN_API_INTERNAL_URL: http://api:3000
-      PORT: 3001
-      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN in the private env file}
-    networks:
-      - app
-    depends_on:
-      api:
-        condition: service_healthy
-
   edge:
     image: nginxinc/nginx-unprivileged:1.27.4-alpine
     depends_on:
       api:
         condition: service_healthy
       web:
-        condition: service_healthy
-      makeup:
         condition: service_healthy
     ports:
       - "${BIND_ADDRESS:?set BIND_ADDRESS to the VPN or private interface address}:80:8080"

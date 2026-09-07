@@ -13,6 +13,14 @@ import logger from './logger.js'
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000
 // 每日重置间隔（24 小时检查一次）
 const DAILY_CHECK_MS = 60 * 60 * 1000
+// 业务日界按 Asia/Shanghai 计算：UTC 日界会让北京时间 0-8 点的会话被错误清零
+// （该时段对中国用户仍是“今天”，UTC 却已跨入“明天”）
+const SHANGHAI_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 
 class UsageTracker {
   constructor() {
@@ -151,8 +159,10 @@ class UsageTracker {
     }
   }
 
-  _getDateKey() {
-    return new Date().toISOString().slice(0, 10)
+  _getDateKey(now = Date.now()) {
+    const parts = SHANGHAI_DATE_FORMATTER.formatToParts(now)
+    const pick = (type) => parts.find((part) => part.type === type).value
+    return `${pick('year')}-${pick('month')}-${pick('day')}`
   }
 
   /**

@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@cyber-sister/llm-gateway": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/client": "^5.18.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
@@ -34,6 +35,8 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.3.0",
+    "playwright-core": "^1.62.1",
     "prisma": "^5.18.0"
   },
   "devDependencies": {

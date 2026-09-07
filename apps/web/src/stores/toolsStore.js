@@ -1,7 +1,17 @@
 import { create } from 'zustand'
 import { toolsService } from '../services/toolsService'
+import { addDays, differenceInCalendarDays, parseISO, startOfDay } from 'date-fns'
 // axios 错误对象的 config.headers 携带 Authorization，日志只保留状态码/错误名级别的摘要
 const summarizeError = (error) => error?.response?.status ?? error?.name ?? 'UnknownError'
+// 后端把 'yyyy-MM-dd' 存为 UTC 零点；new Date(iso) 会得到 UTC 午夜（北京时间为当天 08:00），
+// 直接和本地日历日零点比较会把记录的第一天标丢。加载边界统一归一化为本地日历日零点
+// （startDay/endDay），下游日历标注、下次预测、倒数全部按本地日历日比较。
+const toLocalCalendarDay = (iso) => (iso ? startOfDay(parseISO(iso)) : null)
+const normalizePeriodRecord = (record) => ({
+  ...record,
+  startDay: toLocalCalendarDay(record?.startDate),
+  endDay: toLocalCalendarDay(record?.endDate),
+})
 
 export const useToolsStore = create(
   (set, get) => ({
@@ -14,16 +24,17 @@ export const useToolsStore = create(
         set({ todos })
       } catch (error) {
         console.error('加载待办列表失败:', summarizeError(error))
+        throw error
       }
     },
 
-    addTodo: async (content, dueDate) => {
+    addTodo: async (content, dueDate, dueTime) => {
       try {
-        const todo = await toolsService.createTodo(content, dueDate)
+        const todo = await toolsService.createTodo(content, dueDate, dueTime)
         set((state) => ({ todos: [todo, ...state.todos] }))
         return todo
       } catch (error) {
-        console.error('创建待办失败:', summarizeError(error))
+        console.error('创建日程失败:', summarizeError(error))
         throw error
       }
     },
@@ -60,6 +71,7 @@ export const useToolsStore = create(
         set({ countdowns })
       } catch (error) {
         console.error('加载倒数日列表失败:', summarizeError(error))
+        throw error
       }
     },
 
@@ -91,9 +103,10 @@ export const useToolsStore = create(
     loadPeriodRecords: async () => {
       try {
         const records = await toolsService.getPeriodRecords()
-        set({ periodRecords: records })
+        set({ periodRecords: records.map(normalizePeriodRecord) })
       } catch (error) {
         console.error('加载经期记录失败:', summarizeError(error))
+        throw error
       }
     },
 
@@ -101,7 +114,7 @@ export const useToolsStore = create(
       try {
         const record = await toolsService.createPeriodRecord(startDate, endDate, cycleDays)
         set((state) => ({
-          periodRecords: [record, ...state.periodRecords],
+          periodRecords: [normalizePeriodRecord(record), ...state.periodRecords],
         }))
         return record
       } catch (error) {
@@ -114,20 +127,15 @@ export const useToolsStore = create(
       const records = get().periodRecords
       if (records.length === 0) return null
       const latest = [...records].sort(
-        (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+        (a, b) => (b.startDay?.getTime() ?? 0) - (a.startDay?.getTime() ?? 0)
       )[0]
-      const start = new Date(latest.startDate)
-      start.setDate(start.getDate() + (latest.cycleDays || 28))
-      return start
+      return addDays(latest.startDay, latest.cycleDays || 28)
     },
 
     getDaysUntilPeriod: () => {
       const next = get().getNextPeriodDate()
       if (!next) return null
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const diff = Math.ceil((next.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-      return Math.max(0, diff)
+      return Math.max(0, differenceInCalendarDays(next, new Date()))
     },
 
     // 提醒设置

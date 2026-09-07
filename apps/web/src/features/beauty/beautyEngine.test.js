@@ -121,4 +121,51 @@ describe('createBeautyEngine', () => {
     const { mp, createBeautyEngine } = await setup()
     expect(createBeautyEngine().tessellation).toBe(mp.FaceLandmarker.FACE_LANDMARKS_TESSELATION)
   })
+
+  it('并发 detectImage/detectVideoFrame 串行化：无交错 setOptions，模式随调用顺序翻转', async () => {
+    const { mp, createBeautyEngine } = await setup()
+    /** @type {string[]} 临界区事件顺序：串行化正确时严格按提交顺序、setOptions 不成对交错 */
+    const ops = []
+    const landmarker = {
+      detect: vi.fn(() => { ops.push('detect'); return { faceLandmarks: [FACE] } }),
+      detectForVideo: vi.fn(() => { ops.push('detectForVideo'); return { faceLandmarks: [FACE] } }),
+      setOptions: vi.fn(async ({ runningMode }) => { ops.push(`setOptions:${runningMode}`) }),
+    }
+    // 加载本身也异步（并发调用都会在 load 完成前进入队列）
+    let resolveCreate
+    mp.FilesetResolver.forVisionTasks.mockResolvedValue('fileset')
+    mp.FaceLandmarker.createFromOptions.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve }))
+    const engine = createBeautyEngine()
+
+    const pending = [
+      engine.detectImage({}),
+      engine.detectVideoFrame({}, 1),
+      engine.detectImage({}),
+      engine.detectVideoFrame({}, 2),
+    ]
+    resolveCreate(landmarker)
+    await Promise.all(pending)
+
+    // 初始 IMAGE：detect 直接跑；之后严格按 VIDEO→IMAGE→VIDEO 各切一次，不交错
+    expect(ops).toEqual([
+      'detect',
+      'setOptions:VIDEO', 'detectForVideo',
+      'setOptions:IMAGE', 'detect',
+      'setOptions:VIDEO', 'detectForVideo',
+    ])
+    expect(landmarker.setOptions).toHaveBeenCalledTimes(3)
+  })
+
+  it('一次调用失败不阻塞后续排队的调用', async () => {
+    const { mp, createBeautyEngine } = await setup()
+    const landmarker = makeLandmarker()
+    landmarker.detect.mockImplementationOnce(() => { throw new Error('decode failed') })
+    mp.FilesetResolver.forVisionTasks.mockResolvedValue('fileset')
+    mp.FaceLandmarker.createFromOptions.mockResolvedValue(landmarker)
+    const engine = createBeautyEngine()
+
+    await expect(engine.detectImage({})).rejects.toThrow('decode failed')
+    await expect(engine.detectVideoFrame({}, 1)).resolves.toBe(FACE)
+    expect(landmarker.setOptions).toHaveBeenCalledWith({ runningMode: 'VIDEO' })
+  })
 })

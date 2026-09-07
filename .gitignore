@@ -22,6 +22,7 @@ browser_data/
 *_user_data_dir/
 xhs_results_*.json
 stealth_*results.json
+tools/data-pipeline/sources/raw-corpus/
 
 # 依赖与构建产物
 node_modules/
@@ -30,12 +31,8 @@ apps/web/playwright-report/
 dist/
 build/
 apps/api/src/prisma/dev.db
-packages/makeup-skill/.assets/*
-!packages/makeup-skill/.assets/.gitkeep
-
-# MediaPipe 模型与 wasm（构建期由 verify-model-assets.mjs 从 .assets/ 注入，不入库）
+# MediaPipe 模型与 wasm（美颜相机运行时资产，手动注入，不入库）
 apps/web/public/mp-models/
-packages/makeup-skill/public/mp-models/
 __pycache__/
 *.pyc
 venv/
@@ -44,6 +41,9 @@ venv/
 # 工具缓存
 .turbo/
 *.tsbuildinfo
+
+# 工作模式生图落盘（机器本地产物，不入库）
+apps/api/data/
 
 # 埋点数据
 data/analytics.jsonl

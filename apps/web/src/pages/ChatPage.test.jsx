@@ -8,10 +8,23 @@ vi.mock('../services/chatService', () => ({
     getConversations: vi.fn(),
     getConversation: vi.fn(),
     createConversation: vi.fn(),
-    sendMessage: vi.fn(),
+    streamMessage: vi.fn(),
     deleteConversation: vi.fn(),
   },
 }))
+
+// 让测试逐事件驱动流式响应；emit 推事件，finish 结束流
+const controllableStream = () => {
+  const control = {}
+  chatService.streamMessage.mockImplementation(
+    (conversationId, content, { onEvent }) => new Promise((resolve, reject) => {
+      control.onEvent = onEvent
+      control.resolve = resolve
+      control.reject = reject
+    })
+  )
+  return control
+}
 
 vi.mock('../services/complianceService', () => ({
   complianceService: {
@@ -30,10 +43,15 @@ vi.mock('../services/consentService', () => ({
   consentService: { get: vi.fn(), update: vi.fn() },
 }))
 
+vi.mock('../services/memoryService', () => ({
+  memoryService: { getSuggestions: vi.fn(), create: vi.fn() },
+}))
+
 import { chatService } from '../services/chatService'
 import { complianceService } from '../services/complianceService'
 import { consentService } from '../services/consentService'
 import { localModelService } from '../services/localModelService'
+import { memoryService } from '../services/memoryService'
 import { useChatStore } from '../stores/chatStore'
 import { useComplianceStore } from '../stores/complianceStore'
 import ChatPage from './ChatPage'
@@ -86,31 +104,55 @@ describe('ChatPage', () => {
     }
   })
 
-  it('sends a topic shortcut and renders both sides of the reply', async () => {
+  it('streams a topic shortcut reply: deltas appear progressively, then persisted messages take over', async () => {
     const user = userEvent.setup()
     chatService.createConversation.mockResolvedValue({ id: 'c1' })
-    chatService.sendMessage.mockResolvedValue({
-      status: 'ok',
-      source: 'local_template',
-      userMessage: { id: 'u1', role: 'user', content: '推荐个电影' },
-      aiMessage: { id: 'a1', role: 'assistant', content: '看《好东西》吧' },
-    })
+    const stream = controllableStream()
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '推荐个电影' }))
 
-    expect(await screen.findByText('看《好东西》吧')).toBeInTheDocument()
+    expect(chatService.streamMessage).toHaveBeenCalledWith('c1', '推荐个电影', expect.objectContaining({
+      onEvent: expect.any(Function),
+    }))
+    // 首个 delta 前由 TypingIndicator 承担进行中视觉
+    expect(document.querySelectorAll('.typing-dot')).toHaveLength(3)
+
+    stream.onEvent({ event: 'delta', text: '看《好东西》' })
+    expect(await screen.findByText('看《好东西》')).toBeInTheDocument()
+    expect(document.querySelectorAll('.typing-dot')).toHaveLength(0)
+
+    // replace 整体替换此前已渲染的临时文本
+    stream.onEvent({ event: 'replace', content: '看《流浪地球》吧' })
+    expect(await screen.findByText('看《流浪地球》吧')).toBeInTheDocument()
+    expect(screen.queryByText('看《好东西》')).not.toBeInTheDocument()
+
+    // done 用持久化消息替换临时消息
+    stream.onEvent({
+      event: 'done',
+      status: 'ok',
+      source: 'local_template',
+      userMessage: { id: 'u1', role: 'user', content: '推荐个电影' },
+      aiMessage: { id: 'a1', role: 'assistant', content: '看《流浪地球》吧' },
+    })
+    stream.resolve()
+
+    expect(await screen.findByText('本地安全模板')).toBeInTheDocument()
     expect(screen.getByText('推荐个电影')).toBeInTheDocument()
-    expect(chatService.sendMessage).toHaveBeenCalledWith('c1', '推荐个电影')
+    expect(useChatStore.getState().messages.map(m => m.id)).toEqual(['u1', 'a1'])
   })
 
   it('surfaces a blocked intervention inside the crisis modal', async () => {
     const user = userEvent.setup()
     useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.sendMessage.mockResolvedValue({
-      status: 'blocked',
-      userMessage: { id: 'u1', role: 'user', content: '危机输入' },
-      intervention: { level: 'high', message: '我很担心你，请先确保安全', resources: [] },
+    chatService.streamMessage.mockImplementation((conversationId, content, { onEvent }) => {
+      onEvent({
+        event: 'blocked',
+        status: 'blocked',
+        userMessage: { id: 'u1', role: 'user', content: '危机输入' },
+        intervention: { level: 'high', message: '我很担心你，请先确保安全', resources: [] },
+      })
+      return Promise.resolve()
     })
     renderPage()
 
@@ -120,6 +162,8 @@ describe('ChatPage', () => {
 
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
     expect(within(screen.getByRole('alertdialog')).getByText('我很担心你，请先确保安全')).toBeInTheDocument()
+    // 阻断不留临时 AI 占位
+    expect(useChatStore.getState().messages.every(m => !m.id.startsWith('temp-'))).toBe(true)
 
     await user.click(screen.getByRole('button', { name: '我知道了' }))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
@@ -133,9 +177,8 @@ describe('ChatPage', () => {
   ])('explains send failure %o without losing the draft', async (errorPayload, expectedMessage) => {
     const user = userEvent.setup()
     useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.sendMessage.mockRejectedValue({
-      response: { data: { error: errorPayload } },
-    })
+    // 流式错误直接携带 code；未知失败保持通用文案
+    chatService.streamMessage.mockRejectedValue(errorPayload)
     renderPage()
 
     const input = screen.getByRole('textbox', { name: '聊天消息' })
@@ -145,6 +188,9 @@ describe('ChatPage', () => {
     expect(await screen.findByText(expectedMessage)).toBeInTheDocument()
     // 发送失败时草稿保留，方便重试
     expect(input).toHaveValue('这条会失败')
+    // 失败不留临时消息，页面可继续重试
+    expect(useChatStore.getState().messages).toEqual([])
+    expect(useChatStore.getState().isSending).toBe(false)
   })
 
   it('shows the typing indicator while the AI is composing', () => {
@@ -168,6 +214,83 @@ describe('ChatPage', () => {
     expect(screen.getByText('旧问题')).toBeInTheDocument()
     expect(screen.getByText('旧回答')).toBeInTheDocument()
     expect(screen.getByText('本机模型')).toBeInTheDocument()
+  })
+})
+
+describe('ChatPage 帮我记住入口', () => {
+  const persistedPair = [
+    { id: 'u1', role: 'user', content: '我最近在看科幻片' },
+    { id: 'a1', role: 'assistant', content: '推荐《流浪地球》', source: 'local_model' },
+  ]
+
+  beforeEach(() => {
+    localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
+    useChatStore.setState({
+      conversations: [],
+      currentConversationId: 'c1',
+      messages: [],
+      isTyping: false,
+      isSending: false,
+    })
+    useComplianceStore.setState({
+      showCrisisModal: false,
+      showUsageReminder: false,
+      showAIDisclaimer: false,
+      crisisLevel: null,
+    })
+    chatService.getConversations.mockResolvedValue([])
+    localModelService.getStatus.mockResolvedValue({
+      local: { configured: true, state: 'ready' },
+      externalFallback: { configured: true, consent: null, version: 'qwen-fallback-v1' },
+    })
+  })
+
+  it('shows the entry on the latest normal assistant reply, keyed to the preceding user message', async () => {
+    const user = userEvent.setup()
+    memoryService.getSuggestions.mockResolvedValue({
+      candidates: [{ type: 'semantic', content: '喜欢科幻电影', importance: 7, tags: ['电影'] }],
+    })
+    useChatStore.setState({ messages: persistedPair })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /帮我记住/ }))
+
+    // 建议接口以前置 user 消息 id 为对象
+    expect(memoryService.getSuggestions).toHaveBeenCalledWith('u1')
+    expect(await screen.findByDisplayValue('喜欢科幻电影')).toBeInTheDocument()
+  })
+
+  it('hides the entry while the reply is still streaming', () => {
+    useChatStore.setState({
+      messages: [
+        persistedPair[0],
+        { id: 'temp-ai-1', role: 'assistant', content: '生成中片段', streaming: true },
+      ],
+    })
+    renderPage()
+
+    expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
+  })
+
+  it('hides the entry when the last message is a user message (blocked flow leaves no reply)', () => {
+    useChatStore.setState({ messages: [persistedPair[0]] })
+    renderPage()
+
+    expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps chat messages untouched when suggestion generation fails', async () => {
+    const user = userEvent.setup()
+    memoryService.getSuggestions.mockRejectedValue(new Error('LOCAL_LLM_UNAVAILABLE'))
+    useChatStore.setState({ messages: persistedPair })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /帮我记住/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法生成记忆建议，稍后再试')
+    // 聊天消息与发送错误条均不受影响
+    expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['u1', 'a1'])
+    expect(screen.getByText('推荐《流浪地球》')).toBeInTheDocument()
   })
 })
 
@@ -325,5 +448,66 @@ describe('ChatPage 云端备用引导', () => {
     await act(async () => {})
     expect(localModelService.getStatus).not.toHaveBeenCalled()
     expect(screen.queryByText('本地模型暂时不可用')).not.toBeInTheDocument()
+  })
+})
+
+describe('ChatPage 外部主用模式', () => {
+  beforeEach(() => {
+    localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
+    sessionStorage.clear()
+    useChatStore.setState({
+      conversations: [], currentConversationId: null, messages: [],
+      isTyping: false, isSending: false, llmMode: null,
+    })
+    useComplianceStore.setState({
+      showCrisisModal: false, showUsageReminder: false, showAIDisclaimer: false, crisisLevel: null,
+    })
+    chatService.getConversations.mockResolvedValue([])
+    localModelService.getStatus.mockResolvedValue({
+      mode: 'external_primary',
+      local: { configured: false, state: 'not_configured' },
+      externalFallback: { configured: true, consent: null, version: 'qwen-fallback-v1' },
+    })
+  })
+
+  it('prompts for cloud consent with primary copy when undecided', async () => {
+    const user = userEvent.setup()
+    consentService.update.mockResolvedValue({ accepted: true })
+    renderPage()
+
+    expect(await screen.findByText('这个姐妹住在云端')).toBeInTheDocument()
+    expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
+    expect(consentService.update).toHaveBeenCalledWith(true)
+  })
+
+  it('explains cloud failure with primary wording', async () => {
+    const user = userEvent.setup()
+    useChatStore.setState({ currentConversationId: 'c1' })
+    chatService.streamMessage.mockRejectedValue({ code: 'LLM_UNAVAILABLE' })
+    renderPage()
+    await act(async () => {}) // 等 llmMode 落库
+
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    await user.type(input, '这条会失败')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByText('云端模型暂时不可用。原输入已保留，请稍后重试。')).toBeInTheDocument()
+    expect(input).toHaveValue('这条会失败')
+  })
+
+  it('guides to the consent toggle when cloud is not yet accepted', async () => {
+    const user = userEvent.setup()
+    useChatStore.setState({ currentConversationId: 'c1' })
+    chatService.streamMessage.mockRejectedValue({ code: 'LOCAL_LLM_UNAVAILABLE' })
+    renderPage()
+    await act(async () => {})
+
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    await user.type(input, '这条会失败')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByText('需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。')).toBeInTheDocument()
   })
 })

@@ -13,7 +13,7 @@ export default function Header({ title, showBack = false, rightAction = null }) 
           </button>
         )}
       </div>
-      <h1 className="text-base font-semibold text-text-primary">{title}</h1>
+      <h1 className="display-serif text-lg font-semibold text-text-primary">{title}</h1>
       <div className="w-10 flex justify-end">
         {rightAction}
       </div>

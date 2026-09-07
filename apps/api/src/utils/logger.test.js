@@ -66,3 +66,39 @@ describe('logger 元信息过滤', () => {
     expect(logSpy.mock.calls[0][0]).not.toContain('{')
   })
 })
+describe('requestLogger 请求追踪', () => {
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+  function run(headers) {
+    const req = { headers }
+    const res = { setHeader: vi.fn(), on: vi.fn(), statusCode: 200 }
+    const next = vi.fn()
+    logger.requestLogger()(req, res, next)
+    return { req, res, next }
+  }
+
+  it('合法的入站 X-Request-Id 被透传到请求与响应头', () => {
+    const { req, res, next } = run({ 'x-request-id': 'makeup-req-abc123' })
+    expect(req.requestId).toBe('makeup-req-abc123')
+    expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', 'makeup-req-abc123')
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('无入站头时生成 UUID 兜底', () => {
+    const { req, res } = run({})
+    expect(req.requestId).toMatch(UUID_PATTERN)
+    expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', req.requestId)
+  })
+
+  it.each([
+    ['包含注入字符', 'evil\r\nX-Injected: yes'],
+    ['超过 64 字符', 'a'.repeat(65)],
+    ['包含空格', 'not valid'],
+    ['包含下划线', 'bad_id'],
+    ['非字符串', 12345],
+  ])('非法入站头（%s）被丢弃并重新生成', (_label, value) => {
+    const { req, res } = run({ 'x-request-id': value })
+    expect(req.requestId).toMatch(UUID_PATTERN)
+    expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', req.requestId)
+  })
+})

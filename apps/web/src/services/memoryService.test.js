@@ -55,6 +55,26 @@ describe('memoryService.list', () => {
   })
 })
 
+describe('memoryService.getSuggestions', () => {
+  it('requests candidates for the given user message and returns the payload', async () => {
+    api.post.mockResolvedValue({
+      data: { candidates: [{ type: 'semantic', content: '喜欢科幻电影', importance: 7, tags: ['电影'] }] },
+    })
+
+    const result = await memoryService.getSuggestions('u1')
+
+    expect(api.post).toHaveBeenCalledWith('/memories/suggestions', { messageId: 'u1' })
+    expect(result.candidates).toHaveLength(1)
+  })
+
+  it('propagates suggestion failures to the caller for inline handling', async () => {
+    const failure = new Error('LOCAL_LLM_UNAVAILABLE')
+    api.post.mockRejectedValue(failure)
+
+    await expect(memoryService.getSuggestions('u1')).rejects.toBe(failure)
+  })
+})
+
 describe('memoryService mutations', () => {
   it('creates, updates, removes and clears memories', async () => {
     api.post.mockResolvedValue({ data: { id: 'm1' } })

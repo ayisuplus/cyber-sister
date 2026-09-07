@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useComplianceStore } from '../../stores/complianceStore'
-import useDialogFocusTrap from './useDialogFocusTrap'
+import useDialogFocusTrap from '../ui/useDialogFocusTrap'
 import { Bot } from 'lucide-react'
 
 export default function AIDisclaimer() {
@@ -19,7 +19,7 @@ export default function AIDisclaimer() {
     >
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title" aria-describedby="ai-disclaimer-description" className="bg-surface-card rounded-[24px] w-[320px] p-8 text-center animate-fade-in">
         <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-gradient-pink-purple flex items-center justify-center">
-          <Bot size={32} className="text-white" />
+          <Bot size={32} className="text-text-inverse" />
         </div>
         <h2 id="ai-disclaimer-title" className="text-lg font-bold text-text-primary mb-3">我是AI，不是真人</h2>
         <p id="ai-disclaimer-description" className="text-sm text-text-secondary leading-relaxed mb-6">

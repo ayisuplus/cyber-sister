@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Brain, Edit3, Plus, Save, Tag, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { memoryService } from '../services/memoryService'
 
 const TYPE_LABELS = {
@@ -19,6 +20,7 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -96,7 +98,7 @@ export default function MemoriesPage() {
   }
 
   const clear = async () => {
-    if (!window.confirm('确定清空全部记忆吗？此操作无法撤销。')) return
+    setShowClearConfirm(false)
     setMessage('')
     try {
       await memoryService.clear()
@@ -109,36 +111,36 @@ export default function MemoriesPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-message overflow-hidden">
+    <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
       <Header title="显式记忆" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         <p className="text-xs leading-relaxed text-text-secondary">这里只有你主动创建的记忆。系统不会自动提取或推断记忆。</p>
 
-        <form onSubmit={save} className="rounded-[20px] bg-white p-4 shadow-card space-y-3" aria-labelledby="memory-form-title">
+        <form onSubmit={save} className="rounded-card bg-surface-card p-4 shadow-card space-y-3" aria-labelledby="memory-form-title">
           <h2 id="memory-form-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             {editingId ? <Edit3 size={16} /> : <Plus size={16} />}
             {editingId ? '编辑记忆' : '创建记忆'}
           </h2>
           <div>
             <label htmlFor="memory-content" className="mb-1 block text-xs text-text-secondary">记忆内容</label>
-            <textarea id="memory-content" ref={contentRef} value={form.content} onChange={event => setForm(current => ({ ...current, content: event.target.value }))} maxLength={500} rows={3} className="w-full rounded-xl bg-bg-input p-3 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30" />
+            <textarea id="memory-content" ref={contentRef} value={form.content} onChange={event => setForm(current => ({ ...current, content: event.target.value }))} maxLength={500} rows={3} className="w-full rounded-xl bg-surface-input p-3 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="memory-type" className="mb-1 block text-xs text-text-secondary">类型</label>
-              <select id="memory-type" value={form.type} onChange={event => setForm(current => ({ ...current, type: event.target.value }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm">
+              <select id="memory-type" value={form.type} onChange={event => setForm(current => ({ ...current, type: event.target.value }))} className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm">
                 {Object.entries(TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
             <div>
               <label htmlFor="memory-importance" className="mb-1 block text-xs text-text-secondary">重要度（1–10）</label>
-              <input id="memory-importance" type="number" min="1" max="10" value={form.importance} onChange={event => setForm(current => ({ ...current, importance: Number(event.target.value) }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm" />
+              <input id="memory-importance" type="number" min="1" max="10" value={form.importance} onChange={event => setForm(current => ({ ...current, importance: Number(event.target.value) }))} className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm" />
             </div>
           </div>
           <div>
             <label htmlFor="memory-tags" className="mb-1 block text-xs text-text-secondary">标签（逗号分隔）</label>
-            <input id="memory-tags" value={form.tags} onChange={event => setForm(current => ({ ...current, tags: event.target.value }))} className="min-h-11 w-full rounded-xl bg-bg-input px-3 text-sm" />
+            <input id="memory-tags" value={form.tags} onChange={event => setForm(current => ({ ...current, tags: event.target.value }))} className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm" />
           </div>
           <div className="flex gap-2">
             {editingId && <button type="button" onClick={resetForm} className="min-h-11 flex-1 rounded-xl border border-border-subtle text-sm text-text-secondary">取消</button>}
@@ -148,7 +150,7 @@ export default function MemoriesPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-text-primary">我的记忆（{memories.length}）</h2>
-          {memories.length > 0 && <button type="button" onClick={clear} className="min-h-11 px-3 text-xs text-red-600">清空全部</button>}
+          {memories.length > 0 && <button type="button" onClick={() => setShowClearConfirm(true)} className="min-h-11 px-3 text-xs text-danger">清空全部</button>}
         </div>
 
         <p aria-live="polite" className="min-h-5 text-center text-xs text-text-secondary">{message}</p>
@@ -160,12 +162,12 @@ export default function MemoriesPage() {
         ) : (
           <div className="space-y-2">
             {memories.map(memory => (
-              <article key={memory.id} className="rounded-2xl bg-white p-4 shadow-card">
+              <article key={memory.id} className="rounded-2xl bg-surface-card p-4 shadow-card">
                 <div className="flex items-start justify-between gap-2">
                   <span className="rounded-full bg-brand-purple/10 px-2 py-1 text-[10px] text-brand-purple">{TYPE_LABELS[memory.type] || memory.type}</span>
                   <div className="flex gap-1">
-                    <button type="button" aria-label="编辑这条记忆" onClick={() => edit(memory)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-gray-50 hover:text-brand-purple"><Edit3 size={15} /></button>
-                    <button type="button" aria-label="删除这条记忆" onClick={() => remove(memory.id)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button>
+                    <button type="button" aria-label="编辑这条记忆" onClick={() => edit(memory)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-surface-muted hover:text-brand-purple"><Edit3 size={15} /></button>
+                    <button type="button" aria-label="删除这条记忆" onClick={() => remove(memory.id)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-pastel-blush hover:text-danger"><Trash2 size={15} /></button>
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed text-text-primary">{memory.content}</p>
@@ -178,6 +180,16 @@ export default function MemoriesPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="清空全部记忆"
+        description="此操作无法撤销，确定继续吗？"
+        confirmLabel="确认清空"
+        danger
+        onConfirm={clear}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 }

@@ -16,10 +16,20 @@ const currentLevel = LOG_LEVELS[process.env.LOG_LEVEL || 'info'] ?? LOG_LEVELS.i
 const ALLOWED_META_KEYS = new Set([
   'requestId', 'scene', 'provider', 'model', 'attempts', 'latencyMs', 'outcome', 'result',
   // 错误与业务标识等非敏感键；phone、token 等敏感信息仍然禁止进入日志
-  'error', 'code', 'reason', 'userId', 'conversationId', 'level', 'crisisLevel', 'stack',
+  'error', 'code', 'reason', 'userId', 'conversationId', 'level', 'crisisLevel', 'stack', 'action', 'host', 'strategyChars',
 ])
 
 const MAX_META_VALUE_LENGTH = 200
+// 入站 X-Request-Id 安全形态：仅接受 ≤64 位的字母/数字/连字符，
+// 其余（注入字符、超长、非字符串）一律丢弃并重新生成，防止日志注入
+const INBOUND_REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/
+
+// 优先透传上游的 X-Request-Id，无头或不合规时随机兜底
+function resolveRequestId(headerValue) {
+  return typeof headerValue === 'string' && INBOUND_REQUEST_ID_PATTERN.test(headerValue)
+    ? headerValue
+    : randomUUID()
+}
 
 function sanitizeMeta(meta) {
   return Object.fromEntries(
@@ -71,7 +81,7 @@ export const logger = {
   requestLogger() {
     return (req, res, next) => {
       const start = Date.now()
-      req.requestId = randomUUID()
+      req.requestId = resolveRequestId(req.headers['x-request-id'])
       res.setHeader('X-Request-Id', req.requestId)
 
       res.on('finish', () => {

@@ -5,7 +5,7 @@ vi.mock('../services/chatService', () => ({
     getConversations: vi.fn(),
     getConversation: vi.fn(),
     createConversation: vi.fn(),
-    sendMessage: vi.fn(),
+    streamMessage: vi.fn(),
     deleteConversation: vi.fn(),
   },
 }))
@@ -19,7 +19,14 @@ const resetStore = () => useChatStore.setState({
   messages: [],
   isTyping: false,
   isSending: false,
+  chatMode: 'chat',
 })
+
+// 让 streamMessage 按脚本逐事件回调后 resolve
+const streamScript = (events) => (conversationId, content, { onEvent }) => {
+  for (const event of events) onEvent(event)
+  return Promise.resolve()
+}
 
 describe('chatStore', () => {
   beforeEach(resetStore)
@@ -38,37 +45,106 @@ describe('chatStore', () => {
     expect(useChatStore.getState().messages).toEqual(messages)
   })
 
-  it('keeps a persisted response source in the current UI state', async () => {
+  it('streams deltas into a temporary bubble, replaces them on replace, and swaps in persisted messages on done', async () => {
     useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.sendMessage.mockResolvedValue({
-      status: 'ok',
-      source: 'local_template',
-      userMessage: { id: 'u1', role: 'user', content: '你好' },
-      aiMessage: { id: 'a1', role: 'assistant', content: '本地回复' },
+    const snapshots = []
+    chatService.streamMessage.mockImplementation((conversationId, content, { onEvent }) => {
+      onEvent({ event: 'delta', text: '你好' })
+      snapshots.push(useChatStore.getState().messages.map(m => m.content))
+      onEvent({ event: 'delta', text: '呀' })
+      snapshots.push(useChatStore.getState().messages.map(m => m.content))
+      onEvent({ event: 'replace', content: '安全模板全文' })
+      snapshots.push(useChatStore.getState().messages.map(m => m.content))
+      onEvent({
+        event: 'done',
+        status: 'ok',
+        source: 'local_template',
+        userMessage: { id: 'u1', role: 'user', content: '你好' },
+        aiMessage: { id: 'a1', role: 'assistant', content: '安全模板全文' },
+      })
+      return Promise.resolve()
     })
 
     const result = await useChatStore.getState().sendMessage('你好')
 
     expect(result).toEqual({ status: 'ok', source: 'local_template' })
-    expect(useChatStore.getState().messages).toHaveLength(2)
-    expect(useChatStore.getState().messages[1]).toMatchObject({ source: 'local_template' })
+    // delta 逐段累积 → replace 整体替换临时文本
+    expect(snapshots).toEqual([
+      ['你好', '你好'],
+      ['你好', '你好呀'],
+      ['你好', '安全模板全文'],
+    ])
+    // done 后临时消息被持久化消息替换
+    const messages = useChatStore.getState().messages
+    expect(messages).toHaveLength(2)
+    expect(messages.map(m => m.id)).toEqual(['u1', 'a1'])
+    expect(messages[1]).toMatchObject({ source: 'local_template' })
+    expect(useChatStore.getState().isTyping).toBe(false)
+  })
+
+  it('keeps the typing indicator until the first delta arrives', async () => {
+    useChatStore.setState({ currentConversationId: 'c1' })
+    const typingSnapshots = []
+    chatService.streamMessage.mockImplementation((conversationId, content, { onEvent }) => {
+      typingSnapshots.push(useChatStore.getState().isTyping)
+      onEvent({ event: 'delta', text: '第一句' })
+      typingSnapshots.push(useChatStore.getState().isTyping)
+      onEvent({
+        event: 'done',
+        status: 'ok',
+        userMessage: { id: 'u1', role: 'user', content: '在吗' },
+        aiMessage: { id: 'a1', role: 'assistant', content: '第一句' },
+      })
+      return Promise.resolve()
+    })
+
+    await useChatStore.getState().sendMessage('在吗')
+
+    expect(typingSnapshots).toEqual([true, false])
   })
 
   it('adds one blocked intervention without fabricating an AI response', async () => {
     useChatStore.setState({ currentConversationId: 'c1' })
-    chatService.sendMessage.mockResolvedValue({
+    chatService.streamMessage.mockImplementation(streamScript([{
+      event: 'blocked',
       status: 'blocked',
       userMessage: { id: 'u1', role: 'user', content: '危机输入' },
       intervention: { level: 'high', message: '固定干预文案', resources: [] },
-    })
+    }]))
 
     const result = await useChatStore.getState().sendMessage('危机输入')
 
-    expect(result.status).toBe('blocked')
+    expect(result).toEqual({
+      status: 'blocked',
+      intervention: { level: 'high', message: '固定干预文案', resources: [] },
+    })
     expect(useChatStore.getState().messages.map(message => message.content)).toEqual([
       '危机输入',
       '固定干预文案',
     ])
+    // 不留临时消息
+    expect(useChatStore.getState().messages.every(m => !m.id.startsWith('temp-'))).toBe(true)
+  })
+
+  it('removes temporary messages and rethrows the event code on a stream error event', async () => {
+    useChatStore.setState({
+      currentConversationId: 'c1',
+      messages: [{ id: 'existing', role: 'assistant', content: '已有消息' }],
+    })
+    chatService.streamMessage.mockImplementation(streamScript([
+      { event: 'delta', text: '半截回复' },
+      { event: 'error', code: 'LLM_UNAVAILABLE' },
+    ]))
+
+    let caught
+    await useChatStore.getState().sendMessage('需要重试').catch((error) => { caught = error })
+
+    expect(caught.code).toBe('LLM_UNAVAILABLE')
+    expect(useChatStore.getState().messages).toEqual([
+      { id: 'existing', role: 'assistant', content: '已有消息' },
+    ])
+    expect(useChatStore.getState().isSending).toBe(false)
+    expect(useChatStore.getState().isTyping).toBe(false)
   })
 
   it('does not append a failed message and resets the sending flag', async () => {
@@ -76,13 +152,24 @@ describe('chatStore', () => {
       currentConversationId: 'c1',
       messages: [{ id: 'existing', role: 'assistant', content: '已有消息' }],
     })
-    chatService.sendMessage.mockRejectedValue(new Error('LLM unavailable'))
+    chatService.streamMessage.mockRejectedValue(new Error('LLM unavailable'))
 
     await expect(useChatStore.getState().sendMessage('需要重试')).rejects.toThrow('LLM unavailable')
     expect(useChatStore.getState().messages).toEqual([
       { id: 'existing', role: 'assistant', content: '已有消息' },
     ])
     expect(useChatStore.getState().isSending).toBe(false)
+  })
+
+  it('fails with STREAM_FAILED when the stream ends without a terminal event', async () => {
+    useChatStore.setState({ currentConversationId: 'c1' })
+    chatService.streamMessage.mockImplementation(streamScript([{ event: 'delta', text: '半截' }]))
+
+    let caught
+    await useChatStore.getState().sendMessage('断线').catch((error) => { caught = error })
+
+    expect(caught.code).toBe('STREAM_FAILED')
+    expect(useChatStore.getState().messages).toEqual([])
   })
 })
 describe('chatStore conversation management', () => {
@@ -112,16 +199,20 @@ describe('chatStore conversation management', () => {
 
   it('creates a conversation on the fly when sending without one', async () => {
     chatService.createConversation.mockResolvedValue({ id: 'c-new' })
-    chatService.sendMessage.mockResolvedValue({
+    chatService.streamMessage.mockImplementation(streamScript([{
+      event: 'done',
       status: 'ok',
       userMessage: { id: 'u1', role: 'user', content: '第一条' },
       aiMessage: { id: 'a1', role: 'assistant', content: '回复' },
-    })
+    }]))
 
     const result = await useChatStore.getState().sendMessage('第一条')
 
     expect(chatService.createConversation).toHaveBeenCalled()
-    expect(chatService.sendMessage).toHaveBeenCalledWith('c-new', '第一条')
+    expect(chatService.streamMessage).toHaveBeenCalledWith('c-new', '第一条', expect.objectContaining({
+      signal: expect.any(AbortSignal),
+      onEvent: expect.any(Function),
+    }))
     expect(result.status).toBe('ok')
   })
 
@@ -129,11 +220,11 @@ describe('chatStore conversation management', () => {
     useChatStore.setState({ currentConversationId: 'c1' })
 
     await useChatStore.getState().sendMessage('   ')
-    expect(chatService.sendMessage).not.toHaveBeenCalled()
+    expect(chatService.streamMessage).not.toHaveBeenCalled()
 
     useChatStore.setState({ isSending: true })
     await useChatStore.getState().sendMessage('并发')
-    expect(chatService.sendMessage).not.toHaveBeenCalled()
+    expect(chatService.streamMessage).not.toHaveBeenCalled()
   })
 
   it('keeps previous messages when switching to a conversation that fails to load', async () => {
@@ -216,36 +307,119 @@ describe('chatStore conversation management', () => {
   })
 })
 
+describe('chatStore 会话级模式', () => {
+  beforeEach(resetStore)
+
+  it('切换模式时清掉不属于该模式的当前会话与消息', () => {
+    useChatStore.setState({
+      conversations: [{ id: 'c1', mode: 'chat' }, { id: 'w1', mode: 'work' }],
+      currentConversationId: 'c1',
+      messages: [{ id: 'm1', role: 'user', content: '聊天记录' }],
+    })
+
+    useChatStore.getState().setChatMode('work')
+
+    expect(useChatStore.getState()).toMatchObject({
+      chatMode: 'work',
+      currentConversationId: null,
+      messages: [],
+    })
+  })
+
+  it('当前会话本就属于目标模式时保留上下文', () => {
+    useChatStore.setState({
+      conversations: [{ id: 'w1', mode: 'work' }],
+      currentConversationId: 'w1',
+      messages: [{ id: 'm1', role: 'user', content: '保留' }],
+      chatMode: 'chat',
+    })
+
+    useChatStore.getState().setChatMode('work')
+
+    expect(useChatStore.getState().currentConversationId).toBe('w1')
+    expect(useChatStore.getState().messages).toHaveLength(1)
+  })
+
+  it('按当前模式创建会话', async () => {
+    chatService.createConversation.mockResolvedValue({ id: 'w2', mode: 'work' })
+    useChatStore.getState().setChatMode('work')
+
+    await useChatStore.getState().createConversation()
+
+    expect(chatService.createConversation).toHaveBeenCalledWith('work')
+    expect(useChatStore.getState().currentConversationId).toBe('w2')
+  })
+
+  it('选中会话时把会话自身的 mode 同步进 chatMode', async () => {
+    chatService.getConversation.mockResolvedValue({ id: 'w3', mode: 'work', messages: [] })
+
+    await useChatStore.getState().setCurrentConversation('w3')
+
+    expect(useChatStore.getState().chatMode).toBe('work')
+  })
+
+  it('loadConversations 只自动选中当前模式的会话', async () => {
+    chatService.getConversations.mockResolvedValue([
+      { id: 'w1', mode: 'work', messages: [] },
+      { id: 'c1', mode: 'chat', messages: [] },
+    ])
+    chatService.getConversation.mockResolvedValue({ id: 'c1', mode: 'chat', messages: [] })
+
+    await useChatStore.getState().loadConversations()
+
+    expect(chatService.getConversation).toHaveBeenCalledWith('c1')
+    expect(useChatStore.getState().currentConversationId).toBe('c1')
+  })
+
+  it('loadConversations 在当前模式无会话时不选中任何会话', async () => {
+    chatService.getConversations.mockResolvedValue([{ id: 'w1', mode: 'work', messages: [] }])
+
+    await useChatStore.getState().loadConversations()
+
+    expect(chatService.getConversation).not.toHaveBeenCalled()
+    expect(useChatStore.getState().currentConversationId).toBeNull()
+  })
+})
+
 describe('chatStore stale response guards', () => {
   beforeEach(resetStore)
 
-  it('does not append a late reply into a conversation the user already left', async () => {
+  it('aborts the in-flight stream and drops late events after the user switched away', async () => {
     const updatedAtBefore = '2026-08-01T00:00:00.000Z'
     useChatStore.setState({
       conversations: [{ id: 'c1', updatedAt: updatedAtBefore }, { id: 'c2', updatedAt: updatedAtBefore }],
       currentConversationId: 'c1',
       messages: [],
     })
-    let resolveSend
-    chatService.sendMessage.mockImplementation(() => new Promise((resolve) => { resolveSend = resolve }))
+    let captured
+    chatService.streamMessage.mockImplementation((conversationId, content, options) => new Promise((resolve, reject) => {
+      captured = { ...options, resolve }
+      options.signal.addEventListener('abort', () =>
+        reject(new DOMException('The operation was aborted', 'AbortError')))
+    }))
+    chatService.getConversation.mockResolvedValue({ id: 'c2', messages: [{ id: 'm-c2', content: 'c2 的消息' }] })
 
     const sendPromise = useChatStore.getState().sendMessage('在 c1 里发的消息')
-    // 响应未回来时用户切到了 c2
-    useChatStore.setState({ currentConversationId: 'c2', messages: [{ id: 'm-c2', content: 'c2 的消息' }] })
+    // 流未结束时用户切到了 c2
+    await useChatStore.getState().setCurrentConversation('c2')
+    const result = await sendPromise
 
-    resolveSend({
+    // 旧流被 abort，迟到事件一律丢弃
+    expect(captured.signal.aborted).toBe(true)
+    captured.onEvent({ event: 'delta', text: '迟到的增量' })
+    captured.onEvent({
+      event: 'done',
       status: 'ok',
       userMessage: { id: 'u1', role: 'user', content: '在 c1 里发的消息' },
       aiMessage: { id: 'a1', role: 'assistant', content: '迟到的回复' },
     })
-    const result = await sendPromise
 
-    expect(result.status).toBe('ok')
-    // 迟到的消息不污染当前会话视图
+    expect(result).toEqual({ status: 'aborted' })
     expect(useChatStore.getState().messages).toEqual([{ id: 'm-c2', content: 'c2 的消息' }])
-    // 但会话列表的更新时间仍按目标会话刷新
-    expect(useChatStore.getState().conversations[0].updatedAt).not.toBe(updatedAtBefore)
+    // 取消不落库，会话列表不应被迟到流刷新
+    expect(useChatStore.getState().conversations[0].updatedAt).toBe(updatedAtBefore)
     expect(useChatStore.getState().isSending).toBe(false)
+    expect(useChatStore.getState().isTyping).toBe(false)
   })
 
   it('does not show a blocked intervention in a conversation the user already left', async () => {
@@ -254,20 +428,26 @@ describe('chatStore stale response guards', () => {
       currentConversationId: 'c1',
       messages: [],
     })
-    let resolveSend
-    chatService.sendMessage.mockImplementation(() => new Promise((resolve) => { resolveSend = resolve }))
+    let captured
+    chatService.streamMessage.mockImplementation((conversationId, content, options) => new Promise((resolve) => {
+      captured = { ...options, resolve }
+    }))
 
     const sendPromise = useChatStore.getState().sendMessage('危机输入')
     useChatStore.setState({ currentConversationId: 'c2', messages: [{ id: 'm-c2' }] })
-    resolveSend({
+    // 直接改 state 不经过 setCurrentConversation：序号未变但归属已变，事件仍须丢弃
+    captured.onEvent({
+      event: 'blocked',
       status: 'blocked',
       userMessage: { id: 'u1', role: 'user', content: '危机输入' },
       intervention: { level: 'high', message: '干预文案', resources: [] },
     })
-    const result = await sendPromise
+    captured.resolve()
+    const result = await sendPromise.catch((error) => error)
 
-    expect(result.status).toBe('blocked')
     expect(useChatStore.getState().messages).toEqual([{ id: 'm-c2' }])
+    // 终态事件被丢弃，视为流中断而非阻断
+    expect(result.code).toBe('STREAM_FAILED')
   })
 
   it('discards a conversation fetch that resolves after the user switched away', async () => {
@@ -298,6 +478,7 @@ describe('chatStore stale response guards', () => {
     await vi.waitFor(() => expect(chatService.getConversation).toHaveBeenCalledWith('c1'))
     // 消息返回前，用户手动切到了 c2
     useChatStore.setState({ currentConversationId: 'c2', messages: [{ id: 'mine' }] })
+
     resolveFetch({ id: 'c1', messages: [{ id: 'stale' }] })
     await loadPromise
 

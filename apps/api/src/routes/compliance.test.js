@@ -125,7 +125,7 @@ describe('危机上报路由（非内测环境）', () => {
       expect(ok.status).toBe(200)
       expect(ok.body).toEqual({ success: true, logId: 'log-1' })
       expect(crisisCreate).toHaveBeenCalledWith({
-        data: { userId: 'user-1', triggerMsg: '撑不下去了', level: 'high', handled: false },
+        data: { userId: 'user-1', triggerMsg: null, level: 'high', handled: false },
       })
 
       crisisCreate.mockRejectedValue(new Error('db down'))
@@ -141,7 +141,7 @@ describe('危机上报路由（非内测环境）', () => {
       expect(badLevel.status).toBe(400)
       expect(badLevel.body).toEqual({ error: '危机等级必须是 high 或 medium' })
 
-      // medium 合法；超长 triggerMsg 截断到 500 字
+      // medium 合法；无论 triggerMsg 形态如何，原文都不落库（crisisService 统一留存口径）
       crisisCreate.mockResolvedValue({ id: 'log-2' })
       const longMsg = ` ${'长'.repeat(600)} `
       const truncated = await request(devApp)
@@ -151,13 +151,13 @@ describe('危机上报路由（非内测环境）', () => {
       expect(crisisCreate).toHaveBeenLastCalledWith({
         data: {
           userId: 'user-1',
-          triggerMsg: '长'.repeat(500),
+          triggerMsg: null,
           level: 'medium',
           handled: false,
         },
       })
 
-      // 非字符串/空 triggerMsg 不落库原文
+      // 非字符串 triggerMsg 同样不落库原文
       crisisCreate.mockResolvedValue({ id: 'log-3' })
       const emptyMsg = await request(devApp)
         .post('/crisis')

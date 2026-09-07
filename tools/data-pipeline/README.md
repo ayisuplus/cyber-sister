@@ -24,6 +24,12 @@ pip install -r requirements.txt
 
 ## 快速开始
 
+原始采集数据属于仓库外私有输入，不要复制回 `sources/raw-corpus/`。运行时直接通过现有 `--input` 参数传入私有文件或目录：
+
+```bash
+python pipeline.py --input <private-data-root>/input.json --output ./processed
+```
+
 ### 完整流程
 
 ```bash

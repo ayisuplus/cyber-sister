@@ -91,4 +91,42 @@ describe('createBeautyPipeline', () => {
     expect(outCtx.setTransform).not.toHaveBeenCalled()
     expect(outCtx.drawImage).toHaveBeenCalled()
   })
+
+  it('同一 landmarkKey 的连续调用只检测一次：滑杆调整只重跑滤镜/形变', async () => {
+    const { canvas: source } = makeFakeCanvasWithDoc(20, 20)
+    const engine = makeEngine()
+    const pipeline = createBeautyPipeline({ engine })
+
+    await pipeline.processImage(source, { whiten: 50 }, { landmarkKey: 1 })
+    await pipeline.processImage(source, { whiten: 80 }, { landmarkKey: 1 })
+    await pipeline.processImage(source, { slim: 40, eye: 40 }, { landmarkKey: 1 })
+
+    expect(engine.detectImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('landmarkKey 变化（换图）重新检测；不传 key 时每次调用都检测（相机逐帧语义）', async () => {
+    const { canvas: source } = makeFakeCanvasWithDoc(20, 20)
+    const engine = makeEngine()
+    const pipeline = createBeautyPipeline({ engine })
+
+    await pipeline.processImage(source, { whiten: 50 }, { landmarkKey: 1 })
+    await pipeline.processImage(source, { whiten: 50 }, { landmarkKey: 2 })
+    await pipeline.processImage(source, { whiten: 50 }) // 无 key：相机模式逐帧检测
+    await pipeline.processImage(source, { whiten: 50 }, { landmarkKey: 2 }) // 仍命中 key=2 缓存
+
+    expect(engine.detectImage).toHaveBeenCalledTimes(3)
+  })
+
+  it('形变目标画布跨帧复用：第二次同尺寸调用不再新建 canvas', async () => {
+    const { canvas: source, doc } = makeFakeCanvasWithDoc(20, 20)
+    const engine = makeEngine()
+    const pipeline = createBeautyPipeline({ engine })
+
+    const first = await pipeline.processImage(source, { slim: 50 })
+    const second = await pipeline.processImage(source, { slim: 60 })
+
+    expect(second).toBe(first) // 同一块复用画布
+    // 每次调用仍有 1 个工作拷贝：2 次拷贝 + 1 次目标画布（只在首次创建）
+    expect(doc.createElement).toHaveBeenCalledTimes(3)
+  })
 })

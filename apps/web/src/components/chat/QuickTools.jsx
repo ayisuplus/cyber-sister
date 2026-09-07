@@ -19,7 +19,7 @@ export default function QuickTools() {
           <button
             key={tool.label}
             onClick={() => navigate(tool.path)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full shadow-card text-xs text-text-secondary hover:shadow-md transition-all whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-card rounded-full shadow-card text-xs text-text-secondary hover:shadow-md transition-all whitespace-nowrap"
           >
             <Icon size={14} className={tool.color} />
             {tool.label}

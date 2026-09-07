@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import express from 'express'
+import http from 'node:http'
 import request from 'supertest'
 
 const service = vi.hoisted(() => ({
@@ -7,6 +8,7 @@ const service = vi.hoisted(() => ({
   createConversation: vi.fn(),
   getConversation: vi.fn(),
   sendMessage: vi.fn(),
+  sendMessageStream: vi.fn(),
   deleteConversation: vi.fn(),
 }))
 
@@ -174,5 +176,221 @@ describe('chat route 响应合同', () => {
     const fail = await request(app).delete('/conversations/c1')
     expect(fail.status).toBe(500)
     expect(fail.body).toEqual({ error: '删除会话失败' })
+  })
+})
+
+function streamOf(events) {
+  return (async function* () {
+    for (const event of events) yield event
+  })()
+}
+
+/** 首事件即抛错的流（等价于 async generator 体首行 throw）。 */
+function failingStream(error) {
+  return {
+    [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(error) }),
+  }
+}
+
+function parseSseFrames(text) {
+  return text.split('\n\n')
+    .filter((frame) => frame.startsWith('data: '))
+    .map((frame) => JSON.parse(frame.slice('data: '.length)))
+}
+
+const savedTurn = {
+  status: 'ok',
+  userMessage: { id: 'user-message', role: 'user', content: '你好' },
+  aiMessage: { id: 'ai-message', role: 'assistant', content: '第一句。第二句！', source: 'local_model' },
+  source: 'local_model',
+}
+
+describe('chat stream route SSE 合同', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('SSE 响应头齐全，事件按 delta→done 编码为 data 帧', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([
+      { type: 'sentence', text: '第一句。' },
+      { type: 'sentence', text: '第二句！' },
+      { type: 'done', ...savedTurn },
+    ]))
+
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('text/event-stream')
+    expect(response.headers['cache-control']).toBe('no-cache')
+    expect(response.headers['x-accel-buffering']).toBe('no')
+    expect(parseSseFrames(response.text)).toEqual([
+      { event: 'delta', text: '第一句。' },
+      { event: 'delta', text: '第二句！' },
+      { event: 'done', ...savedTurn },
+    ])
+    expect(service.sendMessageStream).toHaveBeenCalledOnce()
+    const [id, userId, content, requestId, options] = service.sendMessageStream.mock.calls[0]
+    expect([id, userId, content, requestId]).toEqual(['conversation-1', 'user-1', '你好', undefined])
+    expect(typeof options.signal.aborted).toBe('boolean')
+  })
+
+  it('过滤命中时 replace 事件先于 done，且只携带模板全文', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([
+      { type: 'replace', content: '本地安全模板全文', source: 'local_template' },
+      { type: 'done', ...savedTurn },
+    ]))
+
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好' })
+
+    const frames = parseSseFrames(response.text)
+    expect(frames[0]).toEqual({ event: 'replace', content: '本地安全模板全文' })
+    expect(frames[1]).toEqual({ event: 'done', ...savedTurn })
+  })
+
+  it('危机输入编码为 blocked 事件，结构与 JSON 端点一致', async () => {
+    const blocked = {
+      type: 'blocked',
+      status: 'blocked',
+      userMessage: { id: 'user-message', role: 'user', content: '风险输入' },
+      intervention: { level: 'high', message: '固定干预', resources: [] },
+    }
+    service.sendMessageStream.mockReturnValue(streamOf([blocked]))
+
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '风险输入' })
+
+    expect(response.status).toBe(200)
+    expect(parseSseFrames(response.text)).toEqual([{
+      event: 'blocked',
+      status: 'blocked',
+      userMessage: blocked.userMessage,
+      intervention: blocked.intervention,
+    }])
+  })
+
+  it('模型失败编码为固定 code 的 error 事件，不含对话内容', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([
+      { type: 'error', reason: 'LLM_UNAVAILABLE' },
+    ]))
+
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '保留输入以便重试' })
+
+    expect(parseSseFrames(response.text)).toEqual([{ event: 'error', code: 'LLM_UNAVAILABLE' }])
+    expect(response.text).not.toContain('保留输入以便重试')
+  })
+
+  it('service 抛出的业务错误与未知异常分别映射既有 code 与 STREAM_FAILED', async () => {
+    service.sendMessageStream.mockReturnValue(failingStream(
+      Object.assign(new Error('本地模型尚未配置'), {
+        code: 'LOCAL_LLM_NOT_CONFIGURED',
+        statusCode: 503,
+      }),
+    ))
+
+    const configured = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好' })
+    expect(parseSseFrames(configured.text)).toEqual([
+      { event: 'error', code: 'LOCAL_LLM_NOT_CONFIGURED' },
+    ])
+
+    service.sendMessageStream.mockReturnValue(failingStream(new Error('db connection reset')))
+
+    const unknown = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好' })
+    expect(parseSseFrames(unknown.text)).toEqual([{ event: 'error', code: 'STREAM_FAILED' }])
+    expect(unknown.text).not.toContain('db connection reset')
+  })
+
+  it('每 15 秒发送一次注释心跳帧', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      let release
+      const gate = new Promise((resolve) => { release = resolve })
+      service.sendMessageStream.mockReturnValue((async function* () {
+        yield { type: 'sentence', text: '前半句。' }
+        await gate
+        yield { type: 'done', ...savedTurn }
+      })())
+
+      // supertest 在 then/end 时才真正发请求，用 end 显式启动
+      const pending = new Promise((resolve, reject) => {
+        request(app)
+          .post('/conversations/conversation-1/messages/stream')
+          .send({ content: '你好' })
+          .end((error, response) => (error ? reject(error) : resolve(response)))
+      })
+
+      // setTimeout 未被 fake，轮询直到路由进入流式循环
+      for (let attempt = 0; attempt < 100 && !service.sendMessageStream.mock.calls.length; attempt += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+      }
+      expect(service.sendMessageStream).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(15000)
+      release()
+      const response = await pending
+
+      expect(response.text).toContain(': ping\n\n')
+      expect(parseSseFrames(response.text).at(-1)).toEqual({ event: 'done', ...savedTurn })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('客户端断线时中止上游流', async () => {
+    let capturedSignal
+    service.sendMessageStream.mockImplementation((_id, _userId, _content, _requestId, { signal }) => {
+      capturedSignal = signal
+      return (async function* () {
+        yield { type: 'sentence', text: '前半句。' }
+        await new Promise(() => {})
+      })()
+    })
+
+    const server = app.listen(0)
+    await new Promise((resolve) => server.once('listening', resolve))
+    try {
+      await new Promise((resolve) => {
+        const req = http.request({
+          port: server.address().port,
+          path: '/conversations/conversation-1/messages/stream',
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        }, (res) => {
+          res.once('data', () => {
+            req.destroy()
+            resolve()
+          })
+          res.on('error', () => {})
+        })
+        req.on('error', () => {})
+        req.end(JSON.stringify({ content: '你好' }))
+      })
+
+      await vi.waitFor(() => expect(capturedSignal.aborted).toBe(true))
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
+  it('空白与超长内容被参数校验拦截，不开启流', async () => {
+    const blank = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '   ' })
+    expect(blank.status).toBe(400)
+
+    const tooLong = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: 'x'.repeat(10001) })
+    expect(tooLong.status).toBe(400)
+
+    expect(service.sendMessageStream).not.toHaveBeenCalled()
   })
 })

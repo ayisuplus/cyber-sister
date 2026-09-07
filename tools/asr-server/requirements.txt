@@ -1,0 +1,9 @@
+# 语音转文字 sidecar 依赖（本机已装齐；首跑自动从 ModelScope 下载 iic/SenseVoiceSmall 约 936MB + fsmn-vad）
+# 启动：python server.py 或 uvicorn server:app --host 127.0.0.1 --port 5005
+funasr>=1.1
+torch>=2.1
+modelscope>=1.18
+fastapi>=0.110
+uvicorn>=0.29
+soundfile>=0.12
+numpy>=1.24

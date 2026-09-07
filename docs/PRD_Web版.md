@@ -1,7 +1,6 @@
 # 赛博姐妹 Web应用 PRD (开发版)
 
-> [!IMPORTANT]
-> 历史/未来方案归档：本文不代表 2026-10-01 内测实现。当前以仓库根 README、`docs/Spec_赛博姐妹_v1.0.md` 和 `docs/deployment/internal-runbook.md` 为准；微服务、Kubernetes、Redis、向量数据库、模型训练与公开发布均为后置方案。
+> ⚠️ 参考：非当前实施基线，实施以 docs/Spec_赛博姐妹_v1.0.md 与源码为准
 
 > 基于 PRD V5.0 + 原型设计，适配Web应用开发
 > 生成日期：2026-07-12

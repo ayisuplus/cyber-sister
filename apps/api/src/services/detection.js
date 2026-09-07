@@ -120,6 +120,10 @@ function normalizeCrisisText(value) {
   // 与组合记号（变体选择符等），避免“自 杀”“跳-楼”“自­杀”等拆写绕过。
   return normalized.replace(/[\s\p{P}\p{S}\p{Cc}\p{Cf}\p{Mn}]+/gu, '')
 }
+// 关键词的归一化结果在模块加载时预计算：detectCrisis 每条消息都会用到，
+// 避免对常量关键词重复执行 NFKC + 字符映射归一化（detection.test.js 有等价性守卫）
+export const NORMALIZED_HIGH_RISK = CRISIS_HIGH_RISK.map(normalizeCrisisText)
+export const NORMALIZED_MEDIUM_RISK = CRISIS_MEDIUM_RISK.map(normalizeCrisisText)
 
 const CLEAR_NON_SELF_CONTEXT = [
   /(?:新闻|报道|电影|小说|剧本|课程|论文|研究|科普|游戏).{0,16}(?:自杀|自残|轻生|想死|跳楼|割腕)/,
@@ -174,13 +178,13 @@ export function detectCrisis(text) {
   }
   if (isClearDenial
     && !HIGH_RISK_INTENT_PATTERNS.some((pattern) => pattern.test(textWithoutClearDenial))
-    && !CRISIS_HIGH_RISK.some((word) => textWithoutClearDenial.includes(normalizeCrisisText(word)))) {
+    && !NORMALIZED_HIGH_RISK.some((word) => textWithoutClearDenial.includes(word))) {
     return null
   }
 
   if (HIGH_RISK_INTENT_PATTERNS.some((pattern) => pattern.test(normalized))) return 'high'
-  if (CRISIS_HIGH_RISK.some((w) => normalized.includes(normalizeCrisisText(w)))) return 'high'
-  if (CRISIS_MEDIUM_RISK.some((w) => normalized.includes(normalizeCrisisText(w)))) return 'medium'
+  if (NORMALIZED_HIGH_RISK.some((w) => normalized.includes(w))) return 'high'
+  if (NORMALIZED_MEDIUM_RISK.some((w) => normalized.includes(w))) return 'medium'
   return null
 }
 

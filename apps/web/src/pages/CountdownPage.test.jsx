@@ -46,10 +46,32 @@ describe('CountdownPage', () => {
     expect(toolsService.getCountdowns).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('服务端倒数日')).toBeInTheDocument()
   })
-  it('shows the empty state without countdowns', () => {
+  it('shows the empty state without countdowns', async () => {
     renderPage()
 
-    expect(screen.getByText('暂无倒数日')).toBeInTheDocument()
+    expect(await screen.findByText('暂无倒数日')).toBeInTheDocument()
+  })
+
+  it('shows a loading status until the first load settles', () => {
+    toolsService.getCountdowns.mockReturnValue(new Promise(() => {}))
+    renderPage()
+
+    expect(screen.getByRole('status')).toHaveTextContent('加载中…')
+  })
+
+  it('shows a retryable error when loading fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    toolsService.getCountdowns.mockRejectedValueOnce(new Error('offline'))
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载失败，请检查网络后重试')
+
+    toolsService.getCountdowns.mockResolvedValue([{ id: 'c1', title: '恢复的倒数日', targetDate: '2099-12-31' }])
+    await user.click(screen.getByRole('button', { name: '重试' }))
+
+    expect(await screen.findByText('恢复的倒数日')).toBeInTheDocument()
+    expect(toolsService.getCountdowns).toHaveBeenCalledTimes(2)
   })
 
   it('counts down the remaining days for a future date', async () => {

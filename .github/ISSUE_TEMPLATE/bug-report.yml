@@ -49,7 +49,6 @@ body:
         - module: auth（登录/鉴权）
         - module: memories（记忆）
         - module: compliance（危机/合规）
-        - module: makeup（妆教）
         - module: virtual（虚拟试衣/化妆间）
         - module: other / 不确定
     validations:

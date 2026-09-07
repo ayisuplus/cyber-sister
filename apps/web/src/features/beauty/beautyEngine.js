@@ -36,6 +36,13 @@ export function createBeautyEngine() {
   let landmarkerPromise = null
   /** @type {'IMAGE' | 'VIDEO'} */
   let runningMode = 'IMAGE'
+  // 模式切换串行化队列：并发 detectImage/detectVideoFrame 的 check-then-act
+  // （判断 runningMode → await setOptions）跨 await 会交错翻转模式，
+  // 用 promise 链把「按需切模式 + 本次 detect」整段串行，消除竞态。
+  // 备选方案是按 mode 各持一个 landmarker 实例——双份 wasm/模型内存，
+  // 而本应用相机循环自带处理中守卫、静态模式与相机模式互斥，串行链足够。
+  /** @type {Promise<unknown>} */
+  let modeQueue = Promise.resolve()
 
   const load = () => {
     if (!landmarkerPromise) {
@@ -58,15 +65,23 @@ export function createBeautyEngine() {
   }
 
   /**
+   * 串行执行「确保 runningMode = mode，然后 run(landmarker)」整段临界区。
    * @param {'IMAGE' | 'VIDEO'} mode
+   * @param {(landmarker: import('@mediapipe/tasks-vision').FaceLandmarker) => Landmark[] | null} run
+   * @returns {Promise<Landmark[] | null>}
    */
-  const ensureMode = async (mode) => {
-    const landmarker = await load()
-    if (runningMode !== mode) {
-      await landmarker.setOptions({ runningMode: mode })
-      runningMode = mode
-    }
-    return landmarker
+  const withMode = (mode, run) => {
+    const task = modeQueue.then(async () => {
+      const landmarker = await load()
+      if (runningMode !== mode) {
+        await landmarker.setOptions({ runningMode: mode })
+        runningMode = mode
+      }
+      return run(landmarker)
+    })
+    // 失败不阻塞后续调用（错误沿 task 抛给本次调用方）
+    modeQueue = task.catch(() => {})
+    return task
   }
 
   /**
@@ -78,12 +93,10 @@ export function createBeautyEngine() {
   singleton = {
     tessellation: FaceLandmarker.FACE_LANDMARKS_TESSELATION,
     async detectImage(source) {
-      const landmarker = await ensureMode('IMAGE')
-      return firstFace(landmarker.detect(source))
+      return withMode('IMAGE', landmarker => firstFace(landmarker.detect(source)))
     },
     async detectVideoFrame(video, timestampMs) {
-      const landmarker = await ensureMode('VIDEO')
-      return firstFace(landmarker.detectForVideo(video, timestampMs))
+      return withMode('VIDEO', landmarker => firstFace(landmarker.detectForVideo(video, timestampMs)))
     },
   }
   return singleton

@@ -1,7 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { MessageCircle, Wrench, User } from 'lucide-react'
 
-const tabs = [
+export const APP_TABS = [
   {
     path: '/chat',
     icon: MessageCircle,
@@ -27,14 +27,15 @@ export default function TabBar() {
   const hidePaths = ['/profile/memories', '/profile/local-model', '/tools/virtual-makeup', '/tools/virtual-fitting', '/tools/beauty-camera', '/tools/period', '/tools/countdown', '/tools/todo', '/settings']
   if (hidePaths.some(p => location.pathname.startsWith(p))) return null
 
+  // 桌面由 AppShell 侧栏承担导航，底部 TabBar 只在手机宽度显示
   return (
     <div
-      className="flex items-center bg-surface-card border-t border-border-hairline safe-area-bottom"
+      className="flex items-center bg-surface-card border-t border-border-hairline safe-area-bottom min-[641px]:hidden"
       style={{
         flexShrink: 0
       }}
     >
-      {tabs.map(tab => {
+      {APP_TABS.map(tab => {
         const isActive = location.pathname.startsWith(tab.path)
         const Icon = tab.icon
         return (
