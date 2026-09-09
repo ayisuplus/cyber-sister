@@ -1,4 +1,4 @@
-# 赛博姐妹数据预处理 Pipeline 配置文件
+# Amie数据预处理 Pipeline 配置文件
 
 clean:
   # 内容长度限制（字符数）
@@ -44,10 +44,10 @@ convert:
   # QLoRA 训练模板
   qlora_template:
     instruction: "作为闺蜜，请回应以下话题"
-    system_prompt: "你是赛博姐妹，一个温暖、贴心的AI闺蜜。你善于倾听、共情，用年轻女性喜欢的方式交流。"
+    system_prompt: "你是Amie，一个温暖、贴心的AI闺蜜。你善于倾听、共情，用年轻女性喜欢的方式交流。"
   # DPO 偏好对模板
   dpo_template:
-    system_prompt: "你是赛博姐妹，一个温暖、贴心的AI闺蜜。请生成温暖、共情的回复。"
+    system_prompt: "你是Amie，一个温暖、贴心的AI闺蜜。请生成温暖、共情的回复。"
     chosen_style: "温暖、共情、真诚、有帮助"
     rejected_style: "冷漠、敷衍、不相关、机械化"
 

@@ -2,8 +2,12 @@ import axios from 'axios'
 
 export const API_TIMEOUT_MS = 75_000
 
+// 默认同源 /api（Docker/Nginx 反代）；部署到 Cloudflare Pages 等独立静态托管时，
+// 构建期注入 VITE_API_BASE_URL（如 https://api.example.com/api），API 侧需同步放开 CORS_ORIGIN
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   timeout: API_TIMEOUT_MS,
   withCredentials: true,  // 携带 httpOnly cookie（refresh token）
   headers: { 'Content-Type': 'application/json' },
@@ -33,7 +37,7 @@ export const refreshAccessToken = () => {
     refreshPromise = (async () => {
       try {
         // refreshToken 现在通过 httpOnly cookie 自动携带，无需手动传
-        const response = await axios.post('/api/auth/refresh', {}, { withCredentials: true })
+        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
 
         const { token } = response.data
         if (!token) {

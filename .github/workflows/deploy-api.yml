@@ -1,0 +1,60 @@
+name: Deploy API → VPS
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/api/**
+      - packages/**
+      - compose.yaml
+      - compose.qwen.yaml
+      - pnpm-lock.yaml
+  workflow_dispatch:
+
+concurrency:
+  group: api-deploy
+  cancel-in-progress: false   # 部署不允许互相打断，避免迁移做到一半
+
+jobs:
+  deploy:
+    name: SSH deploy (Docker Compose)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.VPS_REPO_DIR }}"
+            git fetch origin master
+            git reset --hard "origin/master"
+
+            # 运行配置（密钥文件、域名、证书路径）只存在于主机上，不进 Git
+            export RUNTIME_ENV_FILE="${{ secrets.VPS_RUNTIME_ENV_FILE }}"
+            export IMAGE_TAG="sha-${GITHUB_SHA::8}"
+
+            docker compose --env-file "$RUNTIME_ENV_FILE" \
+              -f compose.yaml -f compose.qwen.yaml build
+            # migration 服务先跑 prisma migrate deploy，成功后其余服务才启动
+            docker compose --env-file "$RUNTIME_ENV_FILE" \
+              -f compose.yaml -f compose.qwen.yaml up -d --remove-orphans
+
+      - name: Health check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS "https://${{ secrets.APP_DOMAIN }}/api/health/live" > /dev/null; then
+                echo "API healthy"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Health check failed after deploy" >&2
+            exit 1

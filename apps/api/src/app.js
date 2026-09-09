@@ -18,6 +18,11 @@ import complianceRoutes from './routes/compliance.js'
 import llmRoutes from './routes/llm.js'
 import workRoutes from './routes/work.js'
 import asrRoutes from './routes/asr.js'
+import derivedRoutes from './routes/derived.js'
+import makeupPresetRoutes from './routes/makeupPresets.js'
+import wardrobeRoutes from './routes/wardrobe.js'
+import careRoutes from './routes/care.js'
+import letterRoutes from './routes/letters.js'
 import { authMiddleware } from './middleware/auth.js'
 import logger from './utils/logger.js'
 import prisma from './prisma/client.js'
@@ -142,6 +147,11 @@ app.use('/api/study', authMiddleware, studyRoutes)
 app.use('/api/compliance', authMiddleware, complianceRoutes)
 app.use('/api/work', authMiddleware, workRoutes)
 app.use('/api/asr', authMiddleware, asrRoutes)
+app.use('/api/derived', authMiddleware, derivedRoutes)
+app.use('/api/makeup-presets', authMiddleware, makeupPresetRoutes)
+app.use('/api/wardrobe', authMiddleware, wardrobeRoutes)
+app.use('/api/letters', authMiddleware, letterRoutes)
+app.use('/api/care', authMiddleware, careRoutes)
 
 app.use((_req, res) => {
   res.status(404).json({ error: '接口不存在' })
@@ -197,10 +207,10 @@ if (!isTestEnv) {
   const bindAddress = process.env.BIND_ADDRESS
   server = bindAddress
     ? app.listen(Number(PORT), bindAddress, () => {
-        logger.info(`赛博姐妹 API 服务运行在 ${bindAddress}:${PORT}`, { environment: APP_ENV })
+        logger.info(`Amie API 服务运行在 ${bindAddress}:${PORT}`, { environment: APP_ENV })
       })
     : app.listen(PORT, () => {
-        logger.info(`赛博姐妹 API 服务运行在端口 ${PORT}`, { environment: APP_ENV })
+        logger.info(`Amie API 服务运行在端口 ${PORT}`, { environment: APP_ENV })
       })
 }
 

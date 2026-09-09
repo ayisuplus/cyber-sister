@@ -31,6 +31,9 @@ export default function MessageBubble({ message, isLast }) {
   const toolRuns = !isUser && Array.isArray(message.toolRuns) ? message.toolRuns : []
   // 用户自定义头像：有则镜像 AI 头像显示在气泡外侧，无则不占位
   const avatarUrl = useAuthedImageUrl(useAuthStore(s => s.user?.avatarUrl))
+  // 照片消息：发送中用本地预览，持久化后按 messageId 走服务端取图（失败 null 不渲染）
+  const authedImageUrl = useAuthedImageUrl(!message.imagePreviewUrl && message.imageExt ? `/chat/images/${message.id}` : null)
+  const chatImageUrl = message.imagePreviewUrl || authedImageUrl
 
   return (
     <div className={`flex animate-fade-in gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -41,11 +44,14 @@ export default function MessageBubble({ message, isLast }) {
       )}
       {!isUser && (
         <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl bg-pastel-mist">
-          <img src="/design-assets/ai-avatar.png" alt="赛博姐妹 AI" className="h-full w-full object-cover" />
+          <img src="/design-assets/ai-avatar.png" alt="Amie AI" className="h-full w-full object-cover" />
         </div>
       )}
       <div className="flex max-w-[260px] flex-col min-[1024px]:max-w-[620px]">
         <div className={`border-l-2 px-4 py-3 text-text-primary shadow-card ${isUser ? 'rounded-2xl rounded-br-md border-transparent bg-bubble-user' : `rounded-2xl rounded-bl-md bg-bubble-ai ${emotionAccent}`}`}>
+          {chatImageUrl && (
+            <img src={chatImageUrl} alt="发出的照片" className="mb-2 max-h-64 rounded-2xl object-cover" />
+          )}
           <p className="whitespace-pre-wrap text-[14px] leading-relaxed">{renderRichText(message.content)}</p>
           {!isUser && source && (
             <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${source.className}`}>{sourceLabel}</span>

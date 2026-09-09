@@ -10,7 +10,7 @@ import logger from '../utils/logger.js'
 import { VALID_PERSONA_IDS } from '../../../../packages/llm-gateway/src/personas.js'
 
 export const PERSONAS = [...VALID_PERSONA_IDS]
-export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v1'
+export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v3'
 
 export async function getProfile(userId) {
   const user = await prisma.user.findUnique({
@@ -24,6 +24,7 @@ export async function getProfile(userId) {
       vipExpireAt: true,
       avatarUrl: true,
       birthDate: true,
+      careEnabled: true,
       roleName: true,
       roleSetting: true,
       createdAt: true,
@@ -34,7 +35,7 @@ export async function getProfile(userId) {
   return user
 }
 
-export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) {
+export async function updateProfile(userId, { nickname, avatarUrl, birthDate, careEnabled }) {
   const updateData = {}
   if (nickname !== undefined) {
     if (typeof nickname !== 'string' || nickname.trim().length > 50) {
@@ -55,6 +56,12 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) 
     }
     updateData.birthDate = parsedDate
   }
+  if (careEnabled !== undefined) {
+    if (typeof careEnabled !== 'boolean') {
+      throw new HttpError('careEnabled必须是布尔值', 400)
+    }
+    updateData.careEnabled = careEnabled
+  }
 
   const user = await prisma.user.update({
     where: { id: userId },
@@ -64,10 +71,11 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate }) 
       phone: true,
       nickname: true,
       persona: true,
+      birthDate: true,
+      careEnabled: true,
       isVip: true,
       vipExpireAt: true,
       avatarUrl: true,
-      birthDate: true,
       roleName: true,
       roleSetting: true,
     },

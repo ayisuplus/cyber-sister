@@ -23,6 +23,7 @@ model User {
   birthDate                   DateTime? @map("birth_date")
   roleName                    String?   @map("role_name")
   roleSetting                 String?   @map("role_setting")
+  careEnabled                 Boolean   @default(true) @map("care_enabled") // 「她来想你」主动关怀总开关（真实生效）
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -39,6 +40,12 @@ model User {
   readingNotes      ReadingNote[]
   studySessions     StudySession[]
   refreshTokens     RefreshToken[]
+  derivedInsights   DerivedInsight[]
+  makeupPresets     MakeupPreset[]
+  wardrobeItems     WardrobeItem[]
+  memoryEdges       MemoryEdge[]
+  careDismissals    CareDismissal[]
+  letters           Letter[]
 
   @@map("users")
 }
@@ -66,6 +73,7 @@ model Message {
   emotion        String?
   source         String?
   toolRuns       Json?    @map("tool_runs")
+  imageExt       String?  @map("image_ext") // .jpg/.png/.webp；存在即 data/chat-images/<userId>/<messageId><ext> 有文件
   importance     Int      @default(3)
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -84,17 +92,71 @@ model Memory {
   entities   String? // JSON字符串存储
   importance Int       @default(5)
   tags       String? // JSON数组字符串存储
+  embedding  Float[] // 语义向量投影；可重建，失败留空（Prisma 不支持可选列表，NULL 读取即 []）
+  embeddingModel String? @map("embedding_model")
+  origin     String   @default("manual") // manual | suggestion | promoted；定典后不可改
+  sourceRef  String?  @map("source_ref") // suggestion→用户消息 id；promoted→DerivedInsight id
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  edgesFrom MemoryEdge[] @relation("edgeFrom")
+  edgesTo   MemoryEdge[] @relation("edgeTo")
 
   @@index([userId])
   @@index([userId, importance, createdAt])
   @@map("memories")
 }
 
+model MemoryEdge {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  fromMemoryId String   @map("from_memory_id")
+  toMemoryId   String   @map("to_memory_id")
+  relation     String // similar | related | contradicts
+  confidence   String   @default("medium") // low | medium | high
+  status       String   @default("derived") // derived | canonical | dismissed
+  evidence     String? // JSON数组字符串：支撑片段，最多 2 条
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromMemory Memory @relation("edgeFrom", fields: [fromMemoryId], references: [id], onDelete: Cascade)
+  toMemory   Memory @relation("edgeTo", fields: [toMemoryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("memory_edges")
+}
+
+// 「她来想你」触点按日忽略记录：key = 规则:实体:本地日，同日同键幂等
+model CareDismissal {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  key       String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@map("care_dismissals")
+}
+
+
+// 「她的信」：每周一封，由本周真实数据本地生成（不调用云端模型），幂等唯一于 用户+周起始
+model Letter {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  weekStart DateTime @map("week_start") // 本地周周一，UTC 零点存储（同日记契约）
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+  @@map("letters")
+}
 model Todo {
   id        String    @id @default(uuid())
   userId    String    @map("user_id")
@@ -285,4 +347,54 @@ model StudySession {
 
   @@index([userId, createdAt])
   @@map("study_sessions")
+}
+
+model DerivedInsight {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  kind             String // pattern | hypothesis | conflict | summary
+  content          String
+  evidence         String? // JSON数组字符串：支撑对话片段原文，最多 2 条
+  confidence       String   @default("medium") // low | medium | high
+  status           String   @default("active") // active | promoted | dismissed | resolved
+  resolution       String? // 冲突厘清后的定稿文案（status=resolved 时写入）
+  promotedMemoryId String?  @map("promoted_memory_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("derived_insights")
+}
+
+model MakeupPreset {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  smooth    Int
+  whiten    Int
+  slim      Int
+  eye       Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("makeup_presets")
+}
+
+model WardrobeItem {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  sourceExt String   @map("source_ext") // .jpg/.png/.webp
+  modelExt  String   @map("model_ext") // 固定 .glb
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("wardrobe_items")
 }

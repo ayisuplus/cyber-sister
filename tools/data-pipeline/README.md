@@ -1,4 +1,4 @@
-# 赛博姐妹数据预处理 Pipeline
+# Amie数据预处理 Pipeline
 
 面向 Qwen3-8B + QLoRA + DPO 微调的数据预处理工具链。
 
@@ -106,13 +106,13 @@ processed/
 ### QLoRA 格式
 
 ```json
-{"instruction": "作为闺蜜，请回应以下话题", "input": "话题：闺蜜\n内容：...", "output": "...", "system": "你是赛博姐妹..."}
+{"instruction": "作为闺蜜，请回应以下话题", "input": "话题：闺蜜\n内容：...", "output": "...", "system": "你是Amie..."}
 ```
 
 ### DPO 偏好对格式
 
 ```json
-{"prompt": "话题：...\n内容：...", "chosen": "（优质回复）", "rejected": "（劣质回复）", "system": "你是赛博姐妹..."}
+{"prompt": "话题：...\n内容：...", "chosen": "（优质回复）", "rejected": "（劣质回复）", "system": "你是Amie..."}
 ```
 
 ## 配置说明

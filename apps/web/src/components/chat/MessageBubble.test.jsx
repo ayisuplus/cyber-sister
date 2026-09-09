@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import MessageBubble from './MessageBubble'
@@ -28,7 +28,7 @@ describe('MessageBubble rendering contract', () => {
     render(<MessageBubble message={{ role: 'user', content: '我的消息', source: 'qwen' }} isLast={false} />)
 
     expect(screen.getByText('我的消息')).toBeInTheDocument()
-    expect(screen.queryByAltText('赛博姐妹 AI')).not.toBeInTheDocument()
+    expect(screen.queryByAltText('Amie AI')).not.toBeInTheDocument()
     expect(screen.queryByText('云端备用')).not.toBeInTheDocument()
   })
 
@@ -136,5 +136,47 @@ describe('MessageBubble 用户头像', () => {
     expect(screen.getByText('我的消息')).toBeInTheDocument()
     expect(screen.queryByAltText('我的头像')).toBeNull()
     expect(userService.fetchAssetUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('MessageBubble 照片消息', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    useAuthStore.setState({ user: null })
+  })
+
+  it('发送中的消息直接用本地 imagePreviewUrl 渲染，不走服务端取图', () => {
+    render(<MessageBubble
+      message={{ id: 'temp-user-1', role: 'user', content: '', imagePreviewUrl: 'blob:local-preview' }}
+      isLast={false}
+    />)
+
+    const img = screen.getByAltText('发出的照片')
+    expect(img).toHaveAttribute('src', 'blob:local-preview')
+    expect(userService.fetchAssetUrl).not.toHaveBeenCalled()
+  })
+
+  it('持久化 imageExt 消息经鉴权路径取图渲染', async () => {
+    userService.fetchAssetUrl.mockResolvedValue('blob:server-img')
+    render(<MessageBubble
+      message={{ id: 'm-img-1', role: 'user', content: '看这身', imageExt: '.jpg' }}
+      isLast={false}
+    />)
+
+    const img = await screen.findByAltText('发出的照片')
+    expect(img).toHaveAttribute('src', 'blob:server-img')
+    expect(userService.fetchAssetUrl).toHaveBeenCalledWith('/chat/images/m-img-1')
+  })
+
+  it('取图失败（null）时不渲染照片，文本不受影响', async () => {
+    userService.fetchAssetUrl.mockResolvedValue(null)
+    render(<MessageBubble
+      message={{ id: 'm-img-2', role: 'user', content: '看这身', imageExt: '.jpg' }}
+      isLast={false}
+    />)
+
+    await waitFor(() => expect(userService.fetchAssetUrl).toHaveBeenCalled())
+    expect(screen.queryByAltText('发出的照片')).not.toBeInTheDocument()
+    expect(screen.getByText('看这身')).toBeInTheDocument()
   })
 })

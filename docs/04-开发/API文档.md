@@ -1,9 +1,9 @@
-# 赛博姐妹 · API 文档
+# Amie · API 文档
 
 > **适用版本**：内测版
 > **创建日期**：2026-08-31
 > **基线**：`apps/api/src/routes/` 实际实现
-> **权威合同**：[`docs/Spec_赛博姐妹_v1.0.md`](../Spec_赛博姐妹_v1.0.md)（与本文冲突时以 Spec 为准）
+> **权威合同**：[`docs/Spec_Amie_v1.0.md`](../Spec_Amie_v1.0.md)（与本文冲突时以 Spec 为准）
 >
 > 本文面向前端与集成开发者。所有示例均为 JSON。
 
@@ -244,7 +244,7 @@ Authorization: Bearer <access_token>
 ```json
 {
   "version": 1,
-  "product": "赛博姐妹 cyber-sister",
+  "product": "Amie cyber-sister",
   "exportedAt": "2026-09-07T08:00:00.000Z",
   "user": {
     "nickname": "...", "persona": "toxic", "roleName": "...", "roleSetting": "...",
@@ -525,6 +525,25 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 **隐私性质**：候选由云端模型生成，与聊天走同一同意门（未同意返回 `CLOUD_NOT_CONSENTED`）与同一脱敏规则；候选为**临时**数据，只存在于响应体，不落库；经用户确认后才可通过既有 `POST /api/memories` 落库。日志只记 requestId 与结果计数，不记消息或候选内容。
 
+### POST /api/memories/embeddings/rebuild — 重建语义索引（2026-09-09 起）
+
+保存记忆后服务端自动生成语义向量投影（云端，与聊天同一同意门）；聊天检索相关记忆从关键词重合升级为**语义余弦相似度**，无向量时原样回退关键词路径。本端点为当前用户全量重建：已有向量的计 `skipped`，其余逐条投影。
+
+**响应**
+
+```json
+{ "embedded": 2, "failed": 0, "skipped": 1 }
+```
+
+**错误语义**
+
+| 状态码 | code | 场景 |
+|--------|------|------|
+| 503 | `CLOUD_NOT_CONSENTED` | 未同意使用云端模型 |
+| 503 | `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
+
+**投影性质**：向量可重建、失败静默降级（记忆照常保存，仅无向量）；向量与模型名**不进入任何 API 响应与提示词**（响应组装前统一剥离）。
+
 ---
 
 ## 五、日记 `/api/diary`（2026-09-04 起）
@@ -570,7 +589,36 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ---
 
-## 八、模型状态 `/api/llm`
+## 八、妆容预设 `/api/makeup-presets`（2026-09-08 起）
+
+化妆间四滑杆（smooth/whiten/slim/eye，均 0-100 整数）组合的命名预设，按用户隔离，多设备同步。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/makeup-presets` | 列表（按创建时间升序） |
+| POST | `/api/makeup-presets` | 新增 `{name, smooth, whiten, slim, eye}`；name 1-20 字，参数越界 400「妆容参数需为 0-100 的整数」 |
+| PUT | `/api/makeup-presets/:id` | 重命名 `{name}`；非本人 404 |
+| DELETE | `/api/makeup-presets/:id` | 删除；非本人 404 |
+
+---
+
+## 九、3D 衣柜 `/api/wardrobe`（2026-09-08 起）
+
+单品照片 → 外部图生 3D → GLB 落库 + 文件存盘（`data/wardrobe/<userId>/<itemId>/source<ext>` + `model.glb`）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/wardrobe` | 列表（倒序），每项含 `sourceUrl` / `modelUrl` |
+| POST | `/api/wardrobe` | multipart 上传（`image` 字段 ≤8MB，仅 JPEG/PNG/WebP；`name` 可选 ≤30 字，缺省「未命名单品」）。**图生 3D 外部服务未配置时 503 `{code: IMAGE_TO_3D_NOT_CONFIGURED}`，不落行也不写文件** |
+| GET | `/api/wardrobe/:id/source` | 单品原图（`Cache-Control: no-store`）；非本人 404 |
+| GET | `/api/wardrobe/:id/model` | GLB 模型（`model/gltf-binary`，`no-store`）；非本人 404 |
+| DELETE | `/api/wardrobe/:id` | 删除行与目录；非本人 404 |
+
+外部 3D 服务接入位：`services/imageTo3dService.js`（`IMAGE_TO_3D_API_URL` / `IMAGE_TO_3D_API_KEY`）。
+
+---
+
+## 十、模型状态 `/api/llm`
 
 ### GET /api/llm/status
 
@@ -594,7 +642,7 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ---
 
-## 九、合规与使用时长 `/api/compliance`
+## 十一、合规与使用时长 `/api/compliance`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -603,11 +651,56 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 | POST | `/api/compliance/usage/end` | 结束计时 |
 | GET | `/api/compliance/usage/status` | 查询使用时长状态（用于 2 小时提醒） |
 
+
+## 十二、她的工作台 `/api/derived`（2026-09-08 起）
+
+派生理解层：AI 在对话后生成对用户的理解草稿，**永远不是记忆**；用户批准（promote）或厘清（resolve）才入定典层（origin=promoted 的显式记忆）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/derived?status=` | 条目列表；status ∈ active\|promoted\|dismissed\|resolved\|all |
+| POST | `/api/derived/analyze` | 立即分析（同意门同聊天） |
+| POST | `/api/derived/rebuild` | 清掉 active/dismissed 草稿并重新分析；promoted/resolved 保留 |
+| POST | `/api/derived/:id/promote` | 晋升进显式记忆（规范化键去重） |
+| POST | `/api/derived/:id/resolve` | 冲突厘清：定稿文案入定典层，条目 resolved 并留存定稿 |
+| POST | `/api/derived/:id/dismiss` | 忽略 |
+| DELETE | `/api/derived` | 整层清空 |
+
+### 记忆关系边 `/api/derived/edges`（2026-09-09 起）
+
+工作台分析时自动抽取记忆之间的明确关系（similar\|related\|contradicts），status=derived；用户确认后晋升 canonical，聊天注入时做一跳联想（选中记忆带出已确认关联记忆的内容）。去重按无向记忆对+关系，仅对 derived/canonical 既有边生效（dismissed 是草稿处理结果，重建后允许重现）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/derived/edges?status=` | 边列表（join 两端记忆内容，任一端缺失的边整条过滤）；status ∈ derived\|canonical\|dismissed\|all |
+| POST | `/api/derived/edges/:id/promote` | derived → canonical；重复确认 400「该关系已确认」，已忽略 400「该条目已处理过」 |
+| POST | `/api/derived/edges/:id/dismiss` | 忽略 |
+
+## 十三、主动关怀 `/api/care`（2026-09-09 起）
+
+「她来想你」触点：**in-app 拉取，内测无推送通道**。规则引擎基于真实数据（生日/经期预测/倒数日/日程逾期与到期/手帐连续断签/自习连续中断/昨日心情）产出最多 3 条卡片，每条附 `reason`（为什么看到这条）与跳转；`users.care_enabled` 为总开关（设置页）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/care/touchpoints` | 当前触点（按日忽略过滤后）：`{ "touchpoints": [{ "key", "kind", "title", "body", "reason", "action": { "to", "label" } }] }` |
+| POST | `/api/care/touchpoints/dismiss` | 按日忽略；请求 `{ "key" }`，同日同键幂等 |
+
+## 十四、她的信 `/api/letters`（2026-09-09 起）
+
+每周一封，**完全由本周真实数据本地生成，不调用云端模型**（聊天轮数、新记忆、定典与关系边、打卡连续、自习时长、心情分布、临近倒数日）；同一 用户+周起始（本地周一，UTC 零点）幂等唯一；沉默周（零聊天/零记录/零打卡/零自习/零日记）宁缺毋滥不生成。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/letters` | 列表（新到旧）；本周信缺失且有内容可写时先幂等补上 |
+| POST | `/api/letters/generate` | 幂等生成：`{ "letter", "created" }`；沉默周 `{ "letter": null, "created": false, "reason": "quiet" }` |
+| GET | `/api/letters/:id` | 单封；非本人 404 |
+
+---
 ---
 
 
 
-## 十、日志规范（实现约定）
+## 十五、日志规范（实现约定）
 
 日志**只允许**记录：
 
@@ -647,6 +740,18 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
           DELETE /api/chat/conversations/:id
 记忆      CRUD   /api/memories
           POST   /api/memories/suggestions (临时候选，不落库)
+          POST   /api/memories/embeddings/rebuild (重建语义索引)
+工作台    GET    /api/derived            (status=active|promoted|dismissed|resolved|all)
+          POST   /api/derived/analyze    (立即分析)
+          POST   /api/derived/rebuild    (清草稿重分析)
+          POST   /api/derived/:id/{promote,resolve,dismiss}
+          GET    /api/derived/edges      (记忆关系边)
+          POST   /api/derived/edges/:id/{promote,dismiss}
+关怀      GET    /api/care/touchpoints   (in-app 触点，无推送)
+          POST   /api/care/touchpoints/dismiss (按日忽略，幂等)
+来信      GET    /api/letters            (本周信自动幂等补)
+          POST   /api/letters/generate   (幂等；沉默周 quiet)
+          GET    /api/letters/:id
 工具箱    CRUD   /api/tools/{todos,countdowns,period,reminders}
 日记      CRUD   /api/diary/:day
           POST   /api/diary/:day/comment  (幂等 AI 回应)
@@ -654,6 +759,11 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
           POST   /api/habits/:id/checkin
           POST   /api/habits/cheer        (聚合数据鼓励)
           GET    /api/tools/weather        (409 关闭)
+妆容      CRUD   /api/makeup-presets     (四参数 0-100；名字 1-20 字)
+衣柜      GET    /api/wardrobe           (列表)
+          POST   /api/wardrobe           (multipart 上传；3D 未配置 503 不落数据)
+          GET    /api/wardrobe/:id/{source,model} (no-store 二进制)
+          DELETE /api/wardrobe/:id
 模型      GET    /api/llm/status
 合规      *      /api/compliance/usage/*
 健康      GET    /api/health/live

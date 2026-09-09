@@ -57,7 +57,7 @@ describe('InputBar', () => {
     await user.type(input, '  请重试  ')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(onSend).toHaveBeenCalledWith('请重试')
+    expect(onSend).toHaveBeenCalledWith('请重试', { image: null })
     expect(input).toHaveValue('  请重试  ')
   })
 
@@ -69,7 +69,7 @@ describe('InputBar', () => {
     const input = screen.getByRole('textbox', { name: '聊天消息' })
     await user.type(input, '你好{Enter}')
 
-    expect(onSend).toHaveBeenCalledWith('你好')
+    expect(onSend).toHaveBeenCalledWith('你好', { image: null })
     expect(input).toHaveValue('')
   })
 
@@ -171,3 +171,66 @@ describe('InputBar', () => {
   })
 })
     await new Promise((resolve) => { setTimeout(resolve, 0) })
+
+const resize = vi.hoisted(() => ({ prepareChatImage: vi.fn() }))
+vi.mock('../../features/chat/imageResize', () => resize)
+
+describe('InputBar 照片发送', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    asrService.getAsrStatus.mockResolvedValue({ available: true, configured: true, reason: null })
+    resize.prepareChatImage.mockResolvedValue({
+      blob: new Blob(['jpeg'], { type: 'image/jpeg' }),
+      previewUrl: 'blob:thumb',
+    })
+  })
+
+  it('选照片出现缩略图，移除后消失', async () => {
+    const user = userEvent.setup()
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+
+    await user.upload(
+      screen.getByLabelText('选择照片'),
+      new File(['raw'], 'photo.png', { type: 'image/png' }),
+    )
+
+    const thumb = await screen.findByAltText('待发送的照片预览')
+    expect(thumb).toHaveAttribute('src', 'blob:thumb')
+
+    await user.click(screen.getByRole('button', { name: '移除照片' }))
+    expect(screen.queryByAltText('待发送的照片预览')).not.toBeInTheDocument()
+  })
+
+  it('仅图片时发送按钮可用；发送确认后缩略图与图片一起清空', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn().mockResolvedValue(true)
+    render(<InputBar onSend={onSend} disabled={false} />)
+
+    await user.upload(
+      screen.getByLabelText('选择照片'),
+      new File(['raw'], 'photo.png', { type: 'image/png' }),
+    )
+    await screen.findByAltText('待发送的照片预览')
+
+    const sendButton = screen.getByRole('button', { name: '发送消息' })
+    expect(sendButton).toBeEnabled()
+    await user.click(sendButton)
+
+    expect(onSend).toHaveBeenCalledWith('', { image: { blob: expect.any(Blob), previewUrl: 'blob:thumb' } })
+    await waitFor(() => expect(screen.queryByAltText('待发送的照片预览')).not.toBeInTheDocument())
+  })
+
+  it('图片处理失败给出 alert 提示，不产生缩略图', async () => {
+    resize.prepareChatImage.mockRejectedValue(new Error('只支持图片文件'))
+    const user = userEvent.setup()
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+
+    await user.upload(
+      screen.getByLabelText('选择照片'),
+      new File(['raw'], 'broken.png', { type: 'image/png' }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('只支持图片文件')
+    expect(screen.queryByAltText('待发送的照片预览')).not.toBeInTheDocument()
+  })
+})

@@ -31,6 +31,12 @@ export const migrationService = {
     return response.data
   },
 }
+// 用户资料（设置页真实开关等）：GET/PUT /user/profile
+export const profileService = {
+  get: async () => (await api.get('/user/profile')).data,
+  update: async (payload) => (await api.put('/user/profile', payload)).data,
+}
+
 export const userService = {
   // putForm 显式 multipart：实例默认 Content-Type 是 JSON，直接 put(FormData) 会让 multer 解析不到文件
   uploadAsset: async (slot, file) => {

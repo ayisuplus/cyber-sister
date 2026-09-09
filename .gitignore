@@ -31,7 +31,7 @@ apps/web/playwright-report/
 dist/
 build/
 apps/api/src/prisma/dev.db
-# MediaPipe 模型与 wasm（美颜相机运行时资产，手动注入，不入库）
+# MediaPipe 模型与 wasm（化妆间美颜引擎运行时资产，手动注入，不入库）
 apps/web/public/mp-models/
 __pycache__/
 *.pyc

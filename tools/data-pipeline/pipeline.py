@@ -249,7 +249,7 @@ def parse_args() -> argparse.Namespace:
         解析后的参数命名空间
     """
     parser = argparse.ArgumentParser(
-        description="赛博姐妹数据预处理 Pipeline",
+        description="Amie数据预处理 Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:

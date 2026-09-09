@@ -1,5 +1,5 @@
 /**
- * 赛博姐妹统一 LLM 网关。
+ * Amie统一 LLM 网关。
  *
  * 契约（消费方：apps/api/src/services/llmService.js）：
  *   const gateway = await createGateway(env, { logger })

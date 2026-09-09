@@ -1,9 +1,38 @@
 import { Router } from 'express'
 import { validateRequired, validateLength, validateEnum, validate } from '../utils/validate.js'
+import { createImageUpload } from '../utils/imageUpload.js'
+import prisma from '../prisma/client.js'
+import { HttpError } from '../utils/dbHelpers.js'
 import * as chatService from '../services/chatService.js'
+import { readChatImage } from '../services/chatImageService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
+
+const chatImageUpload = createImageUpload({
+  field: 'image',
+  typeMessage: '仅支持 JPEG/PNG/WebP 图片',
+  limitMessage: '图片不能超过 8MB',
+  fallbackMessage: '图片上传失败，请重试',
+})
+// 仅 multipart 请求走 multer；JSON 请求原样穿过（express.json 已解析）
+const maybeChatImageUpload = (req, res, next) =>
+  (req.is('multipart/form-data') ? chatImageUpload(req, res, next) : next())
+
+router.get('/images/:messageId', async (req, res) => {
+  try {
+    const message = await prisma.message.findFirst({
+      where: { id: req.params.messageId, conversation: { userId: req.user.userId } },
+      select: { imageExt: true },
+    })
+    if (!message?.imageExt) throw new HttpError('图片不存在', 404)
+    const { buffer, mime } = await readChatImage(req.user.userId, req.params.messageId, message.imageExt)
+    res.set('Cache-Control', 'no-store').type(mime).send(buffer)
+  } catch (error) {
+    logger.error('读取聊天图片失败', { error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '读取聊天图片失败' })
+  }
+})
 
 router.get('/conversations', async (req, res) => {
   try {
@@ -83,7 +112,15 @@ const STREAM_HEARTBEAT_MS = 15000
 // 事件编码：data: {"event": <类型>, ...payload}\n\n（类型在 JSON 的 event 字段中，
 // 不使用 SSE event: 行），心跳为注释帧 `: ping\n\n`。
 // error 事件只携带固定 code，绝不包含对话内容。
-router.post('/conversations/:id/messages/stream', validateMessageContent, async (req, res) => {
+router.post('/conversations/:id/messages/stream', maybeChatImageUpload, async (req, res) => {
+  // multipart 场景 content 可为空（纯图消息）；错误体形状对齐 utils/validate.js 的 validate() 400 输出
+  const content = typeof req.body.content === 'string' ? req.body.content.trim() : ''
+  if (!req.file) {
+    const error = validateRequired(content, '消息内容') || validateLength(content, '消息内容', 1, 10000)
+    if (error) return res.status(400).json({ error: '参数验证失败', details: [{ field: 'content', message: error }] })
+  } else if (content.length > 10000) {
+    return res.status(400).json({ error: '参数验证失败', details: [{ field: 'content', message: validateLength(content, '消息内容', 1, 10000) }] })
+  }
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
@@ -113,9 +150,12 @@ router.post('/conversations/:id/messages/stream', validateMessageContent, async 
     for await (const item of chatService.sendMessageStream(
       req.params.id,
       req.user.userId,
-      req.body.content,
+      content,
       req.requestId,
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        image: req.file ? { buffer: req.file.buffer, mime: req.file.mimetype } : null,
+      },
     )) {
       if (controller.signal.aborted) break
       switch (item.type) {

@@ -2,7 +2,7 @@
   "name": "@cyber-sister/llm-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "赛博姐妹统一 LLM 网关：本地优先（llama.cpp）+ 授权后云端备用（Qwen）",
+  "description": "Amie统一 LLM 网关：本地优先（llama.cpp）+ 授权后云端备用（Qwen）",
   "type": "module",
   "main": "src/index.js",
   "exports": {

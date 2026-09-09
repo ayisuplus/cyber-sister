@@ -47,11 +47,16 @@ vi.mock('../services/memoryService', () => ({
   memoryService: { getSuggestions: vi.fn(), create: vi.fn() },
 }))
 
+vi.mock('../services/careService', () => ({
+  careService: { list: vi.fn(), dismiss: vi.fn() },
+}))
+
 import { chatService } from '../services/chatService'
 import { complianceService } from '../services/complianceService'
 import { consentService } from '../services/consentService'
 import { modelStatusService } from '../services/modelStatusService'
 import { memoryService } from '../services/memoryService'
+import { careService } from '../services/careService'
 import { useChatStore } from '../stores/chatStore'
 import { useComplianceStore } from '../stores/complianceStore'
 import ChatPage from './ChatPage'
@@ -68,6 +73,7 @@ describe('ChatPage', () => {
       messages: [],
       isTyping: false,
       isSending: false,
+      chatMode: 'chat',
     })
     useComplianceStore.setState({
       showCrisisModal: false,
@@ -80,8 +86,10 @@ describe('ChatPage', () => {
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v1' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v3' },
     })
+    careService.list.mockResolvedValue({ touchpoints: [] })
+    careService.dismiss.mockResolvedValue({ dismissed: true })
   })
 
   it('shows the AI disclaimer dialog on the very first visit', async () => {
@@ -99,10 +107,38 @@ describe('ChatPage', () => {
   it('greets with topic shortcuts on an empty conversation', async () => {
     renderPage()
 
-    expect(await screen.findByText('嗨，我是你的赛博姐妹')).toBeInTheDocument()
+    expect(await screen.findByText('嗨，我是你的Amie')).toBeInTheDocument()
     for (const topic of ['今天心情不好', '推荐个电影', '聊聊八卦', '帮我出主意']) {
       expect(screen.getByRole('button', { name: topic })).toBeInTheDocument()
     }
+  })
+
+  it('shows the primary care card in the empty state when touchpoints exist', async () => {
+    careService.list.mockResolvedValue({
+      touchpoints: [{
+        key: 'birthday:profile:2026-09-09',
+        kind: 'birthday',
+        title: '今天是你生日',
+        body: '生日快乐。',
+        reason: '你在资料里填的生日',
+        action: { to: '/chat', label: '去找她聊聊' },
+      }],
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('今天是你生日')).toBeInTheDocument()
+    expect(screen.getByText('为什么看到这条：你在资料里填的生日')).toBeInTheDocument()
+  })
+
+  it('工作模式空态渲染功能桌面，聊天模式仍是插画空态', async () => {
+    useChatStore.setState({ chatMode: 'work' })
+    renderPage()
+
+    expect(await screen.findByRole('navigation', { name: '功能桌面' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
+    expect(screen.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
+    expect(screen.queryByText('嗨，我是你的Amie')).not.toBeInTheDocument()
   })
 
   it('streams a topic shortcut reply: deltas appear progressively, then persisted messages take over', async () => {
@@ -242,7 +278,7 @@ describe('ChatPage 帮我记住入口', () => {
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v1' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v3' },
     })
   })
 
@@ -384,7 +420,7 @@ describe('ChatPage 云端同意门', () => {
   const statusWith = ({ configured = true, consent = null } = {}) => ({
     mode: 'external_primary',
     local: { configured: false, state: 'removed' },
-    externalFallback: { configured, consent, version: 'cloud-primary-v1' },
+    externalFallback: { configured, consent, version: 'cloud-primary-v3' },
   })
 
   it('prompts for consent when the cloud provider is configured but consent is undecided', async () => {

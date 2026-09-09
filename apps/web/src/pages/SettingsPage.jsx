@@ -1,17 +1,34 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useToolsStore } from '../stores/toolsStore'
+import { profileService } from '../services/userService'
 import Header from '../components/layout/Header'
 import Card from '../components/ui/Card'
 import { Bell, Shield, Info, ChevronRight, ToggleLeft, ToggleRight } from 'lucide-react'
 
-// 只保留真实可用的设置项：3 个服务端提醒开关 + 记忆管理入口 + 版本信息。
-// 主动关怀开关（无效果）、死按钮（清空记忆/对话/用户协议）、假注销已移除；
-// 退出登录在「我的」页，记忆清空在记忆管理页。
+// 只保留真实可用的设置项：3 个服务端提醒开关 + 「她来想你」总开关（users.care_enabled 真实生效）
+// + 记忆管理入口 + 版本信息。死按钮（清空记忆/对话/用户协议）、假注销已移除；
 export default function SettingsPage() {
   const navigate = useNavigate()
 
   const { reminders, loadReminders, toggleReminder } = useToolsStore()
+  const [careEnabled, setCareEnabled] = useState(null)
+  useEffect(() => {
+    profileService.get()
+      .then((profile) => setCareEnabled(profile?.careEnabled !== false))
+      .catch(() => setCareEnabled(null))
+  }, [])
+
+  const toggleCare = async () => {
+    if (careEnabled === null) return
+    const next = !careEnabled
+    setCareEnabled(next)
+    try {
+      await profileService.update({ careEnabled: next })
+    } catch {
+      setCareEnabled(!next)
+    }
+  }
 
   useEffect(() => {
     loadReminders()
@@ -53,6 +70,19 @@ export default function SettingsPage() {
               </div>
             )
           })}
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <span className="text-sm text-text-primary">她来想你</span>
+              <p className="mt-0.5 text-[11px] text-text-muted">基于你的真实日程与记录，只发有用的关怀卡片（无推送）</p>
+            </div>
+            <button onClick={toggleCare} disabled={careEnabled === null} aria-label="她来想你总开关" className="disabled:opacity-40">
+              {careEnabled ? (
+                <ToggleRight size={24} className="text-brand-pink" />
+              ) : (
+                <ToggleLeft size={24} className="text-text-muted" />
+              )}
+            </button>
+          </div>
         </Card>
 
         {/* 隐私与安全 */}

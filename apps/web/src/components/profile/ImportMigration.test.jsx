@@ -70,7 +70,7 @@ describe('ImportMigration', () => {
     mocks.applyImport.mockResolvedValue({ roleApplied: true, personaApplied: true, memoriesApplied: 1, memoriesSkipped: 1 })
     render(<ImportMigration />)
 
-    const bundle = { version: 1, product: '赛博姐妹 cyber-sister' }
+    const bundle = { version: 1, product: 'Amie cyber-sister' }
     const file = new File([JSON.stringify(bundle)], 'export.json', { type: 'application/json' })
     await user.upload(screen.getByLabelText('选择导出包文件'), file)
     await user.click(await screen.findByRole('button', { name: '解析预览' }))
@@ -111,7 +111,7 @@ describe('ImportMigration', () => {
     mocks.applyImport.mockResolvedValue({ roleApplied: false, personaApplied: true, memoriesApplied: 2, memoriesSkipped: 0 })
     render(<ImportMigration />)
 
-    const bundle = { version: 1, product: '赛博姐妹 cyber-sister' }
+    const bundle = { version: 1, product: 'Amie cyber-sister' }
     await user.upload(screen.getByLabelText('选择导出包文件'), new File([JSON.stringify(bundle)], 'export.json', { type: 'application/json' }))
     await user.click(await screen.findByRole('button', { name: '解析预览' }))
 
@@ -125,7 +125,7 @@ describe('ImportMigration', () => {
 
   it('预览接口失败时展示服务端错误文案', async () => {
     const user = userEvent.setup()
-    mocks.previewImport.mockRejectedValue({ response: { data: { error: '无法识别的导入格式：支持赛博姐妹导出包（JSON）或 persona-text 人设文本' } } })
+    mocks.previewImport.mockRejectedValue({ response: { data: { error: '无法识别的导入格式：支持Amie导出包（JSON）或 persona-text 人设文本' } } })
     render(<ImportMigration />)
 
     const bundle = { hello: 'world' }
@@ -141,7 +141,7 @@ describe('ImportMigration', () => {
     mocks.applyImport.mockResolvedValue({ roleApplied: true, personaApplied: false, memoriesApplied: 2, memoriesSkipped: 3 })
     render(<ImportMigration />)
 
-    const bundle = { version: 1, product: '赛博姐妹 cyber-sister' }
+    const bundle = { version: 1, product: 'Amie cyber-sister' }
     await user.upload(screen.getByLabelText('选择导出包文件'), new File([JSON.stringify(bundle)], 'export.json', { type: 'application/json' }))
     await user.click(await screen.findByRole('button', { name: '解析预览' }))
     await user.click(await screen.findByRole('button', { name: '确认导入' }))

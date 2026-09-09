@@ -23,7 +23,7 @@ const USER_ID = 'user-1'
 
 const BUNDLE = {
   version: 1,
-  product: '赛博姐妹 cyber-sister',
+  product: 'Amie cyber-sister',
   user: {
     nickname: '小赛',
     persona: 'toxic',

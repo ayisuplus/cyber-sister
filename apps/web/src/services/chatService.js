@@ -1,4 +1,4 @@
-import api, { getPersistedToken, refreshAccessToken } from './api'
+import api, { getPersistedToken, refreshAccessToken, API_BASE_URL } from './api'
 
 // SSE 为纯 data 帧编码（无 event: 行），帧间以空行分隔；
 // `: ping` 注释心跳帧与空行必须忽略。
@@ -66,16 +66,27 @@ const toHttpError = async (response) => {
   return error
 }
 
-const postMessageStream = (conversationId, content, signal) => {
-  const headers = { 'Content-Type': 'application/json' }
+const postMessageStream = (conversationId, content, signal, image) => {
+  /** @type {Record<string, string>} */
+  const headers = {}
   const token = getPersistedToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  return fetch(`/api/chat/conversations/${conversationId}/messages/stream`, {
+  let body
+  if (image) {
+    // multipart：浏览器自带 boundary，绝不手设 Content-Type；FormData 可原样重放（401 重试复用同一 body）
+    body = new FormData()
+    body.append('content', content)
+    body.append('image', image, 'photo.jpg')
+  } else {
+    headers['Content-Type'] = 'application/json'
+    body = JSON.stringify({ content })
+  }
+  return fetch(`${API_BASE_URL}/chat/conversations/${conversationId}/messages/stream`, {
     method: 'POST',
     credentials: 'include', // 携带 httpOnly cookie（refresh token）
     signal,
     headers,
-    body: JSON.stringify({ content }),
+    body,
   })
 }
 
@@ -97,15 +108,15 @@ export const chatService = {
 
   // SSE 流式发送（原生 fetch，需要 ReadableStream，不走 axios）。
   // onEvent 逐事件收到 {event: 'delta'|'replace'|'done'|'blocked'|'error', ...payload}。
-  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void }} [options] */
-  streamMessage: async (conversationId, content, { signal, onEvent } = {}) => {
-    let response = await postMessageStream(conversationId, content, signal)
+  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void, image?: Blob | null }} [options] */
+  streamMessage: async (conversationId, content, { signal, onEvent, image = null } = {}) => {
+    let response = await postMessageStream(conversationId, content, signal, image)
 
     if (response.status === 401) {
       // 首个业务事件前的 401：共享刷新后原样重试一次。
       // 刷新失败时 refreshAccessToken 内部已执行既有退出语义（清登录态跳登录页）。
       await refreshAccessToken()
-      response = await postMessageStream(conversationId, content, signal)
+      response = await postMessageStream(conversationId, content, signal, image)
       if (response.status === 401) {
         // 重试仍是 401：不再刷新，沿用既有退出语义清除登录态
         localStorage.removeItem('cyber-sister-auth')

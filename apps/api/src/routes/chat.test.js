@@ -12,7 +12,20 @@ const service = vi.hoisted(() => ({
   deleteConversation: vi.fn(),
 }))
 
+const db = vi.hoisted(() => ({
+  messageFindFirst: vi.fn(),
+}))
+
+const imageStore = vi.hoisted(() => ({
+  readChatImage: vi.fn(),
+}))
+
 vi.mock('../services/chatService.js', () => service)
+vi.mock('../prisma/client.js', () => ({
+  default: { message: { findFirst: db.messageFindFirst } },
+}))
+vi.mock('../services/chatImageService.js', () => imageStore)
+
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -133,7 +146,7 @@ describe('chat route 响应合同', () => {
   })
 
   it('新建会话成功与失败路径', async () => {
-    service.createConversation.mockResolvedValue({ id: 'c1', title: '赛博姐妹' })
+    service.createConversation.mockResolvedValue({ id: 'c1', title: 'Amie' })
     const ok = await request(app).post('/conversations').send({ title: '倾诉' })
     expect(ok.status).toBe(200)
     expect(service.createConversation).toHaveBeenCalledWith('user-1', { title: '倾诉' })
@@ -392,5 +405,96 @@ describe('chat stream route SSE 合同', () => {
     expect(tooLong.status).toBe(400)
 
     expect(service.sendMessageStream).not.toHaveBeenCalled()
+  })
+})
+
+describe('chat 图片消息路由', () => {
+  const PNG = Buffer.from([0x89, 0x50, 1, 2, 3])
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('multipart 无 content 有 image → 进入 service，content 为空串', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([{ type: 'done', ...savedTurn }]))
+
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .field('content', '')
+      .attach('image', PNG, { filename: 'photo.png', contentType: 'image/png' })
+
+    expect(response.status).toBe(200)
+    expect(service.sendMessageStream).toHaveBeenCalledOnce()
+    const [, , content, , options] = service.sendMessageStream.mock.calls[0]
+    expect(content).toBe('')
+    expect(options.image.mime).toBe('image/png')
+    expect(Buffer.isBuffer(options.image.buffer)).toBe(true)
+  })
+
+  it('multipart 无图且无 content → 400，不开启流', async () => {
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .field('content', '')
+
+    expect(response.status).toBe(400)
+    expect(response.body).toEqual({
+      error: '参数验证失败',
+      details: [{ field: 'content', message: '消息内容不能为空' }],
+    })
+    expect(service.sendMessageStream).not.toHaveBeenCalled()
+  })
+
+  it('multipart 有图但 content 超长 → 400', async () => {
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .field('content', 'x'.repeat(10001))
+      .attach('image', PNG, { filename: 'photo.png', contentType: 'image/png' })
+
+    expect(response.status).toBe(400)
+    expect(service.sendMessageStream).not.toHaveBeenCalled()
+  })
+
+  it('非图片类型被 multer 白名单拦截 → 400', async () => {
+    const response = await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .field('content', 'hi')
+      .attach('image', Buffer.from('plain'), { filename: 'a.txt', contentType: 'text/plain' })
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toBe('仅支持 JPEG/PNG/WebP 图片')
+    expect(service.sendMessageStream).not.toHaveBeenCalled()
+  })
+
+  it('GET /images/:messageId 归属命中 → 200 二进制 + no-store', async () => {
+    db.messageFindFirst.mockResolvedValue({ imageExt: '.png' })
+    imageStore.readChatImage.mockResolvedValue({ buffer: PNG, mime: 'image/png' })
+
+    const response = await request(app)
+      .get('/images/msg-1')
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks = []
+        res.on('data', (chunk) => chunks.push(chunk))
+        res.on('end', () => callback(null, Buffer.concat(chunks)))
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('image/png')
+    expect(response.headers['cache-control']).toBe('no-store')
+    expect(response.body).toEqual(PNG)
+    expect(db.messageFindFirst).toHaveBeenCalledWith({
+      where: { id: 'msg-1', conversation: { userId: 'user-1' } },
+      select: { imageExt: true },
+    })
+    expect(imageStore.readChatImage).toHaveBeenCalledWith('user-1', 'msg-1', '.png')
+  })
+
+  it('GET /images/:messageId 非本人或无图 → 404', async () => {
+    db.messageFindFirst.mockResolvedValue(null)
+    const notFound = await request(app).get('/images/msg-x')
+    expect(notFound.status).toBe(404)
+
+    db.messageFindFirst.mockResolvedValue({ imageExt: null })
+    const noImage = await request(app).get('/images/msg-y')
+    expect(noImage.status).toBe(404)
+    expect(imageStore.readChatImage).not.toHaveBeenCalled()
   })
 })

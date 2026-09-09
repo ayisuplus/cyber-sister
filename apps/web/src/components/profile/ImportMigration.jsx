@@ -41,7 +41,7 @@ export default function ImportMigration() {
         setBundle(parsed)
         setFileName(file.name)
       } catch {
-        setParseError('这个文件不是有效的 JSON，请选赛博姐妹导出的文件')
+        setParseError('这个文件不是有效的 JSON，请选Amie导出的文件')
       }
     }
     reader.onerror = () => setParseError('文件读取失败，请重试')
@@ -127,7 +127,7 @@ export default function ImportMigration() {
       {mode === 'bundle' ? (
         <label className="mt-2.5 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
           <FileUp size={14} aria-hidden="true" />
-          {fileName || '选择赛博姐妹导出包（.json）'}
+          {fileName || '选择Amie导出包（.json）'}
           <input type="file" accept="application/json,.json" aria-label="选择导出包文件" className="hidden" onChange={handleFile} />
         </label>
       ) : (

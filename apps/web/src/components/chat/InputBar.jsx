@@ -1,22 +1,41 @@
 import { useRef, useState } from 'react'
-import { Mic, Send, Square } from 'lucide-react'
+import { ImagePlus, Mic, Send, Square, X } from 'lucide-react'
 import Spinner from '../ui/Spinner'
 import { useVoiceInput } from './useVoiceInput'
 import { useChatStore } from '../../stores/chatStore'
+import { prepareChatImage } from '../../features/chat/imageResize'
 
 export default function InputBar({ onSend, disabled }) {
   const [text, setText] = useState('')
+  const [image, setImage] = useState(null) // null | { blob, previewUrl }
+  const [imageError, setImageError] = useState('')
   const textareaRef = useRef(null)
+  const fileInputRef = useRef(null)
   const chatMode = useChatStore(state => state.chatMode)
   const voice = useVoiceInput((transcript) => {
     setText(prev => (prev ? `${prev} ${transcript}` : transcript))
   })
 
+  const handleImagePicked = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 允许重选同一文件
+    if (!file) return
+    setImageError('')
+    try {
+      setImage(await prepareChatImage(file))
+    } catch (error) {
+      setImageError(error.message || '图片读取失败，请换一张')
+    }
+  }
+
+  const removeImage = () => setImage(null)
+
   const handleSend = async () => {
-    if (!text.trim() || disabled) return
-    const sent = await onSend(text.trim())
+    if ((text.trim() === '' && !image) || disabled) return
+    const sent = await onSend(text.trim(), { image })
     if (sent) {
       setText('')
+      setImage(null)
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
     }
   }
@@ -43,6 +62,19 @@ export default function InputBar({ onSend, disabled }) {
       <div className="flex items-end gap-2">
         {/* 输入框容器 */}
         <div className="flex-1 relative">
+          {image && (
+            <div className="mb-2 flex items-center gap-2">
+              <img src={image.previewUrl} alt="待发送的照片预览" className="h-16 w-16 rounded-2xl object-cover" />
+              <button
+                type="button"
+                aria-label="移除照片"
+                onClick={removeImage}
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-input text-text-secondary"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <div className="relative rounded-2xl bg-surface-input transition-all duration-200 focus-within:bg-surface-card focus-within:ring-2 focus-within:ring-status-info">
             <textarea
               ref={textareaRef}
@@ -73,17 +105,35 @@ export default function InputBar({ onSend, disabled }) {
           {voice.state === 'transcribing' ? <Spinner /> : voice.state === 'recording' ? <Square size={16} /> : <Mic size={18} />}
         </button>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          aria-label="选择照片"
+          className="hidden"
+          onChange={handleImagePicked}
+        />
+        <button
+          type="button"
+          aria-label="添加照片"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+          className="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface-input text-text-secondary shadow-card transition-all active:scale-95 disabled:opacity-40"
+        >
+          <ImagePlus size={18} />
+        </button>
+
         <button
           type="button"
           aria-label="发送消息"
           onClick={handleSend}
-          disabled={disabled || !text.trim()}
+          disabled={disabled || (!text.trim() && !image)}
           className="flex h-11 w-11 items-center justify-center rounded-2xl bg-action-primary text-text-inverse shadow-card transition-all active:scale-95 disabled:opacity-40"
         >
           <Send size={18} className="ml-0.5" />
         </button>
       </div>
-      {voice.error && <p role="alert" className="mt-1.5 px-1 text-xs text-danger">{voice.error}</p>}
+      {(voice.error || imageError) && <p role="alert" className="mt-1.5 px-1 text-xs text-danger">{voice.error || imageError}</p>}
     </div>
   )
 }

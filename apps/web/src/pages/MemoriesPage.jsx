@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Brain, Edit3, Plus, Save, Tag, Trash2 } from 'lucide-react'
+import { Brain, Edit3, Plus, RefreshCw, Save, Tag, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { memoryService } from '../services/memoryService'
+import { parseTags } from '../utils/parseTags'
 
 const TYPE_LABELS = {
   semantic: '语义记忆',
   episodic: '情景记忆',
   procedural: '程序记忆',
 }
+
+const ORIGIN_LABELS = { manual: '你记下的', suggestion: '来自帮我记住', promoted: '工作台定典' }
 
 const EMPTY_FORM = { type: 'semantic', content: '', importance: 5, tags: '' }
 
@@ -21,6 +24,7 @@ export default function MemoriesPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [showEmbedConfirm, setShowEmbedConfirm] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -54,7 +58,7 @@ export default function MemoriesPage() {
       type: form.type,
       content: form.content.trim(),
       importance: Number(form.importance),
-      tags: form.tags.split(/[,，]/).map(tag => tag.trim()).filter(Boolean),
+      tags: parseTags(form.tags),
     }
     try {
       if (editingId) {
@@ -110,6 +114,25 @@ export default function MemoriesPage() {
     }
   }
 
+  // 语义索引重建（M2）：向量投影可重建，非破坏操作；同意/可用性错误给诚实文案
+  const rebuildEmbeddings = async () => {
+    setShowEmbedConfirm(false)
+    setMessage('')
+    try {
+      const result = await memoryService.rebuildEmbeddings()
+      setMessage(`语义索引已重建：新增 ${result?.embedded ?? 0} 条${result?.failed ? `，失败 ${result.failed} 条` : ''}，已是最新 ${result?.skipped ?? 0} 条`)
+    } catch (error) {
+      const code = error?.response?.data?.code
+      if (code === 'CLOUD_NOT_CONSENTED') {
+        setMessage('需要先在「我的 → 云端模型」同意')
+      } else if (code === 'LLM_UNAVAILABLE') {
+        setMessage('云端模型暂时不可用')
+      } else {
+        setMessage('重建失败，请稍后再试')
+      }
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
       <Header title="显式记忆" showBack />
@@ -150,7 +173,12 @@ export default function MemoriesPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-text-primary">我的记忆（{memories.length}）</h2>
-          {memories.length > 0 && <button type="button" onClick={() => setShowClearConfirm(true)} className="min-h-11 px-3 text-xs text-danger">清空全部</button>}
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setShowEmbedConfirm(true)} className="flex min-h-11 items-center gap-1 px-3 text-xs text-text-secondary">
+              <RefreshCw size={13} />重建语义索引
+            </button>
+            {memories.length > 0 && <button type="button" onClick={() => setShowClearConfirm(true)} className="min-h-11 px-3 text-xs text-danger">清空全部</button>}
+          </div>
         </div>
 
         <p aria-live="polite" className="min-h-5 text-center text-xs text-text-secondary">{message}</p>
@@ -165,6 +193,9 @@ export default function MemoriesPage() {
               <article key={memory.id} className="rounded-2xl bg-surface-card p-4 shadow-card">
                 <div className="flex items-start justify-between gap-2">
                   <span className="rounded-full bg-brand-purple/10 px-2 py-1 text-[10px] text-brand-purple">{TYPE_LABELS[memory.type] || memory.type}</span>
+                  {ORIGIN_LABELS[memory.origin] && (
+                    <span className="rounded-full bg-pastel-mist px-2 py-1 text-[10px] text-status-info">{ORIGIN_LABELS[memory.origin]}</span>
+                  )}
                   <div className="flex gap-1">
                     <button type="button" aria-label="编辑这条记忆" onClick={() => edit(memory)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-surface-muted hover:text-brand-purple"><Edit3 size={15} /></button>
                     <button type="button" aria-label="删除这条记忆" onClick={() => remove(memory.id)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted hover:bg-pastel-blush hover:text-danger"><Trash2 size={15} /></button>
@@ -189,6 +220,15 @@ export default function MemoriesPage() {
         danger
         onConfirm={clear}
         onCancel={() => setShowClearConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showEmbedConfirm}
+        title="重建语义索引"
+        description="会把你的全部记忆内容发往云端模型生成语义向量，用于聊天时找得更准。需要已同意云端模型。确定继续吗？"
+        confirmLabel="确认重建"
+        onConfirm={rebuildEmbeddings}
+        onCancel={() => setShowEmbedConfirm(false)}
       />
     </div>
   )

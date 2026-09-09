@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
-import TabBar from '../components/layout/TabBar'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -335,7 +334,6 @@ export default function ReadingPage() {
         )}
       </div>
 
-      <TabBar />
     </div>
   )
 }

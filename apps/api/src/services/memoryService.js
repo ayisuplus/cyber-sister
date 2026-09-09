@@ -5,6 +5,7 @@
 import prisma from '../prisma/client.js'
 import { findOwned, deleteOwned, HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
+import { embedMemory } from './embeddingService.js'
 
 export const MEMORY_TYPES = ['semantic', 'episodic', 'procedural']
 const MAX_CONTENT_LENGTH = 2000
@@ -21,8 +22,10 @@ function parseJson(value, fallback) {
 }
 
 function formatMemory(memory) {
+  // embedding/embeddingModel 是机器投影：永不进入 API 响应（检索侧由 llmService 剥离）
+  const { embedding: _embedding, embeddingModel: _embeddingModel, ...rest } = memory
   return {
-    ...memory,
+    ...rest,
     entities: parseJson(memory.entities, {}),
     tags: parseJson(memory.tags, []),
   }
@@ -68,11 +71,28 @@ function validateTags(tags) {
   return [...new Set(normalized)]
 }
 
+export const MEMORY_ORIGINS = ['manual', 'suggestion', 'promoted']
+
+function validateOrigin(origin) {
+  if (!MEMORY_ORIGINS.includes(origin)) throw new HttpError('记忆来源不合法', 400)
+  return origin
+}
+
+function validateSourceRef(sourceRef) {
+  if (sourceRef === null || sourceRef === undefined) return null
+  if (typeof sourceRef !== 'string') throw new HttpError('来源引用不合法', 400)
+  const trimmed = sourceRef.trim()
+  if (trimmed.length < 1 || trimmed.length > 64) throw new HttpError('来源引用不合法', 400)
+  return trimmed
+}
+
 export async function createMemory(userId, {
   type,
   content,
   importance = 5,
   tags = [],
+  origin = 'manual',
+  sourceRef = null,
 }) {
   const memory = await prisma.memory.create({
     data: {
@@ -81,10 +101,14 @@ export async function createMemory(userId, {
       content: validateContent(content),
       importance: validateImportance(importance),
       tags: JSON.stringify(validateTags(tags)),
+      origin: validateOrigin(origin),
+      sourceRef: validateSourceRef(sourceRef),
     },
   })
 
-  logger.info('创建记忆', { memoryId: memory.id, userId })
+  logger.info('创建记忆', { memoryId: memory.id, userId, origin: memory.origin })
+  // 语义投影可重建：fire-and-forget，失败仅本轮无向量，不影响保存结果
+  void embedMemory(memory)
   return formatMemory(memory)
 }
 
@@ -128,6 +152,10 @@ export async function updateMemory(userId, memoryId, updates) {
   }
 
   const memory = await prisma.memory.update({ where: { id: memoryId }, data: updateData })
+  if (updates.content !== undefined) {
+    // 内容变更后投影失效：fire-and-forget 重建向量，失败仅本轮无向量
+    void embedMemory(memory)
+  }
   logger.info('编辑记忆', { memoryId, userId })
   return formatMemory(memory)
 }

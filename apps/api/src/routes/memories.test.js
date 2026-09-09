@@ -14,8 +14,11 @@ const suggestionService = vi.hoisted(() => ({
   getMemorySuggestions: vi.fn(),
 }))
 
+const embedding = vi.hoisted(() => ({ rebuildEmbeddings: vi.fn() }))
+
 vi.mock('../services/memoryService.js', () => service)
 vi.mock('../services/memorySuggestionService.js', () => suggestionService)
+vi.mock('../services/embeddingService.js', () => embedding)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -37,7 +40,7 @@ describe('记忆路由', () => {
     service.createMemory.mockResolvedValue({ id: 'm1' })
     const ok = await request(app).post('/').send({ type: 'semantic', content: '喜欢火锅' })
     expect(ok.status).toBe(201)
-    expect(service.createMemory).toHaveBeenCalledWith('user-1', { type: 'semantic', content: '喜欢火锅' })
+    expect(service.createMemory).toHaveBeenCalledWith('user-1', { type: 'semantic', content: '喜欢火锅', origin: 'manual' })
 
     service.createMemory.mockRejectedValue(Object.assign(new Error('记忆内容不能为空'), { statusCode: 400 }))
     const bad = await request(app).post('/').send({ type: 'semantic', content: '' })
@@ -48,6 +51,25 @@ describe('记忆路由', () => {
     const fail = await request(app).post('/').send({ type: 'semantic', content: 'x' })
     expect(fail.status).toBe(500)
     expect(fail.body).toEqual({ error: '创建记忆失败' })
+  })
+
+  it('origin=suggestion 与 sourceRef 透传进 service；origin=promoted 被夹回 manual', async () => {
+    service.createMemory.mockResolvedValue({ id: 'm1' })
+    await request(app).post('/').send({ type: 'semantic', content: '喜欢火锅', origin: 'suggestion', sourceRef: 'msg-1' })
+    expect(service.createMemory).toHaveBeenCalledWith('user-1', {
+      type: 'semantic',
+      content: '喜欢火锅',
+      origin: 'suggestion',
+      sourceRef: 'msg-1',
+    })
+
+    await request(app).post('/').send({ type: 'semantic', content: '伪造定典', origin: 'promoted', sourceRef: 'insight-9' })
+    expect(service.createMemory).toHaveBeenLastCalledWith('user-1', {
+      type: 'semantic',
+      content: '伪造定典',
+      origin: 'manual',
+      sourceRef: 'insight-9',
+    })
   })
 
   it('列表查询透传分页参数，异常兜底 500', async () => {
@@ -104,6 +126,37 @@ describe('记忆路由', () => {
     const fail = await request(app).delete('/')
     expect(fail.status).toBe(500)
     expect(fail.body).toEqual({ error: '清空记忆失败' })
+  })
+})
+
+describe('语义索引重建路由（M2）', () => {
+  it('POST /embeddings/rebuild 200 透传计数，且不被 /:id 系路由截获', async () => {
+    embedding.rebuildEmbeddings.mockResolvedValue({ embedded: 2, failed: 0, skipped: 1 })
+
+    const ok = await request(app).post('/embeddings/rebuild')
+
+    expect(ok.status).toBe(200)
+    expect(ok.body).toEqual({ embedded: 2, failed: 0, skipped: 1 })
+    expect(embedding.rebuildEmbeddings).toHaveBeenCalledWith('user-1')
+    expect(service.updateMemory).not.toHaveBeenCalled()
+  })
+
+  it('同意门与模型不可用按 503 + code 原样透传', async () => {
+    embedding.rebuildEmbeddings.mockRejectedValue(Object.assign(new Error('需要你先同意使用云端模型才能聊天'), {
+      code: 'CLOUD_NOT_CONSENTED',
+      statusCode: 503,
+    }))
+    const noConsent = await request(app).post('/embeddings/rebuild')
+    expect(noConsent.status).toBe(503)
+    expect(noConsent.body).toEqual({ error: '需要你先同意使用云端模型才能聊天', code: 'CLOUD_NOT_CONSENTED' })
+
+    embedding.rebuildEmbeddings.mockRejectedValue(Object.assign(new Error('外部模型暂时不可用，请稍后重试'), {
+      code: 'LLM_UNAVAILABLE',
+      statusCode: 503,
+    }))
+    const unavailable = await request(app).post('/embeddings/rebuild')
+    expect(unavailable.status).toBe(503)
+    expect(unavailable.body).toEqual({ error: '外部模型暂时不可用，请稍后重试', code: 'LLM_UNAVAILABLE' })
   })
 })
 

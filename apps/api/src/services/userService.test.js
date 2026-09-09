@@ -14,7 +14,7 @@ vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { clearRolePlay, updateRolePlay } from './userService.js'
+import { clearRolePlay, updateProfile, updateRolePlay } from './userService.js'
 
 describe('userService.updateRolePlay', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -66,6 +66,26 @@ describe('userService.updateRolePlay', () => {
       select: { roleName: true, roleSetting: true },
     })
     expect(result).toEqual({ roleName: '同桌的你', roleSetting: '爱吐槽但会帮我讲题' })
+  })
+})
+
+describe('userService.updateProfile：careEnabled 关怀开关', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('布尔值透传落库', async () => {
+    mocks.userUpdate.mockImplementation(({ data }) => Promise.resolve(data))
+
+    expect(await updateProfile('user-1', { careEnabled: false })).toEqual({ careEnabled: false })
+    expect(mocks.userUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'user-1' },
+      data: { careEnabled: false },
+    }))
+  })
+
+  it('非布尔值抛 400，不落库', async () => {
+    await expect(updateProfile('user-1', { careEnabled: 'yes' }))
+      .rejects.toMatchObject({ statusCode: 400, message: 'careEnabled必须是布尔值' })
+    expect(mocks.userUpdate).not.toHaveBeenCalled()
   })
 })
 

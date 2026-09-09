@@ -40,4 +40,5 @@ export const memoryService = {
   clear: async () => {
     await api.delete('/memories')
   },
+  rebuildEmbeddings: async () => (await api.post('/memories/embeddings/rebuild')).data,
 }

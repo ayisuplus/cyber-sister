@@ -9,12 +9,13 @@ import CloudFallbackNotice, { CLOUD_FALLBACK_DISMISSED_KEY } from '../components
 import MessageBubble from '../components/chat/MessageBubble'
 import TypingIndicator from '../components/chat/TypingIndicator'
 import InputBar from '../components/chat/InputBar'
-import ConversationPanel from '../components/chat/ConversationPanel'
+import ConversationDrawer from '../components/chat/ConversationDrawer'
 import MemorySuggestion from '../components/chat/MemorySuggestion'
 import CrisisModal from '../components/chat/CrisisModal'
 import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
-import TabBar from '../components/layout/TabBar'
+import WorkDesktop from '../components/work/WorkDesktop'
+import CareCards from '../components/care/CareCards'
 
 const getSendErrorMessage = (requestError) => {
   const responseError = requestError.response?.data?.error
@@ -35,7 +36,10 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [intervention, setIntervention] = useState(null)
   const [fallbackNoticeState, setFallbackNoticeState] = useState(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [workbenchOpen, setWorkbenchOpen] = useState(false)
   const messages = useChatStore(state => state.messages)
+  const chatMode = useChatStore(state => state.chatMode)
   const isTyping = useChatStore(state => state.isTyping)
   const isSending = useChatStore(state => state.isSending)
   const sendMessage = useChatStore(state => state.sendMessage)
@@ -79,10 +83,10 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
-  const handleSend = async (text) => {
+  const handleSend = async (text, options = {}) => {
     setError('')
     try {
-      const result = await sendMessage(text)
+      const result = await sendMessage(text, options)
       if (result?.status === 'blocked') setIntervention(result.intervention)
       return true
     } catch (requestError) {
@@ -112,19 +116,18 @@ export default function ChatPage() {
       style={chatBgUrl ? { backgroundImage: `url(${chatBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     >
       {chatBgUrl && <div className="chat-bg-overlay" aria-hidden="true" />}
-      <ConversationPanel />
       <div className="relative flex min-w-0 flex-1 flex-col">
-      <ChatHeader />
+      <ChatHeader onOpenDrawer={() => setDrawerOpen(true)} onOpenWorkbench={() => setWorkbenchOpen(true)} />
       {fallbackNoticeState !== null && (
         <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
       )}
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide">
-        {messages.length === 0 && (
+        {messages.length === 0 && chatMode !== 'work' && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="relative mb-6">
               <div className="h-48 w-48 overflow-hidden rounded-3xl bg-gradient-pastel shadow-card">
-                <img src="/design-assets/empty-state-chat.png" alt="赛博姐妹在这里等你聊天" className="h-full w-full object-cover" />
+                <img src="/design-assets/empty-state-chat.png" alt="Amie在这里等你聊天" className="h-full w-full object-cover" />
               </div>
               <div className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-pastel-apricot text-status-warning shadow-card" aria-hidden="true">
                 <Sparkles size={14} />
@@ -134,7 +137,7 @@ export default function ChatPage() {
               </div>
             </div>
 
-            <h1 className="mb-2 text-lg font-semibold text-text-primary">嗨，我是你的赛博姐妹</h1>
+            <h1 className="mb-2 text-lg font-semibold text-text-primary">嗨，我是你的Amie</h1>
             <p className="max-w-[260px] text-center text-sm leading-relaxed text-text-secondary">
               有什么想聊的，随时找我。<br />
               <span className="text-xs text-text-muted">我是 AI，聊天由经批准的云端模型提供。</span>
@@ -147,6 +150,16 @@ export default function ChatPage() {
                 </button>
               ))}
             </div>
+
+            <div className="mt-6 w-full max-w-sm">
+              <CareCards limit={1} heading={false} />
+            </div>
+          </div>
+        )}
+
+        {messages.length === 0 && chatMode === 'work' && (
+          <div className="px-1 py-2">
+            <WorkDesktop />
           </div>
         )}
 
@@ -168,10 +181,11 @@ export default function ChatPage() {
 
       <div aria-live="polite" className="min-h-5 px-4 text-center text-xs text-danger">{error}</div>
       <InputBar onSend={handleSend} disabled={isSending || isTyping} />
-      <TabBar />
       <CrisisModal intervention={intervention} onClose={() => setIntervention(null)} />
       <AIDisclaimer />
       <UsageReminder />
+      <ConversationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      {workbenchOpen && <WorkDesktop onClose={() => setWorkbenchOpen(false)} />}
       </div>
     </div>
   )

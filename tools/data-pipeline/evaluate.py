@@ -383,7 +383,7 @@ def generate_report(
 
     # 构建报告
     lines = [
-        "# 赛博姐妹数据集质量评估报告",
+        "# Amie数据集质量评估报告",
         "",
         f"**生成时间**: {now}",
         "",
@@ -469,7 +469,7 @@ def generate_report(
             "",
             "---",
             "",
-            f"*报告由赛博姐妹数据 Pipeline 自动生成*",
+            f"*报告由Amie数据 Pipeline 自动生成*",
         ]
     )
 

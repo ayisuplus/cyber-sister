@@ -31,10 +31,10 @@ const mockChatBootstrap = async (page, accepted) => {
   })
   await page.route('**/api/user/external-llm-consent', route => {
     if (route.request().method() === 'GET') {
-      return json(route, 200, { accepted, version: 'cloud-primary-v1', updatedAt: null })
+      return json(route, 200, { accepted, version: 'cloud-primary-v3', updatedAt: null })
     }
     const choice = route.request().postDataJSON().accepted
-    return json(route, 200, { accepted: choice, version: 'cloud-primary-v1', updatedAt: '2026-08-29T00:00:00.000Z' })
+    return json(route, 200, { accepted: choice, version: 'cloud-primary-v3', updatedAt: '2026-08-29T00:00:00.000Z' })
   })
 }
 
@@ -105,7 +105,7 @@ test('persona switches immediately and explicit memories support CRUD', async ({
   let memories = []
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
     accepted: true,
-    version: 'cloud-primary-v1',
+    version: 'cloud-primary-v3',
     updatedAt: '2026-08-29T00:00:00.000Z',
   }))
   await page.route('**/api/user/persona', route => json(route, 200, {
@@ -422,9 +422,9 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
   await seedAuth(page)
   await page.route('**/api/user/external-llm-consent', route => {
     if (route.request().method() === 'GET') {
-      return json(route, 200, { accepted: true, version: 'cloud-primary-v1', updatedAt: null })
+      return json(route, 200, { accepted: true, version: 'cloud-primary-v3', updatedAt: null })
     }
-    return json(route, 200, { accepted: true, version: 'cloud-primary-v1', updatedAt: '2026-09-05T00:00:00.000Z' })
+    return json(route, 200, { accepted: true, version: 'cloud-primary-v3', updatedAt: '2026-09-05T00:00:00.000Z' })
   })
   const conversations = [{
     id: 'c-chat',
@@ -442,7 +442,7 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
     const created = {
       id: mode === 'work' ? 'c-work' : 'c-new',
       mode,
-      title: '赛博姐妹',
+      title: 'Amie',
       updatedAt: '2026-09-05T09:00:00.000Z',
       messages: [],
     }
@@ -495,7 +495,7 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
   await expect(page.getByText('包容·耐心·讲道理')).toBeVisible()
   if (!isMobile) {
     await expect(page.getByRole('button', { name: /^聊天会话/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /^赛博姐妹/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Amie/ })).toHaveCount(0)
   }
 })
 
@@ -510,12 +510,12 @@ test('appearance: upload avatar and chat background, both render on profile and 
   })
   await mockChatBootstrap(page, true)
   await page.route('**/api/chat/conversations', route => json(route, 200, [{
-    id: 'c-1', mode: 'chat', title: '赛博姐妹', updatedAt: '2026-09-06T08:00:00.000Z', messages: [],
+    id: 'c-1', mode: 'chat', title: 'Amie', updatedAt: '2026-09-06T08:00:00.000Z', messages: [],
   }]))
   await page.route('**/api/chat/conversations/c-1', route => json(route, 200, {
     id: 'c-1',
     mode: 'chat',
-    title: '赛博姐妹',
+    title: 'Amie',
     messages: [{ id: 'u-1', role: 'user', content: '今天心情不错', createdAt: '2026-09-06T08:00:00.000Z' }],
   }))
   await page.goto('/profile')
@@ -628,7 +628,7 @@ test('study: run a pomodoro, finish early and record it', async ({ page }) => {
 test('roleplay: set and clear a custom role on profile', async ({ page }) => {
   await seedAuth(page)
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
-    accepted: true, version: 'cloud-primary-v1', updatedAt: '2026-08-29T00:00:00.000Z',
+    accepted: true, version: 'cloud-primary-v3', updatedAt: '2026-08-29T00:00:00.000Z',
   }))
   let saved = null
   await page.route('**/api/user/roleplay', route => {
@@ -647,4 +647,270 @@ test('roleplay: set and clear a custom role on profile', async ({ page }) => {
   await page.getByRole('button', { name: '清除角色' }).click()
   await expect(page.getByText('已清除角色设定')).toBeVisible()
   await expectNoSeriousAxeFindings(page)
+})
+
+
+// 2x2 有效 PNG：选照片/单品上传用（<img> 能触发 onLoad）
+const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
+
+test('work mode: desktop grid fills the empty state and the header button summons the same panel', async ({ page }) => {
+  await seedAuth(page)
+  await mockChatBootstrap(page, true)
+  await page.goto('/chat')
+
+  const modeSwitch = page.getByLabel('会话模式')
+  await modeSwitch.getByRole('button', { name: '工作' }).click()
+
+  // 空态直出功能桌面，原插画空态让位
+  const desktop = page.locator('nav[aria-label="功能桌面"]')
+  await expect(desktop).toBeVisible()
+  await expect(page.getByText('嗨，我是你的Amie')).toHaveCount(0)
+  await expect(desktop.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
+  await expect(desktop.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
+  await expect(desktop.getByRole('link', { name: /日记/ })).toHaveAttribute('href', '/tools/diary')
+
+  // 头部「功能」按钮唤出同一网格的遮罩层，可关闭
+  await page.getByRole('button', { name: '打开功能桌面' }).click()
+  const dialog = page.getByRole('dialog', { name: '功能桌面' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('link', { name: /大姨妈记录/ })).toHaveAttribute('href', '/tools/period')
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // 切回聊天模式：按钮消失、插画空态回来
+  await modeSwitch.getByRole('button', { name: '聊天' }).click()
+  await expect(page.getByRole('button', { name: '打开功能桌面' })).toHaveCount(0)
+  await expect(page.getByText('嗨，我是你的Amie')).toBeVisible()
+
+  // 卡片直达对应路由
+  await modeSwitch.getByRole('button', { name: '工作' }).click()
+  await desktop.getByRole('link', { name: /3D 衣柜/ }).click()
+  await expect(page).toHaveURL(/\/tools\/wardrobe/)
+})
+
+test('makeup room: save a custom preset, re-apply it, and stay honest when the engine is absent', async ({ page }) => {
+  await seedAuth(page)
+  const presets = []
+  await page.route('**/api/makeup-presets', route => {
+    if (route.request().method() === 'GET') return json(route, 200, presets)
+    const created = {
+      id: `preset-${presets.length + 1}`,
+      userId: 'user-e2e',
+      ...route.request().postDataJSON(),
+      createdAt: '2026-09-08T00:00:00.000Z',
+      updatedAt: '2026-09-08T00:00:00.000Z',
+    }
+    presets.push(created)
+    return json(route, 200, created)
+  })
+  await page.goto('/tools/makeup-room')
+
+  await page.getByRole('tab', { name: '选照片' }).click()
+  await page.locator('input[aria-label="选择照片"]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: TINY_PNG })
+
+  const saveButton = page.getByRole('button', { name: '把当前存为妆容' })
+  await expect(saveButton).toBeVisible()
+  await page.getByLabel('磨皮').fill('60')
+  await saveButton.click()
+  await page.getByLabel('妆容名字').fill('日常')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+
+  // 服务端收到了完整四参数；预设横排出现并处于选中态
+  expect(presets[0]).toMatchObject({ name: '日常', smooth: 60, whiten: 20, slim: 10, eye: 10 })
+  const presetButton = page.getByRole('button', { name: '日常', exact: true })
+  await expect(presetButton).toBeVisible()
+  await expect(presetButton).toHaveAttribute('aria-pressed', 'true')
+
+  // 改动滑杆后点回预设，四项值回到保存值
+  await page.getByLabel('磨皮').fill('5')
+  await presetButton.click()
+  await expect(page.getByLabel('磨皮')).toHaveValue('60')
+
+  await expectNoSeriousAxeFindings(page)
+})
+
+test('wardrobe: unconfigured 3D service shows the honest 503 and no fake success', async ({ page }) => {
+  await seedAuth(page)
+  await page.route('**/api/wardrobe', route => {
+    if (route.request().method() === 'GET') return json(route, 200, [])
+    return json(route, 503, { error: '3D 生成服务还没接好，开放后第一时间告诉你', code: 'IMAGE_TO_3D_NOT_CONFIGURED' })
+  })
+  await page.goto('/tools/wardrobe')
+
+  await page.locator('input[aria-label="选择单品照片"]').setInputFiles({ name: 'coat.png', mimeType: 'image/png', buffer: TINY_PNG })
+  await page.getByLabel('单品名字').fill('黑色风衣')
+  await page.getByRole('button', { name: '生成 3D 模型' }).click()
+
+  await expect(page.getByRole('alert')).toHaveText('3D 生成服务还没接好，开放后第一时间告诉你')
+  await expect(page.getByText('衣柜还空着，传一张单品照试试。')).toBeVisible()
+  await expect(page.getByRole('button', { name: /黑色风衣/ })).toHaveCount(0)
+
+  await expectNoSeriousAxeFindings(page)
+})
+
+test('chat photo: pick a photo, send it, and the persona review lands next to the image bubble', async ({ page }) => {
+  await seedAuth(page)
+  await mockChatBootstrap(page, true)
+  await page.route('**/api/chat/conversations/*/messages/stream', route => {
+    // 照片消息走 multipart：content 可为空，image 为文件字段
+    expect(route.request().headers()['content-type'] || '').toContain('multipart/form-data')
+    return fulfillStream(route, [
+      { event: 'delta', text: '这个配色很衬你。' },
+      {
+        event: 'done',
+        status: 'ok',
+        userMessage: { id: 'u-img-1', role: 'user', content: '', imageExt: '.jpg', createdAt: '2026-09-08T10:00:00.000Z' },
+        aiMessage: { id: 'a-img-1', role: 'assistant', content: '这个配色很衬你。', source: 'qwen', createdAt: '2026-09-08T10:00:01.000Z' },
+        source: 'qwen',
+      },
+    ])
+  })
+  await page.route('**/api/chat/images/u-img-1', route => route.fulfill({
+    status: 200,
+    contentType: 'image/png',
+    body: TINY_PNG,
+  }))
+  await page.goto('/chat')
+
+  await page.locator('input[aria-label="选择照片"]').setInputFiles({ name: 'outfit.png', mimeType: 'image/png', buffer: TINY_PNG })
+  await expect(page.getByAltText('待发送的照片预览')).toBeVisible()
+  await page.getByRole('button', { name: '发送消息' }).click()
+
+  // AI 点评落气泡；用户气泡内出现照片（done 后由服务端取图渲染）
+  await expect(page.getByText('这个配色很衬你。')).toBeVisible()
+  await expect(page.getByAltText('发出的照片')).toBeVisible()
+})
+
+test('workspace: resolve a conflict insight and find it under the resolved tab', async ({ page }) => {
+  await seedAuth(page)
+  const conflict = {
+    id: 'insight-e2e',
+    kind: 'conflict',
+    content: '她既想独居又想合住',
+    confidence: 'high',
+    evidence: null,
+    status: 'active',
+    resolution: null,
+    createdAt: '2026-09-08T08:00:00.000Z',
+  }
+  let resolved = null
+  await page.route('**/api/derived**', route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/api/derived') {
+      const status = url.searchParams.get('status') || 'active'
+      if (status === 'resolved') return json(route, 200, { insights: resolved ? [resolved] : [] })
+      return json(route, 200, { insights: resolved ? [] : [conflict] })
+    }
+    if (request.method() === 'POST' && url.pathname === '/api/derived/insight-e2e/resolve') {
+      const payload = request.postDataJSON()
+      resolved = { ...conflict, status: 'resolved', resolution: payload.content }
+      return json(route, 200, {
+        memory: { id: 'memory-e2e', content: payload.content, origin: 'promoted', sourceRef: 'insight-e2e' },
+        insight: resolved,
+      })
+    }
+    return json(route, 400, { error: 'unexpected derived request' })
+  })
+
+  await page.goto('/tools/workspace')
+  await expect(page.getByText('她既想独居又想合住')).toBeVisible()
+  await page.getByRole('button', { name: '厘清一下' }).click()
+  const draft = page.getByLabel('定稿文案')
+  await expect(draft).toHaveValue('她既想独居又想合住')
+  await draft.fill('她想要的是独立书房')
+  await page.getByRole('button', { name: '保存' }).click()
+  await expect(page.getByText('已厘清并记入记忆')).toBeVisible()
+
+  await page.getByRole('button', { name: '已厘清' }).click()
+  const card = page.locator('article', { hasText: '她既想独居又想合住' })
+  await expect(card.getByText('她想要的是独立书房')).toBeVisible()
+})
+
+test('workspace: confirm a derived relation edge under the edges tab', async ({ page }) => {
+  await seedAuth(page)
+  const edge = {
+    id: 'edge-e2e',
+    relation: 'similar',
+    confidence: 'high',
+    status: 'derived',
+    evidence: ['两条都提到火锅'],
+    from: { id: 'm1', content: '喜欢火锅' },
+    to: { id: 'm2', content: '每周五吃火锅' },
+    createdAt: '2026-09-09T08:00:00.000Z',
+  }
+  await page.route('**/api/derived**', route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/api/derived/edges') {
+      return json(route, 200, { edges: [edge] })
+    }
+    if (request.method() === 'POST' && url.pathname === '/api/derived/edges/edge-e2e/promote') {
+      return json(route, 200, { edge: { ...edge, status: 'canonical' } })
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/derived') {
+      return json(route, 200, { insights: [] })
+    }
+    return json(route, 400, { error: 'unexpected derived request' })
+  })
+
+  await page.goto('/tools/workspace')
+  await page.getByRole('button', { name: '关系' }).click()
+  await expect(page.getByText('喜欢火锅 —相似→ 每周五吃火锅')).toBeVisible()
+  await page.getByRole('button', { name: '确认关系' }).click()
+  await expect(page.getByText('已定为关系')).toBeVisible()
+  await expect(page.getByRole('button', { name: '确认关系' })).toHaveCount(0)
+})
+
+test('tools: care touchpoint card shows reason and dismisses in place', async ({ page }) => {
+  await seedAuth(page)
+  const card = {
+    key: 'countdown:c1:2026-09-09',
+    kind: 'countdown',
+    title: '「面试」还有 1 天',
+    body: '时间刚刚好，今天顺手推进一点。',
+    reason: '你在倒数日里记的日子',
+    action: { to: '/tools/countdown', label: '看看倒数日' },
+  }
+  let dismissedKey = null
+  await page.route('**/api/care/touchpoints**', route => {
+    const request = route.request()
+    if (request.method() === 'GET') return json(route, 200, { touchpoints: dismissedKey ? [] : [card] })
+    if (request.method() === 'POST') {
+      dismissedKey = request.postDataJSON().key
+      return json(route, 200, { dismissed: true })
+    }
+    return json(route, 400, { error: 'unexpected care request' })
+  })
+
+  await page.goto('/tools')
+  await expect(page.getByText('她来想你')).toBeVisible()
+  await expect(page.getByText('「面试」还有 1 天')).toBeVisible()
+  await expect(page.getByText('为什么看到这条：你在倒数日里记的日子')).toBeVisible()
+
+  await page.getByRole('button', { name: '今天不再提醒这条' }).click()
+  await expect(page.getByText('「面试」还有 1 天')).toHaveCount(0)
+  expect(dismissedKey).toBe('countdown:c1:2026-09-09')
+})
+
+test('letters: the weekly letter renders expanded from real week data', async ({ page }) => {
+  await seedAuth(page)
+  await page.route('**/api/letters**', route => {
+    if (route.request().method() === 'GET') {
+      return json(route, 200, {
+        letters: [{
+          id: 'l1',
+          weekStart: '2026-09-07T00:00:00.000Z',
+          content: '内测用户，见信好。\n\n这周你们聊了 23 轮；新记下了 1 件事：「喜欢火锅」。\n\n—— 你的姐妹',
+          createdAt: '2026-09-09T08:00:00.000Z',
+        }],
+      })
+    }
+    return json(route, 400, { error: 'unexpected letters request' })
+  })
+
+  await page.goto('/tools/letters')
+  await expect(page.getByText('9月7日那周的信')).toBeVisible()
+  await expect(page.getByText(/这周你们聊了 23 轮/)).toBeVisible()
+  await expect(page.getByText('—— 你的姐妹')).toBeVisible()
 })

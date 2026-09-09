@@ -485,3 +485,43 @@ describe('chatStore stale response guards', () => {
     expect(useChatStore.getState().messages).toEqual([{ id: 'mine' }])
   })
 })
+
+describe('chatStore 图片消息', () => {
+  beforeEach(resetStore)
+
+  it('带 image 发送：空 content 不被守卫拦截，temp 消息带 imagePreviewUrl，blob 传给 streamMessage', async () => {
+    useChatStore.setState({ currentConversationId: 'c1' })
+    const image = { blob: new Blob(['jpeg'], { type: 'image/jpeg' }), previewUrl: 'blob:preview-1' }
+    let tempSnapshot = null
+    chatService.streamMessage.mockImplementation((conversationId, content, { onEvent }) => {
+      tempSnapshot = useChatStore.getState().messages.find((m) => m.id.startsWith('temp-user-'))
+      onEvent({
+        event: 'done',
+        status: 'ok',
+        userMessage: { id: 'u1', role: 'user', content: '', imageExt: '.jpg' },
+        aiMessage: { id: 'a1', role: 'assistant', content: '这身好看' },
+        source: 'qwen',
+      })
+      return Promise.resolve()
+    })
+
+    const result = await useChatStore.getState().sendMessage('', { image })
+
+    expect(result).toEqual({ status: 'ok', source: 'qwen' })
+    expect(tempSnapshot).toMatchObject({ role: 'user', content: '', imagePreviewUrl: 'blob:preview-1' })
+    expect(chatService.streamMessage).toHaveBeenCalledWith('c1', '', expect.objectContaining({
+      image: image.blob,
+    }))
+    // settle 后换入持久化消息（带 imageExt），temp 预览消失
+    const finalUser = useChatStore.getState().messages.find((m) => m.role === 'user')
+    expect(finalUser).toMatchObject({ id: 'u1', imageExt: '.jpg' })
+    expect(finalUser.imagePreviewUrl).toBeUndefined()
+  })
+
+  it('无 image 且空 content 仍被守卫拦截', async () => {
+    useChatStore.setState({ currentConversationId: 'c1' })
+    await useChatStore.getState().sendMessage('   ')
+    expect(chatService.streamMessage).not.toHaveBeenCalled()
+  })
+})
+

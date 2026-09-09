@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
   },
   getPersistedToken: vi.fn(),
   refreshAccessToken: vi.fn(),
+  API_BASE_URL: '/api',
 }))
 
 import api, { getPersistedToken, refreshAccessToken } from './api'
@@ -106,6 +107,31 @@ describe('chatService.streamMessage', () => {
     await collectEvents()
 
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it('image 非空时改发 FormData，不设 JSON Content-Type，401 重试复用同一 FormData', async () => {
+    const image = new Blob(['fake-jpeg'], { type: 'image/jpeg' })
+    fetchMock.mockResolvedValue(sseResponse(['data: {"event":"done","status":"ok"}\n\n']))
+
+    await collectEvents('c1', '', { image })
+
+    const [, options] = fetchMock.mock.calls[0]
+    expect(options.body).toBeInstanceOf(FormData)
+    expect(options.body.get('content')).toBe('')
+    expect(options.body.get('image')).toBeInstanceOf(Blob)
+    expect(options.headers['Content-Type']).toBeUndefined()
+    expect(options.headers.Authorization).toBe('Bearer access-token')
+
+    // 401：刷新后重试仍带图片 FormData
+    fetchMock
+      .mockResolvedValueOnce(sseResponse([], 401))
+      .mockResolvedValueOnce(sseResponse(['data: {"event":"done","status":"ok"}\n\n']))
+    await collectEvents('c1', '看图', { image })
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    const [, retryOptions] = fetchMock.mock.calls[2]
+    expect(retryOptions.body).toBeInstanceOf(FormData)
+    expect(retryOptions.body.get('content')).toBe('看图')
+    expect(retryOptions.body.get('image')).toBeInstanceOf(Blob)
   })
 
   it('parses data frames split across chunks, ignoring heartbeat comments, blank lines and broken frames', async () => {

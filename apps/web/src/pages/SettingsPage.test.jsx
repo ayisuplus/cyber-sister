@@ -20,8 +20,13 @@ vi.mock('../services/toolsService', () => ({
   },
 }))
 
+vi.mock('../services/userService', () => ({
+  profileService: { get: vi.fn(), update: vi.fn() },
+}))
+
 import { toolsService } from '../services/toolsService'
 import { useToolsStore } from '../stores/toolsStore'
+import { profileService } from '../services/userService'
 import SettingsPage from './SettingsPage'
 
 const renderPage = () => render(
@@ -41,6 +46,8 @@ describe('SettingsPage', () => {
       { id: 'r-sleep', type: 'sleep', time: '23:00', isActive: true },
       { id: 'r-period', type: 'period', time: '09:00', isActive: true },
     ])
+    profileService.get.mockResolvedValue({ careEnabled: true })
+    profileService.update.mockImplementation(async (payload) => payload)
   })
 
   const toggleOf = (label) => screen.getByText(label).closest('div').querySelector('button')
@@ -101,6 +108,30 @@ describe('SettingsPage', () => {
     for (const text of ['主动关怀消息', '清空所有记忆', '一键清空对话记录', '用户协议', '注销账号']) {
       expect(screen.queryByText(text)).not.toBeInTheDocument()
     }
+  })
+
+  it('flips 她来想你 off and on through the server (real users.care_enabled)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const careToggle = await screen.findByRole('button', { name: '她来想你总开关' })
+    await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-brand-pink'))
+
+    await user.click(careToggle)
+    expect(profileService.update).toHaveBeenCalledWith({ careEnabled: false })
+    await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-text-muted'))
+
+    await user.click(careToggle)
+    expect(profileService.update).toHaveBeenCalledWith({ careEnabled: true })
+    await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-brand-pink'))
+  })
+
+  it('respects a server-disabled 她来想你 on load', async () => {
+    profileService.get.mockResolvedValue({ careEnabled: false })
+    renderPage()
+
+    const careToggle = await screen.findByRole('button', { name: '她来想你总开关' })
+    await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-text-muted'))
   })
 
   it('shows static app information', () => {

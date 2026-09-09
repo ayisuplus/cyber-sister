@@ -375,7 +375,7 @@ test('work 场景不注入人格提示词，chat 场景注入', async (t) => {
   await gateway.complete(baseRequest({ scene: 'chat', persona: 'toxic' }))
 
   const hasPersonaSystem = (payload) => payload.messages.some(
-    (m) => m.role === 'system' && m.content.includes('赛博姐妹'),
+    (m) => m.role === 'system' && m.content.includes('Amie'),
   )
   assert.equal(hasPersonaSystem(payloads[0]), false)
   assert.equal(hasPersonaSystem(payloads[1]), true)

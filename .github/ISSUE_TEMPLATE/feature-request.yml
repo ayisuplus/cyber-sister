@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        提交前请确认：该功能不在 [Spec §1 内测范围](../docs/Spec_赛博姐妹_v1.0.md) 之外。
+        提交前请确认：该功能不在 [Spec §1 内测范围](../docs/Spec_Amie_v1.0.md) 之外。
         若属于已明确后置的能力（流式输出、自动记忆、支付、语音等），请在下方注明，我们会归入路线图而非本期实现。
 
   - type: textarea
@@ -46,7 +46,7 @@ body:
     id: in-scope
     attributes:
       label: 是否属于内测范围
-      description: 参考 docs/Spec_赛博姐妹_v1.0.md §1
+      description: 参考 docs/Spec_Amie_v1.0.md §1
       options:
         - 属于内测范围
         - 属于后置项（请归入路线图）

@@ -6,7 +6,7 @@
  * - 预览绝不落库；应用只落用户逐条确认的候选，记忆经 createMemory 既有校验，
  *   角色扮演经 updateRolePlay 既有长度与恋人红线闸——导入不能绕过任何一道闸。
  * - 对话/日记/手帐等其余数据段不导入（无规范目标形态，v1 边界如实说明）。
- * - 同意状态绝不导入：重新同意是用户的主动行为（cloud-primary-v1）。
+ * - 同意状态绝不导入：重新同意是用户的主动行为（cloud-primary-v3）。
  * 日志只记 userId 与计数，不记导入内容。
  */
 import prisma from '../prisma/client.js'
@@ -24,7 +24,7 @@ const MEMORY_TYPES = ['semantic', 'episodic', 'procedural']
 
 const isBundle = (payload) => payload && typeof payload === 'object'
   && payload.version === EXPORT_VERSION
-  && payload.product === '赛博姐妹 cyber-sister'
+  && payload.product === 'Amie cyber-sister'
 
 /** 与记忆建议一致口径的规范化去重键：NFKC + trim + 小写。 */
 const normalizeKey = (text) => String(text ?? '').normalize('NFKC').trim().toLowerCase()
@@ -118,7 +118,7 @@ export async function previewImport(userId, payload) {
     }
   }
 
-  throw new HttpError('无法识别的导入格式：支持赛博姐妹导出包（JSON）或 persona-text 人设文本', 400)
+  throw new HttpError('无法识别的导入格式：支持Amie导出包（JSON）或 persona-text 人设文本', 400)
 }
 
 /** 应用：只落用户逐条确认的候选，全部走既有校验与红线闸。 */

@@ -173,8 +173,8 @@ export const useChatStore = create(
       }
     },
 
-    sendMessage: async (content) => {
-      if (!content.trim() || get().isSending) return
+    sendMessage: async (content, { image = null } = {}) => {
+      if ((content.trim() === '' && !image) || get().isSending) return
 
       // 发送守卫立即生效，并覆盖会话创建，避免并发发送/并发建会话
       set({ isSending: true })
@@ -205,7 +205,7 @@ export const useChatStore = create(
         set((state) => ({
           messages: [
             ...state.messages,
-            { id: tempUserId, role: 'user', content, createdAt: new Date().toISOString() },
+            { id: tempUserId, role: 'user', content, imagePreviewUrl: image?.previewUrl ?? null, createdAt: new Date().toISOString() },
             { id: tempAiId, role: 'assistant', content: '', streaming: true },
           ],
           isTyping: true,
@@ -217,7 +217,7 @@ export const useChatStore = create(
 
         let streamFailure = null
         try {
-          await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent })
+          await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent, image: image?.blob ?? null })
         } catch (streamError) {
           streamFailure = streamError
         }

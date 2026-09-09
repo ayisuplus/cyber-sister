@@ -10,6 +10,8 @@ const db = vi.hoisted(() => ({
   memoryDeleteMany: vi.fn(),
 }))
 
+const embedding = vi.hoisted(() => ({ embedMemory: vi.fn() }))
+
 vi.mock('../prisma/client.js', () => ({
   default: {
     memory: {
@@ -23,6 +25,8 @@ vi.mock('../prisma/client.js', () => ({
     },
   },
 }))
+
+vi.mock('./embeddingService.js', () => embedding)
 
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -61,6 +65,58 @@ describe('createMemory', () => {
     })
     expect(memory.tags).toEqual(['美食', '火锅'])
     expect(memory.entities).toEqual({})
+  })
+
+  it('创建后 fire-and-forget 触发语义投影，失败不影响保存结果', async () => {
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+
+    const memory = await createMemory('u1', { type: 'semantic', content: '喜欢火锅' })
+
+    expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', content: '喜欢火锅' }))
+    expect(memory.content).toBe('喜欢火锅')
+  })
+
+  it('响应剥离 embedding/embeddingModel 机器投影字段', async () => {
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({
+      id: 'm1', ...data, entities: null, embedding: [0.1, 0.2], embeddingModel: 'text-embedding-v4',
+    }))
+
+    const memory = await createMemory('u1', { type: 'semantic', content: '喜欢火锅' })
+
+    expect(memory).not.toHaveProperty('embedding')
+    expect(memory).not.toHaveProperty('embeddingModel')
+  })
+
+  it('origin/sourceRef 落库并随返回带出；默认 origin 为 manual', async () => {
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    const memory = await createMemory('u1', {
+      type: 'semantic',
+      content: '她想要独立书房',
+      origin: 'promoted',
+      sourceRef: ' insight-1 ',
+    })
+    expect(db.memoryCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ origin: 'promoted', sourceRef: 'insight-1' }),
+    })
+    expect(memory.origin).toBe('promoted')
+    expect(memory.sourceRef).toBe('insight-1')
+
+    await createMemory('u1', { type: 'semantic', content: '手动记忆' })
+    expect(db.memoryCreate).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ origin: 'manual', sourceRef: null }),
+    })
+  })
+
+  it('非法 origin 与非法 sourceRef 抛 400', async () => {
+    await expect(createMemory('u1', { type: 'semantic', content: 'x', origin: 'wild' }))
+      .rejects.toMatchObject({ statusCode: 400, message: '记忆来源不合法' })
+    await expect(createMemory('u1', { type: 'semantic', content: 'x', sourceRef: 42 }))
+      .rejects.toMatchObject({ statusCode: 400, message: '来源引用不合法' })
+    await expect(createMemory('u1', { type: 'semantic', content: 'x', sourceRef: '  ' }))
+      .rejects.toMatchObject({ statusCode: 400, message: '来源引用不合法' })
+    await expect(createMemory('u1', { type: 'semantic', content: 'x', sourceRef: 'y'.repeat(65) }))
+      .rejects.toMatchObject({ statusCode: 400, message: '来源引用不合法' })
+    expect(db.memoryCreate).not.toHaveBeenCalled()
   })
 
   it('拒绝非法类型、空内容、超长内容与非法重要度', async () => {
@@ -163,6 +219,17 @@ describe('updateMemory', () => {
     })
     expect(db.memoryUpdate).not.toHaveBeenCalled()
   })
+  it('改内容触发投影重建，只改标签/重要度不触发', async () => {
+    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1' })
+    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', userId: 'u1', content: '新内容', ...data, entities: null, tags: '[]' }))
+
+    await updateMemory('u1', 'm1', { tags: ['换标签'] })
+    expect(embedding.embedMemory).not.toHaveBeenCalled()
+
+    await updateMemory('u1', 'm1', { content: '新内容' })
+    expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', content: '新内容' }))
+  })
+
 })
 
 describe('deleteMemory / clearAllMemories', () => {

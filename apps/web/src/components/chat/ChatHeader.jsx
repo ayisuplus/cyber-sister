@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { LayoutGrid, Menu, Sparkles } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 
@@ -9,7 +9,7 @@ const MODE_OPTIONS = [
   { id: 'work', label: '工作' },
 ]
 
-export default function ChatHeader() {
+export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
   const user = useAuthStore(state => state.user)
   const personaInfo = getPersona(user?.persona)
   const chatMode = useChatStore(state => state.chatMode)
@@ -28,14 +28,17 @@ export default function ChatHeader() {
 
       <div className="flex h-16 shrink-0 items-center justify-between bg-surface-card px-4 border-b border-border-hairline">
         <div className="flex items-center gap-3">
+          <button type="button" aria-label="打开会话列表" onClick={onOpenDrawer} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-primary min-[641px]:hidden">
+            <Menu size={22} aria-hidden="true" />
+          </button>
           <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-pastel-blush text-lg font-bold text-action-primary shadow-card">
             <span aria-hidden="true">赛</span>
-            <img src="/design-assets/ai-avatar.png" alt="赛博姐妹 AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
+            <img src="/design-assets/ai-avatar.png" alt="Amie AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
           </div>
 
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <h2 className="text-[15px] font-semibold text-text-primary">赛博姐妹</h2>
+              <h2 className="text-[15px] font-semibold text-text-primary">Amie</h2>
               {chatMode === 'chat' && <span className="text-xs" aria-hidden="true">{personaInfo.emoji}</span>}
             </div>
             {chatMode === 'work' ? (
@@ -51,6 +54,11 @@ export default function ChatHeader() {
         </div>
 
         <div className="flex items-center gap-2">
+          {chatMode === 'work' && (
+            <button type="button" aria-label="打开功能桌面" onClick={onOpenWorkbench} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-primary">
+              <LayoutGrid size={20} aria-hidden="true" />
+            </button>
+          )}
           <div role="group" aria-label="会话模式" className="flex rounded-full bg-surface-input p-0.5">
             {MODE_OPTIONS.map(option => {
               const selected = chatMode === option.id

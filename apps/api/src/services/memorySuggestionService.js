@@ -22,6 +22,11 @@ import {
   redactSensitiveText,
 } from './llmService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import {
+  REDACTION_PLACEHOLDER_PATTERN,
+  SENSITIVE_LOCATION_PATTERNS,
+  SENSITIVE_MEDICAL_PATTERNS,
+} from '../utils/sensitivePatterns.js'
 
 const MAX_CANDIDATES = 2
 const SUGGESTION_TIMEOUT_MS = 60000
@@ -34,21 +39,7 @@ const MAX_CONTENT_LENGTH = 2000
 const MAX_TAGS = 10
 const MAX_TAG_LENGTH = 30
 
-// detection.js 目前只提供危机/情绪检测；联系方式与证件号复用 llmService
-// .redactSensitiveText 的确定性模式（脱敏前后不一致即命中）。精确位置与医疗内容
-// 在仓内没有可复用的确定性检测，以下是最保守的候选侧正则排除：宁可放弃候选，
-// 也不冒记住敏感信息的风险。
-const REDACTION_PLACEHOLDER_PATTERN = /\[(?:手机号|邮箱|证件号)\]/
-const SENSITIVE_LOCATION_PATTERNS = [
-  /(?:省|市|区|县|镇|乡).{0,8}(?:路|街|巷|弄|号|栋|单元|室)/,
-  /(?:地址|住址|定位|坐标)\s*[:：是为]/,
-  /\b-?\d{1,3}\.\d{4,}[,，\s]+-?\d{1,3}\.\d{4,}\b/, // GPS 坐标对
-]
-const SENSITIVE_MEDICAL_PATTERNS = [
-  /(?:诊断|确诊|病历|处方|服药|剂量|毫克|复诊|挂号)/,
-  /(?:抑郁症|焦虑症|精神分裂|双相情感障碍|强迫症)/,
-  /\b\d+(?:\.\d+)?\s*mg\b/i,
-]
+// 敏感排除口径见 utils/sensitivePatterns.js（与她的工作台共用同一份）
 
 function buildExtractionPrompt(text) {
   return [

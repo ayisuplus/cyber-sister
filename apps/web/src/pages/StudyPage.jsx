@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { Sparkles } from 'lucide-react'
 import Header from '../components/layout/Header'
-import TabBar from '../components/layout/TabBar'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -267,7 +266,6 @@ export default function StudyPage() {
         onCancel={() => setShowGiveUp(false)}
       />
 
-      <TabBar />
     </div>
   )
 }

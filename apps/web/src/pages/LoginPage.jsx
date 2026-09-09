@@ -62,11 +62,11 @@ export default function LoginPage() {
         <div className="absolute -right-10 bottom-3 h-44 w-44 rounded-full bg-pastel-sprout blur-2xl opacity-70" aria-hidden="true" />
 
         <div className="relative z-10 mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-surface-card shadow-card">
-          <img src="/design-assets/logo.png" alt="赛博姐妹" className="h-16 w-16 object-contain" onError={event => { event.currentTarget.style.display = 'none' }} />
+          <img src="/design-assets/logo.png" alt="Amie" className="h-16 w-16 object-contain" onError={event => { event.currentTarget.style.display = 'none' }} />
         </div>
         <img src="/design-assets/hero-login.png" alt="" loading="lazy" className="relative z-10 mb-4 max-h-36 w-auto max-w-full rounded-2xl object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
 
-        <h1 className="relative z-10 mb-2 text-3xl font-bold tracking-tight text-text-primary">赛博姐妹</h1>
+        <h1 className="relative z-10 mb-2 text-3xl font-bold tracking-tight text-text-primary">Amie</h1>
         <p className="relative z-10 text-sm font-medium text-text-secondary">像闺蜜一样好好说话</p>
         <span className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full bg-surface-card px-3 py-1.5 text-xs font-medium text-status-info shadow-card">
           <ShieldCheck size={14} aria-hidden="true" />

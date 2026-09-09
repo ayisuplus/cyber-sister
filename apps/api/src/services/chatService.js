@@ -20,8 +20,11 @@ import {
   parseCompleteToolCall,
 } from './agentService.js'
 import { createCrisisLog } from './crisisService.js'
+import { maybeAutoAnalyze } from './derivedService.js'
+import { embedQuery } from './embeddingService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import logger from '../utils/logger.js'
+import { saveChatImage, deleteChatImages } from './chatImageService.js'
 
 const MAX_HISTORY_MESSAGES = 19
 // 记忆注入上限：按重要度/更新时间截断，避免全量载入撑爆上下文
@@ -39,11 +42,11 @@ function normalizePagination(page, limit, defaultLimit, maxLimit) {
   return { skip: (normalizedPage - 1) * normalizedLimit, take: normalizedLimit }
 }
 
-export function listConversations(userId, { page, limit } = {}) {
+export async function listConversations(userId, { page, limit } = {}) {
   const { skip, take } = normalizePagination(
     page, limit, DEFAULT_CONVERSATION_PAGE_SIZE, MAX_CONVERSATION_PAGE_SIZE,
   )
-  return prisma.conversation.findMany({
+  const conversations = await prisma.conversation.findMany({
     where: { userId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     skip,
@@ -55,10 +58,15 @@ export function listConversations(userId, { page, limit } = {}) {
       },
     },
   })
-
+  // 纯图消息无文本：列表预览降级为占位符，避免空白一条
+  for (const conversation of conversations) {
+    const last = conversation.messages?.[0]
+    if (last && !last.content && last.imageExt) last.content = '[图片]'
+  }
+  return conversations
 }
 
-export async function createConversation(userId, { title = '赛博姐妹', mode = 'chat' } = {}) {
+export async function createConversation(userId, { title = 'Amie', mode = 'chat' } = {}) {
   if (!['chat', 'work'].includes(mode)) throw new HttpError('模式必须是 chat 或 work', 400)
   const conversation = await prisma.conversation.create({
     data: { userId, title, mode },
@@ -89,11 +97,18 @@ export async function getConversation(conversationId, userId, { page, limit } = 
 
 export async function deleteConversation(conversationId, userId) {
   await findOwned('conversation', conversationId, userId, '会话')
+  const imageMessages = await prisma.message.findMany({
+    where: { conversationId, imageExt: { not: null } },
+    select: { id: true },
+  })
   await prisma.conversation.delete({ where: { id: conversationId } })
+  // best-effort：落盘清理失败不阻塞删除
+  await deleteChatImages(userId, imageMessages.map((m) => m.id))
+    .catch((error) => logger.error('聊天图片清理失败', { error: error.message }))
   logger.info('删除会话', { conversationId, userId })
 }
 
-async function persistTurn(conversationId, userId, content, response, toolRuns = []) {
+async function persistTurn(conversationId, userId, content, response, toolRuns = [], image = null) {
   const result = await prisma.$transaction(async (tx) => {
     const userMessage = await tx.message.create({
       data: { conversationId, role: 'user', content },
@@ -115,6 +130,17 @@ async function persistTurn(conversationId, userId, content, response, toolRuns =
     })
     return { userMessage, aiMessage }
   })
+
+  if (image) {
+    try {
+      const ext = await saveChatImage(userId, result.userMessage.id, image)
+      await prisma.message.update({ where: { id: result.userMessage.id }, data: { imageExt: ext } })
+      result.userMessage.imageExt = ext
+    } catch (error) {
+      // 写盘失败降级为纯文本消息，不丢已到手的 AI 回复
+      logger.error('聊天图片落盘失败', { userId, messageId: result.userMessage.id, error: error.message })
+    }
+  }
 
   return result
 }
@@ -178,7 +204,7 @@ async function loadModelContext(conversationId, userId) {
   }
 
   // 数据库按倒序只取最近 19 条，之后恢复成旧到新；当前消息由 llmService 追加一次。
-  const [descendingHistory, memories] = await Promise.all([
+  const [descendingHistory, memories, derivedInsights, canonicalEdges] = await Promise.all([
     prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'desc' },
@@ -192,11 +218,31 @@ async function loadModelContext(conversationId, userId) {
       },
       orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
       take: MAX_MEMORIES_FOR_PROMPT,
-      select: { content: true, type: true, importance: true, tags: true },
+      select: { id: true, content: true, type: true, importance: true, tags: true, embedding: true },
+    }),
+    prisma.derivedInsight.findMany({
+      where: { userId, status: 'active' },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+      select: { kind: true, content: true, confidence: true },
+    }),
+    prisma.memoryEdge.findMany({
+      where: { userId, status: 'canonical' },
+      select: { fromMemoryId: true, toMemoryId: true },
     }),
   ])
 
-  return { user, modelOptions, history: [...descendingHistory].reverse(), memories }
+  // 一跳联想：canonical 边 join 上记忆内容；边引用已过期/未入选记忆即丢弃——只联想必填上下文内的内容
+  const contentById = new Map(memories.map((memory) => [memory.id, memory.content]))
+  const memoryEdges = []
+  for (const edge of canonicalEdges) {
+    const fromContent = contentById.get(edge.fromMemoryId)
+    const toContent = contentById.get(edge.toMemoryId)
+    if (fromContent === undefined || toContent === undefined) continue
+    memoryEdges.push({ fromMemoryId: edge.fromMemoryId, toMemoryId: edge.toMemoryId, fromContent, toContent })
+  }
+
+  return { user, modelOptions, history: [...descendingHistory].reverse(), memories, derivedInsights, memoryEdges }
 }
 
 const STRATEGY_INSTRUCTION = '你是聊天回复的内部策略参谋。根据给出的环境信息与用户消息，先斟酌本轮的沟通策略。只输出策略要点，不超过 120 字：语气基调、共情与直接的取舍、是否追问、需要避开的边界。不要撰写回复本身，不要与用户对话。'
@@ -205,7 +251,7 @@ const timeOfDay = (hour) => (hour < 6 ? '凌晨' : hour < 12 ? '上午' : hour <
 
 /** 隐藏前置斟酌：产出本轮沟通策略 system 消息；任何失败静默降级为 null，绝不阻断聊天。 */
 async function deliberateCommunicationStrategy(content, { mode, persona, memories }, modelOptions, requestId) {
-  const relevant = retrieveRelevantMemories(content, memories).slice(0, 3)
+  const relevant = retrieveRelevantMemories(content, memories, modelOptions.queryEmbedding).slice(0, 3)
   const memoryLines = relevant.map((m) => `- ${String(m.content).slice(0, MAX_MEMORY_CHARS)}`).join('\n')
   const envLines = [
     `环境：对话模式=${mode === 'work' ? '工作' : '聊天'}；陪伴人格=${persona}；当前时段=${timeOfDay(new Date().getHours())}`,
@@ -231,17 +277,20 @@ async function deliberateCommunicationStrategy(content, { mode, persona, memorie
  * 正常模型回复成功前不写入当前消息，因此超时/供应商失败可以安全重试；
  * 危机分支例外，它必须先于同意检查并以单个事务留下完整干预记录。
  */
-export async function sendMessage(conversationId, userId, rawContent, requestId) {
+export async function sendMessage(conversationId, userId, rawContent, requestId, { image = null } = {}) {
   const conversation = await findOwned('conversation', conversationId, userId, '会话')
   const content = rawContent.trim()
 
-  const crisisLevel = detectCrisis(content)
+  const crisisLevel = content ? detectCrisis(content) : null
   if (crisisLevel) {
     logger.warn('检测到危机内容', { userId, conversationId, crisisLevel })
     return persistBlockedCrisis(conversationId, userId, content, crisisLevel)
   }
 
-  const { user, modelOptions, history, memories } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, derivedInsights, memoryEdges } = await loadModelContext(conversationId, userId)
+  // 语义投影注入：查询向量失败返回 null 即回退关键词路径；两者经 ...modelOptions 零签名改动直达 generate
+  modelOptions.queryEmbedding = await embedQuery(content, modelOptions.allowExternal)
+  modelOptions.memoryEdges = memoryEdges
 
   const strategySystem = await deliberateCommunicationStrategy(
     content,
@@ -250,9 +299,11 @@ export async function sendMessage(conversationId, userId, rawContent, requestId)
     requestId,
   )
 
-  const aiResponse = await runAgentTurns(content, user.persona, history, memories, requestId, modelOptions, userId, conversation.mode, rolePlaySystem(user, conversation.mode || 'chat'), strategySystem)
+  const aiResponse = await runAgentTurns(content, user.persona, history, memories, requestId, modelOptions, userId, conversation.mode, rolePlaySystem(user, conversation.mode || 'chat'), strategySystem, derivedInsights, image)
   const { toolRuns: _toolRuns, ...responsePayload } = aiResponse
-  const saved = await persistTurn(conversationId, userId, content, responsePayload, aiResponse.toolRuns)
+  const saved = await persistTurn(conversationId, userId, content, responsePayload, aiResponse.toolRuns, image)
+  // 工作台自动分析：fire-and-forget，绝不阻塞或失败聊天
+  void maybeAutoAnalyze(userId, requestId).catch((error) => logger.warn('工作台分析失败', { requestId, error: error.message }))
 
   logger.debug('消息发送成功', {
     requestId,
@@ -267,6 +318,9 @@ export async function sendMessage(conversationId, userId, rawContent, requestId)
 }
 
 const MAX_AGENT_TOOL_ROUNDS = 3
+
+// 照片点评引导：发图轮注入，约束人格直接给具体可执行的穿搭/妆容/状态点评
+const IMAGE_REVIEW_NUDGE = '用户这轮发来一张照片（她可能想听穿搭/妆容/状态的具体点评）。请直接看着照片给出具体、可执行的点评（颜色/版型/搭配/气色），保持你的人格语气，不要推托说看不见。'
 
 /** 角色扮演设定：与人格叠加，仅聊天场景注入；工作模式、本地兜底模板与短评管线不带角色。 */
 function rolePlaySystem(user, mode) {
@@ -283,7 +337,7 @@ function rolePlaySystem(user, mode) {
  * 上限后追加一次强制文本轮，仍输出工具 JSON 则以本地模板兜底。
  * 返回 { ...generateResponse 结果, toolRuns }。
  */
-async function runAgentTurns(content, persona, history, memories, requestId, modelOptions, userId, mode = 'chat', roleSystem = null, strategySystem = null) {
+async function runAgentTurns(content, persona, history, memories, requestId, modelOptions, userId, mode = 'chat', roleSystem = null, strategySystem = null, derivedInsights = [], image = null) {
   const toolRuns = []
   let toolRounds = 0
   const executedSignatures = new Set()
@@ -292,6 +346,7 @@ async function runAgentTurns(content, persona, history, memories, requestId, mod
     ? `${WORK_MODE_PREAMBLE}\n${buildToolSystemPrompt('work')}`
     : buildToolSystemPrompt('chat')
   const extraSystem = [...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
+  if (image) extraSystem.push({ role: 'system', content: IMAGE_REVIEW_NUDGE })
   let loopHistory = history
   let forcedFinal = false
   for (;;) {
@@ -303,7 +358,7 @@ async function runAgentTurns(content, persona, history, memories, requestId, mod
       loopHistory,
       memories,
       requestId,
-      { ...modelOptions, extraSystem, scene },
+      { ...modelOptions, extraSystem, scene, derivedInsights, ...(image ? { image } : {}) },
     )
     const call = parseCompleteToolCall(aiResponse.content)
     if (!call) return { ...aiResponse, toolRuns }
@@ -337,11 +392,11 @@ async function runAgentTurns(content, persona, history, memories, requestId, mod
  *   { type: 'done', status: 'ok', userMessage, aiMessage, source }     落库后的最终结果
  *   { type: 'error', reason }                                          固定错误码，不落库
  */
-export async function* sendMessageStream(conversationId, userId, rawContent, requestId, { signal } = {}) {
+export async function* sendMessageStream(conversationId, userId, rawContent, requestId, { signal, image = null } = {}) {
   const conversation = await findOwned('conversation', conversationId, userId, '会话')
   const content = rawContent.trim()
 
-  const crisisLevel = detectCrisis(content)
+  const crisisLevel = content ? detectCrisis(content) : null
   if (crisisLevel) {
     logger.warn('检测到危机内容', { userId, conversationId, crisisLevel })
     const blocked = await persistBlockedCrisis(conversationId, userId, content, crisisLevel)
@@ -349,7 +404,9 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
     return
   }
 
-  const { user, modelOptions, history, memories } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, derivedInsights, memoryEdges } = await loadModelContext(conversationId, userId)
+  modelOptions.queryEmbedding = await embedQuery(content, modelOptions.allowExternal)
+  modelOptions.memoryEdges = memoryEdges
   const toolRuns = []
   let toolRounds = 0
   const executedSignatures = new Set()
@@ -366,6 +423,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
     : buildToolSystemPrompt('chat')
   const roleSystem = rolePlaySystem(user, mode)
   const extraSystem = [...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
+  if (image) extraSystem.push({ role: 'system', content: IMAGE_REVIEW_NUDGE })
   let loopHistory = history
   let forcedFinal = false
 
@@ -380,7 +438,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
       loopHistory,
       memories,
       requestId,
-      { ...modelOptions, signal, extraSystem, scene },
+      { ...modelOptions, signal, extraSystem, scene, derivedInsights, ...(image ? { image } : {}) },
     )) {
       if (event.type === 'toolcall') { toolcall = event; break }
       if (event.type === 'done') { doneEvent = event; break }
@@ -396,7 +454,9 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
         finalEvent = { ...doneEvent, content: template.content, source: template.source }
       }
       // eslint-disable-next-line no-await-in-loop
-      const saved = await persistTurn(conversationId, userId, content, finalEvent, toolRuns)
+      const saved = await persistTurn(conversationId, userId, content, finalEvent, toolRuns, image)
+      // 工作台自动分析：fire-and-forget，绝不阻塞或失败聊天
+      void maybeAutoAnalyze(userId, requestId).catch((error) => logger.warn('工作台分析失败', { requestId, error: error.message }))
       logger.debug('消息发送成功', {
         requestId,
         conversationId,

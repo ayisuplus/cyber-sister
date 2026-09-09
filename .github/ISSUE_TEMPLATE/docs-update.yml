@@ -27,7 +27,7 @@ body:
     id: doc-path
     attributes:
       label: 相关文档路径
-      description: 例如 docs/Spec_赛博姐妹_v1.0.md
+      description: 例如 docs/Spec_Amie_v1.0.md
       placeholder: docs/xxx.md
     validations:
       required: true

@@ -101,7 +101,7 @@ def generate_qlora_samples(
     """
     template = config.get("qlora_template", {})
     instruction = template.get("instruction", "作为闺蜜，请回应以下话题")
-    system_prompt = template.get("system_prompt", "你是赛博姐妹，一个温暖、贴心的AI闺蜜。")
+    system_prompt = template.get("system_prompt", "你是Amie，一个温暖、贴心的AI闺蜜。")
 
     samples: List[Dict[str, str]] = []
 
@@ -146,7 +146,7 @@ def generate_dpo_pairs(
     dpo_template = config.get("dpo_template", {})
     system_prompt = dpo_template.get(
         "system_prompt",
-        "你是赛博姐妹，一个温暖、贴心的AI闺蜜。请生成温暖、共情的回复。",
+        "你是Amie，一个温暖、贴心的AI闺蜜。请生成温暖、共情的回复。",
     )
     chosen_style = dpo_template.get("chosen_style", "温暖、共情、真诚、有帮助")
     rejected_style = dpo_template.get("rejected_style", "冷漠、敷衍、不相关、机械化")

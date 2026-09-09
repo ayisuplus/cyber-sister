@@ -135,9 +135,9 @@ describe('用户、同意与显式记忆 API', () => {
       .set(authed())
       .send({ accepted: true })
 
-    expect(initial.body).toEqual({ accepted: null, version: 'cloud-primary-v1', updatedAt: null })
-    expect(declined.body).toMatchObject({ accepted: false, version: 'cloud-primary-v1' })
-    expect(accepted.body).toMatchObject({ accepted: true, version: 'cloud-primary-v1' })
+    expect(initial.body).toEqual({ accepted: null, version: 'cloud-primary-v3', updatedAt: null })
+    expect(declined.body).toMatchObject({ accepted: false, version: 'cloud-primary-v3' })
+    expect(accepted.body).toMatchObject({ accepted: true, version: 'cloud-primary-v3' })
     expect(state.users.get('user-1').externalLlmConsent).toBe(true)
   })
 
@@ -152,7 +152,7 @@ describe('用户、同意与显式记忆 API', () => {
       .get('/api/user/external-llm-consent')
       .set(authed())
 
-    expect(res.body).toEqual({ accepted: null, version: 'cloud-primary-v1', updatedAt: null })
+    expect(res.body).toEqual({ accepted: null, version: 'cloud-primary-v3', updatedAt: null })
   })
 
   it('人格只接受 toxic、gentle 和 rational', async () => {

@@ -35,7 +35,7 @@ export default function CloudFallbackNotice({ onClose }) {
         这个姐妹住在云端
       </h2>
       <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）会发送给外部模型供应商处理；不同意暂时无法聊天。你随时可以在「我的」页面改主意。
+        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）与你主动发送的照片会发送给外部模型供应商处理；不同意暂时无法聊天。你随时可以在「我的」页面改主意。同意后你的记忆内容也会发往该模型生成语义向量，用于找得更准。
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button

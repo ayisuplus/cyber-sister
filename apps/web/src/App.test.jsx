@@ -11,7 +11,8 @@ vi.mock('./pages/MembershipPage', () => ({ default: () => <h1>会员页</h1> }))
 vi.mock('./pages/LocalModelPage', () => ({ default: () => <h1>本地模型页</h1> }))
 vi.mock('./pages/VirtualMakeupRoomPage', () => ({ default: () => <h1>虚拟化妆间页</h1> }))
 vi.mock('./pages/VirtualFittingRoomPage', () => ({ default: () => <h1>虚拟试衣间页</h1> }))
-vi.mock('./pages/BeautyCameraPage', () => ({ default: () => <h1>美颜相机页</h1> }))
+vi.mock('./pages/MakeupRoomPage', () => ({ default: () => <h1>化妆间页</h1> }))
+vi.mock('./pages/WardrobePage', () => ({ default: () => <h1>3D 衣柜页</h1> }))
 vi.mock('./pages/PeriodPage', () => ({ default: () => <h1>经期记录页</h1> }))
 vi.mock('./pages/CountdownPage', () => ({ default: () => <h1>倒数日页</h1> }))
 vi.mock('./pages/TodoPage', () => ({ default: () => <h1>待办页</h1> }))
@@ -55,7 +56,8 @@ describe('root routing', () => {
   })
   it.each([
     ['/tools/period', '经期记录页'],
-    ['/tools/beauty-camera', '美颜相机页'],
+    ['/tools/makeup-room', '化妆间页'],
+    ['/tools/wardrobe', '3D 衣柜页'],
     ['/tools/countdown', '倒数日页'],
     ['/tools/todo', '待办页'],
     ['/tools/diary', '日记页'],

@@ -53,8 +53,9 @@ describe('MemorySuggestion', () => {
       content: '最爱科幻电影',
       importance: 9,
       tags: ['电影', '科幻'],
+      origin: 'suggestion',
+      sourceRef: 'u1',
     })
-    // 保存成功的卡片让位给一句内联确认
     expect(await screen.findByText('已记住')).toBeInTheDocument()
     expect(screen.queryByLabelText('记忆内容')).not.toBeInTheDocument()
   })

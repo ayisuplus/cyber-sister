@@ -4,13 +4,13 @@ import { useAuthStore } from '../../stores/authStore'
 import { useAppearanceStore } from '../../stores/appearanceStore'
 import useGlobalShortcuts from '../../hooks/useGlobalShortcuts'
 import ShortcutHelpModal from '../chat/ShortcutHelpModal'
-import DesktopSidebar from './DesktopSidebar'
+import AppSidebar from './AppSidebar'
 
 /**
  * AppShell — 响应式应用外壳
  *
- * 手机（<=640px）：全屏单列 + 页面内底部 TabBar（不变）
- * 平板/桌面（>640px）：左侧导航 + 居中宽内容区（不再是手机模拟器）
+ * 手机（<=640px）：全屏单列，会话经聊天页抽屉
+ * 平板/桌面（>640px）：左侧会话栏 + 居中宽内容区（不再是手机模拟器）
  * 裸路由（/login）：无侧栏，居中卡片 + 环境渐变底
  * 自定义主页背景：铺满 main，叠加层保证文字可读；未设置时保持 pastel 渐变/纯色底
  */
@@ -35,7 +35,7 @@ export default function AppShell({ children }) {
 
   return (
     <div className="app-shell">
-      <DesktopSidebar />
+      <AppSidebar />
       <main
         className="app-main"
         style={homeBgUrl ? { backgroundImage: `url(${homeBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}

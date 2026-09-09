@@ -49,7 +49,7 @@ beforeEach(() => vi.clearAllMocks())
 
 describe('数据导出路由', () => {
   it('GET /export 返回导出包并带下载头', async () => {
-    exportService.buildUserExport.mockResolvedValue({ version: 1, product: '赛博姐妹 cyber-sister', user: { nickname: '小赛' }, memories: [] })
+    exportService.buildUserExport.mockResolvedValue({ version: 1, product: 'Amie cyber-sister', user: { nickname: '小赛' }, memories: [] })
 
     const response = await request(app).get('/export')
 

@@ -10,6 +10,7 @@ vi.mock('../services/memoryService', () => ({
     update: vi.fn(),
     remove: vi.fn(),
     clear: vi.fn(),
+    rebuildEmbeddings: vi.fn(),
   },
 }))
 
@@ -218,5 +219,53 @@ describe('MemoriesPage', () => {
 
     expect(await screen.findByText('清空失败，请重试')).toBeInTheDocument()
     expect(screen.getByText('喜欢桂花味')).toBeInTheDocument()
+  })
+
+  it('shows the provenance chip for promoted memories only', async () => {
+    memoryService.list.mockResolvedValue([
+      { ...sampleMemory, id: 'm1', origin: 'promoted' },
+      { ...sampleMemory, id: 'm2', content: '手动记的一条', origin: 'manual' },
+    ])
+
+    renderPage()
+
+    const promotedCard = within((await screen.findByText('喜欢桂花味')).closest('article'))
+    expect(promotedCard.getByText('工作台定典')).toBeInTheDocument()
+    const manualCard = within(screen.getByText('手动记的一条').closest('article'))
+    expect(manualCard.getByText('你记下的')).toBeInTheDocument()
+  })
+  it('重建语义索引需确认，确认后显示计数文案', async () => {
+    const user = userEvent.setup()
+    memoryService.list.mockResolvedValue([sampleMemory])
+    memoryService.rebuildEmbeddings.mockResolvedValue({ embedded: 2, failed: 0, skipped: 1 })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /重建语义索引/ }))
+    expect(memoryService.rebuildEmbeddings).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '确认重建' }))
+    expect(memoryService.rebuildEmbeddings).toHaveBeenCalled()
+    expect(await screen.findByText('语义索引已重建：新增 2 条，已是最新 1 条')).toBeInTheDocument()
+  })
+
+  it('重建失败计数并入文案；未同意显示同意引导，供应商不可用显示诚实错误', async () => {
+    const user = userEvent.setup()
+    memoryService.list.mockResolvedValue([sampleMemory])
+    memoryService.rebuildEmbeddings.mockResolvedValue({ embedded: 1, failed: 1, skipped: 0 })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /重建语义索引/ }))
+    await user.click(screen.getByRole('button', { name: '确认重建' }))
+    expect(await screen.findByText('语义索引已重建：新增 1 条，失败 1 条，已是最新 0 条')).toBeInTheDocument()
+
+    memoryService.rebuildEmbeddings.mockRejectedValue({ response: { data: { code: 'CLOUD_NOT_CONSENTED' } } })
+    await user.click(screen.getByRole('button', { name: /重建语义索引/ }))
+    await user.click(screen.getByRole('button', { name: '确认重建' }))
+    expect(await screen.findByText('需要先在「我的 → 云端模型」同意')).toBeInTheDocument()
+
+    memoryService.rebuildEmbeddings.mockRejectedValue({ response: { data: { code: 'LLM_UNAVAILABLE' } } })
+    await user.click(screen.getByRole('button', { name: /重建语义索引/ }))
+    await user.click(screen.getByRole('button', { name: '确认重建' }))
+    expect(await screen.findByText('云端模型暂时不可用')).toBeInTheDocument()
   })
 })

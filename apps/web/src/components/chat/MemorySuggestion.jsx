@@ -2,15 +2,13 @@ import { useState } from 'react'
 import { Brain, Save } from 'lucide-react'
 import Spinner from '../ui/Spinner'
 import { memoryService } from '../../services/memoryService'
+import { parseTags } from '../../utils/parseTags'
 
 const TYPE_OPTIONS = [
   { value: 'semantic', label: '语义记忆' },
   { value: 'episodic', label: '情景记忆' },
   { value: 'procedural', label: '程序记忆' },
 ]
-
-// 与 MemoriesPage 一致：中英文逗号分隔，去除空白与空标签
-const parseTags = (value) => value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean)
 
 const toCard = (candidate) => ({
   type: TYPE_OPTIONS.some((option) => option.value === candidate.type) ? candidate.type : 'semantic',
@@ -59,6 +57,8 @@ export default function MemorySuggestion({ userMessageId }) {
         content: card.content.trim(),
         importance: Number(card.importance),
         tags: parseTags(card.tags),
+        origin: 'suggestion',
+        sourceRef: userMessageId,
       })
       updateCard(index, { saving: false, saved: true })
     } catch {

@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import * as memoryService from '../services/memoryService.js'
 import * as memorySuggestionService from '../services/memorySuggestionService.js'
+import * as embeddingService from '../services/embeddingService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -14,7 +15,8 @@ function sendError(res, error, fallback) {
 
 router.post('/', async (req, res) => {
   try {
-    const memory = await memoryService.createMemory(req.user.userId, req.body)
+    const origin = req.body?.origin === 'suggestion' ? 'suggestion' : 'manual'
+    const memory = await memoryService.createMemory(req.user.userId, { ...req.body, origin })
     res.status(201).json(memory)
   } catch (error) {
     logger.error('创建记忆失败', { error: error.message, userId: req.user.userId })
@@ -34,6 +36,17 @@ router.post('/suggestions', async (req, res) => {
   } catch (error) {
     logger.error('生成记忆建议失败', { error: error.message, userId: req.user.userId })
     sendError(res, error, '生成记忆建议失败')
+  }
+})
+
+// 语义索引重建（M2）：向量投影可重建，同意门与计数由 embeddingService 保证
+router.post('/embeddings/rebuild', async (req, res) => {
+  try {
+    const result = await embeddingService.rebuildEmbeddings(req.user.userId)
+    res.json(result)
+  } catch (error) {
+    logger.error('重建语义索引失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '重建语义索引失败')
   }
 })
 

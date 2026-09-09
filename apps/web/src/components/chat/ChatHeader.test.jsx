@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -53,7 +53,7 @@ describe('ChatHeader', () => {
     useAuthStore.setState({ user: null })
     render(<ChatHeader />)
 
-    const avatar = screen.getByAltText('赛博姐妹 AI')
+    const avatar = screen.getByAltText('Amie AI')
     avatar.dispatchEvent(new Event('error'))
 
     expect(avatar.style.display).toBe('none')
@@ -80,6 +80,19 @@ describe('ChatHeader', () => {
     // 云端切割后内置浏览器已删除：工作模式不再渲染任何浏览器状态徽标
     expect(screen.queryByText('浏览器已就绪')).not.toBeInTheDocument()
     expect(screen.queryByText('浏览器未启用')).not.toBeInTheDocument()
+  })
+
+  it('工作模式出现「打开功能桌面」按钮并触发回调；聊天模式不出现', () => {
+    useAuthStore.setState({ user: null })
+    useChatStore.setState({ chatMode: 'work' })
+    const onOpenWorkbench = vi.fn()
+
+    render(<ChatHeader onOpenWorkbench={onOpenWorkbench} />)
+    fireEvent.click(screen.getByRole('button', { name: '打开功能桌面' }))
+    expect(onOpenWorkbench).toHaveBeenCalledTimes(1)
+
+    act(() => useChatStore.setState({ chatMode: 'chat' }))
+    expect(screen.queryByRole('button', { name: '打开功能桌面' })).not.toBeInTheDocument()
   })
 
 })

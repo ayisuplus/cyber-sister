@@ -70,7 +70,7 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
     expect(await prisma.user.count({ where: { phone: seedPhone } })).toBe(1)
   })
 
-  it('persists consent, message source, explicit memory and singleton local-model config', async () => {
+  it('persists consent, message source and explicit memory', async () => {
     const phone = `199${String(Date.now()).slice(-8)}`
     let userId
     try {
@@ -80,7 +80,7 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
             phone,
             persona: 'rational',
             externalLlmConsent: true,
-            externalLlmConsentVersion: 'cloud-primary-v1',
+            externalLlmConsentVersion: 'cloud-primary-v3',
             externalLlmConsentUpdatedAt: new Date(),
           },
         })
@@ -105,42 +105,20 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
             tags: JSON.stringify(['集成测试']),
           },
         })
-        const llmConfig = await tx.llmRuntimeConfig.upsert({
-          where: { id: 'local' },
-          create: {
-            id: 'local',
-            provider: 'llamacpp',
-            baseUrl: 'http://llama:8080/v1',
-            model: 'integration-model',
-            updatedByUserId: user.id,
-          },
-          update: {
-            baseUrl: 'http://llama:8080/v1',
-            model: 'integration-model',
-            revision: { increment: 1 },
-            updatedByUserId: user.id,
-          },
-        })
-        return { user, conversation, memory, llmConfig }
+        return { user, conversation, memory }
       })
       userId = created.user.id
 
       expect(created.user).toMatchObject({
         persona: 'rational',
         externalLlmConsent: true,
-        externalLlmConsentVersion: 'cloud-primary-v1',
+        externalLlmConsentVersion: 'cloud-primary-v3',
       })
       expect(created.conversation.messages).toHaveLength(2)
       expect(created.conversation.messages[1]).toMatchObject({ source: 'local_template' })
       expect(created.memory).toMatchObject({ type: 'semantic', importance: 7 })
-      expect(created.llmConfig).toMatchObject({
-        id: 'local',
-        provider: 'llamacpp',
-        model: 'integration-model',
-      })
     } finally {
       if (userId) {
-        await prisma.llmRuntimeConfig.deleteMany({ where: { updatedByUserId: userId } })
         await prisma.user.delete({ where: { id: userId } })
       }
     }
