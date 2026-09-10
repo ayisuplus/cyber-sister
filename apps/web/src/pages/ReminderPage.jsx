@@ -66,7 +66,7 @@ export default function ReminderPage() {
     }
   }
 
-  const sorted = [...scheduledReminders].sort((a, b) => new Date(a.nextFireAt) - new Date(b.nextFireAt))
+  const sorted = [...scheduledReminders].sort((a, b) => new Date(a.nextFireAt).getTime() - new Date(b.nextFireAt).getTime())
 
   return (
     <div className="flex h-full flex-col">
