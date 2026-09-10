@@ -8,6 +8,7 @@ import prisma from '../prisma/client.js'
 import { findOwned, deleteOwned, HttpError } from '../utils/dbHelpers.js'
 
 const MAX_CONTENT_LENGTH = 200
+const MAX_INSTRUCTION_LENGTH = 500
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const FREQS = ['once', 'daily', 'weekly', 'monthly']
@@ -48,6 +49,15 @@ function validateMonthDay(monthDay) {
     throw new HttpError('每月提醒的日期必须是 1-31 的整数', 400)
   }
   return monthDay
+}
+
+// 任务指令：可选；非空字符串且 ≤500 字。null/空串一律归一化为 null（= 纯提醒）
+function validateInstruction(instruction) {
+  if (instruction === undefined || instruction === null || instruction === '') return null
+  if (typeof instruction !== 'string' || !instruction.trim() || instruction.trim().length > MAX_INSTRUCTION_LENGTH) {
+    throw new HttpError(`任务指令必须为1到${MAX_INSTRUCTION_LENGTH}个字符`, 400)
+  }
+  return instruction.trim()
 }
 
 // ============ 下次触发时刻（纯函数，本地时间语义） ============
@@ -100,7 +110,7 @@ function buildFields(args) {
   const freq = args.freq ?? 'once'
   if (!FREQS.includes(freq)) throw new HttpError(`提醒频率必须是 ${FREQS.join('/')}`, 400)
 
-  const fields = { content: validateContent(args.content), freq, weekdays: [], monthDay: null, fireAt: null, time: null }
+  const fields = { content: validateContent(args.content), freq, weekdays: [], monthDay: null, fireAt: null, time: null, instruction: validateInstruction(args.instruction) }
 
   if (freq === 'once') {
     const time = validateTime(args.time)
@@ -134,6 +144,7 @@ export async function updateScheduledReminder(id, userId, args) {
   await findOwned('scheduledReminder', id, userId, '提醒')
   const updateData = {}
   if (args.content !== undefined) updateData.content = validateContent(args.content)
+  if (args.instruction !== undefined) updateData.instruction = validateInstruction(args.instruction)
   if (args.status !== undefined) {
     if (!['active', 'paused'].includes(args.status)) throw new HttpError('状态只能是 active 或 paused', 400)
     updateData.status = args.status
@@ -151,6 +162,7 @@ export async function updateScheduledReminder(id, userId, args) {
       monthDay: args.monthDay ?? current.monthDay,
     })
     delete fields.content
+    delete fields.instruction
     Object.assign(updateData, fields)
     if (current.status === 'done') updateData.status = 'active'
   }
@@ -181,9 +193,55 @@ export async function listDueReminders(userId, now = new Date()) {
   ))
   return prisma.reminderDelivery.findMany({
     where: { status: 'pending', reminder: { userId } },
-    include: { reminder: { select: { id: true, content: true, freq: true, time: true } } },
+    include: { reminder: { select: { id: true, content: true, freq: true, time: true, instruction: true } } },
     orderBy: { fireAt: 'asc' },
   })
+}
+
+// 调度推进：一次性置 done，循环类算下一次（执行或确认后共用）
+async function advanceSchedule(reminder, fireAt) {
+  if (reminder.freq === 'once') {
+    await prisma.scheduledReminder.update({ where: { id: reminder.id }, data: { status: 'done' } })
+  } else {
+    await prisma.scheduledReminder.update({
+      where: { id: reminder.id },
+      data: { nextFireAt: computeNextFire(reminder, fireAt) },
+    })
+  }
+}
+
+async function findOwnedDelivery(deliveryId, userId) {
+  const delivery = await prisma.reminderDelivery.findUnique({
+    where: { id: deliveryId },
+    include: { reminder: true },
+  })
+  if (!delivery || delivery.reminder.userId !== userId) throw new HttpError('提醒投递不存在', 404)
+  return delivery
+}
+
+/**
+ * 定时任务执行成功：产出写入投递（保持 pending 等用户在铃铛里看到），调度立即推进。
+ * 推进不依赖用户确认，避免未读时反复执行同一批任务。
+ */
+export async function completeTaskDelivery(deliveryId, userId, result) {
+  const delivery = await findOwnedDelivery(deliveryId, userId)
+  const updated = await prisma.reminderDelivery.update({
+    where: { id: deliveryId },
+    data: { result: String(result ?? '').slice(0, 4000) },
+  })
+  await advanceSchedule(delivery.reminder, delivery.fireAt)
+  return updated
+}
+
+/** 定时任务执行失败：标记 failed 并推进调度，不做无限重试。 */
+export async function failTaskDelivery(deliveryId, userId) {
+  const delivery = await findOwnedDelivery(deliveryId, userId)
+  const updated = await prisma.reminderDelivery.update({
+    where: { id: deliveryId },
+    data: { status: 'failed' },
+  })
+  await advanceSchedule(delivery.reminder, delivery.fireAt)
+  return updated
 }
 
 /**
@@ -191,25 +249,17 @@ export async function listDueReminders(userId, now = new Date()) {
  */
 export async function ackDelivery(deliveryId, userId, action) {
   if (!['shown', 'dismissed'].includes(action)) throw new HttpError('操作只能是 shown 或 dismissed', 400)
-  const delivery = await prisma.reminderDelivery.findUnique({
-    where: { id: deliveryId },
-    include: { reminder: true },
-  })
-  if (!delivery || delivery.reminder.userId !== userId) throw new HttpError('提醒投递不存在', 404)
+  const delivery = await findOwnedDelivery(deliveryId, userId)
 
   const updated = await prisma.reminderDelivery.update({
     where: { id: deliveryId },
     data: { status: action },
   })
 
-  const reminder = delivery.reminder
-  if (reminder.freq === 'once') {
-    await prisma.scheduledReminder.update({ where: { id: reminder.id }, data: { status: 'done' } })
-  } else {
-    await prisma.scheduledReminder.update({
-      where: { id: reminder.id },
-      data: { nextFireAt: computeNextFire(reminder, delivery.fireAt) },
-    })
+  // 纯提醒在确认时才推进（任务已在执行时推进，这里重复推进无副作用：
+  // 一次性已 done，循环类 nextFireAt 已越过本次 fireAt，computeNextFire 幂等）
+  if (delivery.reminder.status !== 'done' && delivery.reminder.nextFireAt <= delivery.fireAt) {
+    await advanceSchedule(delivery.reminder, delivery.fireAt)
   }
   return updated
 }

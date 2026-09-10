@@ -135,7 +135,7 @@ describe('ackDelivery', () => {
   it('一次性提醒 ack 后置 done', async () => {
     const delivery = {
       id: 'd1', fireAt: local(2026, 9, 10, 8, 0),
-      reminder: { id: 'r1', userId: 'u1', freq: 'once' },
+      reminder: { id: 'r1', userId: 'u1', freq: 'once', status: 'active', nextFireAt: local(2026, 9, 10, 8, 0) },
     }
     mocks.rdFindUnique.mockResolvedValue(delivery)
     mocks.rdUpdate.mockResolvedValue({ ...delivery, status: 'shown' })
@@ -148,7 +148,7 @@ describe('ackDelivery', () => {
     const fireAt = local(2026, 9, 10, 8, 0) // 周四
     const delivery = {
       id: 'd1', fireAt,
-      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '08:00', weekdays: [], monthDay: null },
+      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '08:00', weekdays: [], monthDay: null, status: 'active', nextFireAt: fireAt },
     }
     mocks.rdFindUnique.mockResolvedValue(delivery)
     mocks.rdUpdate.mockResolvedValue({})
@@ -188,5 +188,64 @@ describe('update/delete', () => {
     mocks.srDelete.mockResolvedValue({})
     await deleteScheduledReminder('r1', 'u1')
     expect(mocks.srDelete).toHaveBeenCalled()
+  })
+})
+
+describe('定时任务（instruction）', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('创建任务：instruction 入库；超长指令报 400', async () => {
+    mocks.srCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'r1', ...data }))
+    const task = await createScheduledReminder('u1', {
+      content: '每周日记总结', freq: 'weekly', time: '20:00', weekdays: [5],
+      instruction: '总结一下我这周的日记，给我一段温暖的回顾',
+    })
+    expect(task.instruction).toContain('日记')
+    await expect(Promise.resolve().then(() => createScheduledReminder('u1', {
+      content: 'x', freq: 'daily', time: '09:00', instruction: 'y'.repeat(501),
+    }))).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('completeTaskDelivery：写入产出保持 pending，调度立即推进', async () => {
+    const fireAt = local(2026, 9, 10, 20, 0)
+    mocks.rdFindUnique.mockResolvedValue({
+      id: 'd1', fireAt,
+      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '20:00', weekdays: [], monthDay: null, status: 'active' },
+    })
+    mocks.rdUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'd1', ...data }))
+    mocks.srUpdate.mockResolvedValue({})
+    const { completeTaskDelivery } = await import('./reminderService.js')
+    const updated = await completeTaskDelivery('d1', 'u1', '你这周写了 3 篇日记……')
+    expect(updated.result).toContain('日记')
+    expect(updated.status).toBeUndefined() // 未动 status，保持 pending
+    expect(mocks.srUpdate).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: { nextFireAt: local(2026, 9, 11, 20, 0) },
+    })
+  })
+
+  it('failTaskDelivery：标记 failed 并推进，一次性任务直接 done', async () => {
+    mocks.rdFindUnique.mockResolvedValue({
+      id: 'd1', fireAt: local(2026, 9, 10, 20, 0),
+      reminder: { id: 'r1', userId: 'u1', freq: 'once', status: 'active' },
+    })
+    mocks.rdUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'd1', ...data }))
+    mocks.srUpdate.mockResolvedValue({})
+    const { failTaskDelivery } = await import('./reminderService.js')
+    const updated = await failTaskDelivery('d1', 'u1')
+    expect(updated.status).toBe('failed')
+    expect(mocks.srUpdate).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { status: 'done' } })
+  })
+
+  it('任务投递 ack 不再重复推进调度', async () => {
+    const fireAt = local(2026, 9, 10, 20, 0)
+    mocks.rdFindUnique.mockResolvedValue({
+      id: 'd1', fireAt,
+      // 执行时已推进到明天（nextFireAt > fireAt）
+      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '20:00', weekdays: [], monthDay: null, status: 'active', nextFireAt: local(2026, 9, 11, 20, 0) },
+    })
+    mocks.rdUpdate.mockResolvedValue({})
+    await ackDelivery('d1', 'u1', 'shown')
+    expect(mocks.srUpdate).not.toHaveBeenCalled()
   })
 })

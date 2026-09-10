@@ -407,6 +407,8 @@ model ScheduledReminder {
   id         String    @id @default(uuid())
   userId     String    @map("user_id")
   content    String
+  // 有指令 = 定时任务：到点跑 agent 回路执行并把产出写进投递；无指令 = 纯提醒
+  instruction String?  @db.Text
   freq       String    @default("once") // once | daily | weekly | monthly
   time       String? // 'HH:mm' 本地时间（循环类用）
   fireAt     DateTime? @map("fire_at") // 一次性：具体触发时刻（UTC）
@@ -428,7 +430,8 @@ model ReminderDelivery {
   id         String   @id @default(uuid())
   reminderId String   @map("reminder_id")
   fireAt     DateTime @map("fire_at") // 该次触发时刻（UTC），= 当时的 nextFireAt
-  status     String   @default("pending") // pending | shown | dismissed
+  status     String   @default("pending") // pending | shown | dismissed | failed
+  result     String?  @db.Text // 定时任务的执行产出（纯提醒恒为 null）
   createdAt  DateTime @default(now()) @map("created_at")
 
   reminder ScheduledReminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)

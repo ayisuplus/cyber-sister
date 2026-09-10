@@ -144,7 +144,7 @@ const CHAT_TOOLS = {
     },
   },
   add_scheduled_reminder: {
-    description: '{"tool":"add_scheduled_reminder","args":{"content":"提醒内容","freq":"once|daily|weekly|monthly，默认 once","time":"HH:mm","date":"freq=once 必填 yyyy-MM-dd","weekdays":"freq=weekly 必填 [0-6]，0 为周日","monthDay":"freq=monthly 必填 1-31"}} 创建自定义定时提醒（任意内容，到点应用内通知）',
+    description: '{"tool":"add_scheduled_reminder","args":{"content":"提醒/任务名","freq":"once|daily|weekly|monthly，默认 once","time":"HH:mm","date":"freq=once 必填 yyyy-MM-dd","weekdays":"freq=weekly 必填 [0-6]，0 为周日","monthDay":"freq=monthly 必填 1-31","instruction":"可选：任务指令。填了就是定时任务，到点你亲自执行（可查日程/日记等工具）并把结果给她；不填只是到点提醒"}} 创建自定义定时提醒或定时任务（到点应用内通知）',
     run: async (userId, args) => {
       const reminder = await createScheduledReminder(userId, args)
       return {
@@ -162,6 +162,7 @@ const CHAT_TOOLS = {
         result: reminders.map((r) => ({
           id: r.id, content: r.content, freq: r.freq, time: r.time,
           weekdays: r.weekdays, monthDay: r.monthDay, nextFireAt: r.nextFireAt, status: r.status,
+          isTask: Boolean(r.instruction),
         })),
       }
     },

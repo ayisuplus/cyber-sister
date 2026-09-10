@@ -180,8 +180,8 @@ async function persistBlockedCrisis(conversationId, userId, content, level) {
   }
 }
 
-/** 用户同意装配 + 历史/记忆查询，JSON 与流式路径共用同一套语义。 */
-async function loadModelContext(conversationId, userId) {
+/** 用户同意装配：persona + 云端调用授权闭包。定时任务执行与聊天上下文共用。 */
+async function loadUserModelOptions(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -193,11 +193,6 @@ async function loadModelContext(conversationId, userId) {
     },
   })
   if (!user) throw new HttpError('用户不存在', 404)
-
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    select: { summary: true },
-  })
 
   const allowExternal = user.externalLlmConsent === true
     && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
@@ -212,7 +207,17 @@ async function loadModelContext(conversationId, userId) {
         && currentConsent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
     }
   }
+  return { user, modelOptions }
+}
 
+/** 用户同意装配 + 历史/记忆查询，JSON 与流式路径共用同一套语义。 */
+async function loadModelContext(conversationId, userId) {
+  const { user, modelOptions } = await loadUserModelOptions(userId)
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { summary: true },
+  })
   // 数据库按倒序只取最近 19 条，之后恢复成旧到新；当前消息由 llmService 追加一次。
   const [descendingHistory, memories, derivedInsights, canonicalEdges] = await Promise.all([
     prisma.message.findMany({
@@ -332,6 +337,28 @@ async function maybeCompressHistory(conversationId, persona, modelOptions, reque
 function summarySystemBlock(summary) {
   if (!summary) return null
   return { role: 'system', content: `【前情摘要】以下是你们更早对话的摘要，早期细节以此为准：\n${summary}` }
+}
+
+/**
+ * 定时任务执行：以任务指令为一轮 agent 输入（chat 场景、可调工具、不带角色扮演与策略斟酌），
+ * 无聊天历史、不写会话——产出只回写给调用方（投递实例），不进聊天流。
+ * 同意与模型通路与聊天一致；失败上抛由调用方标记 failed 并推进调度。
+ */
+export async function executeScheduledTask(userId, instruction, requestId) {
+  const { user, modelOptions } = await loadUserModelOptions(userId)
+  modelOptions.queryEmbedding = await embedQuery(instruction, modelOptions.allowExternal)
+  const memories = await prisma.memory.findMany({
+    where: {
+      userId,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
+    take: MAX_MEMORIES_FOR_PROMPT,
+    select: { id: true, content: true, type: true, importance: true, tags: true, embedding: true },
+  })
+  const aiResponse = await runAgentTurns(instruction, user.persona, [], memories, requestId, modelOptions, userId, 'chat')
+  logger.info('定时任务执行完成', { requestId, userId, source: aiResponse.source, toolRuns: aiResponse.toolRuns.length })
+  return { content: aiResponse.content, source: aiResponse.source }
 }
 
 /**

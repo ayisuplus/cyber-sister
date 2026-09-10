@@ -1,5 +1,7 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import * as reminderService from '../services/reminderService.js'
+import { executeScheduledTask } from '../services/chatService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -45,11 +47,27 @@ router.delete('/scheduled/:id', async (req, res) => {
   }
 })
 
-// 到点投递：前端前台轮询
+// 到点投递：前端前台轮询。任务型提醒在此惰性执行（agent 回路），产出写入投递后再返回
 router.get('/due', async (req, res) => {
   try {
     const deliveries = await reminderService.listDueReminders(req.user.userId)
-    res.json({ deliveries })
+    const executable = deliveries.filter((d) => d.reminder?.instruction && d.result == null)
+    if (executable.length > 0) {
+      await Promise.all(executable.map(async (delivery) => {
+        const requestId = randomUUID()
+        try {
+          const outcome = await executeScheduledTask(req.user.userId, delivery.reminder.instruction, requestId)
+          await reminderService.completeTaskDelivery(delivery.id, req.user.userId, outcome.content)
+          delivery.result = outcome.content
+        } catch (error) {
+          logger.warn('定时任务执行失败', { requestId, deliveryId: delivery.id, error: error.message })
+          await reminderService.failTaskDelivery(delivery.id, req.user.userId)
+          delivery.status = 'failed'
+        }
+      }))
+    }
+    // 执行失败的任务不进铃铛
+    res.json({ deliveries: deliveries.filter((d) => d.status === 'pending') })
   } catch (error) {
     logger.error('拉取到期提醒失败', { error: error.message, userId: req.user.userId })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '拉取到期提醒失败' })

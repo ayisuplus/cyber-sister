@@ -9,7 +9,8 @@ function describeDelivery(delivery) {
   const r = delivery.reminder ?? {}
   const when = new Date(delivery.fireAt)
   const hhmm = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
-  return `你设置的提醒：${FREQ_LABELS[r.freq] ?? ''} ${r.time ?? hhmm}`
+  const who = r.instruction ? 'Amie 完成的任务' : '你设置的提醒'
+  return `${who}：${FREQ_LABELS[r.freq] ?? ''} ${r.time ?? hhmm}`
 }
 
 /**
@@ -85,7 +86,12 @@ export default function ReminderBell() {
                 <li key={delivery.id} className="rounded-2xl border border-border-hairline bg-pastel-blush p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-sm font-medium text-text-primary">{delivery.reminder?.content}</p>
+                      <p className="text-sm font-medium text-text-primary">
+                        {delivery.reminder?.instruction && (
+                          <span className="mr-1 inline-block rounded-md bg-pastel-apricot px-1.5 py-0.5 text-[10px] font-semibold text-status-warning">任务</span>
+                        )}
+                        {delivery.reminder?.content}
+                      </p>
                       <p className="mt-0.5 text-xs text-text-muted">{describeDelivery(delivery)}</p>
                     </div>
                     <button
@@ -97,6 +103,11 @@ export default function ReminderBell() {
                       <X size={15} />
                     </button>
                   </div>
+                  {delivery.result && (
+                    <p className="mt-2 whitespace-pre-wrap rounded-xl bg-surface-card p-2.5 text-xs leading-relaxed text-text-secondary">
+                      {delivery.result}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => ackDelivery(delivery.id, 'shown')}

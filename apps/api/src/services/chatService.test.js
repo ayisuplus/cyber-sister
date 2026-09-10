@@ -97,6 +97,7 @@ vi.mock('../utils/logger.js', () => ({
 
 import {
   createConversation,
+  executeScheduledTask,
   deleteConversation,
   getConversation,
   listConversations,
@@ -1103,5 +1104,46 @@ describe('chatService 滚动摘要', () => {
     const options = mocks.generateResponse.mock.calls[0][5]
     const summaryBlock = options.extraSystem.find((m) => String(m.content).includes('【前情摘要】'))
     expect(summaryBlock.content).toContain('她下周要面试')
+  })
+})
+
+describe('chatService.executeScheduledTask（定时任务执行）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'toxic',
+      externalLlmConsent: true,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    mocks.memoryFindMany.mockResolvedValue([{ id: 'm1', content: '她怕黑', type: 'preference', importance: 5, tags: [], embedding: null }])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.generateResponse.mockResolvedValue({
+      content: '你这周写了 3 篇日记，都很棒……', emotion: 'neutral', source: 'cloud', provider: 'qwen', model: 'm',
+    })
+  })
+
+  it('以任务指令跑 agent 回路：无聊天历史、chat 场景、产出返回不落库', async () => {
+    const out = await executeScheduledTask('user-1', '总结我这周的日记', 'req-task-1')
+    expect(out.content).toContain('日记')
+    expect(out.source).toBe('cloud')
+    const [content, persona, history, memories] = mocks.generateResponse.mock.calls[0]
+    expect(content).toBe('总结我这周的日记')
+    expect(persona).toBe('toxic')
+    expect(history).toEqual([])
+    expect(memories).toHaveLength(1)
+    expect(mocks.messageCreate).not.toHaveBeenCalled() // 不写聊天流
+  })
+
+  it('未同意云端时 allowExternal=false（任务走本地路径/兜底）', async () => {
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'gentle', externalLlmConsent: false, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    await executeScheduledTask('user-1', '给我一句早安', 'req-task-2')
+    expect(mocks.generateResponse.mock.calls[0][5].allowExternal).toBe(false)
+  })
+
+  it('用户不存在抛 404', async () => {
+    mocks.userFindUnique.mockResolvedValue(null)
+    await expect(executeScheduledTask('nobody', 'x', 'req-task-3')).rejects.toMatchObject({ statusCode: 404 })
   })
 })

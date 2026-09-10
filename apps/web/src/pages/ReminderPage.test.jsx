@@ -66,6 +66,25 @@ describe('ReminderPage（自定义提醒）', () => {
     expect(reminderService.create).toHaveBeenCalledWith({ content: '放下手机', freq: 'daily', time: '23:00' })
   })
 
+  it('任务形态：填指令后按任务创建，缺指令前端拦截', async () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '任务（Amie 到点去做）' }))
+    fireEvent.click(screen.getByRole('button', { name: '每天' }))
+    fireEvent.change(screen.getByLabelText('任务名'), { target: { value: '早安打气' } })
+    fireEvent.change(screen.getByLabelText('提醒时间'), { target: { value: '08:00' } })
+
+    // 缺指令拦截
+    fireEvent.click(screen.getByRole('button', { name: /添加提醒/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('任务要告诉 Amie 具体做什么')
+    expect(reminderService.create).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('任务指令'), { target: { value: '给我一句带劲的早安加油' } })
+    fireEvent.click(screen.getByRole('button', { name: /添加提醒/ }))
+    await vi.waitFor(() => expect(reminderService.create).toHaveBeenCalledWith({
+      content: '早安打气', freq: 'daily', time: '08:00', instruction: '给我一句带劲的早安加油',
+    }))
+  })
+
   it('暂停/恢复与删除走 store 动作', async () => {
     reminderService.list.mockResolvedValue([makeReminder({})])
     renderPage()
@@ -87,6 +106,19 @@ describe('ReminderBell（到点通知）', () => {
   it('无到期提醒时不显示 badge', () => {
     renderBell()
     expect(screen.getByRole('button', { name: '提醒' })).toBeInTheDocument()
+  })
+
+  it('任务投递展示执行产出', async () => {
+    const delivery = {
+      id: 'd1', fireAt: '2026-09-10T00:00:00.000Z', status: 'pending',
+      result: '你这周写了 3 篇日记，都很棒……',
+      reminder: { id: 'r1', content: '每周日记总结', freq: 'weekly', time: '20:00', instruction: '总结我这周的日记' },
+    }
+    reminderService.listDue.mockResolvedValue([delivery])
+    renderBell()
+    fireEvent.click(await screen.findByRole('button', { name: /1 条待处理/ }))
+    expect(await screen.findByText(/你这周写了 3 篇日记/)).toBeInTheDocument()
+    expect(screen.getByText(/Amie 完成的任务/)).toBeInTheDocument()
   })
 
   it('有待处理投递时显示角标，打开后可「知道了」', async () => {

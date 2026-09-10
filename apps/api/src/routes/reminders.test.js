@@ -9,9 +9,13 @@ const service = vi.hoisted(() => ({
   deleteScheduledReminder: vi.fn(),
   listDueReminders: vi.fn(),
   ackDelivery: vi.fn(),
+  completeTaskDelivery: vi.fn(),
+  failTaskDelivery: vi.fn(),
+  executeScheduledTask: vi.fn(),
 }))
 
 vi.mock('../services/reminderService.js', () => service)
+vi.mock('../services/chatService.js', () => ({ executeScheduledTask: service.executeScheduledTask }))
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -61,7 +65,7 @@ describe('自定义提醒路由', () => {
   })
 
   it('GET /due 返回 pending 投递；POST /deliveries/:id/ack 确认', async () => {
-    service.listDueReminders.mockResolvedValue([{ id: 'd1', reminder: { content: '喝水' } }])
+    service.listDueReminders.mockResolvedValue([{ id: 'd1', status: 'pending', result: null, reminder: { content: '喝水', instruction: null } }])
     const due = await request(app).get('/due')
     expect(due.status).toBe(200)
     expect(due.body.deliveries[0].reminder.content).toBe('喝水')
@@ -76,5 +80,43 @@ describe('自定义提醒路由', () => {
     service.ackDelivery.mockRejectedValue(Object.assign(new Error('提醒投递不存在'), { statusCode: 404 }))
     const res = await request(app).post('/deliveries/nope/ack').send({ action: 'shown' })
     expect(res.status).toBe(404)
+  })
+})
+
+describe('定时任务惰性执行', () => {
+  it('到点任务执行 agent 回路并把产出写入投递后返回', async () => {
+    const delivery = {
+      id: 'd1', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
+      reminder: { id: 'r1', content: '每周日记总结', freq: 'weekly', time: '20:00', instruction: '总结我这周的日记' },
+    }
+    service.listDueReminders.mockResolvedValue([delivery])
+    service.executeScheduledTask.mockResolvedValue({ content: '你这周写了 3 篇日记……', source: 'cloud' })
+    service.completeTaskDelivery.mockResolvedValue({})
+
+    const res = await request(app).get('/due')
+    expect(res.status).toBe(200)
+    expect(service.executeScheduledTask).toHaveBeenCalledWith('user-1', '总结我这周的日记', expect.any(String))
+    expect(service.completeTaskDelivery).toHaveBeenCalledWith('d1', 'user-1', '你这周写了 3 篇日记……')
+    expect(res.body.deliveries[0].result).toContain('日记')
+  })
+
+  it('执行失败标记 failed 且不进铃铛；纯提醒不受影响', async () => {
+    const taskDelivery = {
+      id: 'd1', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
+      reminder: { id: 'r1', content: '任务', freq: 'daily', time: '20:00', instruction: '做点什么' },
+    }
+    const plainDelivery = {
+      id: 'd2', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
+      reminder: { id: 'r2', content: '喝水', freq: 'daily', time: '08:00', instruction: null },
+    }
+    service.listDueReminders.mockResolvedValue([taskDelivery, plainDelivery])
+    service.executeScheduledTask.mockRejectedValue(new Error('provider down'))
+    service.failTaskDelivery.mockResolvedValue({})
+
+    const res = await request(app).get('/due')
+    expect(res.status).toBe(200)
+    expect(service.failTaskDelivery).toHaveBeenCalledWith('d1', 'user-1')
+    expect(res.body.deliveries).toHaveLength(1)
+    expect(res.body.deliveries[0].reminder.content).toBe('喝水')
   })
 })
