@@ -15,6 +15,9 @@ import {
   listPeriodRecords, createPeriodRecord,
   listReminders, updateReminder,
 } from './toolService.js'
+import {
+  createScheduledReminder, listScheduledReminders, deleteScheduledReminder,
+} from './reminderService.js'
 import { upsertEntry, getEntry, MOOD_LABELS } from './diaryService.js'
 import { listHabitsWithStatus, findHabitByName, setCheckin } from './habitService.js'
 import { logReading } from './readingService.js'
@@ -138,6 +141,36 @@ const CHAT_TOOLS = {
         summary: `已查询${reminders.length}条提醒设置`,
         result: reminders.map((r) => ({ id: r.id, type: r.type, time: r.time, isActive: r.isActive })),
       }
+    },
+  },
+  add_scheduled_reminder: {
+    description: '{"tool":"add_scheduled_reminder","args":{"content":"提醒内容","freq":"once|daily|weekly|monthly，默认 once","time":"HH:mm","date":"freq=once 必填 yyyy-MM-dd","weekdays":"freq=weekly 必填 [0-6]，0 为周日","monthDay":"freq=monthly 必填 1-31"}} 创建自定义定时提醒（任意内容，到点应用内通知）',
+    run: async (userId, args) => {
+      const reminder = await createScheduledReminder(userId, args)
+      return {
+        summary: `已设提醒「${clip(reminder.content, 20)}」`,
+        result: { id: reminder.id, freq: reminder.freq, nextFireAt: reminder.nextFireAt },
+      }
+    },
+  },
+  list_scheduled_reminders: {
+    description: '{"tool":"list_scheduled_reminders","args":{}} 查看自定义定时提醒（含 id、内容、频率、下次触发时间、状态）',
+    run: async (userId) => {
+      const reminders = await listScheduledReminders(userId)
+      return {
+        summary: `已查询${reminders.length}条自定义提醒`,
+        result: reminders.map((r) => ({
+          id: r.id, content: r.content, freq: r.freq, time: r.time,
+          weekdays: r.weekdays, monthDay: r.monthDay, nextFireAt: r.nextFireAt, status: r.status,
+        })),
+      }
+    },
+  },
+  delete_scheduled_reminder: {
+    description: '{"tool":"delete_scheduled_reminder","args":{"id":"提醒 id"}} 删除自定义定时提醒',
+    run: async (userId, args) => {
+      await deleteScheduledReminder(args.id, userId)
+      return { summary: '已删除提醒', result: { id: args.id } }
     },
   },
   set_reminder: {

@@ -22,6 +22,7 @@ import derivedRoutes from './routes/derived.js'
 import makeupPresetRoutes from './routes/makeupPresets.js'
 import wardrobeRoutes from './routes/wardrobe.js'
 import careRoutes from './routes/care.js'
+import reminderRoutes from './routes/reminders.js'
 import letterRoutes from './routes/letters.js'
 import { authMiddleware } from './middleware/auth.js'
 import logger from './utils/logger.js'
@@ -151,6 +152,7 @@ app.use('/api/derived', authMiddleware, derivedRoutes)
 app.use('/api/makeup-presets', authMiddleware, makeupPresetRoutes)
 app.use('/api/wardrobe', authMiddleware, wardrobeRoutes)
 app.use('/api/letters', authMiddleware, letterRoutes)
+app.use('/api/reminders', authMiddleware, reminderRoutes)
 app.use('/api/care', authMiddleware, careRoutes)
 
 app.use((_req, res) => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { toolsService } from '../services/toolsService'
+import { reminderService } from '../services/reminderService'
 import { addDays, differenceInCalendarDays, parseISO, startOfDay } from 'date-fns'
 // axios 错误对象的 config.headers 携带 Authorization，日志只保留状态码/错误名级别的摘要
 const summarizeError = (error) => error?.response?.status ?? error?.name ?? 'UnknownError'
@@ -168,6 +169,61 @@ export const useToolsStore = create(
 
     // 天气
     weather: null,
+
+    // 自定义定时提醒
+    scheduledReminders: [],
+    dueDeliveries: [],
+
+    loadScheduledReminders: async () => {
+      try {
+        const scheduledReminders = await reminderService.list()
+        set({ scheduledReminders })
+      } catch (error) {
+        console.error('加载自定义提醒失败:', summarizeError(error))
+      }
+    },
+
+    addScheduledReminder: async (payload) => {
+      const reminder = await reminderService.create(payload)
+      set((state) => ({ scheduledReminders: [...state.scheduledReminders, reminder] }))
+      return reminder
+    },
+
+    updateScheduledReminder: async (id, payload) => {
+      const updated = await reminderService.update(id, payload)
+      set((state) => ({
+        scheduledReminders: state.scheduledReminders.map((r) => (r.id === id ? updated : r)),
+      }))
+      return updated
+    },
+
+    removeScheduledReminder: async (id) => {
+      await reminderService.remove(id)
+      set((state) => ({
+        scheduledReminders: state.scheduledReminders.filter((r) => r.id !== id),
+      }))
+    },
+
+    // 到点投递：前台轮询拉取；ack 后从待办列表移除
+    pollDueDeliveries: async () => {
+      try {
+        const deliveries = await reminderService.listDue()
+        set({ dueDeliveries: deliveries })
+        return deliveries
+      } catch (error) {
+        console.error('拉取到期提醒失败:', summarizeError(error))
+        return []
+      }
+    },
+
+    ackDelivery: async (deliveryId, action) => {
+      try {
+        await reminderService.ack(deliveryId, action)
+        set((state) => ({ dueDeliveries: state.dueDeliveries.filter((d) => d.id !== deliveryId) }))
+      } catch (error) {
+        console.error('确认提醒投递失败:', summarizeError(error))
+      }
+    },
 
     loadWeather: async () => {
       try {

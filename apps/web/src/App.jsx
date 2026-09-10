@@ -16,6 +16,7 @@ const WardrobePage = lazy(() => import('./pages/WardrobePage'))
 const PeriodPage = lazy(() => import('./pages/PeriodPage'))
 const CountdownPage = lazy(() => import('./pages/CountdownPage'))
 const TodoPage = lazy(() => import('./pages/TodoPage'))
+const ReminderPage = lazy(() => import('./pages/ReminderPage'))
 const DiaryPage = lazy(() => import('./pages/DiaryPage'))
 const HandbookPage = lazy(() => import('./pages/HandbookPage'))
 const ReadingPage = lazy(() => import('./pages/ReadingPage'))
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="/tools/period" element={<ProtectedRoute><PeriodPage /></ProtectedRoute>} />
           <Route path="/tools/countdown" element={<ProtectedRoute><CountdownPage /></ProtectedRoute>} />
           <Route path="/tools/todo" element={<ProtectedRoute><TodoPage /></ProtectedRoute>} />
+          <Route path="/tools/reminders" element={<ProtectedRoute><ReminderPage /></ProtectedRoute>} />
           <Route path="/tools/diary" element={<ProtectedRoute><DiaryPage /></ProtectedRoute>} />
           <Route path="/tools/handbook" element={<ProtectedRoute><HandbookPage /></ProtectedRoute>} />
           <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />

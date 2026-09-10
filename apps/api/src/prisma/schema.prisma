@@ -46,6 +46,7 @@ model User {
   memoryEdges       MemoryEdge[]
   careDismissals    CareDismissal[]
   letters           Letter[]
+  scheduledReminders ScheduledReminder[]
 
   @@map("users")
 }
@@ -397,4 +398,38 @@ model WardrobeItem {
 
   @@index([userId])
   @@map("wardrobe_items")
+}
+
+model ScheduledReminder {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  content    String
+  freq       String    @default("once") // once | daily | weekly | monthly
+  time       String? // 'HH:mm' 本地时间（循环类用）
+  fireAt     DateTime? @map("fire_at") // 一次性：具体触发时刻（UTC）
+  weekdays   Int[] // 每周：0-6（getDay 约定），否则空数组
+  monthDay   Int?     @map("month_day") // 每月：1-31
+  nextFireAt DateTime @map("next_fire_at") // 预计算下次触发（UTC），支撑无 worker 轮询
+  status     String   @default("active") // active | paused | done
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries ReminderDelivery[]
+
+  @@index([userId, status, nextFireAt])
+  @@map("scheduled_reminders")
+}
+
+model ReminderDelivery {
+  id         String   @id @default(uuid())
+  reminderId String   @map("reminder_id")
+  fireAt     DateTime @map("fire_at") // 该次触发时刻（UTC），= 当时的 nextFireAt
+  status     String   @default("pending") // pending | shown | dismissed
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  reminder ScheduledReminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  @@unique([reminderId, fireAt])
+  @@map("reminder_deliveries")
 }

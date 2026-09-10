@@ -51,6 +51,14 @@ export const TOOLBOX = [
     tone: 'bg-pastel-apricot text-action-primary',
   },
   {
+    id: 'scheduled-reminders',
+    title: '自定义提醒',
+    description: '任何内容、任何时间，到点 Amie 在应用里提醒你。',
+    to: '/tools/reminders',
+    icon: Bell,
+    tone: 'bg-pastel-lavender text-action-primary',
+  },
+  {
     id: 'reminders',
     title: '提醒设置',
     description: '喝水、睡觉和大姨妈提醒，都在设置里开关。',
