@@ -56,6 +56,9 @@ model Conversation {
   userId    String   @map("user_id")
   title     String?
   mode      String   @default("chat") // chat | work
+  // 滚动摘要：summary 覆盖 createdAt <= summaryUpToAt 的消息；装配上下文时以 system 注入
+  summary       String?   @db.Text
+  summaryUpToAt DateTime? @map("summary_up_to_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

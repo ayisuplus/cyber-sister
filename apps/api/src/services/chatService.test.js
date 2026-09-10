@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   conversationFindFirst: vi.fn(),
+  conversationFindUnique: vi.fn(),
   conversationFindMany: vi.fn(),
   conversationCreate: vi.fn(),
   conversationDelete: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('../prisma/client.js', () => {
       user: { findUnique: mocks.userFindUnique },
       conversation: {
         findFirst: mocks.conversationFindFirst,
+        findUnique: mocks.conversationFindUnique,
         findMany: mocks.conversationFindMany,
         create: mocks.conversationCreate,
         update: mocks.conversationUpdate,
@@ -990,5 +992,116 @@ describe('chatService 图片消息', () => {
       select: { id: true },
     })
     expect(mocks.deleteChatImages).toHaveBeenCalledWith('user-1', ['m1', 'm2'])
+  })
+})
+
+
+describe('chatService 滚动摘要', () => {
+  const base = new Date(2026, 8, 10, 8, 0, 0)
+  const buildAscending = (count) => Array.from({ length: count }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `第${i + 1}条`,
+    createdAt: new Date(base.getTime() + i * 60_000),
+  }))
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+      crisisLog: { create: mocks.crisisCreate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'toxic',
+      externalLlmConsent: true,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    mocks.detectCrisis.mockReturnValue(null)
+    mocks.memoryFindMany.mockResolvedValue([])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.derivedInsightFindMany.mockResolvedValue([])
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
+      id: data.role === 'user' ? 'user-message' : 'ai-message',
+      ...data,
+    }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.generateResponse.mockResolvedValue({
+      content: '模型回复', emotion: 'neutral', source: 'local_model', provider: 'llamacpp', model: 'configured-model',
+    })
+    mocks.generateCompanionNote.mockResolvedValue({ content: '合并后的前情摘要' })
+  })
+
+  it('积压不足 10 条不触发压缩', async () => {
+    mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
+    mocks.messageFindMany.mockResolvedValue(buildAscending(25)) // 25 - 19 = 6 条积压
+    await sendMessage('conversation-1', 'user-1', '你好')
+    await flush()
+    const compressCalls = mocks.generateCompanionNote.mock.calls
+      .filter((c) => String(c[0].instruction).includes('对话归档员'))
+    expect(compressCalls).toHaveLength(0)
+  })
+
+  it('积压满 10 条时压缩最老批次并写回 summary 与 summaryUpToAt', async () => {
+    mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
+    const messages = buildAscending(30) // 30 - 19 = 11 条积压
+    mocks.messageFindMany.mockResolvedValue(messages)
+    await sendMessage('conversation-1', 'user-1', '你好')
+    await vi.waitFor(() => expect(
+      mocks.generateCompanionNote.mock.calls.filter((c) => String(c[0].instruction).includes('对话归档员')),
+    ).toHaveLength(1))
+
+    const noteArgs = mocks.generateCompanionNote.mock.calls
+      .find((c) => String(c[0].instruction).includes('对话归档员'))[0]
+    expect(noteArgs.userText).not.toContain('已有前情摘要')
+    expect(noteArgs.userText).toContain('第1条')
+    expect(noteArgs.userText).toContain('第11条')
+
+    await vi.waitFor(() => expect(mocks.conversationUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'conversation-1' },
+      data: expect.objectContaining({
+        summary: '合并后的前情摘要',
+        summaryUpToAt: messages[10].createdAt,
+      }),
+    })))
+  })
+
+  it('已有摘要时并入新对话生成更新摘要；已覆盖的消息不重复压缩', async () => {
+    const coveredAt = new Date(base.getTime() + 4 * 60_000)
+    mocks.conversationFindUnique.mockResolvedValue({ summary: '旧摘要', summaryUpToAt: coveredAt })
+    mocks.messageFindMany.mockResolvedValue(buildAscending(34)) // 34-19=15 条积压，扣除已覆盖 5 条剩 10 条
+    await sendMessage('conversation-1', 'user-1', '你好')
+    await vi.waitFor(() => expect(
+      mocks.generateCompanionNote.mock.calls.filter((c) => String(c[0].instruction).includes('对话归档员')),
+    ).toHaveLength(1))
+
+    const noteArgs = mocks.generateCompanionNote.mock.calls
+      .find((c) => String(c[0].instruction).includes('对话归档员'))[0]
+    expect(noteArgs.userText).toContain('已有前情摘要：\n旧摘要')
+    expect(noteArgs.userText).not.toContain('第5条')
+    expect(noteArgs.userText).toContain('第6条')
+  })
+
+  it('压缩模型调用失败静默降级，不影响聊天', async () => {
+    mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
+    mocks.messageFindMany.mockResolvedValue(buildAscending(30))
+    mocks.generateCompanionNote.mockRejectedValue(new Error('provider down'))
+    const result = await sendMessage('conversation-1', 'user-1', '你好')
+    await flush()
+    expect(result.status).toBe('ok')
+    expect(mocks.conversationUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ summary: expect.anything() }),
+    }))
+  })
+
+  it('会话已有摘要时以 system 消息注入 extraSystem', async () => {
+    mocks.conversationFindUnique.mockResolvedValue({ summary: '她下周要面试', summaryUpToAt: null })
+    mocks.messageFindMany.mockResolvedValue([])
+    await sendMessage('conversation-1', 'user-1', '我睡不着')
+    const options = mocks.generateResponse.mock.calls[0][5]
+    const summaryBlock = options.extraSystem.find((m) => String(m.content).includes('【前情摘要】'))
+    expect(summaryBlock.content).toContain('她下周要面试')
   })
 })

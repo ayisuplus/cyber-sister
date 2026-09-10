@@ -27,6 +27,11 @@ import logger from '../utils/logger.js'
 import { saveChatImage, deleteChatImages } from './chatImageService.js'
 
 const MAX_HISTORY_MESSAGES = 19
+// 滚动摘要：最近 19 条永远原样进上下文；更早的消息在未摘要积压满 10 条后压缩进会话级摘要
+const SUMMARY_RECENT_KEEP = MAX_HISTORY_MESSAGES
+const SUMMARY_COMPRESS_THRESHOLD = 10
+const SUMMARY_MAX_MESSAGES_PER_PASS = 60
+const SUMMARY_MAX_CHARS = 1200
 // 记忆注入上限：按重要度/更新时间截断，避免全量载入撑爆上下文
 const MAX_MEMORIES_FOR_PROMPT = 200
 const DEFAULT_CONVERSATION_PAGE_SIZE = 20
@@ -189,6 +194,11 @@ async function loadModelContext(conversationId, userId) {
   })
   if (!user) throw new HttpError('用户不存在', 404)
 
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { summary: true },
+  })
+
   const allowExternal = user.externalLlmConsent === true
     && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
   const modelOptions = { allowExternal }
@@ -242,7 +252,7 @@ async function loadModelContext(conversationId, userId) {
     memoryEdges.push({ fromMemoryId: edge.fromMemoryId, toMemoryId: edge.toMemoryId, fromContent, toContent })
   }
 
-  return { user, modelOptions, history: [...descendingHistory].reverse(), memories, derivedInsights, memoryEdges }
+  return { user, modelOptions, history: [...descendingHistory].reverse(), memories, derivedInsights, memoryEdges, summary: conversation?.summary ?? null }
 }
 
 const STRATEGY_INSTRUCTION = '你是聊天回复的内部策略参谋。根据给出的环境信息与用户消息，先斟酌本轮的沟通策略。只输出策略要点，不超过 120 字：语气基调、共情与直接的取舍、是否追问、需要避开的边界。不要撰写回复本身，不要与用户对话。'
@@ -271,6 +281,59 @@ async function deliberateCommunicationStrategy(content, { mode, persona, memorie
   }
 }
 
+const SUMMARY_INSTRUCTION = '你是对话归档员。把给定对话压缩成一段前情摘要，供后续聊天延续上下文。保留：用户的约定与承诺、重要事实（称呼/喜好/禁忌）、情绪线索、未决事项；丢弃寒暄与重复。若提供已有摘要，将其与新对话合并为一段更新的摘要。只输出摘要正文，不超过 400 字。'
+
+/**
+ * 滚动摘要：未摘要积压（最近 SUMMARY_RECENT_KEEP 条之外）满 SUMMARY_COMPRESS_THRESHOLD 条时，
+ * 把最老的一批（单次最多 SUMMARY_MAX_MESSAGES_PER_PASS 条）并入会话级摘要。
+ * fire-and-forget：任何失败由调用方 catch 静默降级为纯截断，绝不阻断聊天。
+ */
+async function maybeCompressHistory(conversationId, persona, modelOptions, requestId) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { summary: true, summaryUpToAt: true },
+  })
+  if (!conversation) return
+
+  const ascending = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { role: true, content: true, createdAt: true },
+  })
+  const aged = ascending
+    .slice(0, Math.max(0, ascending.length - SUMMARY_RECENT_KEEP))
+    .filter((m) => !conversation.summaryUpToAt || m.createdAt > conversation.summaryUpToAt)
+  if (aged.length < SUMMARY_COMPRESS_THRESHOLD) return
+
+  const batch = aged.slice(0, SUMMARY_MAX_MESSAGES_PER_PASS)
+  const transcript = batch
+    .map((m) => `${m.role === 'user' ? '用户' : 'Amie'}：${String(m.content).slice(0, 500)}`)
+    .join('\n')
+  const userText = conversation.summary
+    ? `已有前情摘要：\n${conversation.summary}\n\n新增对话：\n${transcript}`
+    : transcript
+
+  const note = await generateCompanionNote(
+    { persona, instruction: SUMMARY_INSTRUCTION, userText, maxTokens: 600, temperature: 0.2, timeoutMs: 20000 },
+    requestId,
+    modelOptions,
+  )
+  const summary = String(note.content ?? '').trim().slice(0, SUMMARY_MAX_CHARS)
+  if (!summary) return
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { summary, summaryUpToAt: batch[batch.length - 1].createdAt },
+  })
+  logger.info('滚动摘要已更新', { requestId, conversationId, compressed: batch.length, summaryChars: summary.length })
+}
+
+/** 前情摘要注入块：有摘要时作为 system 消息进入 extraSystem。 */
+function summarySystemBlock(summary) {
+  if (!summary) return null
+  return { role: 'system', content: `【前情摘要】以下是你们更早对话的摘要，早期细节以此为准：\n${summary}` }
+}
+
 /**
  * 发送消息。
  *
@@ -287,7 +350,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
     return persistBlockedCrisis(conversationId, userId, content, crisisLevel)
   }
 
-  const { user, modelOptions, history, memories, derivedInsights, memoryEdges } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, derivedInsights, memoryEdges, summary } = await loadModelContext(conversationId, userId)
   // 语义投影注入：查询向量失败返回 null 即回退关键词路径；两者经 ...modelOptions 零签名改动直达 generate
   modelOptions.queryEmbedding = await embedQuery(content, modelOptions.allowExternal)
   modelOptions.memoryEdges = memoryEdges
@@ -299,11 +362,14 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
     requestId,
   )
 
-  const aiResponse = await runAgentTurns(content, user.persona, history, memories, requestId, modelOptions, userId, conversation.mode, rolePlaySystem(user, conversation.mode || 'chat'), strategySystem, derivedInsights, image)
+  const aiResponse = await runAgentTurns(content, user.persona, history, memories, requestId, modelOptions, userId, conversation.mode, rolePlaySystem(user, conversation.mode || 'chat'), strategySystem, derivedInsights, image, summarySystemBlock(summary))
   const { toolRuns: _toolRuns, ...responsePayload } = aiResponse
   const saved = await persistTurn(conversationId, userId, content, responsePayload, aiResponse.toolRuns, image)
   // 工作台自动分析：fire-and-forget，绝不阻塞或失败聊天
   void maybeAutoAnalyze(userId, requestId).catch((error) => logger.warn('工作台分析失败', { requestId, error: error.message }))
+  // 滚动摘要：fire-and-forget，失败静默降级为纯截断
+  void maybeCompressHistory(conversationId, user.persona, modelOptions, requestId)
+    .catch((error) => logger.warn('滚动摘要压缩失败', { requestId, conversationId, error: error.message }))
 
   logger.debug('消息发送成功', {
     requestId,
@@ -337,7 +403,7 @@ function rolePlaySystem(user, mode) {
  * 上限后追加一次强制文本轮，仍输出工具 JSON 则以本地模板兜底。
  * 返回 { ...generateResponse 结果, toolRuns }。
  */
-async function runAgentTurns(content, persona, history, memories, requestId, modelOptions, userId, mode = 'chat', roleSystem = null, strategySystem = null, derivedInsights = [], image = null) {
+async function runAgentTurns(content, persona, history, memories, requestId, modelOptions, userId, mode = 'chat', roleSystem = null, strategySystem = null, derivedInsights = [], image = null, summarySystem = null) {
   const toolRuns = []
   let toolRounds = 0
   const executedSignatures = new Set()
@@ -345,7 +411,7 @@ async function runAgentTurns(content, persona, history, memories, requestId, mod
   const toolPrompt = mode === 'work'
     ? `${WORK_MODE_PREAMBLE}\n${buildToolSystemPrompt('work')}`
     : buildToolSystemPrompt('chat')
-  const extraSystem = [...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
+  const extraSystem = [...(summarySystem ? [summarySystem] : []), ...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
   if (image) extraSystem.push({ role: 'system', content: IMAGE_REVIEW_NUDGE })
   let loopHistory = history
   let forcedFinal = false
@@ -404,7 +470,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
     return
   }
 
-  const { user, modelOptions, history, memories, derivedInsights, memoryEdges } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, derivedInsights, memoryEdges, summary } = await loadModelContext(conversationId, userId)
   modelOptions.queryEmbedding = await embedQuery(content, modelOptions.allowExternal)
   modelOptions.memoryEdges = memoryEdges
   const toolRuns = []
@@ -422,7 +488,8 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
     ? `${WORK_MODE_PREAMBLE}\n${buildToolSystemPrompt('work')}`
     : buildToolSystemPrompt('chat')
   const roleSystem = rolePlaySystem(user, mode)
-  const extraSystem = [...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
+  const summarySystem = summarySystemBlock(summary)
+  const extraSystem = [...(summarySystem ? [summarySystem] : []), ...(roleSystem ? [roleSystem] : []), ...(strategySystem ? [strategySystem] : []), { role: 'system', content: toolPrompt }]
   if (image) extraSystem.push({ role: 'system', content: IMAGE_REVIEW_NUDGE })
   let loopHistory = history
   let forcedFinal = false
@@ -457,6 +524,9 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
       const saved = await persistTurn(conversationId, userId, content, finalEvent, toolRuns, image)
       // 工作台自动分析：fire-and-forget，绝不阻塞或失败聊天
       void maybeAutoAnalyze(userId, requestId).catch((error) => logger.warn('工作台分析失败', { requestId, error: error.message }))
+      // 滚动摘要：fire-and-forget，失败静默降级为纯截断
+      void maybeCompressHistory(conversationId, user.persona, modelOptions, requestId)
+        .catch((error) => logger.warn('滚动摘要压缩失败', { requestId, conversationId, error: error.message }))
       logger.debug('消息发送成功', {
         requestId,
         conversationId,
