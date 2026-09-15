@@ -57,6 +57,10 @@ describe('loadRuntimeSecrets', () => {
     expect(result.JWT_SECRET).toBe('s3cret-value')
   })
 
+  it('RunningHub key uses the existing secret-file loader', () => {
+    expect(loadRuntimeSecrets({ RUNNINGHUB_API_KEY_FILE: secretFile('runninghub', ' synthetic-key\n') }).RUNNINGHUB_API_KEY).toBe('synthetic-key')
+  })
+
   it('密钥文件缺失或为空时抛出可读错误', () => {
     expect(() => loadRuntimeSecrets({ JWT_SECRET_FILE: join(tmpdir(), 'no-such-file-xyz') }))
       .toThrow(/无法读取运行密钥文件: JWT_SECRET_FILE/)

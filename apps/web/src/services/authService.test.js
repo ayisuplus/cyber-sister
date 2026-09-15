@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', () => ({
+  refreshAccessToken: vi.fn(),
   default: {
     post: vi.fn(),
     put: vi.fn(),
@@ -8,7 +9,7 @@ vi.mock('./api', () => ({
   },
 }))
 
-import api from './api'
+import api, { refreshAccessToken } from './api'
 import { authService } from './authService'
 
 describe('authService', () => {
@@ -23,12 +24,13 @@ describe('authService', () => {
 
   it('refreshes and logs out through the auth endpoints', async () => {
     api.post.mockResolvedValue({ data: { ok: true } })
+    refreshAccessToken.mockResolvedValue('refreshed-token')
 
-    await authService.refresh()
+    await expect(authService.refresh()).resolves.toEqual({ token: 'refreshed-token' })
     await authService.logout()
 
-    expect(api.post).toHaveBeenNthCalledWith(1, '/auth/refresh')
-    expect(api.post).toHaveBeenNthCalledWith(2, '/auth/logout')
+    expect(refreshAccessToken).toHaveBeenCalledOnce()
+    expect(api.post).toHaveBeenCalledWith('/auth/logout')
   })
 
   it('updates the persona preference', async () => {

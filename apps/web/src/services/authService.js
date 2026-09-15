@@ -1,4 +1,4 @@
-import api from './api'
+import api, { refreshAccessToken } from './api'
 
 export const authService = {
   login: async (phone, code) => {
@@ -7,8 +7,7 @@ export const authService = {
   },
   // refreshToken 现在通过 httpOnly cookie 自动携带，无需传参
   refresh: async () => {
-    const response = await api.post('/auth/refresh')
-    return response.data
+    return { token: await refreshAccessToken() }
   },
   logout: async () => {
     const response = await api.post('/auth/logout')

@@ -450,19 +450,7 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
     return json(route, 201, created)
   })
   await page.route('**/api/chat/conversations/*/messages/stream', route => fulfillStream(route, [
-    {
-      event: 'done',
-      status: 'ok',
-      userMessage: { id: 'u-work-1', role: 'user', content: '帮我整理今天的日程', createdAt: '2026-09-05T09:00:00.000Z' },
-      aiMessage: {
-        id: 'a-work-1',
-        role: 'assistant',
-        content: '已按时间顺序整理好。',
-        createdAt: '2026-09-05T09:00:01.000Z',
-        toolRuns: [{ tool: 'add_todo', ok: true, summary: '已添加日程「整理日程」' }],
-      },
-      source: 'qwen',
-    },
+    { event: 'error', code: 'WORK_CLOUD_NOT_CONNECTED', error: '工作模式云端接口尚未接入' },
   ]))
   await page.goto('/chat')
 
@@ -478,18 +466,20 @@ test('work mode: segmented switch creates a work conversation, shows work badge 
   await expect(page.getByText('工作模式', { exact: true })).toBeVisible()
   await expect(page.getByText('包容·耐心·讲道理')).toHaveCount(0)
   await expect(page.getByText('浏览器已就绪')).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '把工作交给她…')
+  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '工作助手云端尚未接通')
   if (!isMobile) {
     await expect(page.getByRole('button', { name: /^聊天会话/ })).toHaveCount(0)
-    await expect(page.getByText('还没有工作会话，发一条就开始')).toBeVisible()
+    await expect(page.getByText('工作云端尚未接通，可先预览功能')).toBeVisible()
   }
 
-  // 发消息自动创建 work 会话并拿到回复
+  // 创建 work 会话后，未连接的执行接口返回明确错误，草稿保留且不伪造工具结果。
   await page.getByRole('textbox', { name: '聊天消息' }).fill('帮我整理今天的日程')
   await page.getByRole('button', { name: '发送消息' }).click()
-  await expect(page.getByText('已按时间顺序整理好。')).toBeVisible()
-  // 工具动作 chip 可见（生图 chip 已随切割删除）
-  await expect(page.getByLabel(/已执行：已添加日程/)).toBeVisible()
+  await expect(page.getByText('工作助手的云端接口尚未接通。可以先从功能桌面预览各项流程，输入已保留。')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveValue('帮我整理今天的日程')
+  await expect(page.getByLabel(/已执行：已添加日程/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '语音输入', exact: true })).toHaveCount(0)
+  expect(conversations.some(conversation => conversation.id === 'c-work' && conversation.mode === 'work')).toBe(true)
   // 切回聊天：工作会话从列表消失，聊天会话仍在
   await modeSwitch.getByRole('button', { name: '聊天' }).click()
   await expect(page.getByText('包容·耐心·讲道理')).toBeVisible()
@@ -543,15 +533,18 @@ test('appearance: upload avatar and chat background, both render on profile and 
   await expectNoSeriousAxeFindings(page)
 })
 
-test('reading: shelve a book, jot a note and get an AI comment', async ({ page }) => {
+test('reading: shelve a book, jot a note and preview an unsaved mock comment', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/**', route => json(route, 404, { error: 'UNMOCKED_ENDPOINT' }))
+  await mockChatBootstrap(page, true)
   let books = []
   let notes = []
+  const previewComment = '【模拟读书回应】这是一条未连接云端的接口示例。'
   await page.route('**/api/reading/**', route => {
     const request = route.request()
     const url = new URL(request.url())
     if (url.pathname.endsWith('/comment')) {
-      return json(route, 200, { aiComment: '这段写得真好，我也被戳了一下。', source: 'local_model', reused: false })
+      return json(route, 200, { aiComment: previewComment, source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
     }
     if (url.pathname.endsWith('/notes')) {
       if (request.method() === 'GET') return json(route, 200, notes)
@@ -571,7 +564,7 @@ test('reading: shelve a book, jot a note and get an AI comment', async ({ page }
   })
   await page.goto('/tools/reading')
 
-  await expect(page.getByText('书架还空着，先加一本想读的书吧')).toBeVisible()
+  await expect(page.getByText('书架还空着', { exact: true })).toBeVisible()
   await page.getByLabel('书名').fill('活着')
   await page.getByRole('button', { name: '放上书架' }).click()
   await expect(page.getByText('《活着》')).toBeVisible()
@@ -584,17 +577,54 @@ test('reading: shelve a book, jot a note and get an AI comment', async ({ page }
   await expect(page.getByText('已读 30 页')).toBeVisible()
 
   await page.getByRole('button', { name: '让姐妹看看' }).click()
-  await expect(page.getByText('这段写得真好，我也被戳了一下。')).toBeVisible()
+  await expect(page.getByText(previewComment)).toBeVisible()
+  await expect(page.getByText('模拟结果 · 未连接云端')).toBeVisible()
+  await expect(page.getByText('这是模拟回应，未连接云端，也未保存到笔记。')).toBeVisible()
+  expect(notes[0]).toMatchObject({ aiComment: null, aiCommentSource: null })
+  await page.reload()
+  await expect(page.getByText('有庆那段看得心里发紧')).toBeVisible()
+  await expect(page.getByText(previewComment)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '让姐妹看看' })).toBeVisible()
   await expectNoSeriousAxeFindings(page)
 })
 
 test('study: run a pomodoro, finish early and record it', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/**', route => json(route, 404, { error: 'UNMOCKED_ENDPOINT' }))
+  await mockChatBootstrap(page, true)
   let sessions = []
   let sessionsPost = null
+  let active = null
+  const previewComment = '【模拟自习回应】这是一条未连接云端的接口示例。'
+  const activeResponse = () => active ? { ...active, serverNow: new Date().toISOString() } : null
   await page.route('**/api/study/**', route => {
     const request = route.request()
     const url = new URL(request.url())
+    if (url.pathname === '/api/study/active') {
+      if (request.method() === 'GET') return json(route, 200, activeResponse())
+      const body = request.postDataJSON()
+      active = {
+        id: 'run-e2e', status: 'running', subject: body.subject ?? null, plannedMinutes: body.plannedMinutes,
+        startedAt: new Date().toISOString(), finishedAt: null, actualMinutes: null, savedSession: null,
+        execution: { mode: 'mock', storage: 'memory', persisted: false, expiresAt: new Date(Date.now() + 86400000).toISOString() },
+      }
+      return json(route, 200, activeResponse())
+    }
+    if (url.pathname === '/api/study/active/run-e2e/finish' && request.method() === 'POST') {
+      if (active.status === 'running') {
+        active.finishedAt = new Date().toISOString()
+        active.actualMinutes = Math.min(active.plannedMinutes, Math.max(1, Math.ceil((Date.now() - new Date(active.startedAt).getTime()) / 60000)))
+        active.status = 'finished'
+      }
+      return json(route, 200, activeResponse())
+    }
+    if (url.pathname === '/api/study/active/run-e2e' && request.method() === 'DELETE') {
+      active = null
+      return json(route, 200, { cancelled: true })
+    }
+    if (url.pathname === '/api/study/sessions/se-e2e/comment') {
+      return json(route, 200, { aiComment: previewComment, source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    }
     if (url.pathname.endsWith('/summary')) {
       const todayMinutes = sessions.reduce((sum, s) => sum + s.actualMinutes, 0)
       return json(route, 200, { todayMinutes, weekMinutes: todayMinutes, streak: todayMinutes > 0 ? 1 : 0, totalSessions: sessions.length })
@@ -602,10 +632,18 @@ test('study: run a pomodoro, finish early and record it', async ({ page }) => {
     if (url.pathname.endsWith('/sessions')) {
       if (request.method() === 'GET') return json(route, 200, sessions)
       sessionsPost = request.postDataJSON()
-      sessions = [{ id: 'se-e2e', ...sessionsPost, aiComment: null, aiCommentSource: null, createdAt: '2026-09-06T10:00:00.000Z' }]
+      expect(sessionsPost).toEqual({ runId: 'run-e2e', note: '背完一章' })
+      expect(active.status).toBe('finished')
+      sessions = [{
+        id: 'se-e2e', subject: active.subject, plannedMinutes: active.plannedMinutes,
+        actualMinutes: active.actualMinutes, startedAt: active.startedAt, note: sessionsPost.note,
+        aiComment: null, aiCommentSource: null, createdAt: new Date().toISOString(),
+      }]
+      active.savedSession = sessions[0]
+      active.status = 'saved'
       return json(route, 200, sessions[0])
     }
-    return json(route, 200, { success: true })
+    return json(route, 404, { error: 'UNMOCKED_STUDY_ENDPOINT' })
   })
   await page.goto('/tools/study')
 
@@ -614,14 +652,28 @@ test('study: run a pomodoro, finish early and record it', async ({ page }) => {
   await page.getByRole('button', { name: '开始自习' }).click()
   await expect(page.getByText('25:00')).toBeVisible()
   await expect(page.getByText('我在旁边安静看书呢，你专心学')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: '提前完成' })).toBeVisible()
+  expect(active.status).toBe('running')
 
   await page.getByRole('button', { name: '提前完成' }).click()
   await page.getByLabel('一句话收获').fill('背完一章')
   await page.getByRole('button', { name: '记下这次' }).click()
 
-  await expect.poll(() => sessionsPost?.actualMinutes).toBe(1)
+  await expect.poll(() => sessionsPost?.runId).toBe('run-e2e')
+  expect(sessionsPost).not.toHaveProperty('actualMinutes')
   await expect(page.getByText(/今天 1 分钟/)).toBeVisible()
+  await page.getByRole('button', { name: '让姐妹看看' }).click()
+  await expect(page.getByText(previewComment)).toBeVisible()
+  await expect(page.getByText('模拟结果 · 未连接云端')).toBeVisible()
+  await expect(page.getByText('这是模拟回应，未连接云端，也未保存到自习记录。')).toBeVisible()
+  expect(sessions[0]).toMatchObject({ actualMinutes: 1, aiComment: null, aiCommentSource: null })
+  await expect(page.locator('section').filter({ hasText: '最近的自习' }).getByText(previewComment)).toHaveCount(0)
+  await page.reload()
   await expect(page.getByRole('button', { name: '让姐妹看看' })).toBeVisible()
+  await expect(page.getByText(previewComment)).toHaveCount(0)
+  await page.getByRole('button', { name: '再来一轮' }).click()
+  await expect(page.getByRole('button', { name: '开始自习' })).toBeVisible()
   await expectNoSeriousAxeFindings(page)
 })
 
@@ -653,7 +705,7 @@ test('roleplay: set and clear a custom role on profile', async ({ page }) => {
 // 2x2 有效 PNG：选照片/单品上传用（<img> 能触发 onLoad）
 const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 
-test('work mode: desktop grid fills the empty state and the header button summons the same panel', async ({ page }) => {
+test('work mode: grouped desktop replaces the empty state and preserves mode switching and routes', async ({ page }) => {
   await seedAuth(page)
   await mockChatBootstrap(page, true)
   await page.goto('/chat')
@@ -661,35 +713,34 @@ test('work mode: desktop grid fills the empty state and the header button summon
   const modeSwitch = page.getByLabel('会话模式')
   await modeSwitch.getByRole('button', { name: '工作' }).click()
 
-  // 空态直出功能桌面，原插画空态让位
+  // 空态直出工作主题，当前主题以外的入口收起。
   const desktop = page.locator('nav[aria-label="功能桌面"]')
   await expect(desktop).toBeVisible()
   await expect(page.getByText('嗨，我是你的Amie')).toHaveCount(0)
+  await expect(desktop.getByRole('link', { name: /日程与提醒/ })).toHaveAttribute('href', '/tools/planner')
+  await desktop.getByRole('button', { name: '灵感装扮' }).click()
   await expect(desktop.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
   await expect(desktop.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
+  await desktop.getByRole('button', { name: '记录生活' }).click()
   await expect(desktop.getByRole('link', { name: /日记/ })).toHaveAttribute('href', '/tools/diary')
+  await expect(desktop.getByRole('link', { name: /大姨妈记录/ })).toHaveAttribute('href', '/tools/period')
 
-  // 头部「功能」按钮唤出同一网格的遮罩层，可关闭
-  await page.getByRole('button', { name: '打开功能桌面' }).click()
-  const dialog = page.getByRole('dialog', { name: '功能桌面' })
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('link', { name: /大姨妈记录/ })).toHaveAttribute('href', '/tools/period')
-  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(dialog).toHaveCount(0)
-
-  // 切回聊天模式：按钮消失、插画空态回来
+  // 切回聊天模式：工作主题消失、聊天空态回来。
   await modeSwitch.getByRole('button', { name: '聊天' }).click()
-  await expect(page.getByRole('button', { name: '打开功能桌面' })).toHaveCount(0)
+  await expect(desktop).toHaveCount(0)
   await expect(page.getByText('嗨，我是你的Amie')).toBeVisible()
 
   // 卡片直达对应路由
   await modeSwitch.getByRole('button', { name: '工作' }).click()
+  await desktop.getByRole('button', { name: '灵感装扮' }).click()
   await desktop.getByRole('link', { name: /3D 衣柜/ }).click()
   await expect(page).toHaveURL(/\/tools\/wardrobe/)
 })
 
-test('makeup room: save a custom preset, re-apply it, and stay honest when the engine is absent', async ({ page }) => {
+test('makeup room: save and re-apply parameter presets without local inference', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/**', route => json(route, 404, { error: 'unmocked API request' }))
+  await mockChatBootstrap(page, true)
   const presets = []
   await page.route('**/api/makeup-presets', route => {
     if (route.request().method() === 'GET') return json(route, 200, presets)
@@ -705,7 +756,6 @@ test('makeup room: save a custom preset, re-apply it, and stay honest when the e
   })
   await page.goto('/tools/makeup-room')
 
-  await page.getByRole('tab', { name: '选照片' }).click()
   await page.locator('input[aria-label="选择照片"]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: TINY_PNG })
 
   const saveButton = page.getByRole('button', { name: '把当前存为妆容' })
@@ -729,20 +779,27 @@ test('makeup room: save a custom preset, re-apply it, and stay honest when the e
   await expectNoSeriousAxeFindings(page)
 })
 
-test('wardrobe: unconfigured 3D service shows the honest 503 and no fake success', async ({ page }) => {
+test('wardrobe: cloud interface mock never creates a fake model', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/**', route => json(route, 404, { error: 'unmocked API request' }))
+  await mockChatBootstrap(page, true)
   await page.route('**/api/wardrobe', route => {
     if (route.request().method() === 'GET') return json(route, 200, [])
-    return json(route, 503, { error: '3D 生成服务还没接好，开放后第一时间告诉你', code: 'IMAGE_TO_3D_NOT_CONFIGURED' })
+    throw new Error('模拟预览不能创建衣柜单品')
   })
+  await page.route('**/api/work/media/wardrobe/preview', route => json(route, 200, {
+    source: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false },
+    result: { kind: 'model', modelUrl: null, name: '黑色风衣', message: '模拟校验已完成，尚未连接云端服务，未生成模型，也未添加到衣柜。' },
+  }))
   await page.goto('/tools/wardrobe')
 
   await page.locator('input[aria-label="选择单品照片"]').setInputFiles({ name: 'coat.png', mimeType: 'image/png', buffer: TINY_PNG })
   await page.getByLabel('单品名字').fill('黑色风衣')
-  await page.getByRole('button', { name: '生成 3D 模型' }).click()
+  await page.getByRole('button', { name: '提交模拟预览' }).click()
 
-  await expect(page.getByRole('alert')).toHaveText('3D 生成服务还没接好，开放后第一时间告诉你')
-  await expect(page.getByText('衣柜还空着，传一张单品照试试。')).toBeVisible()
+  await expect(page.getByRole('status', { name: '模拟预览结果' })).toContainText('未添加到衣柜')
+  await expect(page.getByText('衣柜还空着', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '下载模型' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /黑色风衣/ })).toHaveCount(0)
 
   await expectNoSeriousAxeFindings(page)

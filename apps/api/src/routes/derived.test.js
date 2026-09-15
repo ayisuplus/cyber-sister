@@ -175,7 +175,7 @@ describe('记忆关系边路由（M2）', () => {
     const ok = await request(app).post('/edges/e1/promote')
     expect(ok.status).toBe(200)
     expect(ok.body).toEqual({ edge: { id: 'e1', status: 'canonical' } })
-    expect(edgeSvc.promoteEdge).toHaveBeenCalledWith('user-1', 'e1')
+    expect(edgeSvc.promoteEdge).toHaveBeenCalledWith('user-1', 'e1', {})
     expect(service.promoteInsight).not.toHaveBeenCalled()
 
     edgeSvc.promoteEdge.mockRejectedValue(Object.assign(new Error('记忆关系不存在'), { statusCode: 404 }))

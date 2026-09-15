@@ -52,6 +52,31 @@ describe('HandbookPage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('加载中…')
   })
 
+  it('edits a habit without losing its check-in history', async () => {
+    const user = userEvent.setup()
+    habitService.list.mockResolvedValue([habit()])
+    habitService.update.mockResolvedValue({ name: '每日阅读', icon: 'book' })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '编辑 喝水' }))
+    await user.clear(screen.getByLabelText('修改习惯名称'))
+    await user.type(screen.getByLabelText('修改习惯名称'), '每日阅读')
+    await user.selectOptions(screen.getByLabelText('修改习惯图标'), 'book')
+    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    expect(habitService.update).toHaveBeenCalledWith('h1', { name: '每日阅读', icon: 'book' })
+    expect(await screen.findByText('每日阅读')).toBeInTheDocument()
+    expect(screen.getByText('连续 3 天')).toBeInTheDocument()
+    expect(screen.getByLabelText('每日阅读 近 30 天打卡').querySelectorAll('span.bg-status-local')).toHaveLength(2)
+  })
+
+  it('clearly labels an unsaved mock cheer', async () => {
+    const user = userEvent.setup()
+    habitService.cheer.mockResolvedValue({ cheer: '模拟鼓励', source: 'cloud_mock' })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '姐妹说两句' }))
+    expect(await screen.findByText('模拟结果 · 未连接云端')).toBeInTheDocument()
+    expect(screen.getByText(/这是模拟鼓励，未连接云端，也未保存为你的记录/)).toBeInTheDocument()
+  })
+
   it('shows a retryable error when loading fails', async () => {
     const user = userEvent.setup()
     habitService.list.mockRejectedValueOnce(new Error('offline'))

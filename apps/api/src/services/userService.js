@@ -85,12 +85,12 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
   return user
 }
 
-export async function switchPersona(userId, persona) {
+export async function switchPersona(userId, persona, database = prisma) {
   if (!PERSONAS.includes(persona)) {
     throw new HttpError(`人格必须是以下值之一: ${PERSONAS.join(', ')}`, 400)
   }
 
-  const user = await prisma.user.update({
+  const user = await database.user.update({
     where: { id: userId },
     data: { persona },
     select: { persona: true },
@@ -117,7 +117,7 @@ export function assertRolePlayAllowed(name, setting) {
   }
 }
 
-export async function updateRolePlay(userId, { name, setting }) {
+export async function updateRolePlay(userId, { name, setting }, database = prisma) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 20) {
     throw new HttpError('角色名必须为1到20个字符', 400)
   }
@@ -125,7 +125,7 @@ export async function updateRolePlay(userId, { name, setting }) {
     throw new HttpError('角色设定必须为1到200个字符', 400)
   }
   assertRolePlayAllowed(name.trim(), setting.trim())
-  const user = await prisma.user.update({
+  const user = await database.user.update({
     where: { id: userId },
     data: { roleName: name.trim(), roleSetting: setting.trim() },
     select: { roleName: true, roleSetting: true },

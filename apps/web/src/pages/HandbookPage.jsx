@@ -37,6 +37,8 @@ export default function HandbookPage() {
   const [cheerLoading, setCheerLoading] = useState(false)
   const [cheerError, setCheerError] = useState('')
   const [cheerResult, setCheerResult] = useState(null)
+  const [editingHabit, setEditingHabit] = useState(null)
+  const [editSaving, setEditSaving] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -105,6 +107,17 @@ export default function HandbookPage() {
     }
   }
 
+  const handleEditSave = async () => {
+    if (!editingHabit?.name.trim() || editSaving) return
+    setEditSaving(true); setActionError('')
+    try {
+      const updated = await habitService.update(editingHabit.id, { name: editingHabit.name.trim(), icon: editingHabit.icon })
+      setHabits(prev => prev.map(habit => habit.id === editingHabit.id ? { ...habit, ...updated } : habit))
+      setEditingHabit(null)
+    } catch (error) { setActionError(error?.response?.data?.error || '习惯修改失败，请重试') }
+    finally { setEditSaving(false) }
+  }
+
   // 近 30 天点阵的日期序列（旧 → 新）
   const recentWindow = useMemo(() => {
     const today = new Date()
@@ -139,6 +152,7 @@ export default function HandbookPage() {
                   <div className="mt-2">
                     <SourceBadge source={cheerResult.source} />
                   </div>
+                  {cheerResult.source === 'cloud_mock' && <p className="mt-2 text-xs text-text-muted">这是模拟鼓励，未连接云端，也未保存为你的记录。</p>}
                 </div>
               )}
               {cheerResult && !cheerResult.cheer && (
@@ -173,9 +187,10 @@ export default function HandbookPage() {
                           <Icon size={20} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-text-primary">{habit.name}</p>
+                          <p title={habit.name} className="truncate text-sm font-semibold text-text-primary">{habit.name}</p>
                           <p className="text-xs text-text-muted">连续 {habit.streak} 天</p>
                         </div>
+                        <button type="button" aria-label={`编辑 ${habit.name}`} onClick={() => setEditingHabit({ id: habit.id, name: habit.name, icon: habit.icon })} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-text-muted hover:text-action-primary"><PenLine size={18} /></button>
                         <button
                           type="button"
                           aria-label={`归档 ${habit.name}`}
@@ -198,6 +213,15 @@ export default function HandbookPage() {
                           {habit.checkedToday ? <Check size={20} /> : null}
                         </button>
                       </div>
+                      {editingHabit?.id === habit.id && (
+                        <div className="mt-3 space-y-2">
+                          <input aria-label="修改习惯名称" maxLength={20} value={editingHabit.name} onChange={event => setEditingHabit(prev => ({ ...prev, name: event.target.value }))} className="min-h-11 w-full rounded-control bg-surface-input px-3 text-sm text-text-primary" />
+                          <select aria-label="修改习惯图标" value={editingHabit.icon} onChange={event => setEditingHabit(prev => ({ ...prev, icon: event.target.value }))} className="min-h-11 w-full rounded-control bg-surface-input px-3 text-sm text-text-primary">
+                            {HABIT_ICONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                          </select>
+                          <div className="flex gap-2"><Button variant="primary" disabled={editSaving || !editingHabit.name.trim()} onClick={handleEditSave}>保存修改</Button><Button variant="secondary" disabled={editSaving} onClick={() => setEditingHabit(null)}>取消修改</Button></div>
+                        </div>
+                      )}
                       {/* 近 30 天点阵 */}
                       <div className="mt-3 flex flex-wrap gap-1" aria-label={`${habit.name} 近 30 天打卡`}>
                         {recentWindow.map(day => (

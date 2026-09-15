@@ -1,8 +1,14 @@
 import * as domMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup } from '@testing-library/react'
 import { afterEach, expect, vi } from 'vitest'
+import axios from 'axios'
 
 expect.extend(domMatchers)
+
+// 单元测试不得访问本机开发 API；服务测试可显式提供自己的 adapter 或 mock。
+if (axios.defaults) {
+  axios.defaults.adapter = async () => { throw new Error('Unit tests must mock API requests') }
+}
 
 afterEach(() => {
   cleanup()
@@ -24,6 +30,9 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 Element.prototype.scrollIntoView = vi.fn()
+// jsdom 不解码媒体；播放生命周期由 AmbientMedia 的专项测试模拟验证。
+HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined)
+HTMLMediaElement.prototype.pause = vi.fn()
 // jsdom 未实现 ObjectURL；本地照片预览依赖它，统一 mock 供各测试断言
 if (typeof URL.createObjectURL !== 'function') {
   URL.createObjectURL = vi.fn(() => 'blob:mock-preview')

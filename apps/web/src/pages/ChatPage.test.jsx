@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -50,6 +50,8 @@ vi.mock('../services/memoryService', () => ({
 vi.mock('../services/careService', () => ({
   careService: { list: vi.fn(), dismiss: vi.fn() },
 }))
+vi.mock('../services/reminderService', () => ({ reminderService: { listDue: vi.fn(async () => []) } }))
+vi.mock('../services/userService', () => ({ userService: { fetchAssetUrl: vi.fn(async () => null) } }))
 
 import { chatService } from '../services/chatService'
 import { complianceService } from '../services/complianceService'
@@ -136,6 +138,9 @@ describe('ChatPage', () => {
     renderPage()
 
     expect(await screen.findByRole('navigation', { name: '功能桌面' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /日程与提醒/ })).toHaveAttribute('href', '/tools/planner')
+    expect(screen.queryByRole('link', { name: /3D 衣柜/ })).not.toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: '灵感装扮' }))
     expect(screen.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
     expect(screen.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
     expect(screen.queryByText('嗨，我是你的Amie')).not.toBeInTheDocument()
@@ -153,15 +158,15 @@ describe('ChatPage', () => {
       onEvent: expect.any(Function),
     }))
     // 首个 delta 前由 TypingIndicator 承担进行中视觉
-    expect(document.querySelectorAll('.typing-dot')).toHaveLength(3)
+    await waitFor(() => expect(document.querySelectorAll('.typing-dot')).toHaveLength(3))
 
-    stream.onEvent({ event: 'delta', text: '看《好东西》' })
-    expect(await screen.findByText('看《好东西》')).toBeInTheDocument()
+    act(() => stream.onEvent({ event: 'delta', text: '看《好东西》' }))
+    await waitFor(() => expect(screen.getByText('看《好东西》')).toBeInTheDocument())
     expect(document.querySelectorAll('.typing-dot')).toHaveLength(0)
 
     // replace 整体替换此前已渲染的临时文本
-    stream.onEvent({ event: 'replace', content: '看《流浪地球》吧' })
-    expect(await screen.findByText('看《流浪地球》吧')).toBeInTheDocument()
+    act(() => stream.onEvent({ event: 'replace', content: '看《流浪地球》吧' }))
+    await waitFor(() => expect(screen.getByText('看《流浪地球》吧')).toBeInTheDocument())
     expect(screen.queryByText('看《好东西》')).not.toBeInTheDocument()
 
     // done 用持久化消息替换临时消息
@@ -174,7 +179,8 @@ describe('ChatPage', () => {
     })
     stream.resolve()
 
-    expect(await screen.findByText('本地安全模板')).toBeInTheDocument()
+    // 新建会话触发的翻页会在 200ms 后整页重挂载：每次重新查询，不持有可能被卸载的旧节点
+    await waitFor(() => expect(screen.getByText('本地安全模板')).toBeInTheDocument())
     expect(screen.getByText('推荐个电影')).toBeInTheDocument()
     expect(useChatStore.getState().messages.map(m => m.id)).toEqual(['u1', 'a1'])
   })
@@ -207,7 +213,7 @@ describe('ChatPage', () => {
   })
 
   it.each([
-    [{ code: 'CLOUD_NOT_CONSENTED' }, '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'],
+    [{ code: 'CLOUD_NOT_CONSENTED' }, '需要你先同意使用云端模型才能聊天：请到「设置」页面开启。原输入已保留。'],
     [{ code: 'LLM_UNAVAILABLE' }, '云端模型暂时不可用。原输入已保留，请稍后重试。'],
     [{ message: 'unknown failure' }, '消息发送失败，原输入已保留，请重试。'],
   ])('explains send failure %o without losing the draft', async (errorPayload, expectedMessage) => {
@@ -264,6 +270,7 @@ describe('ChatPage 帮我记住入口', () => {
     useChatStore.setState({
       conversations: [],
       currentConversationId: 'c1',
+      chatMode: 'chat',
       messages: [],
       isTyping: false,
       isSending: false,
@@ -307,6 +314,15 @@ describe('ChatPage 帮我记住入口', () => {
     renderPage()
 
     expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
+  })
+
+  it('hides the entry for persisted work replies without calling the suggestions API', () => {
+    useChatStore.setState({ chatMode: 'work', messages: persistedPair })
+    renderPage()
+
+    expect(screen.getByText('推荐《流浪地球》')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
+    expect(memoryService.getSuggestions).not.toHaveBeenCalled()
   })
 
   it('hides the entry when the last message is a user message (blocked flow leaves no reply)', () => {

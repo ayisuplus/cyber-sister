@@ -32,9 +32,15 @@ describe('asrService', () => {
 
     const result = await asrService.transcribeAudio(wav)
 
-    expect(api.postForm).toHaveBeenCalledWith('/asr/transcribe', expect.any(FormData))
+    expect(api.postForm).toHaveBeenCalledWith('/asr/transcribe', expect.any(FormData), { signal: undefined })
     const formData = api.postForm.mock.calls[0][1]
     expect(formData.get('file')).toBeInstanceOf(Blob)
     expect(result).toEqual({ text: '你好' })
+  })
+
+  it('forwards the cancellation signal to the audio upload', async () => {
+    const controller = new AbortController()
+    await asrService.transcribeAudio(new Blob(['wav']), { signal: controller.signal })
+    expect(api.postForm).toHaveBeenCalledWith('/asr/transcribe', expect.any(FormData), { signal: controller.signal })
   })
 })

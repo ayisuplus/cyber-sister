@@ -49,7 +49,7 @@ describe('MessageBubble rendering contract', () => {
       <MessageBubble message={{ role: 'assistant', content: '抱抱你', emotion: 'sad' }} isLast={false} />,
     )
 
-    expect(container.querySelector('.border-status-info')).not.toBeNull()
+    expect(container.querySelector('.border-l-status-info')).not.toBeNull()
   })
 
   it('keeps unknown emotions visually neutral', () => {
@@ -57,7 +57,7 @@ describe('MessageBubble rendering contract', () => {
       <MessageBubble message={{ role: 'assistant', content: '嗯', emotion: 'confused' }} isLast={false} />,
     )
 
-    expect(container.querySelector('.border-transparent')).not.toBeNull()
+    expect(container.querySelector('.border-l-transparent')).not.toBeNull()
   })
 })
 

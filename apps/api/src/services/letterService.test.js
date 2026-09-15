@@ -41,7 +41,6 @@ vi.mock('../utils/logger.js', () => ({
 }))
 
 import {
-  collectWeekStats,
   composeLetter,
   generateWeeklyLetter,
   getLetter,
@@ -150,57 +149,22 @@ describe('isQuietWeek', () => {
   })
 })
 
-describe('generateWeeklyLetter', () => {
-  it('本周信已存在时直接返回，不再收集统计', async () => {
-    const existing = { id: 'letter-9', userId: USER_ID, weekStart: WEEK_START, content: '旧信' }
-    mocks.letterFindUnique.mockResolvedValue(existing)
-
-    const result = await generateWeeklyLetter(USER_ID, { weekStartUtc: WEEK_START })
-
-    expect(result).toEqual({ letter: existing, created: false })
-    expect(mocks.messageCount).not.toHaveBeenCalled()
-    expect(mocks.letterCreate).not.toHaveBeenCalled()
-  })
-
-  it('沉默周不生成，返回 quiet', async () => {
-    const result = await generateWeeklyLetter(USER_ID, { weekStartUtc: WEEK_START })
-
-    expect(result).toEqual({ letter: null, created: false, reason: 'quiet' })
-    expect(mocks.letterCreate).not.toHaveBeenCalled()
-    expect(mocks.userFindUnique).not.toHaveBeenCalled()
-  })
-
-  it('有活动时组信落库并返回 created', async () => {
+describe('generateWeeklyLetter mock boundary', () => {
+  it('returns a labelled preview without reading private context or creating a letter', async () => {
     mocks.messageCount.mockResolvedValue(23)
-    mocks.memoryCount.mockResolvedValue(1)
-    mocks.memoryFindMany.mockResolvedValue([{ content: '喜欢火锅' }])
-
     const result = await generateWeeklyLetter(USER_ID, { weekStartUtc: WEEK_START })
-
-    expect(result.created).toBe(true)
-    const data = mocks.letterCreate.mock.calls[0][0].data
-    expect(data).toMatchObject({ userId: USER_ID, weekStart: WEEK_START })
-    expect(data.content).toContain('小赛，见信好。')
-    expect(data.content).toContain('23 轮')
-    expect(data.content).toContain('新记下了 1 件事：「喜欢火锅」')
-  })
-
-  it('并发生成撞唯一约束（P2002）时回读既有的信', async () => {
-    mocks.messageCount.mockResolvedValue(3)
-    const existing = { id: 'letter-9', content: '并发那一封' }
-    mocks.letterCreate.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }))
-    mocks.letterFindUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(existing)
-
-    const result = await generateWeeklyLetter(USER_ID, { weekStartUtc: WEEK_START })
-
-    expect(result).toEqual({ letter: existing, created: false })
+    expect(result).toMatchObject({ letter: null, created: false, reason: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(result.preview.content).toContain('模拟')
+    expect(mocks.messageCount).not.toHaveBeenCalled()
+    expect(mocks.memoryFindMany).not.toHaveBeenCalled()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+    expect(mocks.letterCreate).not.toHaveBeenCalled()
+    expect(mocks.letterFindUnique).not.toHaveBeenCalled()
   })
 })
 
 describe('listLetters / getLetter', () => {
-  it('列表前先幂等补本周信，按周起始倒序返回', async () => {
+  it('列表仅读取既有信件，绝不隐式生成或写入', async () => {
     mocks.messageCount.mockResolvedValue(1)
     mocks.letterFindMany.mockResolvedValue([
       { id: 'l2', weekStart: new Date('2026-09-14T00:00:00.000Z'), content: '本周' },
@@ -209,7 +173,8 @@ describe('listLetters / getLetter', () => {
 
     const letters = await listLetters(USER_ID)
 
-    expect(mocks.letterCreate).toHaveBeenCalled()
+    expect(mocks.letterCreate).not.toHaveBeenCalled()
+    expect(mocks.messageCount).not.toHaveBeenCalled()
     expect(letters.map((letter) => letter.id)).toEqual(['l2', 'l1'])
     expect(mocks.letterFindMany).toHaveBeenCalledWith({ where: { userId: USER_ID }, orderBy: { weekStart: 'desc' } })
   })

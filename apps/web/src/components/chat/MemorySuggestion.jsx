@@ -116,7 +116,7 @@ export default function MemorySuggestion({ userMessageId }) {
               onChange={(event) => updateCard(index, { content: event.target.value })}
               maxLength={500}
               rows={3}
-              className="w-full rounded-xl bg-surface-input p-3 text-sm outline-none focus:ring-2 focus:ring-brand-pink/30"
+              className="w-full rounded-xl bg-surface-input p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-status-info"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">

@@ -9,8 +9,10 @@
  */
 import prisma from '../prisma/client.js'
 import logger from '../utils/logger.js'
+import { exportMemoryBundle } from './memoryTransferService.js'
+import { WORK_ACTION_FIELDS } from './workActionService.js'
 
-export const EXPORT_VERSION = 1
+export const EXPORT_VERSION = 2
 
 const iso = (date) => (date instanceof Date ? date.toISOString() : date)
 
@@ -43,6 +45,7 @@ export async function buildUserExport(userId) {
     wardrobeItems,
     memoryEdges,
     letters,
+    workTasks,
   ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -51,6 +54,8 @@ export async function buildUserExport(userId) {
         persona: true,
         roleName: true,
         roleSetting: true,
+        companionState: true,
+        companionRevision: true,
         birthDate: true,
         externalLlmConsent: true,
         externalLlmConsentVersion: true,
@@ -68,11 +73,12 @@ export async function buildUserExport(userId) {
       select: {
         title: true,
         mode: true,
+        archivedAt: true,
         createdAt: true,
         updatedAt: true,
         messages: {
           orderBy: { createdAt: 'asc' },
-          select: { role: true, content: true, emotion: true, source: true, importance: true, toolRuns: true, imageExt: true, createdAt: true },
+          select: { role: true, content: true, emotion: true, source: true, importance: true, toolRuns: true, companionExperience: true, imageExt: true, createdAt: true, workArtifacts: { select: { id: true, title: true, format: true, content: true, encoding: true, origin: true, sizeBytes: true, createdAt: true } } },
         },
       },
     }),
@@ -159,12 +165,21 @@ export async function buildUserExport(userId) {
       orderBy: { weekStart: 'asc' },
       select: { weekStart: true, content: true, createdAt: true },
     }),
+    prisma.workTask.findMany({
+      where: { userId }, orderBy: { createdAt: 'asc' },
+      select: { content: true, status: true, attachments: true, progress: true, errorCode: true, createdAt: true, completedAt: true,
+        actions: { select: WORK_ACTION_FIELDS, orderBy: { createdAt: 'asc' } } },
+    }),
   ])
 
   const bundle = {
     version: EXPORT_VERSION,
+    memoryBundle: await exportMemoryBundle(userId),
     exportedAt: new Date().toISOString(),
     product: 'Amie cyber-sister',
+    companion: { revision: user?.companionRevision ?? 0, state: user?.companionState ?? null },
+    // 导出用户提交及上传正文，不导出执行租约、幂等标识或模型检查点；导入不会重启任务。
+    workTasks: workTasks.map((task) => ({ ...task, createdAt: iso(task.createdAt), completedAt: iso(task.completedAt) })),
     user: user
       ? {
           nickname: user.nickname,
@@ -190,6 +205,7 @@ export async function buildUserExport(userId) {
       mode: c.mode,
       createdAt: iso(c.createdAt),
       updatedAt: iso(c.updatedAt),
+      archivedAt: iso(c.archivedAt ?? null),
       messages: c.messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -197,6 +213,8 @@ export async function buildUserExport(userId) {
         source: m.source,
         importance: m.importance,
         toolRuns: m.toolRuns ?? null,
+        companionExperience: m.companionExperience ?? null,
+        workArtifacts: (m.workArtifacts || []).map((artifact) => ({ ...artifact, createdAt: iso(artifact.createdAt) })),
         hasImage: Boolean(m.imageExt),
         createdAt: iso(m.createdAt),
       })),

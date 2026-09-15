@@ -4,14 +4,14 @@
  * - 边由工作台分析自动抽取（status=derived），用户在工作台「关系」页签逐条确认后
  *   晋升 canonical；canonical 边在聊天注入时做一跳联想扩展。
  * - 派生是附加投影：deriveEdges 的失败由调用方降级，绝不拖垮条目分析与记忆 CRUD。
- * - 去重口径与 insight 对齐：只对 derived/canonical 既有边去重；dismissed 是草稿
- *   处理结果不是定论，重建后允许重现。
+ * - 生成结果提交前重新核对依据版本；已有确认或重审记录不会被后台覆盖。
  * - 日志只记 userId/requestId/计数，不记记忆内容与关系明细。
  */
 import prisma from '../prisma/client.js'
-import { findOwned, HttpError } from '../utils/dbHelpers.js'
+import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
 import { assertCloudCallable, getGateway } from './llmService.js'
+import { assertRevision, conflict, withMemoryTransaction } from './memoryGovernance.js'
 
 export const EDGE_RELATIONS = ['similar', 'related', 'contradicts']
 const EDGE_CONFIDENCES = ['low', 'medium', 'high']
@@ -19,7 +19,7 @@ const EDGE_MEMORY_LIMIT = 100
 const MAX_EDGE_EVIDENCE_ITEMS = 2
 const MAX_EDGE_EVIDENCE_CHARS = 200
 const EDGE_ANALYSIS_MAX_TOKENS = 1200
-const EDGE_LIST_STATUSES = ['derived', 'canonical', 'dismissed', 'all']
+const EDGE_LIST_STATUSES = ['derived', 'canonical', 'needs_review', 'dismissed', 'all']
 
 /** 与 derivedService 同源同款实现：提取首个 JSON 数组，失败返回 null。 */
 function extractJsonArray(output) {
@@ -53,10 +53,11 @@ const edgeKey = (fromId, toId, relation) => [fromId, toId].sort().join(':') + ':
 async function joinEdgeContents(edges) {
   const memoryIds = [...new Set(edges.flatMap((edge) => [edge.fromMemoryId, edge.toMemoryId]))]
   const memories = await prisma.memory.findMany({
-    where: { id: { in: memoryIds } },
-    select: { id: true, content: true },
+    where: { id: { in: memoryIds }, userId: edges[0]?.userId },
+    select: { id: true, content: true, revision: true },
   })
   const contentById = new Map(memories.map((memory) => [memory.id, memory.content]))
+  const revisionById = new Map(memories.map((memory) => [memory.id, memory.revision]))
   return edges
     .filter((edge) => contentById.has(edge.fromMemoryId) && contentById.has(edge.toMemoryId))
     .map((edge) => {
@@ -72,9 +73,13 @@ async function joinEdgeContents(edges) {
         relation: edge.relation,
         confidence: edge.confidence,
         status: edge.status,
+        revision: edge.revision,
+        fromRevision: edge.fromRevision,
+        toRevision: edge.toRevision,
+        decisions: edge.decisions,
         evidence,
-        from: { id: edge.fromMemoryId, content: contentById.get(edge.fromMemoryId) },
-        to: { id: edge.toMemoryId, content: contentById.get(edge.toMemoryId) },
+        from: { id: edge.fromMemoryId, content: contentById.get(edge.fromMemoryId), revision: revisionById.get(edge.fromMemoryId) },
+        to: { id: edge.toMemoryId, content: contentById.get(edge.toMemoryId), revision: revisionById.get(edge.toMemoryId) },
         createdAt: edge.createdAt,
       }
     })
@@ -87,11 +92,12 @@ async function joinEdgeContents(edges) {
 export async function deriveEdges(userId, requestId, consent) {
   const { allowExternal, authorizeExternal } = consent
   assertCloudCallable(allowExternal)
+  const generation = await prisma.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
   const memories = await prisma.memory.findMany({
-    where: { userId },
+    where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
     orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
     take: EDGE_MEMORY_LIMIT,
-    select: { id: true, content: true },
+    select: { id: true, content: true, revision: true },
   })
   if (memories.length < 2) return { created: 0, skipped: 0 }
 
@@ -110,8 +116,14 @@ export async function deriveEdges(userId, requestId, consent) {
   const parsed = extractJsonArray(result.content)
   if (!parsed) return { created: 0, skipped: 0 }
 
-  const existingEdges = await prisma.memoryEdge.findMany({
-    where: { userId, status: { in: ['derived', 'canonical'] } },
+  return withMemoryTransaction(userId, async (tx) => {
+  const current = await tx.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
+  if (current?.memoryEpoch !== generation?.memoryEpoch) return { created: 0, skipped: parsed.length }
+  const currentMemories = await tx.memory.findMany({ where: { userId, id: { in: memories.map((memory) => memory.id) },
+    OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, select: { id: true, revision: true } })
+  const versions = new Map(currentMemories.map((memory) => [memory.id, memory.revision]))
+  const existingEdges = await tx.memoryEdge.findMany({
+    where: { userId, OR: [{ status: { in: ['derived', 'canonical', 'needs_review'] } }, { NOT: { decisions: { equals: [] } } }] },
     select: { fromMemoryId: true, toMemoryId: true, relation: true },
   })
   const knownKeys = new Set(
@@ -125,6 +137,7 @@ export async function deriveEdges(userId, requestId, consent) {
     const to = memories[(item?.to ?? 0) - 1]
     const isValid = from && to
       && from.id !== to.id
+      && from.revision === versions.get(from.id) && to.revision === versions.get(to.id)
       && EDGE_RELATIONS.includes(item.relation)
       && EDGE_CONFIDENCES.includes(item.confidence)
     if (!isValid) {
@@ -137,16 +150,22 @@ export async function deriveEdges(userId, requestId, consent) {
       continue
     }
     knownKeys.add(key)
-    const evidence = Array.isArray(item.evidence)
+    const quotes = Array.isArray(item.evidence)
       ? item.evidence
         .filter((entry) => typeof entry === 'string')
         .slice(0, MAX_EDGE_EVIDENCE_ITEMS)
         .map((entry) => entry.slice(0, MAX_EDGE_EVIDENCE_CHARS))
       : []
+    const evidence = quotes.flatMap((quote) => {
+      const source = [from, to].find((memory) => quote.trim() && memory.content.includes(quote))
+      return source ? [{ type: 'memory', id: source.id, revision: source.revision, quote }] : []
+    })
     valid.push({
       userId,
       fromMemoryId: from.id,
       toMemoryId: to.id,
+      fromRevision: from.revision,
+      toRevision: to.revision,
       relation: item.relation,
       confidence: item.confidence,
       evidence: JSON.stringify(evidence),
@@ -154,10 +173,11 @@ export async function deriveEdges(userId, requestId, consent) {
   }
 
   if (valid.length > 0) {
-    await prisma.memoryEdge.createMany({ data: valid })
+    await tx.memoryEdge.createMany({ data: valid })
   }
   logger.info('记忆关系派生', { userId, requestId, created: valid.length, skipped })
   return { created: valid.length, skipped }
+  })
 }
 
 /** 列出记忆关系边；status 只允许 derived | canonical | dismissed | all。 */
@@ -172,34 +192,49 @@ export async function listEdges(userId, { status = 'derived' } = {}) {
   return joinEdgeContents(edges)
 }
 
-/** 确认一条派生关系：derived → canonical；重复确认或已忽略的条目报 400。 */
-export async function promoteEdge(userId, id) {
-  const edge = await findOwned('memoryEdge', id, userId, '记忆关系')
-  if (edge.status === 'canonical') throw new HttpError('该关系已确认', 400)
-  if (edge.status === 'dismissed') throw new HttpError('该条目已处理过', 400)
-  const updated = await prisma.memoryEdge.update({
-    where: { id: edge.id },
-    data: { status: 'canonical' },
+/** 确认关系并绑定两端当前版本；相同版本的请求重试幂等。 */
+export async function promoteEdge(userId, id, { expectedRevision, expectedFromRevision, expectedToRevision } = {}) {
+  const updated = await withMemoryTransaction(userId, async (tx) => {
+    const edge = await tx.memoryEdge.findFirst({ where: { id, userId } })
+    if (!edge) throw new HttpError('记忆关系不存在', 404)
+    const memories = await tx.memory.findMany({ where: { userId, id: { in: [edge.fromMemoryId, edge.toMemoryId] } } })
+    const from = memories.find((memory) => memory.id === edge.fromMemoryId)
+    const to = memories.find((memory) => memory.id === edge.toMemoryId)
+    if (!from || !to || from.revision !== expectedFromRevision || to.revision !== expectedToRevision) throw conflict('关系依据已变化，请重新核对两条记忆')
+    if (memories.some((memory) => memory.expiresAt && new Date(memory.expiresAt) <= new Date())) throw conflict('关系依据已过期')
+    if (edge.status === 'canonical' && expectedRevision === edge.revision - 1) return edge
+    assertRevision(edge, expectedRevision)
+    if (!['derived', 'needs_review'].includes(edge.status)) throw conflict('该关系已经处理过')
+    return tx.memoryEdge.update({ where: { id }, data: {
+      status: 'canonical', revision: { increment: 1 }, fromRevision: from.revision, toRevision: to.revision,
+      decisions: [...(edge.decisions || []), { action: 'confirm', at: new Date().toISOString(), fromRevision: from.revision, toRevision: to.revision }],
+    } })
   })
-  logger.info('记忆关系定典', { userId, edgeId: edge.id })
+  logger.info('记忆关系定典', { userId, edgeId: id })
   const [joined] = await joinEdgeContents([updated])
   return joined ?? null
 }
 
 /** 忽略一条记忆关系（非本人条目抛 404）。 */
 export async function dismissEdge(userId, id) {
-  const edge = await findOwned('memoryEdge', id, userId, '记忆关系')
-  await prisma.memoryEdge.update({
-    where: { id: edge.id },
-    data: { status: 'dismissed' },
+  await withMemoryTransaction(userId, async (tx) => {
+    const edge = await tx.memoryEdge.findFirst({ where: { id, userId } })
+    if (!edge) throw new HttpError('记忆关系不存在', 404)
+    if (edge.status !== 'dismissed') await tx.memoryEdge.update({ where: { id }, data: {
+      status: 'dismissed', revision: { increment: 1 },
+      decisions: [...(edge.decisions || []), { action: 'dismiss', at: new Date().toISOString() }],
+    } })
   })
-  logger.info('记忆关系忽略', { userId, edgeId: edge.id })
+  logger.info('记忆关系忽略', { userId, edgeId: id })
 }
 
 /** 清掉未定典的关系草稿（derived/dismissed）；canonical 保留为定典历史。 */
 export async function clearDerivedEdges(userId) {
-  const result = await prisma.memoryEdge.deleteMany({
-    where: { userId, status: { in: ['derived', 'dismissed'] } },
+  const result = await withMemoryTransaction(userId, async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
+    return tx.memoryEdge.deleteMany({
+    where: { userId, status: { in: ['derived', 'dismissed'] }, decisions: { equals: [] } },
+    })
   })
   return result.count
 }

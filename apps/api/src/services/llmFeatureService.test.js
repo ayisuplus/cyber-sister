@@ -29,6 +29,8 @@ describe('云端模型状态', () => {
     const result = await getLlmStatus('user-1')
     expect(result).toEqual({
       mode: 'external_primary',
+      embedding: { configured: false, model: null, mode: 'keyword', available: null },
+      workGeneration: expect.objectContaining({ mode: 'mock', cloudConnected: false }),
       local: { configured: false, state: 'removed' },
       externalFallback: { configured: true, primary: true, consent: null, version: 'cloud-primary-v3' },
     })

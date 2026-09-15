@@ -1,105 +1,98 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const wardrobeApi = vi.hoisted(() => ({
-  list: vi.fn(),
-  create: vi.fn(),
-  remove: vi.fn(),
-}))
-
-vi.mock('../services/wardrobeService', () => ({ wardrobeService: wardrobeApi }))
-// jsdom 无 WebGL，model-viewer 注册替换为空模块
+import { resetSession } from '../services/sessionLifecycle'
+const service = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), remove: vi.fn(), preview: vi.fn() }))
+vi.mock('../services/wardrobeService', () => ({ wardrobeService: service }))
+vi.mock('../services/workMediaService', () => ({ workMediaService: { previewWardrobe: service.preview } }))
 vi.mock('@google/model-viewer', () => ({}))
-
 import WardrobePage from './WardrobePage'
 
-const renderPage = () => render(<MemoryRouter><WardrobePage /></MemoryRouter>)
-
-const ITEM = {
-  id: 'i1',
-  name: '黑色风衣',
-  createdAt: '2026-09-08T00:00:00.000Z',
-  sourceUrl: '/api/wardrobe/i1/source',
-  modelUrl: '/api/wardrobe/i1/model',
+const ITEM = { id: 'i1', name: '黑色风衣', createdAt: '2026-09-08T00:00:00.000Z', sourceUrl: '/api/wardrobe/i1/source', modelUrl: '/api/wardrobe/i1/model' }
+const RESULT = { source: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false }, result: { kind: 'model', modelUrl: null, name: '上衣', message: '模拟校验已完成，尚未连接云端服务，未生成模型，也未添加到衣柜。' } }
+const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes }); return { promise, resolve } }
+const renderPage = () => render(<MemoryRouter initialEntries={['/tools/wardrobe']}><WardrobePage /></MemoryRouter>)
+const selectPhoto = (name = 'coat.png') => {
+  const file = new File(['image-bytes'], name, { type: 'image/png' })
+  fireEvent.change(screen.getByLabelText('选择单品照片'), { target: { files: [file] } })
+  return file
 }
-
 beforeEach(() => {
-  wardrobeApi.list.mockReset()
-  wardrobeApi.list.mockResolvedValue([])
-  wardrobeApi.create.mockReset()
-  wardrobeApi.remove.mockReset()
+  vi.clearAllMocks()
+  service.list.mockResolvedValue([])
+  service.preview.mockResolvedValue(RESULT)
+  service.remove.mockResolvedValue(undefined)
+  vi.mocked(URL.createObjectURL).mockImplementation(file => `blob:${file.name}`)
 })
 
-describe('WardrobePage', () => {
-  it('渲染介绍区与空衣柜提示', async () => {
+describe('衣柜云端接口模拟', () => {
+  it('requires a photo and displays mock results separately without creating or downloading a fake artifact', async () => {
     renderPage()
-
-    expect(screen.getAllByRole('heading', { name: '3D 衣柜' }).length).toBeGreaterThan(0)
-
-    expect(screen.getByText('3D 生成走外部服务，未接好时如实提示')).toBeInTheDocument()
-    expect(await screen.findByText('衣柜还空着，传一张单品照试试。')).toBeInTheDocument()
+    await screen.findByText('衣柜还空着')
+    expect(screen.getByRole('button', { name: '提交模拟预览' })).toBeDisabled()
+    const file = selectPhoto()
+    fireEvent.change(screen.getByLabelText('单品名字'), { target: { value: '上衣' } })
+    fireEvent.click(screen.getByRole('button', { name: '提交模拟预览' }))
+    expect(await screen.findByRole('status', { name: '模拟预览结果' })).toHaveTextContent('未添加到衣柜')
+    expect(service.preview).toHaveBeenCalledWith(file, '上衣', { signal: expect.any(AbortSignal) })
+    expect(service.create).not.toHaveBeenCalled()
+    expect(screen.getByText('衣柜还空着')).toBeVisible()
+    expect(screen.queryByRole('link', { name: '下载模型' })).not.toBeInTheDocument()
+    expect(document.querySelector('model-viewer')).toBeNull()
   })
-
-  it('列表渲染单品并可进入详情', async () => {
-    wardrobeApi.list.mockResolvedValue([ITEM])
+  it('retains actual stored model viewing, downloading and confirmed deletion', async () => {
+    service.list.mockResolvedValue([ITEM])
     renderPage()
-
-    const card = await screen.findByRole('button', { name: /黑色风衣/ })
-    fireEvent.click(card)
-
-    expect(await screen.findByRole('link', { name: '下载模型' })).toHaveAttribute('href', '/api/wardrobe/i1/model')
-    expect(document.querySelector('model-viewer')).not.toBeNull()
-    expect(document.querySelector('model-viewer').getAttribute('src')).toBe('/api/wardrobe/i1/model')
-  })
-
-  it('未选图时生成按钮不可用', async () => {
-    renderPage()
-
-    expect(screen.getByRole('button', { name: '生成 3D 模型' })).toBeDisabled()
-  })
-
-  it('上传后 503 IMAGE_TO_3D_NOT_CONFIGURED → 展示「还没接好」文案，无假成功', async () => {
-    wardrobeApi.create.mockRejectedValue({
-      response: { data: { code: 'IMAGE_TO_3D_NOT_CONFIGURED', error: '3D 生成服务还没接好，开放后第一时间告诉你' } },
-    })
-    renderPage()
-
-    fireEvent.change(screen.getByLabelText('选择单品照片'), {
-      target: { files: [new File(['fake'], 'coat.png', { type: 'image/png' })] },
-    })
-    fireEvent.change(screen.getByLabelText('单品名字'), { target: { value: '黑色风衣' } })
-    fireEvent.click(screen.getByRole('button', { name: '生成 3D 模型' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('3D 生成服务还没接好，开放后第一时间告诉你')
-    expect(screen.queryByRole('button', { name: /黑色风衣/ })).not.toBeInTheDocument()
-  })
-
-  it('上传成功后新品出现在列表头部', async () => {
-    wardrobeApi.create.mockResolvedValue(ITEM)
-    renderPage()
-
-    fireEvent.change(screen.getByLabelText('选择单品照片'), {
-      target: { files: [new File(['fake'], 'coat.png', { type: 'image/png' })] },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '生成 3D 模型' }))
-
-    expect(await screen.findByRole('button', { name: /黑色风衣/ })).toBeInTheDocument()
-    const formData = wardrobeApi.create.mock.calls[0][0]
-    expect(formData.get('image')).toBeInstanceOf(File)
-  })
-
-  it('详情里删除经确认后从列表消失并返回列表', async () => {
-    wardrobeApi.list.mockResolvedValue([ITEM])
-    wardrobeApi.remove.mockResolvedValue({ success: true })
-    renderPage()
-
     fireEvent.click(await screen.findByRole('button', { name: /黑色风衣/ }))
-    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
-    fireEvent.click(screen.getAllByRole('button', { name: '删除' }).pop()) // ConfirmDialog 确认钮
-
-    await waitFor(() => expect(wardrobeApi.remove).toHaveBeenCalledWith('i1'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: /黑色风衣/ })).not.toBeInTheDocument())
-    expect(await screen.findByText('衣柜还空着，传一张单品照试试。')).toBeInTheDocument()
+    expect(document.querySelector('model-viewer')).toHaveAttribute('src', ITEM.modelUrl)
+    expect(screen.getByRole('link', { name: '下载模型' })).toHaveAttribute('href', ITEM.modelUrl)
+    fireEvent.click(screen.getByRole('button', { name: '删除', exact: true }))
+    expect(service.remove).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '删除', exact: true }))
+    await screen.findByText('衣柜还空着')
+    expect(service.remove).toHaveBeenCalledWith(ITEM.id)
+  })
+  it('keeps a failed request retryable and clears the old result on name changes', async () => {
+    service.preview.mockRejectedValueOnce({ response: { data: { error: '请求暂时失败' } } })
+    renderPage()
+    selectPhoto()
+    fireEvent.click(screen.getByRole('button', { name: '提交模拟预览' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('请求暂时失败')
+    fireEvent.click(screen.getByRole('button', { name: '提交模拟预览' }))
+    await screen.findByRole('status', { name: '模拟预览结果' })
+    fireEvent.change(screen.getByLabelText('单品名字'), { target: { value: '新名字' } })
+    expect(screen.queryByRole('status', { name: '模拟预览结果' })).not.toBeInTheDocument()
+    expect(service.preview).toHaveBeenCalledTimes(2)
+  })
+  it('aborts a replaced image request, ignores stale completion and releases object URLs', async () => {
+    const pending = deferred()
+    service.preview.mockReturnValueOnce(pending.promise)
+    const view = renderPage()
+    selectPhoto()
+    fireEvent.click(screen.getByRole('button', { name: '提交模拟预览' }))
+    const signal = service.preview.mock.calls[0][2].signal
+    selectPhoto('new.png')
+    expect(signal.aborted).toBe(true)
+    await act(async () => pending.resolve(RESULT))
+    expect(screen.queryByRole('status', { name: '模拟预览结果' })).not.toBeInTheDocument()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:coat.png')
+    view.unmount()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:new.png')
+  })
+  it('clears existing items and pending previews across identity changes', async () => {
+    service.list.mockResolvedValue([ITEM])
+    const pending = deferred()
+    service.preview.mockReturnValueOnce(pending.promise)
+    renderPage()
+    await screen.findByRole('button', { name: /黑色风衣/ })
+    selectPhoto()
+    fireEvent.click(screen.getByRole('button', { name: '提交模拟预览' }))
+    const signal = service.preview.mock.calls[0][2].signal
+    act(() => resetSession())
+    await act(async () => pending.resolve(RESULT))
+    expect(signal.aborted).toBe(true)
+    expect(screen.queryByRole('button', { name: /黑色风衣/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: '模拟预览结果' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交模拟预览' })).toBeDisabled())
   })
 })

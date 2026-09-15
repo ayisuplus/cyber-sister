@@ -1,6 +1,11 @@
 import { render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from './stores/authStore'
+
+// 路由测试不访问正在运行的开发 API；装扮和提醒有独立组件测试。
+vi.mock('./services/userService', () => ({ userService: { fetchAssetUrl: vi.fn(async () => null) } }))
+vi.mock('./services/reminderService', () => ({ reminderService: { listDue: vi.fn(async () => []) } }))
+vi.mock('./services/chatService', () => ({ chatService: { getConversations: vi.fn(async () => []) } }))
 
 vi.mock('./pages/LoginPage', () => ({ default: () => <h1>登录页</h1> }))
 vi.mock('./pages/ChatPage', () => ({ default: () => <h1>聊天页</h1> }))
@@ -14,8 +19,7 @@ vi.mock('./pages/VirtualFittingRoomPage', () => ({ default: () => <h1>虚拟试�
 vi.mock('./pages/MakeupRoomPage', () => ({ default: () => <h1>化妆间页</h1> }))
 vi.mock('./pages/WardrobePage', () => ({ default: () => <h1>3D 衣柜页</h1> }))
 vi.mock('./pages/PeriodPage', () => ({ default: () => <h1>经期记录页</h1> }))
-vi.mock('./pages/CountdownPage', () => ({ default: () => <h1>倒数日页</h1> }))
-vi.mock('./pages/TodoPage', () => ({ default: () => <h1>待办页</h1> }))
+vi.mock('./pages/PlannerPage', () => ({ default: () => <h1>日程与提醒页</h1> }))
 vi.mock('./pages/DiaryPage', () => ({ default: () => <h1>日记页</h1> }))
 vi.mock('./pages/HandbookPage', () => ({ default: () => <h1>手帐打卡页</h1> }))
 vi.mock('./pages/ReadingPage', () => ({ default: () => <h1>阅读页</h1> }))
@@ -23,6 +27,17 @@ vi.mock('./pages/StudyPage', () => ({ default: () => <h1>自习页</h1> }))
 vi.mock('./pages/SettingsPage', () => ({ default: () => <h1>设置页</h1> }))
 
 import App from './App'
+
+afterEach(() => vi.unstubAllEnvs())
+
+it.each(['/tools', '/tools/diary', '/profile/membership'])('web redirects %s to chat', async (url) => {
+  vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
+  window.history.replaceState({}, '', url)
+  useAuthStore.setState({ token: 'token', user: { id: 'u1' }, isLoggedIn: true })
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: '聊天页' })).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/chat')
+})
 
 describe('root routing', () => {
   beforeEach(() => {
@@ -58,8 +73,7 @@ describe('root routing', () => {
     ['/tools/period', '经期记录页'],
     ['/tools/makeup-room', '化妆间页'],
     ['/tools/wardrobe', '3D 衣柜页'],
-    ['/tools/countdown', '倒数日页'],
-    ['/tools/todo', '待办页'],
+    ['/tools/planner', '日程与提醒页'],
     ['/tools/diary', '日记页'],
     ['/tools/handbook', '手帐打卡页'],
     ['/tools/reading', '阅读页'],
@@ -70,6 +84,19 @@ describe('root routing', () => {
     window.history.replaceState({}, '', path)
     render(<App />)
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/tools/todo', '?tab=todo'],
+    ['/tools/countdown', '?tab=countdown'],
+    ['/tools/reminders', '?tab=reminders'],
+  ])('redirects the legacy route %s to the merged planner page', async (path, search) => {
+    useAuthStore.setState({ token: 'token', user: { id: 'u1' }, isLoggedIn: true })
+    window.history.replaceState({}, '', path)
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '日程与提醒页' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tools/planner')
+    expect(window.location.search).toBe(search)
   })
 
   it('redirects signed-out visitors away from the toolbox routes', async () => {

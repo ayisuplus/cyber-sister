@@ -7,6 +7,12 @@
 >
 > 本文面向前端与集成开发者。所有示例均为 JSON。
 
+> **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](记忆系统接口-20260913.md)为准。
+
+> **2026-09-12 对话归档更新**：会话列表默认只返回未归档记录；归档筛选、恢复接口与聊天限制见[模型连接与对话归档](模型连接与对话归档-20260912.md)。
+
+> **2026-09-12 工作模式更新**：当前工作模式处于固定云端模拟阶段。新增计时、经期修正与媒体上传接口，以及分析、来信、短评、任务执行的最新行为，以[工作模式云端接口合同](工作模式云端接口-20260912.md)和 [OpenAPI](工作模式云端接口-20260912.openapi.json)为准；下文对应旧版生成说明不代表当前已接入真实服务。
+
 ---
 
 ## 通用约定
@@ -243,7 +249,7 @@ Authorization: Bearer <access_token>
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "product": "Amie cyber-sister",
   "exportedAt": "2026-09-07T08:00:00.000Z",
   "user": {
@@ -262,7 +268,8 @@ Authorization: Bearer <access_token>
 ```
 
 - `user` 段**不含** id、phone 与任何凭据
-- **不导出**：refresh token（凭据，绝不外发）、危机日志（安全运维数据）、头像/背景等二进制资产（v1 边界）
+- **不导出**：refresh token（凭据，绝不外发）、危机日志（安全运维数据）、机器向量、头像/背景等二进制资产。
+- v2 另含 `memoryBundle`（正式记忆、完整版本、来源、确认记录及已确认/待重审关系）；上面保留的业务段只示意原有字段。v2 导入以 `memoryBundle` 为准，缺失时拒绝降级，不能丢弃历史后静默导入。
 
 ### POST /api/user/import/preview — 迁移预览（不落库）
 
@@ -291,6 +298,8 @@ Authorization: Bearer <access_token>
 - 预览**绝不落库**；记忆候选单批最多 100 条
 
 ### POST /api/user/import/apply — 迁移应用
+
+**2026-09-13 起**，记忆导入必须带预览返回的 `expectedMemoryEpoch`（适用于 v1 候选与 v2 包）。资料在预览后变化返回 409，不执行本批写入；重新预览再确认。v2 的稳定引用与关系请求详见[记忆系统接口合同](记忆系统接口-20260913.md)。
 
 **请求**
 
@@ -473,14 +482,17 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ## 四、记忆 `/api/memories`
 
-内测为**显式记忆**：系统不自动提取，不由模型推断。
+长期记忆仅使用**用户已确认的正式记忆**；AI 草稿只在待确认区。所有创建、晋升、导入共用正式写入服务，版本历史与来源独立保存。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/memories` | 创建 |
 | GET | `/api/memories` | 列表（带当前用户归属检查） |
-| PUT | `/api/memories/:id` | 编辑 |
-| DELETE | `/api/memories/:id` | 删除 |
+| PUT | `/api/memories/:id` | 编辑，必须携带 expectedRevision；冲突 409，正文/类型变化触发关系重审 |
+| GET | `/api/memories/:id` | 详情，包含 revision、sources、origin 与 importedAt |
+| GET | `/api/memories/:id/revisions` | 完整版本与确认记录 |
+| POST | `/api/memories/:id/restore` | revision + expectedRevision，追加新版本 |
+| DELETE | `/api/memories/:id` | 删除正式内容、历史、投影与依赖；原始聊天单独管理 |
 | DELETE | `/api/memories` | 清空全部 |
 
 **字段**
@@ -491,6 +503,8 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 | `content` | 记忆内容 |
 | `importance` | 重要度，仅在相关结果内排序 |
 | `tags` | 标签，用于与当前输入做确定性重合匹配 |
+| `revision` | 当前修订；修改与恢复按预期修订校验 |
+| `sources` / `origin` | 结构化来源与确认来源；无法证明的历史来源不补造 |
 
 ### POST /api/memories/suggestions — 按需记忆建议（W3）
 
@@ -527,12 +541,12 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ### POST /api/memories/embeddings/rebuild — 重建语义索引（2026-09-09 起）
 
-保存记忆后服务端自动生成语义向量投影（云端，与聊天同一同意门）；聊天检索相关记忆从关键词重合升级为**语义余弦相似度**，无向量时原样回退关键词路径。本端点为当前用户全量重建：已有向量的计 `skipped`，其余逐条投影。
+该旧入口转接全量重建任务，返回 **202**。新增 `POST /api/memories/index-jobs` 另支持 `mode=repair`，只修复缺失或过期投影。向量服务独立配置，失败不阻断保存或关键词检索。
 
 **响应**
 
 ```json
-{ "embedded": 2, "failed": 0, "skipped": 1 }
+{ "id": "job-id", "mode": "rebuild", "status": "queued", "total": 3, "processed": 0, "embedded": 0, "failed": 0, "skipped": 0 }
 ```
 
 **错误语义**
@@ -542,7 +556,9 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 | 503 | `CLOUD_NOT_CONSENTED` | 未同意使用云端模型 |
 | 503 | `LLM_UNAVAILABLE` | 云端模型暂时不可用 |
 
-**投影性质**：向量可重建、失败静默降级（记忆照常保存，仅无向量）；向量与模型名**不进入任何 API 响应与提示词**（响应组装前统一剥离）。
+创建回执不表示完成。通过 `GET /api/memories/index-jobs/:id` 查询实际状态，`POST /api/memories/index-jobs/:id/cancel` 取消。未配置向量服务返回 503 `EMBEDDING_NOT_CONFIGURED`。
+
+**投影性质**：向量独立存表，严格匹配修订、供应商、模型、维度与规则版本，不进入记忆 API 响应或提示词；状态接口可显示单独配置的向量模型名称。全库融合关键词与合格语义候选，最多 5 条主要记忆、每条最多 2 个有效已确认关联。失败不删除仍有效的旧投影。
 
 ---
 
@@ -654,26 +670,26 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ## 十二、她的工作台 `/api/derived`（2026-09-08 起）
 
-派生理解层：AI 在对话后生成对用户的理解草稿，**永远不是记忆**；用户批准（promote）或厘清（resolve）才入定典层（origin=promoted 的显式记忆）。
+派生理解层只供用户核对，确认或厘清后才写入正式记忆。当前分析/重建为固定模拟预览，先于任何私人上下文读取返回，不持久化新草稿；未确认草稿不进入聊天或通信策略上下文。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/derived?status=` | 条目列表；status ∈ active\|promoted\|dismissed\|resolved\|all |
-| POST | `/api/derived/analyze` | 立即分析（同意门同聊天） |
-| POST | `/api/derived/rebuild` | 清掉 active/dismissed 草稿并重新分析；promoted/resolved 保留 |
-| POST | `/api/derived/:id/promote` | 晋升进显式记忆（规范化键去重） |
-| POST | `/api/derived/:id/resolve` | 冲突厘清：定稿文案入定典层，条目 resolved 并留存定稿 |
+| GET | `/api/derived?status=` | 条目列表；status ∈ active\|needs_review\|promoted\|dismissed\|resolved\|all |
+| POST | `/api/derived/analyze` | 模拟分析预览，不落库 |
+| POST | `/api/derived/rebuild` | 模拟重建预览，不删除现有条目 |
+| POST | `/api/derived/:id/promote` | expectedRevision；来源有效才直接确认，整条事务晋升并去重 |
+| POST | `/api/derived/:id/resolve` | content + expectedRevision；冲突厘清与正式写入同一事务 |
 | POST | `/api/derived/:id/dismiss` | 忽略 |
-| DELETE | `/api/derived` | 整层清空 |
+| DELETE | `/api/derived` | 只清待确认/已忽略/待重审草稿，正式内容与确认历史保留 |
 
 ### 记忆关系边 `/api/derived/edges`（2026-09-09 起）
 
-工作台分析时自动抽取记忆之间的明确关系（similar\|related\|contradicts），status=derived；用户确认后晋升 canonical，聊天注入时做一跳联想（选中记忆带出已确认关联记忆的内容）。去重按无向记忆对+关系，仅对 derived/canonical 既有边生效（dismissed 是草稿处理结果，重建后允许重现）。
+关系有 similar\|related\|contradicts 三种类型；确认后成为 canonical，两端修订须匹配才可参与聊天。正文/类型修改后变为 needs_review，重新确认前暂停使用；保留此前 decisions。后台不能覆盖已有确认、移除或重审历史。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/derived/edges?status=` | 边列表（join 两端记忆内容，任一端缺失的边整条过滤）；status ∈ derived\|canonical\|dismissed\|all |
-| POST | `/api/derived/edges/:id/promote` | derived → canonical；重复确认 400「该关系已确认」，已忽略 400「该条目已处理过」 |
+| GET | `/api/derived/edges?status=` | 两端当前内容/修订、依据版本与决定记录；status ∈ derived\|canonical\|needs_review\|dismissed\|all |
+| POST | `/api/derived/edges/:id/promote` | expectedRevision + expectedFromRevision + expectedToRevision；支持重新确认和等价重试；状态/版本冲突 409 |
 | POST | `/api/derived/edges/:id/dismiss` | 忽略 |
 
 ## 十三、主动关怀 `/api/care`（2026-09-09 起）

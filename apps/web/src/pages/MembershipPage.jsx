@@ -97,7 +97,7 @@ export default function MembershipPage() {
       {/* 底部状态区 */}
       <div className="px-4 py-3 bg-surface-card shadow-input">
         {user?.isVip ? (
-          <div className="w-full h-12 bg-brand-green/10 text-brand-green font-semibold rounded-[23px] flex items-center justify-center gap-2">
+          <div className="w-full h-12 bg-brand-green/10 text-brand-green font-semibold rounded-card flex items-center justify-center gap-2">
             <Crown size={18} />
             您已是VIP会员
           </div>

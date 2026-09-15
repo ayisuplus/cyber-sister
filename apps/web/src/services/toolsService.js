@@ -49,6 +49,10 @@ export const toolsService = {
     return response.data
   },
 
+  getPeriodSummary: async (today) => (await api.get('/tools/period/summary', { params: { today } })).data,
+  updatePeriodRecord: async (id, data) => (await api.put(`/tools/period/${id}`, data)).data,
+  deletePeriodRecord: async (id) => (await api.delete(`/tools/period/${id}`)).data,
+
   // 提醒
   getReminders: async () => {
     const response = await api.get('/tools/reminders')

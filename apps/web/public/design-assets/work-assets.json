@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "created": "2026-09-12",
+  "status": "implemented_pending_user_acceptance",
+  "stickers": "Original SVG drawings authored for Amie; decorative; no external resources",
+  "video": {
+    "generator": "Local ComfyUI 0.34.2",
+    "sourceImage": "banner-workspace.png",
+    "sourceImageSha256": "b38ee2fdbb8c8996c1aa994619a5c51a490e9aa34690e10c3df7587f7a7dcb1d",
+    "model": "minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+    "lora": "minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors",
+    "steps": 4,
+    "seed": 9122026,
+    "promptId": "c5200dbf-fd6b-495a-9c16-24624508b91a",
+    "width": 960,
+    "height": 544,
+    "fps": 24,
+    "frames": 69,
+    "seconds": 2.875,
+    "audio": false,
+    "processing": "Stable segment from raw seconds 3-4.875 followed by 1s blend from raw 4.875-5.875 to raw 2-3. Audio and source metadata removed. H264 crf25 faststart.",
+    "qa": "Six-frame contact sheet and in-page playback/pause checked; poster is exact first frame encoded as WebP",
+    "rejectedCandidate": {
+      "promptId": "62e0337f-42c2-4d95-b73f-afa3cd5e00f5",
+      "reason": "First/last-frame conditioning produced visible light and style variation"
+    }
+  },
+  "files": [
+    {
+      "file": "work-focus.svg",
+      "bytes": 1841,
+      "sha256": "6a3012f093ca4d2a66aa50b9a1473db610c80d65b6d8e70fccb573d8f00313f4"
+    },
+    {
+      "file": "work-journal.svg",
+      "bytes": 1846,
+      "sha256": "7d91dd57648f8947d9b76ac629c874c466f20bf373bb38eef73d447cec010766"
+    },
+    {
+      "file": "work-style.svg",
+      "bytes": 1737,
+      "sha256": "a4b160de9eb0820aa952ab10deecca5e8e2467f3fcb5f09ec0976a2e919f30f2"
+    },
+    {
+      "file": "work-together.svg",
+      "bytes": 1705,
+      "sha256": "2e74897677f204975863d8f9d61070565c533072f7f3319266cab3db132ec829"
+    },
+    {
+      "file": "work-desk-loop.mp4",
+      "bytes": 167769,
+      "sha256": "a9eb7e17259457ed50afa9b721a23bc7804929c46c6aff95777faf33807bae9c"
+    },
+    {
+      "file": "work-desk-poster.webp",
+      "bytes": 34674,
+      "sha256": "638488c07d7312445dc18d069e246ce4271cd4b25370ba21ff378a56ee490532"
+    }
+  ]
+}

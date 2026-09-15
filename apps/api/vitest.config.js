@@ -26,6 +26,7 @@ export default defineConfig({
       },
     },
     env: {
+      APP_DISTRIBUTION: 'local',
       JWT_SECRET: 'test-jwt-secret-for-integration-test',
       JWT_REFRESH_SECRET: 'test-jwt-refresh-secret-for-integration-test',
       NODE_ENV: 'test',

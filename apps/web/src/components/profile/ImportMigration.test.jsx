@@ -149,3 +149,40 @@ describe('ImportMigration', () => {
     await waitFor(() => expect(screen.getByText(/已导入角色扮演、2 条记忆；3 条重复或非法已跳过/)).toBeInTheDocument())
   })
 })
+
+describe('v2 stable memory imports', () => {
+  it('selects stable references, disables conflicting records, and requires both endpoints for relationships', async () => {
+    const user = userEvent.setup()
+    const bundle = { version: 2, product: 'Amie cyber-sister', memoryBundle: { version: 2, memories: [], edges: [] } }
+    mocks.previewImport.mockResolvedValue({
+      format: 'cyber-sister-export-v2',
+      memoryEpoch: 12,
+      memoryCandidates: [
+        { id: 'portable-a', revision: 2, content: '记忆甲', state: 'new' },
+        { id: 'portable-b', revision: 1, content: '记忆乙', state: 'duplicate' },
+        { id: 'portable-c', revision: 3, content: '记忆丙', state: 'conflict' },
+      ],
+      edges: [{ id: 'edge-ab', from: 'portable-a', to: 'portable-b', relation: 'similar', status: 'canonical' }],
+      role: null, persona: null, notes: [],
+    })
+    mocks.applyImport.mockResolvedValue({ memoriesApplied: 1, memoriesSkipped: 1, edgesApplied: 1 })
+    render(<ImportMigration />)
+    await user.upload(screen.getByLabelText('选择导出包文件'), new File([JSON.stringify(bundle)], 'memories-v2.json', { type: 'application/json' }))
+    await user.click(await screen.findByRole('button', { name: '解析预览' }))
+    const conflicting = await screen.findByRole('checkbox', { name: /记忆丙/ })
+    expect(conflicting).toBeDisabled()
+    expect(conflicting).not.toBeChecked()
+    const edge = screen.getByRole('checkbox', { name: '记忆甲 · 相似 · 记忆乙' })
+    expect(edge).not.toBeChecked()
+    await user.click(edge)
+    await user.click(screen.getByRole('checkbox', { name: /记忆乙 · 第/ }))
+    expect(edge).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /记忆乙 · 第/ }))
+    await user.click(screen.getByRole('button', { name: '确认导入' }))
+    expect(mocks.applyImport).toHaveBeenCalledWith({
+      memoryBundle: bundle.memoryBundle, selectedIds: ['portable-a', 'portable-b'], selectedEdgeIds: ['edge-ab'],
+      expectedMemoryEpoch: 12,
+    })
+    expect(await screen.findByText(/1 条关系/)).toBeInTheDocument()
+  })
+})

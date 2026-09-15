@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { useChatStore } from '../../stores/chatStore'
 import ConversationList from './ConversationList'
 import ReminderBell from '../reminder/ReminderBell'
+import BrandMark from '../ui/BrandMark'
+import { isLocalWorkClient } from '../../features/distribution'
 
 // 全端唯一侧边栏（>=641px）：品牌 + 会话列表，不再承担页面导航
 export default function AppSidebar() {
@@ -13,9 +15,8 @@ export default function AppSidebar() {
   return (
     <aside className="app-sidebar" aria-label="会话">
       <div className="app-sidebar-brand">
-        <span className="app-sidebar-logo" aria-hidden="true">A</span>
-        <span className="display-serif app-sidebar-name">Amie</span>
-        <span className="ml-auto"><ReminderBell /></span>
+        <BrandMark />
+        {isLocalWorkClient() && <span className="ml-auto"><ReminderBell /></span>}
       </div>
       <ConversationList />
       <p className="app-sidebar-foot">AI 闺蜜 · 内测版</p>

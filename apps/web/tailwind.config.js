@@ -19,6 +19,12 @@ export default {
           card: 'var(--cs-surface-card)',
           input: 'var(--cs-surface-input)',
           muted: 'var(--cs-surface-muted)',
+          overlay: 'var(--cs-surface-overlay)',
+          glass: 'var(--cs-surface-glass)',
+        },
+        bubble: {
+          ai: 'var(--cs-bubble-ai)',
+          user: 'var(--cs-bubble-user)',
         },
         action: {
           primary: 'var(--cs-action-primary)',
@@ -56,22 +62,31 @@ export default {
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'sans-serif'],
-        serif: ['Songti SC', 'SimSun', 'serif'],
+        serif: 'var(--cs-font-display)',
+        display: 'var(--cs-font-display)',
+        hand: 'var(--cs-font-hand)',
         mono: ['SFMono-Regular', 'Consolas', 'monospace'],
       },
       boxShadow: {
-        'card': 'var(--cs-shadow-sm)',
+        'card': 'var(--cs-shadow-card)',
         'header': 'var(--cs-shadow-sm)',
         'input': 'var(--cs-shadow-input)',
         'button': 'var(--cs-shadow-button)',
+        'md': 'var(--cs-shadow-md)',
+        'lg': 'var(--cs-shadow-lg)',
+        'soft': 'var(--cs-shadow-soft)',
+        'float': 'var(--cs-shadow-float)',
       },
+      transitionTimingFunction: {
+        calm: 'var(--cs-ease-calm)',
+        breathe: 'var(--cs-ease-breathe)',
+      },
+      // 气泡改用实色 bubble.ai/user（见 colors），不再有渐变同名类覆盖底色
       backgroundImage: {
         'gradient-pink-purple': 'var(--cs-gradient-action)',
         'gradient-pink': 'var(--cs-gradient-action)',
         'gradient-purple-light': 'var(--cs-gradient-subtle)',
         'gradient-pastel': 'var(--cs-gradient-hero)',
-        'bubble-user': 'var(--cs-gradient-bubble-user)',
-        'bubble-ai': 'var(--cs-gradient-bubble-ai)',
       }
     },
   },

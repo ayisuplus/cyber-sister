@@ -21,9 +21,9 @@ export default function UsageReminder() {
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+      className="overlay-calm animate-overlay-in absolute inset-0 z-50 flex items-center justify-center"
     >
-      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="usage-reminder-title" className="bg-surface-card rounded-[24px] w-[300px] p-8 text-center animate-fade-in">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="usage-reminder-title" className="animate-dialog-in bg-surface-card rounded-card w-[300px] p-8 text-center shadow-lg">
         <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-brand-yellow/20 flex items-center justify-center">
           <Clock size={32} className="text-brand-yellow" />
         </div>
@@ -33,21 +33,22 @@ export default function UsageReminder() {
         </p>
         <button
           ref={confirmRef}
+          type="button"
           onClick={(e) => {
             e.stopPropagation()
             handleDismiss()
           }}
-          className="w-full min-h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-[12px] focus:ring-2 focus:ring-status-info mb-3"
-          style={{ boxShadow: 'var(--cs-shadow-button)' }}
+          className="w-full min-h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-control focus-visible:ring-2 focus-visible:ring-status-info mb-3 shadow-button"
         >
           好的，知道了
         </button>
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation()
             dismissUsageReminder()
           }}
-          className="text-sm text-text-muted hover:text-text-secondary"
+          className="min-h-11 px-3 text-sm text-text-muted hover:text-text-secondary"
         >
           再聊5分钟
         </button>

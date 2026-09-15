@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "pretest:postgres": "pnpm db:generate",
-    "test:postgres": "vitest run tests/integration/postgres.test.js",
+    "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
@@ -26,6 +26,7 @@
   "dependencies": {
     "@cyber-sister/llm-gateway": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@mozilla/readability": "0.6.0",
     "@prisma/client": "^5.18.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
@@ -34,7 +35,9 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
+    "ipaddr.js": "2.5.0",
     "jsonwebtoken": "^9.0.2",
+    "linkedom": "0.18.13",
     "multer": "^2.3.0",
     "playwright-core": "^1.62.1",
     "prisma": "^5.18.0"

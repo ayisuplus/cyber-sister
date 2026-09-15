@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
     const insights = await derivedService.listInsights(req.user.userId, { status: req.query.status })
     res.json({ insights })
   } catch (error) {
-    logger.error('获取工作台列表失败', { error: error.message })
+    logger.error('获取工作台列表失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取工作台列表失败' })
   }
 })
@@ -51,17 +51,17 @@ router.get('/edges', async (req, res) => {
     const edges = await edgeService.listEdges(req.user.userId, { status: req.query.status })
     res.json({ edges })
   } catch (error) {
-    logger.error('获取记忆关系列表失败', { error: error.message })
+    logger.error('获取记忆关系列表失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取记忆关系列表失败' })
   }
 })
 
 router.post('/edges/:id/promote', async (req, res) => {
   try {
-    const edge = await edgeService.promoteEdge(req.user.userId, req.params.id)
+    const edge = await edgeService.promoteEdge(req.user.userId, req.params.id, req.body ?? {})
     res.json({ edge })
   } catch (error) {
-    logger.error('记忆关系确认失败', { error: error.message })
+    logger.error('记忆关系确认失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '记忆关系确认失败' })
   }
 })
@@ -71,7 +71,7 @@ router.post('/edges/:id/dismiss', async (req, res) => {
     await edgeService.dismissEdge(req.user.userId, req.params.id)
     res.json({ success: true })
   } catch (error) {
-    logger.error('记忆关系忽略失败', { error: error.message })
+    logger.error('记忆关系忽略失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '记忆关系忽略失败' })
   }
 })
@@ -81,7 +81,7 @@ router.post('/:id/promote', async (req, res) => {
     const result = await derivedService.promoteInsight(req.user.userId, req.params.id, req.body ?? {})
     res.json(result)
   } catch (error) {
-    logger.error('工作台条目晋升失败', { error: error.message })
+    logger.error('工作台条目晋升失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '工作台条目晋升失败' })
   }
 })
@@ -91,7 +91,7 @@ router.post('/:id/resolve', async (req, res) => {
     const result = await derivedService.resolveInsight(req.user.userId, req.params.id, req.body ?? {})
     res.json(result)
   } catch (error) {
-    logger.error('工作台条目厘清失败', { error: error.message })
+    logger.error('工作台条目厘清失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '工作台条目厘清失败' })
   }
 })
@@ -101,7 +101,7 @@ router.post('/:id/dismiss', async (req, res) => {
     await derivedService.dismissInsight(req.user.userId, req.params.id)
     res.json({ success: true })
   } catch (error) {
-    logger.error('工作台条目忽略失败', { error: error.message })
+    logger.error('工作台条目忽略失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '工作台条目忽略失败' })
   }
 })
@@ -111,7 +111,7 @@ router.delete('/', async (req, res) => {
     const cleared = await derivedService.clearInsights(req.user.userId)
     res.json({ cleared })
   } catch (error) {
-    logger.error('清空工作台失败', { error: error.message })
+    logger.error('清空工作台失败', { errorCode: error.code || error.name })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '清空工作台失败' })
   }
 })

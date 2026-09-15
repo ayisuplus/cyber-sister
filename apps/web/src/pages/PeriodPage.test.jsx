@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -15,6 +15,9 @@ vi.mock('../services/toolsService', () => ({
     deleteCountdown: vi.fn(),
     getPeriodRecords: vi.fn(),
     createPeriodRecord: vi.fn(),
+    getPeriodSummary: vi.fn(),
+    updatePeriodRecord: vi.fn(),
+    deletePeriodRecord: vi.fn(),
     getReminders: vi.fn(),
     updateReminder: vi.fn(),
     getWeather: vi.fn(),
@@ -29,8 +32,10 @@ const renderPage = () => render(<MemoryRouter><PeriodPage /></MemoryRouter>)
 
 describe('PeriodPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     useToolsStore.setState({ periodRecords: [] })
     toolsService.getPeriodRecords.mockResolvedValue([])
+    toolsService.getPeriodSummary.mockResolvedValue({ nextDate: null, daysUntil: null })
   })
 
   it('loads period records from the server on mount', async () => {
@@ -69,12 +74,13 @@ describe('PeriodPage', () => {
     expect(toolsService.getPeriodRecords).toHaveBeenCalledTimes(2)
   })
 
-  it('predicts the next period from the latest record', async () => {
+  it('renders the server prediction rather than calculating from local records', async () => {
     vi.useFakeTimers()
     try {
       // 固定「今天」为本地 2026-09-01，期望值不依赖真实墙钟
       vi.setSystemTime(new Date(2026, 8, 1, 10))
       toolsService.getPeriodRecords.mockResolvedValue([{ id: 'p1', startDate: '2026-08-22', endDate: null, cycleDays: 28 }])
+      toolsService.getPeriodSummary.mockResolvedValue({ nextDate: '2026-09-19', daysUntil: 18 })
 
       const { container } = renderPage()
       await act(async () => {}) // 等 loadPeriodRecords 落库
@@ -114,12 +120,12 @@ describe('PeriodPage', () => {
     }
   })
 
-  it('labels finished records with their duration in days', async () => {
+  it('includes both the start and end calendar days in a finished record', async () => {
     toolsService.getPeriodRecords.mockResolvedValue([{ id: 'p1', startDate: '2026-08-01', endDate: '2026-08-06', cycleDays: 30 }])
 
     renderPage()
 
-    expect(await screen.findByText('5天')).toBeInTheDocument()
+    expect(await screen.findByText('6天')).toBeInTheDocument()
     expect(screen.getByText('周期 30 天')).toBeInTheDocument()
   })
 
@@ -178,12 +184,16 @@ describe('PeriodPage', () => {
 
   it('records today as a new period start', async () => {
     const user = userEvent.setup()
-    toolsService.createPeriodRecord.mockImplementation(async (startDate, endDate, cycleDays) => ({
+    toolsService.createPeriodRecord.mockImplementation(async (startDate, endDate, cycleDays) => {
+      const record = {
       id: 'p-new',
       startDate,
       endDate,
       cycleDays,
-    }))
+      }
+      toolsService.getPeriodRecords.mockResolvedValue([record])
+      return record
+    })
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: /记录今天/ }))
@@ -191,5 +201,46 @@ describe('PeriodPage', () => {
     const today = format(new Date(), 'yyyy-MM-dd')
     expect(toolsService.createPeriodRecord).toHaveBeenCalledWith(today, null, 28)
     expect(await screen.findByText(today)).toBeInTheDocument()
+  })
+
+  it('keeps an edited record after a failed save and refreshes the server summary after retry', async () => {
+    const user = userEvent.setup()
+    const record = { id: 'p1', startDate: '2026-08-01', endDate: null, cycleDays: 28 }
+    toolsService.getPeriodRecords.mockResolvedValue([record])
+    toolsService.updatePeriodRecord.mockRejectedValueOnce(new Error('offline')).mockImplementationOnce(async (_id, payload) => {
+      const updated = { ...record, ...payload }
+      toolsService.getPeriodRecords.mockResolvedValue([updated])
+      toolsService.getPeriodSummary.mockResolvedValue({ nextDate: '2026-08-31', daysUntil: 0 })
+      return updated
+    })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '编辑 2026-08-01 的记录' }))
+    fireEvent.change(screen.getByLabelText('周期天数'), { target: { value: '30' } })
+    await user.click(screen.getByRole('button', { name: '保存记录' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('记录内容已保留')
+    expect(screen.getByLabelText('周期天数')).toHaveValue(30)
+    expect(screen.getByText('周期 28 天')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '保存记录' }))
+    expect(await screen.findByText('周期 30 天')).toBeInTheDocument()
+    expect(toolsService.updatePeriodRecord).toHaveBeenLastCalledWith('p1', { startDate: '2026-08-01', endDate: null, cycleDays: 30 })
+    expect(toolsService.getPeriodSummary).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a record on failed deletion and removes it only after confirmation succeeds', async () => {
+    const user = userEvent.setup()
+    toolsService.getPeriodRecords.mockResolvedValue([{ id: 'p1', startDate: '2026-08-01', endDate: null, cycleDays: 28 }])
+    toolsService.deletePeriodRecord.mockRejectedValueOnce(new Error('offline')).mockImplementationOnce(async () => {
+      toolsService.getPeriodRecords.mockResolvedValue([])
+      return { success: true }
+    })
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '删除 2026-08-01 的记录' }))
+    expect(toolsService.deletePeriodRecord).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '删除记录', exact: true }))
+    expect(await within(screen.getByRole('alertdialog', { name: '删除经期记录' })).findByRole('alert')).toHaveTextContent('删除失败')
+    expect(screen.getByText('2026-08-01')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '删除记录', exact: true }))
+    expect(await screen.findByText('暂无记录')).toBeInTheDocument()
+    expect(toolsService.deletePeriodRecord).toHaveBeenCalledTimes(2)
   })
 })

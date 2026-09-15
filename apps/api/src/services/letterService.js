@@ -1,16 +1,12 @@
 /**
- * 「她的信」服务：每周一封，基于本周真实数据本地生成。
- *
- * - 不调用云端模型：内容完全由统计与你自己的记录拼装，零外发，死供应商下照常可用。
- * - 幂等：同一 用户+周起始 只生成一次（数据库唯一约束兜底），重复生成返回原信。
- * - 沉默周不生成：本周零聊天/零记录/零打卡/零自习/零日记时宁缺毋滥，不凑空话。
- * - 日志只记 userId 与周起始，不记信件内容。
+ * 「她的信」接口：既有信件只读；新来信仅返回模拟预览，不读取周记录或自动落库。
+ * 原有纯函数保留作为历史模板的校验工具，不被当前生成或列表入口调用。
  */
 import prisma from '../prisma/client.js'
 import { findOwned } from '../utils/dbHelpers.js'
+import { WORK_CLOUD_EXECUTION } from './workCloudService.js'
 import { listHabitsWithStatus } from './habitService.js'
 import { getSummary as getStudySummary } from './studyService.js'
-import logger from '../utils/logger.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_QUOTED_ITEMS = 3
@@ -169,42 +165,19 @@ export function composeLetter({ nickname, stats, now = new Date() }) {
   return paragraphs.join('\n\n')
 }
 
-/**
- * 生成（或复用）本周来信。幂等：已有本周信直接返回原信；
- * 沉默周返回 { letter: null, created: false, reason: 'quiet' }。
- */
-export async function generateWeeklyLetter(userId, { weekStartUtc = localWeekStartUtc() } = {}) {
-  const existing = await prisma.letter.findUnique({
-    where: { userId_weekStart: { userId, weekStart: weekStartUtc } },
-  })
-  if (existing) return { letter: existing, created: false }
-
-  const stats = await collectWeekStats(userId, weekStartUtc)
-  if (isQuietWeek(stats)) return { letter: null, created: false, reason: 'quiet' }
-
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { nickname: true } })
-  const content = composeLetter({ nickname: user?.nickname, stats })
-  let letter
-  try {
-    letter = await prisma.letter.create({
-      data: { userId, weekStart: weekStartUtc, content },
-    })
-  } catch (error) {
-    // 并发生成撞唯一约束：回读既有的信，幂等语义不变
-    if (error?.code !== 'P2002') throw error
-    letter = await prisma.letter.findUnique({
-      where: { userId_weekStart: { userId, weekStart: weekStartUtc } },
-    })
-    if (!letter) throw error
-    return { letter, created: false }
+/** 云端尚未接入：只提供明确标注的接口示例，信箱不产生新记录。 */
+// eslint-disable-next-line require-await -- 保持未来云端适配器的 Promise 契约。
+export async function generateWeeklyLetter(userId, options = {}) {
+  void userId; void options
+  return {
+    letter: null, created: false, reason: 'cloud_mock',
+    preview: { content: '【模拟来信】见信好。这里将整理这一周值得回看的小事。云端尚未接入，这封示例没有读取你的记录，也不会存入信箱。' },
+    execution: { ...WORK_CLOUD_EXECUTION },
   }
-  logger.info('生成每周来信', { userId })
-  return { letter, created: true }
 }
 
-/** 列出全部来信（新到旧）；本周信缺失且有内容可写时先幂等补上。 */
-export async function listLetters(userId) {
-  await generateWeeklyLetter(userId)
+/** 仅读取本人既有来信（新到旧），GET 不生成或写入。 */
+export function listLetters(userId) {
   return prisma.letter.findMany({
     where: { userId },
     orderBy: { weekStart: 'desc' },

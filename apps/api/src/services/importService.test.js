@@ -6,18 +6,24 @@ const db = vi.hoisted(() => ({
   userUpdate: vi.fn(),
 }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
+vi.mock('../prisma/client.js', () => {
+  const client = {
+    $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
+    memoryRevision: { create: vi.fn() },
     memory: { findMany: db.memoryFindMany, create: db.memoryCreate },
-    user: { update: db.userUpdate },
-  },
-}))
+    user: { update: db.userUpdate, findUnique: vi.fn(async () => ({ memoryEpoch: 0 })) },
+  }
+  client.$transaction = vi.fn((operation) => operation(client))
+  return { default: client }
+})
 
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { applyImport, previewImport } from './importService.js'
+import { applyImport as applyWithPreview, previewImport } from './importService.js'
+const applyImport = (userId, payload) => applyWithPreview(userId, payload && typeof payload === 'object' && !Array.isArray(payload)
+  ? { expectedMemoryEpoch: 0, ...payload } : payload)
 
 const USER_ID = 'user-1'
 
@@ -43,6 +49,10 @@ describe('importService.previewImport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.memoryFindMany.mockResolvedValue([])
+  })
+
+  it('v2 缺失版本段时拒绝降级成 v1 导入', async () => {
+    await expect(previewImport(USER_ID, { ...BUNDLE, version: 2 })).rejects.toMatchObject({ statusCode: 400 })
   })
 
   it('自家导出包：角色/人格/记忆候选全部结构化，其余数据段如实标注不导入', async () => {
@@ -151,7 +161,9 @@ describe('importService.applyImport', () => {
     })
 
     expect(result).toEqual({ roleApplied: true, personaApplied: true, memoriesApplied: 1, memoriesSkipped: 0 })
-    expect(db.userUpdate).toHaveBeenCalledTimes(2)
+    expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { roleName: '同桌的你', roleSetting: '爱吐槽但会帮我讲题' } }))
+    expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { persona: 'toxic' } }))
+    expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { memoryEpoch: { increment: 1 } } }))
     expect(db.memoryCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: 'semantic', content: '喜欢火锅' }),
     }))

@@ -43,7 +43,7 @@ export default function ProfilePage() {
     setMessage('')
     try {
       const filename = await migrationService.downloadExport()
-      setMessage(`已导出到 ${filename}：人格、记忆、对话、日记、手帐、日程全部在内`)
+      setMessage(`已发起下载 ${filename}：请在浏览器下载记录中确认文件已保存`)
     } catch {
       setMessage('导出失败，请重试')
     } finally {
@@ -170,7 +170,7 @@ export default function ProfilePage() {
       <Header title="我的" />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <section aria-labelledby="profile-name" className="w-full bg-surface-card rounded-[20px] p-4 shadow-card flex items-center gap-4">
+        <section aria-labelledby="profile-name" className="w-full bg-surface-card rounded-card p-4 shadow-card flex items-center gap-4">
           {avatarUrl ? (
             <img src={avatarUrl} alt="我的头像" className="h-14 w-14 rounded-full object-cover" />
           ) : (
@@ -184,7 +184,7 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        <section aria-labelledby="appearance-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+        <section aria-labelledby="appearance-title" className="bg-surface-card rounded-card p-4 shadow-card">
           <h2 id="appearance-title" className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
             <Palette size={16} className="text-brand-pink" />
             装扮
@@ -250,7 +250,7 @@ export default function ProfilePage() {
         </section>
 
 
-        <section aria-labelledby="persona-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+        <section aria-labelledby="persona-title" className="bg-surface-card rounded-card p-4 shadow-card">
           <h2 id="persona-title" className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
             <Sparkles size={16} className="text-brand-pink" />
             切换人格
@@ -276,7 +276,7 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        <section aria-labelledby="roleplay-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+        <section aria-labelledby="roleplay-title" className="bg-surface-card rounded-card p-4 shadow-card">
           <h2 id="roleplay-title" className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
             <Drama size={16} className="text-brand-pink" />
             角色扮演
@@ -312,7 +312,7 @@ export default function ProfilePage() {
         </section>
 
 
-        <section aria-labelledby="data-migration-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+        <section aria-labelledby="data-migration-title" className="bg-surface-card rounded-card p-4 shadow-card">
           <h2 id="data-migration-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             <Download size={16} className="text-status-info" />
             数据与迁移
@@ -323,25 +323,25 @@ export default function ProfilePage() {
           </button>
           <ImportMigration />
         </section>
-        <section aria-labelledby="consent-settings-title" className="bg-surface-card rounded-[20px] p-4 shadow-card">
+        <section aria-labelledby="consent-settings-title" className="bg-surface-card rounded-card p-4 shadow-card">
           <h2 id="consent-settings-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
             <Shield size={16} className="text-brand-green" />
             云端模型
           </h2>
-          <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'cloud-primary-v3'} · {consentLabel}。聊天由经批准的云端模型提供：你的消息（经脱敏，最多 20 条消息与最多 5 条相关显式记忆；为让相关记忆找得更准，你的记忆内容会发往该模型生成语义向量）与你主动发送的照片会发送到该模型处理；拒绝或撤回后聊天不可用。</p>
+          <p className="mt-2 text-xs leading-relaxed text-text-secondary">{consent?.version || 'cloud-primary-v3'} · {consentLabel}。聊天会把脱敏后的消息、最多 5 条已确认的相关记忆及其已确认关联、你主动发送的照片交给已配置的聊天模型。语义检索使用单独配置的向量服务，开启后会发送记忆正文和检索文本；未配置时使用关键词检索。待确认草稿不会进入聊天。拒绝或撤回后聊天不可用。</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" disabled={savingConsent} onClick={() => handleConsent(false)} className="min-h-11 rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">暂不开启</button>
-            <button type="button" disabled={savingConsent} onClick={() => handleConsent(true)} className="min-h-12 rounded-xl bg-action-primary hover:bg-action-hover text-xs font-semibold text-text-inverse focus:ring-2 focus:ring-status-info disabled:opacity-50" style={{ boxShadow: 'var(--cs-shadow-button)' }}>允许云端模型</button>
+            <button type="button" disabled={savingConsent} onClick={() => handleConsent(true)} className="min-h-11 rounded-xl bg-action-primary hover:bg-action-hover text-xs font-semibold text-text-inverse focus:ring-2 focus:ring-status-info disabled:opacity-50 shadow-button">允许云端模型</button>
           </div>
         </section>
 
-        <button type="button" onClick={() => navigate('/profile/memories')} className="min-h-14 w-full rounded-[20px] bg-surface-card px-4 shadow-card flex items-center gap-3">
+        <button type="button" onClick={() => navigate('/profile/memories')} className="min-h-14 w-full rounded-card bg-surface-card px-4 shadow-card flex items-center gap-3">
           <Brain size={18} className="text-status-info" />
           <span className="flex-1 text-left text-sm text-text-primary">显式记忆管理</span>
           <ChevronRight size={16} className="text-text-muted" />
         </button>
 
-        <button type="button" onClick={() => navigate('/profile/membership')} className="min-h-14 w-full rounded-[20px] bg-surface-card px-4 shadow-card flex items-center gap-3">
+        <button type="button" onClick={() => navigate('/profile/membership')} className="min-h-14 w-full rounded-card bg-surface-card px-4 shadow-card flex items-center gap-3">
           <Crown size={18} className="text-action-primary" />
           <span className="flex-1 text-left">
             <span className="block text-sm text-text-primary">会员中心</span>

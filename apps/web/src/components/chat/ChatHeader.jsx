@@ -1,15 +1,17 @@
-import { LayoutGrid, Menu, Sparkles } from 'lucide-react'
+import { Menu, Sparkles, Settings } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 
 import { getPersona } from '../../features/personas'
+import { isLocalWorkClient } from '../../features/distribution'
 
 const MODE_OPTIONS = [
   { id: 'chat', label: '聊天' },
   { id: 'work', label: '工作' },
 ]
 
-export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
+export default function ChatHeader({ onOpenDrawer }) {
   const user = useAuthStore(state => state.user)
   const personaInfo = getPersona(user?.persona)
   const chatMode = useChatStore(state => state.chatMode)
@@ -17,7 +19,8 @@ export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
 
   return (
     <>
-      <div className="flex h-8 shrink-0 items-center justify-center bg-pastel-mist text-xs">
+      {/* AI 身份常驻条：位置、高度与文案不变，只换成半透明雾色 */}
+      <div className="glass-mist relative z-10 flex h-8 shrink-0 items-center justify-center text-xs">
         <span className="flex items-center gap-1.5 text-text-secondary">
           <span className="flex h-4 w-4 items-center justify-center rounded-full bg-surface-card text-status-info" aria-hidden="true">
             <Sparkles size={10} />
@@ -26,23 +29,24 @@ export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
         </span>
       </div>
 
-      <div className="flex h-16 shrink-0 items-center justify-between bg-surface-card px-4 border-b border-border-hairline">
+      <div className="glass-bar relative z-10 flex h-16 shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-3">
-          <button type="button" aria-label="打开会话列表" onClick={onOpenDrawer} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-primary min-[641px]:hidden">
+          <button type="button" aria-label="打开会话列表" onClick={onOpenDrawer} className="flex h-11 w-11 items-center justify-center rounded-full text-text-primary transition-colors duration-300 ease-calm hover:bg-surface-muted min-[641px]:hidden">
             <Menu size={22} aria-hidden="true" />
           </button>
-          <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-pastel-blush text-lg font-bold text-action-primary shadow-card">
-            <span aria-hidden="true">赛</span>
-            <img src="/design-assets/ai-avatar.png" alt="Amie AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
+          {/* 不放"在线"圆点：V3.0 禁止虚假在线状态与真人暗示 */}
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-pastel-blush font-display text-lg italic text-action-primary shadow-soft ring-1 ring-border-hairline">
+            <span aria-hidden="true">A</span>
+            <img src="/design-assets/ai-avatar-v2.png" alt="Amie AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
           </div>
 
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <h2 className="text-[15px] font-semibold text-text-primary">Amie</h2>
+              <h2 className="font-display text-[18px] font-normal italic leading-tight tracking-[0.02em] text-text-primary">Amie</h2>
               {chatMode === 'chat' && <span className="text-xs" aria-hidden="true">{personaInfo.emoji}</span>}
             </div>
             {chatMode === 'work' ? (
-              <span className="mt-0.5 inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-pastel-mist text-status-info">
+              <span className="mt-0.5 inline-flex w-fit items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium bg-pastel-mist text-status-info">
                 工作模式
               </span>
             ) : (
@@ -54,12 +58,12 @@ export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {chatMode === 'work' && (
-            <button type="button" aria-label="打开功能桌面" onClick={onOpenWorkbench} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-primary">
-              <LayoutGrid size={20} aria-hidden="true" />
-            </button>
-          )}
-          <div role="group" aria-label="会话模式" className="flex rounded-full bg-surface-input p-0.5">
+          {isLocalWorkClient() && <div role="group" aria-label="会话模式" className="relative flex rounded-full bg-surface-input p-0.5">
+            {/* 滑动指示器：两个按钮等宽，按选中项平移 */}
+            <span
+              aria-hidden="true"
+              className={`absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-action-primary transition-transform duration-500 ease-calm ${chatMode === 'work' ? 'translate-x-full' : ''}`}
+            />
             {MODE_OPTIONS.map(option => {
               const selected = chatMode === option.id
               return (
@@ -68,14 +72,15 @@ export default function ChatHeader({ onOpenDrawer, onOpenWorkbench }) {
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setChatMode(option.id)}
-                  className={`min-h-11 rounded-full px-3 text-xs font-medium transition-colors ${selected ? 'bg-action-primary text-text-inverse' : 'text-text-secondary'}`}
+                  className={`relative z-10 min-h-11 rounded-full bg-transparent px-3 text-xs font-medium transition-colors duration-500 ease-calm ${selected ? 'text-text-inverse' : 'text-text-secondary'}`}
                 >
                   {option.label}
                 </button>
               )
             })}
-          </div>
-          <span className="rounded-full bg-pastel-mist px-3 py-1.5 text-[10px] font-medium text-status-info">AI 生成 · 云端模型</span>
+          </div>}
+          <span className="hidden whitespace-nowrap rounded-full bg-pastel-mist px-3 py-1.5 text-[10px] font-medium text-status-info min-[641px]:inline-flex">AI 生成 · 云端模型</span>
+          <Link to="/settings" aria-label="打开设置" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors duration-300 ease-calm hover:bg-surface-muted"><Settings size={19} aria-hidden="true" /></Link>
         </div>
       </div>
     </>

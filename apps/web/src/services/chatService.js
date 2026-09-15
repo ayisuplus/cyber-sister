@@ -1,4 +1,5 @@
 import api, { getPersistedToken, refreshAccessToken, API_BASE_URL } from './api'
+import { assertSessionVersion, getSessionVersion, resetSession } from './sessionLifecycle'
 
 // SSE 为纯 data 帧编码（无 event: 行），帧间以空行分隔；
 // `: ping` 注释心跳帧与空行必须忽略。
@@ -40,6 +41,11 @@ const readEventStream = (body, onEvent) => {
   })
 
   return pump()
+    .catch(async (error) => {
+      await reader.cancel().catch(() => {})
+      throw error
+    })
+    .finally(() => reader.releaseLock())
 }
 
 const extractErrorCode = (body) => {
@@ -66,17 +72,18 @@ const toHttpError = async (response) => {
   return error
 }
 
-const postMessageStream = (conversationId, content, signal, image) => {
+const postMessageStream = (conversationId, content, signal, image, files) => {
   /** @type {Record<string, string>} */
   const headers = {}
   const token = getPersistedToken()
   if (token) headers.Authorization = `Bearer ${token}`
   let body
-  if (image) {
+  if (image || files.length) {
     // multipart：浏览器自带 boundary，绝不手设 Content-Type；FormData 可原样重放（401 重试复用同一 body）
     body = new FormData()
     body.append('content', content)
-    body.append('image', image, 'photo.jpg')
+    if (image) body.append('image', image, 'photo.jpg')
+    for (const file of files) body.append('files', file, file.name)
   } else {
     headers['Content-Type'] = 'application/json'
     body = JSON.stringify({ content })
@@ -91,8 +98,8 @@ const postMessageStream = (conversationId, content, signal, image) => {
 }
 
 export const chatService = {
-  getConversations: async () => {
-    const response = await api.get('/chat/conversations')
+  getConversations: async (params) => {
+    const response = await api.get('/chat/conversations', params ? { params } : undefined)
     return response.data
   },
 
@@ -101,24 +108,34 @@ export const chatService = {
     return response.data
   },
 
-  getConversation: async (conversationId) => {
-    const response = await api.get(`/chat/conversations/${conversationId}`)
+  getConversation: async (conversationId, params) => {
+    const response = await api.get(`/chat/conversations/${conversationId}`, params ? { params } : undefined)
     return response.data
   },
 
   // SSE 流式发送（原生 fetch，需要 ReadableStream，不走 axios）。
   // onEvent 逐事件收到 {event: 'delta'|'replace'|'done'|'blocked'|'error', ...payload}。
-  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void, image?: Blob | null }} [options] */
-  streamMessage: async (conversationId, content, { signal, onEvent, image = null } = {}) => {
-    let response = await postMessageStream(conversationId, content, signal, image)
+  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void, image?: Blob | null, files?: File[] }} [options] */
+  streamMessage: async (conversationId, content, { signal, onEvent, image = null, files = [] } = {}) => {
+    const session = getSessionVersion()
+    const assertCurrent = () => {
+      assertSessionVersion(session)
+      signal?.throwIfAborted()
+    }
+    assertCurrent()
+    let response = await postMessageStream(conversationId, content, signal, image, files)
+    assertCurrent()
 
     if (response.status === 401) {
       // 首个业务事件前的 401：共享刷新后原样重试一次。
       // 刷新失败时 refreshAccessToken 内部已执行既有退出语义（清登录态跳登录页）。
-      await refreshAccessToken()
-      response = await postMessageStream(conversationId, content, signal, image)
+      await refreshAccessToken(session)
+      assertCurrent()
+      response = await postMessageStream(conversationId, content, signal, image, files)
+      assertCurrent()
       if (response.status === 401) {
         // 重试仍是 401：不再刷新，沿用既有退出语义清除登录态
+        resetSession()
         localStorage.removeItem('cyber-sister-auth')
         /** @type {Error & { code?: string, status?: number }} */
         const error = new Error('登录状态已失效，请重新登录')
@@ -130,11 +147,20 @@ export const chatService = {
 
     if (!response.ok) throw await toHttpError(response)
 
-    await readEventStream(response.body, onEvent)
+    await readEventStream(response.body, (event) => {
+      assertCurrent()
+      onEvent?.(event)
+    })
+    assertCurrent()
   },
 
   deleteConversation: async (conversationId) => {
     const response = await api.delete(`/chat/conversations/${conversationId}`)
+    return response.data
+  },
+
+  setArchived: async (conversationId, archived) => {
+    const response = await api.patch(`/chat/conversations/${conversationId}/archive`, { archived })
     return response.data
   },
 }

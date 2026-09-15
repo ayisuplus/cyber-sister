@@ -24,6 +24,9 @@ model User {
   roleName                    String?   @map("role_name")
   roleSetting                 String?   @map("role_setting")
   careEnabled                 Boolean   @default(true) @map("care_enabled") // 「她来想你」主动关怀总开关（真实生效）
+  memoryEpoch                 Int       @default(0) @map("memory_epoch")
+  companionState              Json?     @map("companion_state")
+  companionRevision           Int       @default(0) @map("companion_revision")
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -47,6 +50,9 @@ model User {
   careDismissals    CareDismissal[]
   letters           Letter[]
   scheduledReminders ScheduledReminder[]
+  memoryIndexJobs MemoryIndexJob[]
+  workArtifacts WorkArtifact[]
+  workTasks WorkTask[]
 
   @@map("users")
 }
@@ -56,6 +62,7 @@ model Conversation {
   userId    String   @map("user_id")
   title     String?
   mode      String   @default("chat") // chat | work
+  archivedAt DateTime? @map("archived_at")
   // 滚动摘要：summary 覆盖 createdAt <= summaryUpToAt 的消息；装配上下文时以 system 注入
   summary       String?   @db.Text
   summaryUpToAt DateTime? @map("summary_up_to_at")
@@ -64,8 +71,11 @@ model Conversation {
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages Message[]
+  workArtifacts WorkArtifact[]
+  workTasks WorkTask[]
 
   @@index([userId])
+  @@index([userId, archivedAt, updatedAt])
   @@map("conversations")
 }
 
@@ -77,15 +87,97 @@ model Message {
   emotion        String?
   source         String?
   toolRuns       Json?    @map("tool_runs")
+  companionExperience Json? @map("companion_experience")
   imageExt       String?  @map("image_ext") // .jpg/.png/.webp；存在即 data/chat-images/<userId>/<messageId><ext> 有文件
   importance     Int      @default(3)
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workArtifacts WorkArtifact[]
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model WorkTask {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  conversationId  String   @map("conversation_id")
+  requestKey      String   @map("request_key")
+  requestHash     String   @map("request_hash")
+  content         String   @db.Text
+  attachments     Json
+  status          String   @default("queued")
+  checkpoint      Json?
+  progress        Json     @default("[]")
+  leaseToken      String?  @map("lease_token")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  attempts        Int      @default(0)
+  errorCode       String?  @map("error_code")
+  userMessageId   String?  @map("user_message_id")
+  aiMessageId     String?  @map("ai_message_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actions      WorkAction[]
+
+  @@unique([userId, requestKey])
+  @@index([userId, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@map("work_tasks")
+}
+
+model WorkAction {
+  id           String   @id @default(uuid())
+  taskId       String   @map("task_id")
+  leaseToken   String   @map("lease_token")
+  step         Int
+  purpose      String
+  method       String
+  url          String
+  contentType  String   @map("content_type")
+  body         String   @db.Text
+  requestHash  String   @map("request_hash")
+  status       String   @default("pending")
+  expiresAt    DateTime @map("expires_at")
+  decidedAt    DateTime? @map("decided_at")
+  submittedAt  DateTime? @map("submitted_at")
+  completedAt  DateTime? @map("completed_at")
+  httpStatus   Int?     @map("http_status")
+  provider     String?
+  providerTaskId String? @map("provider_task_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  task WorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, status])
+  @@map("work_actions")
+}
+
+model WorkArtifact {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  conversationId String   @map("conversation_id")
+  messageId      String   @map("message_id")
+  title          String
+  format         String
+  content        String   @db.Text
+  encoding       String   @default("utf8")
+  origin         String   @default("generated")
+  sizeBytes      Int      @map("size_bytes")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([userId, conversationId, createdAt])
+  @@map("work_artifacts")
 }
 
 model Memory {
@@ -100,6 +192,10 @@ model Memory {
   embeddingModel String? @map("embedding_model")
   origin     String   @default("manual") // manual | suggestion | promoted；定典后不可改
   sourceRef  String?  @map("source_ref") // suggestion→用户消息 id；promoted→DerivedInsight id
+  revision   Int      @default(1)
+  sources    Json     @default("[]")
+  portableId String   @default(uuid()) @map("portable_id")
+  importedAt DateTime? @map("imported_at")
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
@@ -107,9 +203,12 @@ model Memory {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   edgesFrom MemoryEdge[] @relation("edgeFrom")
   edgesTo   MemoryEdge[] @relation("edgeTo")
+  revisions MemoryRevision[]
+  projection MemoryProjection?
 
   @@index([userId])
   @@index([userId, importance, createdAt])
+  @@unique([userId, portableId])
   @@map("memories")
 }
 
@@ -120,7 +219,11 @@ model MemoryEdge {
   toMemoryId   String   @map("to_memory_id")
   relation     String // similar | related | contradicts
   confidence   String   @default("medium") // low | medium | high
-  status       String   @default("derived") // derived | canonical | dismissed
+  status       String   @default("derived") // derived | canonical | needs_review | dismissed
+  revision     Int      @default(1)
+  fromRevision Int     @default(1) @map("from_revision")
+  toRevision   Int     @default(1) @map("to_revision")
+  decisions    Json    @default("[]")
   evidence     String? // JSON数组字符串：支撑片段，最多 2 条
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -363,6 +466,9 @@ model DerivedInsight {
   status           String   @default("active") // active | promoted | dismissed | resolved
   resolution       String? // 冲突厘清后的定稿文案（status=resolved 时写入）
   promotedMemoryId String?  @map("promoted_memory_id")
+  revision         Int      @default(1)
+  sources          Json     @default("[]")
+  sourceMemoryIds  String[] @default([]) @map("source_memory_ids")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -370,6 +476,62 @@ model DerivedInsight {
 
   @@index([userId, status])
   @@map("derived_insights")
+}
+
+// 正式记忆的确认历史；业务编辑只追加，删除记忆时级联清除。
+model MemoryRevision {
+  id          String   @id @default(uuid())
+  memoryId    String   @map("memory_id")
+  revision    Int
+  type        String
+  content     String
+  importance  Int
+  tags        String?
+  expiresAt   DateTime? @map("expires_at")
+  origin      String
+  sources     Json     @default("[]")
+  action      String
+  restoredFrom Int?   @map("restored_from")
+  imported    Boolean  @default(false)
+  confirmedAt DateTime @default(now()) @map("confirmed_at")
+  memory      Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@unique([memoryId, revision])
+  @@map("memory_revisions")
+}
+
+// 可替换的机器投影；旧 Memory.embedding 列只作迁移留存，不再参与检索。
+model MemoryProjection {
+  memoryId       String   @id @map("memory_id")
+  memoryRevision Int      @map("memory_revision")
+  provider       String
+  model          String
+  dimensions     Int
+  ruleVersion    Int      @default(1) @map("rule_version")
+  vector         Float[]
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  memory         Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@map("memory_projections")
+}
+
+model MemoryIndexJob {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  mode        String // repair | rebuild
+  status      String   @default("queued") // queued | running | completed | cancelled | interrupted | failed
+  total       Int      @default(0)
+  processed   Int      @default(0)
+  embedded    Int      @default(0)
+  skipped     Int      @default(0)
+  failed      Int      @default(0)
+  errorCode   String?  @map("error_code")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("memory_index_jobs")
 }
 
 model MakeupPreset {
@@ -430,7 +592,7 @@ model ReminderDelivery {
   id         String   @id @default(uuid())
   reminderId String   @map("reminder_id")
   fireAt     DateTime @map("fire_at") // 该次触发时刻（UTC），= 当时的 nextFireAt
-  status     String   @default("pending") // pending | shown | dismissed | failed
+  status     String   @default("pending") // pending | running (task claimed) | shown | dismissed | failed
   result     String?  @db.Text // 定时任务的执行产出（纯提醒恒为 null）
   createdAt  DateTime @default(now()) @map("created_at")
 

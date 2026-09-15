@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+afterEach(() => vi.unstubAllEnvs())
 
 const search = vi.hoisted(() => ({ searchWeb: vi.fn() }))
 
@@ -88,60 +89,13 @@ vi.mock('./searchService.js', () => ({ searchWeb: search.searchWeb }))
 
 import {
   buildToolSystemPrompt,
-  classifyToolPrefix,
   executeToolCall,
   executeToolCallOnce,
-  parseCompleteToolCall,
 } from './agentService.js'
-
-describe('classifyToolPrefix', () => {
-  it('classifies plain text as natural immediately', () => {
-    expect(classifyToolPrefix('我')).toBe('natural')
-    expect(classifyToolPrefix('  你好呀')).toBe('natural')
-    expect(classifyToolPrefix('')).toBe('pending')
-    expect(classifyToolPrefix('  \n ')).toBe('pending')
-  })
-  it('stays pending while the JSON object is incomplete', () => {
-    expect(classifyToolPrefix('  {"tool":"add_t')).toBe('pending')
-    expect(classifyToolPrefix('{"tool":"add_todo","args":{"content":"还没写完')).toBe('pending')
-  })
-
-  it('parses a complete registered tool call with string-aware brace balancing', () => {
-    const text = '{"tool":"add_todo","args":{"content":"带}括号的}待办"}}'
-    expect(classifyToolPrefix(text)).toEqual({ name: 'add_todo', args: { content: '带}括号的}待办' } })
-  })
-
-  it('treats JSON without a registered tool name as natural', () => {
-    expect(classifyToolPrefix('{"foo":1}')).toBe('natural')
-    expect(classifyToolPrefix('{"tool":"drop_database","args":{}}')).toBe('natural')
-    expect(classifyToolPrefix('{"tool":123}')).toBe('natural')
-  })
-
-  it('defaults missing or non-object args to an empty object', () => {
-    expect(classifyToolPrefix('{"tool":"list_todos"}')).toEqual({ name: 'list_todos', args: {} })
-    expect(classifyToolPrefix('{"tool":"list_todos","args":[1]}')).toEqual({ name: 'list_todos', args: {} })
-  })
-
-  it('flushes oversized unbalanced prefixes as natural text', () => {
-    expect(classifyToolPrefix(`{${'x'.repeat(4096)}`)).toBe('natural')
-  })
-})
-
-describe('parseCompleteToolCall', () => {
-  it('returns the call when the whole reply is one tool JSON object', () => {
-    expect(parseCompleteToolCall(' {"tool":"record_period","args":{"startDate":"2026-09-04"}} '))
-      .toEqual({ name: 'record_period', args: { startDate: '2026-09-04' } })
-  })
-
-  it('returns null for natural language, malformed JSON and trailing garbage', () => {
-    expect(parseCompleteToolCall('好的，已帮你记下')).toBeNull()
-    expect(parseCompleteToolCall('{"tool":"add_todo",')).toBeNull()
-    expect(parseCompleteToolCall(123)).toBeNull()
-  })
-})
 
 describe('buildToolSystemPrompt', () => {
   it('lists every registered tool and the day anchor without leaking internals', () => {
+    vi.stubEnv('SEARCH_ENABLED', 'true')
     const prompt = buildToolSystemPrompt('chat', new Date(2026, 8, 4))
     for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'add_countdown', 'list_countdowns', 'delete_countdown', 'record_period', 'period_status', 'list_reminders', 'set_reminder', 'add_diary', 'diary_status', 'check_habit', 'habit_status', 'log_reading', 'log_study', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
@@ -303,7 +257,7 @@ describe('executeToolCallOnce（回路级去重）', () => {
 
   it('executes an identical call only once and feeds back a dedupe notice', async () => {
     db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
-    const executed = new Set()
+    const executed = new Map()
 
     const first = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
     const second = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
@@ -314,15 +268,73 @@ describe('executeToolCallOnce（回路级去重）', () => {
     expect(second.feedback).toContain('请勿重复调用')
   })
 
+  it('replays a failed result without claiming success or repeating a possible partial write', async () => {
+    db.todoCreate.mockRejectedValue(new Error('database unavailable'))
+    const executed = new Map()
+    const call = { name: 'add_todo', args: { content: '复诊' } }
+
+    const first = await executeToolCallOnce('u1', call, executed)
+    const second = await executeToolCallOnce('u1', call, executed)
+
+    expect(first).toMatchObject({ ok: false, summary: '工具暂时不可用' })
+    expect(second).toMatchObject({ ok: false, summary: first.summary, deduplicated: true })
+    expect(second.feedback).toContain('"ok":false')
+    expect(second.feedback).not.toContain('已成功执行')
+    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares an in-flight execution without reporting success before it finishes', async () => {
+    let release
+    db.todoCreate.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    const executed = new Map()
+    const call = { name: 'add_todo', args: { content: '复诊' } }
+    const first = executeToolCallOnce('u1', call, executed)
+    let duplicateSettled = false
+    const second = executeToolCallOnce('u1', call, executed).then((result) => {
+      duplicateSettled = true
+      return result
+    })
+    await Promise.resolve()
+
+    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(duplicateSettled).toBe(false)
+    release({ id: 't1', content: '复诊', dueDate: null, dueTime: null })
+    const [initial, duplicate] = await Promise.all([first, second])
+    expect(initial.ok).toBe(true)
+    expect(duplicate).toMatchObject({ ok: true, deduplicated: true })
+    expect(duplicate.feedback).toContain('"id":"t1"')
+  })
+
+  it('allows corrected arguments after a validation failure', async () => {
+    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    const executed = new Map()
+    const failed = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '' } }, executed)
+    const corrected = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
+
+    expect(failed.ok).toBe(false)
+    expect(corrected.ok).toBe(true)
+    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+  })
+
   it('treats different args as distinct operations', async () => {
     db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
-    const executed = new Set()
+    const executed = new Map()
 
     await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
     const other = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '喝水' } }, executed)
 
     expect(other.ok).toBe(true)
     expect(db.todoCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not repeat a side effect when the model reorders argument keys', async () => {
+    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    const executed = new Map()
+    await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊', dueDate: '2026-09-13', metadata: { a: 1, b: 2 } } }, executed)
+    const repeated = await executeToolCallOnce('u1', { name: 'add_todo', args: { metadata: { b: 2, a: 1 }, dueDate: '2026-09-13', content: '复诊' } }, executed)
+
+    expect(repeated).toMatchObject({ ok: true, deduplicated: true })
+    expect(db.todoCreate).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -413,7 +425,7 @@ describe('add_diary 按天去重签名', () => {
 
   it('deduplicates same-day diary writes even with different args', async () => {
     db.diaryUpsert.mockImplementation(async ({ create }) => ({ id: 'd1', day: create.day, mood: create.mood, content: create.content }))
-    const executed = new Set()
+    const executed = new Map()
 
     const first = await executeToolCallOnce('u1', { name: 'add_diary', args: { content: '上午开心' } }, executed)
     const second = await executeToolCallOnce('u1', { name: 'add_diary', args: { content: '下午也开心', mood: 'happy' } }, executed)
@@ -430,6 +442,7 @@ describe('工作模式注册表与模式门', () => {
   })
 
   it('buildToolSystemPrompt work 目录含日程/计算/搜索，不含陪伴类与已删除的执行类工具', () => {
+    vi.stubEnv('SEARCH_ENABLED', 'true')
     const prompt = buildToolSystemPrompt('work')
     for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'calc_convert', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
@@ -449,6 +462,20 @@ describe('工作模式注册表与模式门', () => {
     expect(run.summary).toBe('当前模式不支持该操作')
     expect(run.feedback).toContain('此模式不可用')
     expect(db.diaryUpsert).not.toHaveBeenCalled()
+  })
+
+  it('未配置搜索时不向模型虚报联网工具', () => {
+    vi.stubEnv('SEARCH_ENABLED', 'false')
+    const prompt = buildToolSystemPrompt('work')
+    expect(prompt).not.toContain('"tool":"web_search"')
+    expect(prompt).toContain('联网搜索未启用')
+  })
+
+  it('原型属性不是可执行工具，取消的请求不再执行', async () => {
+    expect((await executeToolCall('u1', { name: 'constructor', args: {} }, 'work')).ok).toBe(false)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(executeToolCall('u1', { name: 'calc_convert', args: { expression: '1+1' } }, 'work', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('聊天模式调用工作专属工具同样被模式门拒绝', async () => {
@@ -492,4 +519,3 @@ describe('工作模式注册表与模式门', () => {
   })
 
 })
-

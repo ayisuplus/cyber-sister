@@ -1,10 +1,13 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render as renderComponent, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
 import ChatHeader from './ChatHeader'
 
 
+
+const render = (element) => renderComponent(<MemoryRouter>{element}</MemoryRouter>)
 
 describe('ChatHeader', () => {
   beforeEach(() => {
@@ -82,16 +85,14 @@ describe('ChatHeader', () => {
     expect(screen.queryByText('浏览器未启用')).not.toBeInTheDocument()
   })
 
-  it('工作模式出现「打开功能桌面」按钮并触发回调；聊天模式不出现', () => {
+  it('工作模式切换后滑动指示器平移到「工作」一侧，且不再出现「打开功能桌面」按钮', () => {
     useAuthStore.setState({ user: null })
     useChatStore.setState({ chatMode: 'work' })
-    const onOpenWorkbench = vi.fn()
 
-    render(<ChatHeader onOpenWorkbench={onOpenWorkbench} />)
-    fireEvent.click(screen.getByRole('button', { name: '打开功能桌面' }))
-    expect(onOpenWorkbench).toHaveBeenCalledTimes(1)
+    const { container } = render(<ChatHeader />)
 
-    act(() => useChatStore.setState({ chatMode: 'chat' }))
+    const indicator = container.querySelector('[role="group"][aria-label="会话模式"] > span')
+    expect(indicator).toHaveClass('translate-x-full')
     expect(screen.queryByRole('button', { name: '打开功能桌面' })).not.toBeInTheDocument()
   })
 

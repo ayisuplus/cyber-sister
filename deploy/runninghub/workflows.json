@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-15",
+  "provider": "runninghub",
+  "verification": {
+    "localGraphValidated": true,
+    "canvasImported": true,
+    "savedInWorkspace": true,
+    "generationTested": true,
+    "apiExecutionTested": false,
+    "apiAuthenticationTested": true,
+    "apiTaskQueryTested": true,
+    "runtimeFieldMappingVerified": true
+  },
+  "workflows": [
+    {
+      "key": "text-to-image",
+      "name": "Amie · 通用生图 · Z-Image Turbo v1",
+      "workflowId": "2099692630371299330",
+      "url": "https://www.runninghub.cn/workflow/2099692630371299330",
+      "file": "amie-text-to-image.workflow.json",
+      "model": "Tongyi-MAI/Z-Image-Turbo",
+      "modelLicense": "Apache-2.0",
+      "inputs": {
+        "prompt": { "nodeId": "5", "fieldName": "text" },
+        "width": { "nodeId": "7", "fieldName": "width" },
+        "height": { "nodeId": "7", "fieldName": "height" },
+        "seed": { "nodeId": "8", "fieldName": "seed" }
+      },
+      "outputNodeId": "10",
+      "outputFormat": "png"
+    },
+    {
+      "key": "reference-edit",
+      "name": "Amie · 参考图编辑 · Qwen 2511 v1",
+      "workflowId": "2099730232960970754",
+      "url": "https://www.runninghub.cn/workflow/2099730232960970754",
+      "file": "amie-reference-edit.workflow.json",
+      "model": "Qwen/Qwen-Image-Edit-2511",
+      "modelLicense": "Apache-2.0",
+      "inputs": {
+        "image": { "nodeId": "4", "fieldName": "image" },
+        "prompt": { "nodeId": "8", "fieldName": "prompt" },
+        "seed": { "nodeId": "13", "fieldName": "seed" }
+      },
+      "outputNodeId": "15",
+      "outputFormat": "png"
+    }
+  ]
+}

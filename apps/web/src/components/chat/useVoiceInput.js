@@ -8,23 +8,28 @@ import { webmToWav16kMono } from '../../utils/voiceWav'
 
 const MAX_RECORD_MS = 90_000
 
-export function useVoiceInput(onTranscript) {
+export function useVoiceInput(onTranscript, enabled = true) {
   const [state, setState] = useState('idle')
   const [error, setError] = useState('')
   const recorderRef = useRef(null)
   const chunksRef = useRef([])
-  const cancelledRef = useRef(false)
+  const operationRef = useRef(0)
+  const requestRef = useRef(null)
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
   const timerRef = useRef(null)
   // mount 探测一次可用性；失败按不可用（点击时再如实报错）
   const availableRef = useRef(null)
 
   useEffect(() => {
+    if (!enabled) return undefined
     let alive = true
+    availableRef.current = null
     asrService.getAsrStatus()
       .then((status) => { if (alive) availableRef.current = Boolean(status?.available) })
       .catch(() => { if (alive) availableRef.current = false })
     return () => { alive = false }
-  }, [])
+  }, [enabled])
 
   const releaseRecorder = useCallback(() => {
     clearTimeout(timerRef.current)
@@ -34,21 +39,30 @@ export function useVoiceInput(onTranscript) {
     if (recorder) recorder.stream.getTracks().forEach((track) => track.stop())
   }, [])
 
-  useEffect(() => releaseRecorder, [releaseRecorder])
-
   const stop = useCallback(() => {
     const recorder = recorderRef.current
     if (recorder && recorder.state !== 'inactive') recorder.stop()
   }, [])
 
-  // Esc 取消：丢弃本次录音，不上传、不报错、不留痕
+  // 取消、切换工作模式或卸载均废弃本次权限请求、录音、转换及转写结果。
   const cancel = useCallback(() => {
-    if (recorderRef.current?.state !== 'recording') return
-    cancelledRef.current = true
-    recorderRef.current.stop()
-  }, [])
+    operationRef.current += 1
+    requestRef.current?.abort()
+    requestRef.current = null
+    chunksRef.current = []
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    releaseRecorder()
+    setState('idle')
+    setError('')
+  }, [releaseRecorder])
+
+  useEffect(() => cancel, [cancel])
+  useEffect(() => { if (!enabled) cancel() }, [enabled, cancel])
 
   const start = useCallback(async () => {
+    if (!enabledRef.current) return
+    const operation = ++operationRef.current
+    const current = () => enabledRef.current && operation === operationRef.current
     setError('')
     if (availableRef.current === false) {
       setError('语音转文字暂不可用，请稍后重试')
@@ -62,28 +76,25 @@ export function useVoiceInput(onTranscript) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch (err) {
+      if (!current()) return
       setError(err?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : '无法打开麦克风')
       return
     }
+    if (!current()) { stream.getTracks().forEach(track => track.stop()); return }
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
     chunksRef.current = []
     recorder.ondataavailable = (event) => {
-      if (event.data?.size > 0) chunksRef.current.push(event.data)
+      if (current() && event.data?.size > 0) chunksRef.current.push(event.data)
     }
     recorder.onerror = () => {
+      if (!current()) return
       releaseRecorder()
       setState('idle')
       setError('录音失败，请重试')
     }
     recorder.onstop = async () => {
-      if (cancelledRef.current) {
-        cancelledRef.current = false
-        chunksRef.current = []
-        releaseRecorder()
-        setState('idle')
-        return
-      }
+      if (!current()) return
       const chunks = chunksRef.current
       chunksRef.current = []
       releaseRecorder()
@@ -91,16 +102,20 @@ export function useVoiceInput(onTranscript) {
         setState('idle')
         return
       }
+      const controller = new AbortController()
+      requestRef.current = controller
       setState('transcribing')
       try {
         const wav = await webmToWav16kMono(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }))
-        const { text } = await asrService.transcribeAudio(wav)
+        if (!current()) return
+        const { text } = await asrService.transcribeAudio(wav, { signal: controller.signal })
+        if (!current()) return
         if (text) onTranscript(text)
         else setError('没有听清，请再说一次')
       } catch (err) {
-        setError(err?.response?.data?.error || '语音转文字失败，请重试')
+        if (current()) setError(err?.response?.data?.error || '语音转文字失败，请重试')
       } finally {
-        setState('idle')
+        if (current()) { requestRef.current = null; setState('idle') }
       }
     }
     recorderRef.current = recorder

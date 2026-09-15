@@ -12,6 +12,9 @@ const service = vi.hoisted(() => ({
   deleteCountdown: vi.fn(),
   listPeriodRecords: vi.fn(),
   createPeriodRecord: vi.fn(),
+  getPeriodSummary: vi.fn(),
+  updatePeriodRecord: vi.fn(),
+  deletePeriodRecord: vi.fn(),
   listReminders: vi.fn(),
   updateReminder: vi.fn(),
 }))
@@ -30,10 +33,24 @@ app.use((req, _res, next) => {
   next()
 })
 app.use('/', toolsRoutes)
+app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ error: error.message }))
 
 const httpError = (message, statusCode) => Object.assign(new Error(message), { statusCode })
 
 beforeEach(() => vi.clearAllMocks())
+
+it('周期摘要和修正删除接口始终使用鉴权身份，透传校验失败', async () => {
+  service.getPeriodSummary.mockResolvedValue({ nextDate: '2026-09-19', daysUntil: 18 })
+  expect((await request(app).get('/period/summary?today=2026-09-01&userId=attacker')).body.daysUntil).toBe(18)
+  expect(service.getPeriodSummary).toHaveBeenCalledWith('user-1', '2026-09-01')
+  service.updatePeriodRecord.mockResolvedValue({ id: 'p1' })
+  expect((await request(app).put('/period/p1').send({ endDate: '2026-09-05' })).status).toBe(200)
+  expect(service.updatePeriodRecord).toHaveBeenCalledWith('user-1', 'p1', { endDate: '2026-09-05' })
+  expect((await request(app).delete('/period/p1')).body).toEqual({ success: true })
+  expect(service.deletePeriodRecord).toHaveBeenCalledWith('user-1', 'p1')
+  service.updatePeriodRecord.mockRejectedValue(httpError('日期不存在', 400))
+  expect((await request(app).put('/period/p1').send({ startDate: 'bad' })).status).toBe(400)
+})
 
 describe('待办路由', () => {
   it('列出待办并透传 service 错误', async () => {

@@ -16,6 +16,7 @@
 **/*.pfx
 **/dev.db
 tools/mediacrawler
+apps/api/data
 tools/data-pipeline/data
 **/__pycache__
 **/*.pyc

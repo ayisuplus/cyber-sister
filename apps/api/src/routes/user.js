@@ -6,6 +6,7 @@ import { buildUserExport } from '../services/exportService.js'
 import { previewImport, applyImport } from '../services/importService.js'
 import { deleteAsset, readAsset, saveAsset } from '../services/userAssetService.js'
 import logger from '../utils/logger.js'
+import { getCompanionState, recoverCompanionState } from '../services/companionService.js'
 
 const router = Router()
 
@@ -15,6 +16,22 @@ function sendError(res, error, fallback) {
     ...(error.code ? { code: error.code } : {}),
   })
 }
+
+router.get('/companion', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store').json(await getCompanionState(req.user.userId))
+  } catch (error) {
+    sendError(res, error, '读取角色状态失败')
+  }
+})
+
+router.post('/companion/recover', async (req, res) => {
+  try {
+    res.json(await recoverCompanionState(req.user.userId, req.body.expectedRevision))
+  } catch (error) {
+    sendError(res, error, '恢复角色状态失败')
+  }
+})
 
 router.get('/profile', async (req, res) => {
   try {

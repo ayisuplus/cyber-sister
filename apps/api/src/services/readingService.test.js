@@ -124,25 +124,16 @@ describe('readingService', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('generates and persists a persona comment for uncommented notes', async () => {
+  it('returns a mock reading response without sending or storing the note', async () => {
     mocks.noteFindFirst.mockResolvedValue({ ...NOTE, book: BOOK })
-    mocks.generateCompanionNote.mockResolvedValue({ content: '这段确实戳心，我陪你缓一缓。', source: 'qwen' })
-    mocks.noteUpdate.mockImplementation(async ({ data }) => ({ ...NOTE, ...data }))
-
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' })
     const result = await generateNoteComment('u1', 'n1', 'req-n2')
-
-    const [noteArgs, requestId, modelOptions] = mocks.generateCompanionNote.mock.calls[0]
-    expect(noteArgs.persona).toBe('gentle')
-    expect(noteArgs.instruction).toContain('活着')
-    expect(noteArgs.instruction).toContain('第 30 页')
-    expect(noteArgs.userText).toBe('有庆那段看得心里发紧')
-    expect(requestId).toBe('req-n2')
-    expect(modelOptions.allowExternal).toBe(false)
-    expect(mocks.noteUpdate.mock.calls[0][0].data).toEqual({
-      aiComment: '这段确实戳心，我陪你缓一缓。',
-      aiCommentSource: 'qwen',
-    })
-    expect(result.reused).toBe(false)
+    expect(result).toMatchObject({ source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(result.aiComment).toContain('模拟')
+    expect(mocks.noteFindFirst).toHaveBeenCalledWith({ where: { id: 'n1', userId: 'u1' }, include: { book: true } })
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.noteUpdate).not.toHaveBeenCalled()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
   })
 
   it('logReading shelves a missing book and records a note', async () => {

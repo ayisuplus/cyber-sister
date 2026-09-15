@@ -156,7 +156,7 @@ describe('WorkspacePage', () => {
 
     await waitFor(() => expect(derivedService.clear).toHaveBeenCalledOnce())
     expect(await screen.findByText('已清空 2 条')).toBeInTheDocument()
-    expect(screen.getByText('工作台还是空的。多聊几句，或点上面让她现在整理一下。')).toBeInTheDocument()
+    expect(screen.getByText('工作台还是空的。可以先预览整理流程，云端接通后再生成新的理解。')).toBeInTheDocument()
   })
 
   it('shows the created count after a manual analysis', async () => {
@@ -168,6 +168,25 @@ describe('WorkspacePage', () => {
 
     expect(await screen.findByText('新增了 2 条')).toBeInTheDocument()
     expect(derivedService.analyze).toHaveBeenCalledOnce()
+  })
+
+  it.each(['analyze', 'rebuild'])('keeps mock %s previews out of the historical insight list', async (operation) => {
+    const user = userEvent.setup()
+    derivedService[operation].mockResolvedValue({ created: 0, cleared: 0, execution: { mode: 'mock', cloudConnected: false, persisted: false }, preview: { content: '这是模拟理解，不是用户画像。' } })
+    renderPage()
+    await screen.findByText('她习惯深夜学习')
+    if (operation === 'analyze') await user.click(screen.getByRole('button', { name: '让她现在整理一下' }))
+    else {
+      await user.click(screen.getByRole('button', { name: '重建工作台', exact: true }))
+      await user.click(screen.getByRole('button', { name: '确认重建' }))
+    }
+    const preview = await screen.findByRole('region', { name: '模拟理解预览' })
+    expect(within(preview).getByText('这是模拟理解，不是用户画像。')).toBeInTheDocument()
+    expect(within(preview).queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByText('她习惯深夜学习')).toBeInTheDocument()
+    expect(screen.getByText('她可能在准备考试')).toBeInTheDocument()
+    expect(derivedService.list).toHaveBeenCalledTimes(1)
+    expect(derivedService.promote).not.toHaveBeenCalled()
   })
 
   it('maps consent and availability failures to inline guidance', async () => {
@@ -189,7 +208,7 @@ describe('WorkspacePage', () => {
 
     renderPage()
 
-    expect(await screen.findByText('工作台还是空的。多聊几句，或点上面让她现在整理一下。')).toBeInTheDocument()
+    expect(await screen.findByText('工作台还是空的。可以先预览整理流程，云端接通后再生成新的理解。')).toBeInTheDocument()
   })
 
   it('shows a retryable error when loading fails', async () => {
@@ -209,7 +228,7 @@ describe('WorkspacePage', () => {
     derivedService.list.mockResolvedValue({ insights: [] })
 
     renderPage()
-    await screen.findByText('工作台还是空的。多聊几句，或点上面让她现在整理一下。')
+    await screen.findByText('工作台还是空的。可以先预览整理流程，云端接通后再生成新的理解。')
     await user.click(screen.getByRole('button', { name: '已厘清' }))
 
     await waitFor(() => expect(derivedService.list).toHaveBeenCalledWith('resolved'))
@@ -273,7 +292,7 @@ describe('WorkspacePage', () => {
 
     await user.click(screen.getByRole('button', { name: '关系' }))
 
-    expect(await screen.findByText('还没有她发现的关系，多点上面让她整理')).toBeInTheDocument()
+    expect(await screen.findByText('还没有已整理的关系，云端接通后可生成新的关系草稿')).toBeInTheDocument()
   })
 
   it('shows 厘清一下 only on conflict cards, prefills content and saves the resolution', async () => {
@@ -359,7 +378,7 @@ describe('WorkspacePage', () => {
     }))
 
     renderPage()
-    await screen.findByText('工作台还是空的。多聊几句，或点上面让她现在整理一下。')
+    await screen.findByText('工作台还是空的。可以先预览整理流程，云端接通后再生成新的理解。')
     await user.click(screen.getByRole('button', { name: '已厘清' }))
 
     const card = (await screen.findByText('她既想独居又想合住')).closest('article')

@@ -8,6 +8,7 @@ const service = vi.hoisted(() => ({
   updateMemory: vi.fn(),
   deleteMemory: vi.fn(),
   clearAllMemories: vi.fn(),
+  getMemory: vi.fn(), listRevisions: vi.fn(), restoreMemory: vi.fn(),
 }))
 
 const suggestionService = vi.hoisted(() => ({
@@ -15,10 +16,12 @@ const suggestionService = vi.hoisted(() => ({
 }))
 
 const embedding = vi.hoisted(() => ({ rebuildEmbeddings: vi.fn() }))
+const indexing = vi.hoisted(() => ({ createIndexJob: vi.fn(), latestIndexJob: vi.fn(), getIndexJob: vi.fn(), cancelIndexJob: vi.fn() }))
 
 vi.mock('../services/memoryService.js', () => service)
 vi.mock('../services/memorySuggestionService.js', () => suggestionService)
 vi.mock('../services/embeddingService.js', () => embedding)
+vi.mock('../services/memoryIndexService.js', () => indexing)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -40,7 +43,7 @@ describe('记忆路由', () => {
     service.createMemory.mockResolvedValue({ id: 'm1' })
     const ok = await request(app).post('/').send({ type: 'semantic', content: '喜欢火锅' })
     expect(ok.status).toBe(201)
-    expect(service.createMemory).toHaveBeenCalledWith('user-1', { type: 'semantic', content: '喜欢火锅', origin: 'manual' })
+    expect(service.createMemory).toHaveBeenCalledWith('user-1', { type: 'semantic', content: '喜欢火锅', origin: 'manual', sourceRef: null })
 
     service.createMemory.mockRejectedValue(Object.assign(new Error('记忆内容不能为空'), { statusCode: 400 }))
     const bad = await request(app).post('/').send({ type: 'semantic', content: '' })
@@ -68,7 +71,7 @@ describe('记忆路由', () => {
       type: 'semantic',
       content: '伪造定典',
       origin: 'manual',
-      sourceRef: 'insight-9',
+      sourceRef: null,
     })
   })
 
@@ -130,13 +133,13 @@ describe('记忆路由', () => {
 })
 
 describe('语义索引重建路由（M2）', () => {
-  it('POST /embeddings/rebuild 200 透传计数，且不被 /:id 系路由截获', async () => {
-    embedding.rebuildEmbeddings.mockResolvedValue({ embedded: 2, failed: 0, skipped: 1 })
+  it('POST /embeddings/rebuild 返回 202 任务回执，且不被 /:id 系路由截获', async () => {
+    embedding.rebuildEmbeddings.mockResolvedValue({ id: 'job1', status: 'queued' })
 
     const ok = await request(app).post('/embeddings/rebuild')
 
-    expect(ok.status).toBe(200)
-    expect(ok.body).toEqual({ embedded: 2, failed: 0, skipped: 1 })
+    expect(ok.status).toBe(202)
+    expect(ok.body).toEqual({ id: 'job1', status: 'queued' })
     expect(embedding.rebuildEmbeddings).toHaveBeenCalledWith('user-1')
     expect(service.updateMemory).not.toHaveBeenCalled()
   })

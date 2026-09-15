@@ -15,9 +15,9 @@ export default function AIDisclaimer() {
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+      className="overlay-calm animate-overlay-in absolute inset-0 z-50 flex items-center justify-center"
     >
-      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title" aria-describedby="ai-disclaimer-description" className="bg-surface-card rounded-[24px] w-[320px] p-8 text-center animate-fade-in">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title" aria-describedby="ai-disclaimer-description" className="animate-dialog-in bg-surface-card rounded-card w-[320px] p-8 text-center shadow-lg">
         <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-gradient-pink-purple flex items-center justify-center">
           <Bot size={32} className="text-text-inverse" />
         </div>
@@ -32,8 +32,7 @@ export default function AIDisclaimer() {
             e.stopPropagation()
             dismissDisclaimer()
           }}
-          className="w-full min-h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-[12px] focus:ring-2 focus:ring-status-info"
-          style={{ boxShadow: 'var(--cs-shadow-button)' }}
+          className="w-full min-h-12 bg-action-primary hover:bg-action-hover text-text-inverse font-semibold rounded-control transition-colors duration-300 ease-calm focus-visible:ring-2 focus-visible:ring-status-info shadow-button"
         >
           我知道了
         </button>

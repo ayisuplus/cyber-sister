@@ -4,6 +4,7 @@ import Header from '../components/layout/Header'
 import Button from '../components/ui/Button'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Spinner from '../components/ui/Spinner'
+import SourceBadge from '../components/ui/SourceBadge'
 import { derivedService } from '../services/derivedService'
 import { parseTags } from '../utils/parseTags'
 
@@ -83,6 +84,7 @@ export default function WorkspacePage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [notice, setNotice] = useState('')
+  const [preview, setPreview] = useState(null)
   const [actionError, setActionError] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [statusTab, setStatusTab] = useState('active')
@@ -113,6 +115,11 @@ export default function WorkspacePage() {
     setActionError('')
     try {
       const result = await derivedService.analyze()
+      if (result.execution?.mode === 'mock') {
+        setPreview(result.preview)
+        setNotice('模拟整理已完成，尚未产生新的真实理解。')
+        return
+      }
       setNotice(`新增了 ${result?.created ?? 0} 条`)
       setItems(await fetchTabCards(statusTab))
     } catch (requestError) {
@@ -237,6 +244,11 @@ export default function WorkspacePage() {
     setActionError('')
     try {
       const result = await derivedService.rebuild()
+      if (result.execution?.mode === 'mock') {
+        setPreview(result.preview)
+        setNotice('当前仅预览重建接口，已有理解和关系均已保留。')
+        return
+      }
       setNotice(`已重建：清掉 ${result?.cleared ?? 0} 条，新增 ${result?.created ?? 0} 条`)
       setItems(await fetchTabCards(statusTab))
     } catch (requestError) {
@@ -301,6 +313,11 @@ export default function WorkspacePage() {
         </div>
 
         {notice && <p role="status" className="text-xs text-status-local">{notice}</p>}
+        {preview && <section aria-label="模拟理解预览" className="rounded-card border border-border-default bg-pastel-mist p-4">
+          <SourceBadge source="cloud_mock" />
+          <p className="mt-2 text-sm leading-relaxed text-text-primary">{preview.content}</p>
+          <p className="mt-2 text-xs text-text-muted">这段示例不是对你的推断，不提供记忆晋升操作。</p>
+        </section>}
         {actionError && <p role="alert" className="text-xs text-danger">{actionError}</p>}
 
         {loading ? (
@@ -313,9 +330,9 @@ export default function WorkspacePage() {
         ) : items.length === 0 ? (
           <p className="py-8 text-center text-sm text-text-muted">
             {statusTab === 'active'
-              ? '工作台还是空的。多聊几句，或点上面让她现在整理一下。'
+              ? '工作台还是空的。可以先预览整理流程，云端接通后再生成新的理解。'
               : statusTab === EDGES_TAB
-                ? '还没有她发现的关系，多点上面让她整理'
+                ? '还没有已整理的关系，云端接通后可生成新的关系草稿'
                 : '这一类还是空的。'}
           </p>
         ) : statusTab === EDGES_TAB ? (
@@ -418,6 +435,7 @@ export default function WorkspacePage() {
                           id={`workspace-type-${item.id}`}
                           value={item.editor.type}
                           onChange={(event) => updateItem(item.id, { editor: { ...item.editor, type: event.target.value } })}
+                          className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm"
                         >
                           {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
@@ -516,7 +534,7 @@ export default function WorkspacePage() {
       <ConfirmDialog
         open={showRebuildConfirm}
         title="重建工作台"
-        description="会清掉待确认与不算了的草稿，让她基于最近聊天重新整理；已晋升与已厘清的历史保留。确定继续吗？"
+        description="云端整理尚未接通，本次只展示模拟预览，已有的理解草稿和历史都会保留。"
         confirmLabel="确认重建"
         danger
         onConfirm={handleRebuild}

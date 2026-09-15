@@ -14,6 +14,8 @@ import { HttpError } from '../utils/dbHelpers.js'
 import { createMemory } from './memoryService.js'
 import { PERSONAS, assertRolePlayAllowed, updateRolePlay, switchPersona } from './userService.js'
 import { EXPORT_VERSION } from './exportService.js'
+import { previewMemoryImport, applyMemoryImport } from './memoryTransferService.js'
+import { conflict, withMemoryTransaction } from './memoryGovernance.js'
 import logger from '../utils/logger.js'
 
 const MAX_IMPORT_CANDIDATES = 100
@@ -23,7 +25,7 @@ const MAX_TAG_CHARS = 30
 const MEMORY_TYPES = ['semantic', 'episodic', 'procedural']
 
 const isBundle = (payload) => payload && typeof payload === 'object'
-  && payload.version === EXPORT_VERSION
+  && [1, EXPORT_VERSION].includes(payload.version)
   && payload.product === 'Amie cyber-sister'
 
 /** 与记忆建议一致口径的规范化去重键：NFKC + trim + 小写。 */
@@ -42,8 +44,8 @@ function validateMemoryShape(item) {
   return { type, content, importance, tags }
 }
 
-async function existingMemoryKeys(userId) {
-  const existing = await prisma.memory.findMany({ where: { userId }, select: { content: true } })
+async function existingMemoryKeys(userId, database = prisma) {
+  const existing = await database.memory.findMany({ where: { userId }, select: { content: true } })
   return new Set(existing.map((m) => normalizeKey(m.content)))
 }
 
@@ -89,11 +91,25 @@ function personaPreview(persona) {
 
 /** 预览：解析导入负载为结构化候选，绝不落库。 */
 export async function previewImport(userId, payload) {
+  // 先读取版本：预览期间或之后的修改、清空、删除都会使确认失效。
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
+  if (!user) throw new HttpError('用户不存在', 404)
+  const memoryEpoch = user.memoryEpoch
+  if (isBundle(payload) && payload.version === 2) {
+    if (!payload.memoryBundle) throw new HttpError('v2 导出包缺少正式记忆及版本数据，不能降级导入', 400)
+    const preview = await previewMemoryImport(userId, payload.memoryBundle)
+    return { format: 'cyber-sister-export-v2', memoryEpoch, memoryCandidates: preview.memories, edges: preview.edges,
+      role: rolePreview(payload.user?.roleName, payload.user?.roleSetting), persona: personaPreview(payload.user?.persona),
+      memoriesSkipped: preview.memories.filter((item) => item.state === 'duplicate').length,
+      notes: ['会恢复所选记忆的版本和所选关系；有冲突的记忆不会覆盖。', '聊天原文不导入，原始消息来源可能显示为缺失。云端授权不会导入。'],
+    }
+  }
   if (isBundle(payload)) {
     const existingKeys = await existingMemoryKeys(userId)
     const { candidates, skipped } = dedupeCandidates(payload.memories ?? [], existingKeys)
     return {
       format: 'cyber-sister-export',
+      memoryEpoch,
       role: rolePreview(payload.user?.roleName, payload.user?.roleSetting),
       persona: personaPreview(payload.user?.persona),
       memoryCandidates: candidates,
@@ -110,6 +126,7 @@ export async function previewImport(userId, payload) {
     if (!role) throw new HttpError('人设文本不能为空', 400)
     return {
       format: 'persona-text',
+      memoryEpoch,
       role,
       persona: null,
       memoryCandidates: [],
@@ -126,37 +143,44 @@ export async function applyImport(userId, payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new HttpError('导入内容不能为空', 400)
   }
+  const result = await withMemoryTransaction(userId, async (tx) => {
+  if (payload.memoryBundle || (Array.isArray(payload.memories) && payload.memories.length)) {
+    if (!Number.isInteger(payload.expectedMemoryEpoch) || payload.expectedMemoryEpoch < 0) throw new HttpError('请先预览要导入的记忆', 400)
+    const current = await tx.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
+    if (current?.memoryEpoch !== payload.expectedMemoryEpoch) throw conflict('记忆已变化，旧导入预览已失效，请重新预览；本次没有写入任何内容')
+  }
   const result = { roleApplied: false, personaApplied: false, memoriesApplied: 0, memoriesSkipped: 0 }
+  if (payload.memoryBundle) {
+    Object.assign(result, await applyMemoryImport(userId, { bundle: payload.memoryBundle, selectedIds: payload.selectedIds, selectedEdgeIds: payload.selectedEdgeIds }, tx))
+  }
 
   if (payload.role) {
     // updateRolePlay 内含长度与恋人红线闸；校验失败按 400 透传，不静默降级
-    await updateRolePlay(userId, { name: payload.role.name, setting: payload.role.setting })
+    await updateRolePlay(userId, { name: payload.role.name, setting: payload.role.setting }, tx)
     result.roleApplied = true
   }
   if (payload.persona) {
-    await switchPersona(userId, payload.persona)
+    await switchPersona(userId, payload.persona, tx)
     result.personaApplied = true
   }
 
-  if (Array.isArray(payload.memories) && payload.memories.length > 0) {
-    const existingKeys = await existingMemoryKeys(userId)
+  if (!payload.memoryBundle && Array.isArray(payload.memories) && payload.memories.length > 0) {
+    const existingKeys = await existingMemoryKeys(userId, tx)
     const { candidates, skipped } = dedupeCandidates(payload.memories, existingKeys)
     result.memoriesSkipped += skipped
     for (const candidate of candidates) {
-      // createMemory 是校验唯一权威：非法候选按跳过计数，不拖垮整批
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await createMemory(userId, candidate)
-        result.memoriesApplied += 1
-      } catch {
-        result.memoriesSkipped += 1
-      }
+      // 形状无效的候选已在预处理跳过；数据库失败必须回滚整批，不能伪装成成功。
+      // eslint-disable-next-line no-await-in-loop
+      await createMemory(userId, candidate, { tx, projectEmbedding: false, action: 'import' })
+      result.memoriesApplied += 1
     }
   }
 
-  if (!result.roleApplied && !result.personaApplied && result.memoriesApplied === 0) {
+  if (!payload.memoryBundle && !result.roleApplied && !result.personaApplied && result.memoriesApplied === 0 && result.memoriesSkipped === 0) {
     throw new HttpError('没有可导入的内容', 400)
   }
+  return result
+  })
   logger.info('数据迁移导入', { userId, ...result })
   return result
 }

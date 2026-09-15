@@ -1,0 +1,64 @@
+name: amie-chat
+
+x-api: &api
+  image: amie-chat-api:${IMAGE_TAG:?immutable image tag required}
+  network_mode: host
+  env_file: ./runtime.env
+  volumes:
+    - ./secrets:/run/secrets:ro
+    - api-data:/workspace/apps/api/data
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '3' }
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: amie_chat
+      POSTGRES_USER: amie_chat
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./secrets/postgres_password:/run/secrets/postgres_password:ro
+    ports: ['127.0.0.1:55433:5432']
+    command: ['postgres', '-c', 'shared_buffers=96MB', '-c', 'max_connections=30']
+    mem_limit: 384m
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U amie_chat -d amie_chat']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+  migration:
+    <<: *api
+    command: ['node', 'src/prisma/migrateDeploy.js']
+    mem_limit: 256m
+    restart: 'no'
+    healthcheck: { disable: true }
+    depends_on:
+      postgres: { condition: service_healthy }
+  api:
+    <<: *api
+    environment:
+      APP_DISTRIBUTION: web
+      BIND_ADDRESS: 127.0.0.1
+      WORK_TASKS_ENABLED: 'false'
+      WORK_CODE_ENABLED: 'false'
+      WORK_BROWSER_ENABLED: 'false'
+      RUNNINGHUB_ENABLED: 'false'
+      NODE_OPTIONS: --max-old-space-size=512
+    mem_limit: 768m
+    restart: unless-stopped
+    depends_on:
+      migration: { condition: service_completed_successfully }
+
+volumes:
+  postgres-data:
+  api-data:

@@ -14,8 +14,12 @@ export const migrationService = {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = filename
+    anchor.hidden = true
+    document.body.appendChild(anchor)
     anchor.click()
-    URL.revokeObjectURL(url)
+    anchor.remove()
+    // 给浏览器下载处理器读取 Blob 的时间，不能在同一调用栈提前撤销。
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
     return filename
   },
 

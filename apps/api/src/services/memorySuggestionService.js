@@ -1,10 +1,9 @@
 /**
  * 按需记忆建议服务（路线图 W3）。
  *
- * 用户在聊天中主动请求“帮我记住”时，从单条用户消息由本地模型抽取候选记忆。
+ * 用户在聊天中主动请求“帮我记住”时，从单条用户消息由已获同意的云端模型抽取候选记忆。
  * 硬约束（Spec §4/§6）：
- * - 仅 llama.cpp 本地模型：complete 固定 allowExternal=false，网关因此确定性跳过
- *   所有 external 供应商，禁止任何 Qwen 回退。
+ * - 工作模式尚未接入云端，历史工作会话也不得通过此入口生成候选。
  * - 候选只存在于响应体：本服务绝不写 Memory 表；用户在界面确认后由既有创建接口落库。
  * - 输入命中危机检测、或候选含联系方式/证件号/精确位置/医疗内容时，不生成候选。
  * - 日志只记 requestId 与结果计数，不记消息或候选内容。
@@ -22,6 +21,7 @@ import {
   redactSensitiveText,
 } from './llmService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import { assertWorkCloudConnected } from './workCloudService.js'
 import {
   REDACTION_PLACEHOLDER_PATTERN,
   SENSITIVE_LOCATION_PATTERNS,
@@ -122,6 +122,7 @@ async function findOwnedUserMessage(userId, messageId) {
   }
   const message = await prisma.message.findFirst({
     where: { id: messageId, conversation: { userId } },
+    include: { conversation: { select: { mode: true } } },
   })
   if (!message) {
     const error = new Error('消息不存在')
@@ -180,6 +181,8 @@ export async function getMemorySuggestions(userId, messageId, requestId) {
     logger.info('记忆建议结果', { requestId, count: 0, reason: 'crisis_excluded' })
     return { candidates: [] }
   }
+
+  if (message.conversation.mode === 'work') assertWorkCloudConnected()
 
   const safeText = redactSensitiveText(message.content).trim().slice(0, MAX_MODEL_MESSAGE_CHARS)
   const output = await runCloudExtraction(safeText, requestId, userId)

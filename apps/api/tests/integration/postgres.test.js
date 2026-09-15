@@ -70,6 +70,23 @@ describeWithPostgres('real PostgreSQL migration contract', () => {
     expect(await prisma.user.count({ where: { phone: seedPhone } })).toBe(1)
   })
 
+  it('archives and restores without losing messages or crossing user boundaries', async () => {
+    const owner = await prisma.user.findUnique({ where: { phone: seedPhone } })
+    const conversation = await prisma.conversation.create({
+      data: { userId: owner.id, title: '归档往返测试', messages: { create: { role: 'user', content: '归档后仍然保留' } } },
+    })
+    expect(conversation.archivedAt).toBeNull()
+    expect((await prisma.conversation.updateMany({ where: { id: conversation.id, userId: 'other-user' }, data: { archivedAt: new Date() } })).count).toBe(0)
+    await prisma.conversation.updateMany({ where: { id: conversation.id, userId: owner.id }, data: { archivedAt: new Date() } })
+    expect(await prisma.conversation.count({ where: { id: conversation.id, archivedAt: null } })).toBe(0)
+    expect(await prisma.conversation.count({ where: { id: conversation.id, archivedAt: { not: null } } })).toBe(1)
+    expect(await prisma.message.count({ where: { conversationId: conversation.id } })).toBe(1)
+    await prisma.conversation.updateMany({ where: { id: conversation.id, userId: owner.id }, data: { archivedAt: null } })
+    const restored = await prisma.conversation.findUnique({ where: { id: conversation.id }, include: { messages: true } })
+    expect(restored.archivedAt).toBeNull()
+    expect(restored.messages[0].content).toBe('归档后仍然保留')
+  })
+
   it('persists consent, message source and explicit memory', async () => {
     const phone = `199${String(Date.now()).slice(-8)}`
     let userId

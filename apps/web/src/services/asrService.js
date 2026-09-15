@@ -8,11 +8,11 @@ export const asrService = {
     return response.data
   },
 
-  /** @param {Blob} wavBlob 16kHz 单声道 WAV（voiceWav.webmToWav16kMono 产出） */
-  transcribeAudio: async (wavBlob) => {
+  /** @param {Blob} wavBlob 16kHz 单声道 WAV（voiceWav.webmToWav16kMono 产出） @param {{signal?: AbortSignal}} options */
+  transcribeAudio: async (wavBlob, { signal } = {}) => {
     const formData = new FormData()
     formData.append('file', wavBlob, 'voice.wav')
-    const response = await api.postForm('/asr/transcribe', formData)
+    const response = await api.postForm('/asr/transcribe', formData, { signal })
     return response.data
   },
 }

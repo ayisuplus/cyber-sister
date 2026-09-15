@@ -9,6 +9,57 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGateway } from './index.js'
 
+const NATIVE_TOOLS = [{ type: 'function', function: { name: 'execute_python', parameters: { type: 'object', properties: { code: { type: 'string' } } } } }]
+const nativeFrame = (args, name = 'execute_python', finish_reason = null) => sseChunk(JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name, arguments: args } }] }, finish_reason }] }))
+
+test('native tools: fragmented arguments become a call only after a complete successful stream', async (t) => {
+  const originalFetch = globalThis.fetch
+  let payload
+  globalThis.fetch = async (_url, options) => {
+    payload = JSON.parse(options.body)
+    return okStreamResponse([
+      nativeFrame('{"code":"print('), nativeFrame('42)"}', ''),
+      sseChunk(JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })), sseChunk('[DONE]'),
+    ])
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const gateway = await createGateway(LOCAL_ENV)
+  const events = []
+  for await (const event of gateway.stream(baseRequest({ tools: NATIVE_TOOLS }))) events.push(event)
+  assert.deepEqual(events[0], { type: 'toolcall', name: 'execute_python', args: { code: 'print(42)' } })
+  assert.equal(events[1].type, 'done')
+  assert.equal(events.length, 2)
+  assert.deepEqual(payload.tools, NATIVE_TOOLS)
+  assert.equal(payload.parallel_tool_calls, false)
+})
+
+test('native tools: truncated tool arguments cannot execute or trigger a provider retry', async (t) => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => { calls += 1; return okStreamResponse([nativeFrame('{"code":"print(42)"}')]) }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const gateway = await createGateway(LOCAL_ENV)
+  const events = []
+  for await (const event of gateway.stream(baseRequest({ tools: NATIVE_TOOLS }))) events.push(event)
+  assert.deepEqual(events, [{ type: 'error', reason: 'upstream_error' }])
+  assert.equal(calls, 1)
+})
+
+test('native tools: invalid arguments, multiple calls or incomplete finish require repair', async (t) => {
+  const originalFetch = globalThis.fetch
+  const gateway = await createGateway(LOCAL_ENV)
+  t.after(() => { globalThis.fetch = originalFetch })
+  for (const [tool_calls, finish_reason] of [
+    [[{ function: { name: 'execute_python', arguments: 'broken' } }], 'tool_calls'],
+    [[{ function: { name: 'execute_python', arguments: '{}' } }, { function: { name: 'delete_todo', arguments: '{}' } }], 'tool_calls'],
+    [[{ function: { name: 'execute_python', arguments: '{}' } }], 'length'],
+  ]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { tool_calls }, finish_reason }] }))
+    const result = await gateway.complete(baseRequest({ tools: NATIVE_TOOLS }))
+    assert.deepEqual(JSON.parse(result.content), { tool: '__malformed__', args: {} })
+  }
+})
+
 const LOCAL_ENV = {
   GATEWAY_PROVIDERS: 'llamacpp',
   GATEWAY_LLAMACPP_BASE_URL: 'http://local.test',
@@ -379,4 +430,67 @@ test('work 场景不注入人格提示词，chat 场景注入', async (t) => {
   )
   assert.equal(hasPersonaSystem(payloads[0]), false)
   assert.equal(hasPersonaSystem(payloads[1]), true)
+})
+
+for (const method of ['complete', 'stream']) {
+  test(`${method} 外部重试前重新读取同意，撤回后不再发请求`, async (t) => {
+    let allowed = true
+    let calls = 0
+    let authorizations = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => {
+      calls += 1
+      allowed = false
+      return httpErrorResponse(500)
+    }
+    t.after(() => { globalThis.fetch = originalFetch })
+    const gateway = await createGateway({ ...DUAL_ENV, GATEWAY_PROVIDERS: 'qwen' })
+    const request = baseRequest({
+      allowExternal: true,
+      authorizeExternal: async () => { authorizations += 1; return allowed },
+    })
+    if (method === 'complete') await gateway.complete(request)
+    else for await (const _event of gateway.stream(request)) { /* consume */ }
+    assert.equal(calls, 1)
+    assert.equal(authorizations, 2)
+  })
+
+  test(`${method} 授权读取期间取消时不发起 HTTP 请求`, async (t) => {
+    const abort = new AbortController()
+    let calls = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => { calls += 1; return httpErrorResponse(500) }
+    t.after(() => { globalThis.fetch = originalFetch })
+    const gateway = await createGateway({ ...DUAL_ENV, GATEWAY_PROVIDERS: 'qwen' })
+    const request = baseRequest({
+      signal: abort.signal,
+      allowExternal: true,
+      authorizeExternal: async () => { abort.abort(); return true },
+    })
+    if (method === 'complete') assert.equal(await gateway.complete(request), null)
+    else {
+      const events = []
+      for await (const event of gateway.stream(request)) events.push(event)
+      assert.deepEqual(events, [])
+    }
+    assert.equal(calls, 0)
+  })
+}
+
+test('complete 调用方取消传导到 fetch，且不重试', async (t) => {
+  const abort = new AbortController()
+  let calls = 0
+  let observedSignal
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_url, init) => {
+    calls += 1
+    observedSignal = init.signal
+    abort.abort()
+    throw new DOMException('cancelled', 'AbortError')
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const gateway = await createGateway(LOCAL_ENV)
+  assert.equal(await gateway.complete(baseRequest({ signal: abort.signal })), null)
+  assert.equal(calls, 1)
+  assert.equal(observedSignal.aborted, true)
 })

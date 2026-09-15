@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   test: {
+    env: { VITE_APP_DISTRIBUTION: 'local' },
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
     clearMocks: true,

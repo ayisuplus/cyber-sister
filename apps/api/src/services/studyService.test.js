@@ -29,7 +29,7 @@ vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { generateSessionComment, getSummary, listSessions, recordSession } from './studyService.js'
+import { cancelSession, finishSession, generateSessionComment, getActiveSession, getSummary, listSessions, recordSession, startSession } from './studyService.js'
 
 const SESSION = {
   id: 's1',
@@ -55,6 +55,10 @@ describe('studyService', () => {
   })
 
   afterEach(() => {
+    for (const userId of ['u1', 'u2']) {
+      const run = getActiveSession(userId)
+      if (run) cancelSession(userId, run.id)
+    }
     vi.useRealTimers()
   })
 
@@ -97,26 +101,79 @@ describe('studyService', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('generates and persists a persona comment with session facts', async () => {
+  it('returns an explicit cloud mock without model calls or persisted comments', async () => {
     mocks.sessionFindFirst.mockResolvedValue(SESSION)
-    mocks.generateCompanionNote.mockResolvedValue({ content: '23 分钟很扎实，起来喝口水吧。', source: 'qwen' })
-    mocks.sessionUpdate.mockImplementation(async ({ data }) => ({ ...SESSION, ...data }))
 
     const result = await generateSessionComment('u1', 's1', 'req-s2')
 
-    const [noteArgs, requestId, modelOptions] = mocks.generateCompanionNote.mock.calls[0]
-    expect(noteArgs.persona).toBe('gentle')
-    expect(noteArgs.instruction).toContain('数学')
-    expect(noteArgs.instruction).toContain('25 分钟')
-    expect(noteArgs.instruction).toContain('23 分钟')
-    expect(noteArgs.userText).toBe('微积分终于顺了一点')
-    expect(requestId).toBe('req-s2')
-    expect(modelOptions.allowExternal).toBe(false)
-    expect(mocks.sessionUpdate.mock.calls[0][0].data).toEqual({
-      aiComment: '23 分钟很扎实，起来喝口水吧。',
-      aiCommentSource: 'qwen',
-    })
-    expect(result.reused).toBe(false)
+    expect(mocks.sessionFindFirst).toHaveBeenCalledWith({ where: { id: 's1', userId: 'u1' } })
+    expect(result).toMatchObject({ source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(result.aiComment).toContain('模拟')
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+    expect(mocks.sessionUpdate).not.toHaveBeenCalled()
+  })
+
+  it('owns one active run per user and resumes it with server time', () => {
+    vi.useFakeTimers()
+    const run = startSession('u1', { plannedMinutes: 25, subject: ' 数学 ' })
+    expect(run).toMatchObject({ status: 'running', subject: '数学', execution: { storage: 'memory', persisted: false } })
+    expect(getActiveSession('u1').id).toBe(run.id)
+    expect(getActiveSession('u2')).toBe(null)
+    expect(() => finishSession('u2', run.id)).toThrow('不存在')
+    expect(() => cancelSession('u2', run.id)).toThrow('不存在')
+    expect(() => startSession('u1', { plannedMinutes: 25 })).toThrow('未处理')
+    expect(mocks.sessionCreate).not.toHaveBeenCalled()
+  })
+
+  it('freezes server-measured duration and ignores forged client timing on save', async () => {
+    vi.useFakeTimers()
+    mocks.sessionCreate.mockImplementation(async ({ data }) => ({ ...SESSION, ...data }))
+    const run = startSession('u1', { plannedMinutes: 25, subject: '数学' })
+    await expect(recordSession('u1', { runId: run.id })).rejects.toMatchObject({ statusCode: 409 })
+    vi.advanceTimersByTime(61000)
+    const finished = finishSession('u1', run.id)
+    expect(finished.actualMinutes).toBe(2)
+    vi.advanceTimersByTime(60000)
+    expect(finishSession('u1', run.id).finishedAt).toBe(finished.finishedAt)
+    const [first, second] = await Promise.all([
+      recordSession('u1', { runId: run.id, actualMinutes: 240, plannedMinutes: 240, subject: '伪造', note: '完成一节' }),
+      recordSession('u1', { runId: run.id, actualMinutes: 240 }),
+    ])
+    expect(first).toEqual(second)
+    expect(mocks.sessionCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.sessionCreate.mock.calls[0][0].data).toMatchObject({ subject: '数学', actualMinutes: 2, plannedMinutes: 25, note: '完成一节' })
+    expect(getActiveSession('u1').status).toBe('saved')
+    await recordSession('u1', { runId: run.id })
+    expect(mocks.sessionCreate).toHaveBeenCalledTimes(1)
+    expect(startSession('u1', { plannedMinutes: 45 }).id).not.toBe(run.id)
+  })
+
+  it('retains finished drafts after save failures and expires unsaved runs after 24h', async () => {
+    vi.useFakeTimers()
+    const run = startSession('u1', { plannedMinutes: 1 })
+    vi.advanceTimersByTime(120000)
+    expect(finishSession('u1', run.id).actualMinutes).toBe(1)
+    mocks.sessionCreate.mockRejectedValueOnce(new Error('offline'))
+    await expect(recordSession('u1', { runId: run.id })).rejects.toThrow('offline')
+    expect(getActiveSession('u1').status).toBe('finished')
+    vi.advanceTimersByTime(24 * 60 * 60 * 1000)
+    expect(getActiveSession('u1')).toBe(null)
+    await expect(recordSession('u1', { runId: run.id })).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('does not cancel a run while its confirmed record is being saved', async () => {
+    let complete
+    mocks.sessionCreate.mockReturnValue(new Promise(resolve => { complete = resolve }))
+    const run = startSession('u1', { plannedMinutes: 25 })
+    finishSession('u1', run.id)
+    const saving = recordSession('u1', { runId: run.id })
+    expect(() => cancelSession('u1', run.id)).toThrow('正在保存')
+    expect(() => startSession('u1', { plannedMinutes: 25 })).toThrow('未处理')
+    complete(SESSION)
+    await saving
+    expect(cancelSession('u1', run.id)).toEqual({ cancelled: true })
+    expect(getActiveSession('u1')).toBe(null)
   })
 
   it('requires an existing session before commenting', async () => {

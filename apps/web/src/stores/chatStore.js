@@ -1,10 +1,15 @@
 import { create } from 'zustand'
 import { chatService } from '../services/chatService'
+import { onSessionReset } from '../services/sessionLifecycle'
+import { isLocalWorkClient } from '../features/distribution'
 
 // 迟到流防护：streamSeq 单调递增标记当前流归属，
 // 切换会话/重置/新发送时 abort 旧流并递增序号，旧流事件一律丢弃。
 let streamSeq = 0
 let activeStreamController = null
+let storeVersion = 0
+let viewVersion = 0
+let listVersion = 0
 
 const stopActiveStream = () => {
   streamSeq += 1
@@ -21,7 +26,7 @@ const createStreamEventHandler = ({ set, get, tempAiId, isCurrentStream, targetI
   let terminalEvent = null
 
   const onEvent = (event) => {
-    if (!isCurrentStream() || get().currentConversationId !== targetId) return
+    if (terminalEvent || !isCurrentStream() || get().currentConversationId !== targetId) return
     if (event?.event === 'delta' && typeof event.text === 'string') {
       set((state) => ({
         isTyping: false,
@@ -38,6 +43,14 @@ const createStreamEventHandler = ({ set, get, tempAiId, isCurrentStream, targetI
         messages: state.messages.map((message) =>
           message.id === tempAiId ? { ...message, content: event.content } : message
         ),
+      }))
+    } else if (event?.event === 'tool_progress' && Number.isInteger(event.step)) {
+      set((state) => ({
+        isTyping: false,
+        messages: state.messages.map((message) => message.id === tempAiId ? {
+          ...message,
+          progress: [...(message.progress || []).filter((step) => step.step !== event.step), event],
+        } : message),
       }))
     } else if (event?.event === 'done' || event?.event === 'blocked' || event?.event === 'error') {
       terminalEvent = event
@@ -112,36 +125,41 @@ const settleStream = ({ terminalEvent, set, withoutTempMessages, targetId }) => 
 export const useChatStore = create(
   (set, get) => ({
     conversations: [],
+    archiveRevision: 0,
     currentConversationId: null,
     messages: [],
+    isTyping: false,
+    isSending: false,
     // 会话级模式归属：chat | work；会话列表按当前模式过滤，新建会话落在当前模式
     chatMode: 'chat',
     setChatMode: (mode) => {
+      if (mode === 'work' && !isLocalWorkClient()) return
       if (!['chat', 'work'].includes(mode) || mode === get().chatMode) return
       stopActiveStream()
+      viewVersion += 1
       const current = get().conversations.find((c) => c.id === get().currentConversationId)
       const belongs = current && (current.mode || 'chat') === mode
       set({
         chatMode: mode,
         isTyping: false,
+        isSending: false,
         ...(belongs ? {} : { currentConversationId: null, messages: [] }),
       })
     },
 
     loadConversations: async () => {
+      const session = storeVersion
+      const list = ++listVersion
+      const view = viewVersion
       try {
         const conversations = await chatService.getConversations()
-        set({ conversations })
+        if (session !== storeVersion || list !== listVersion) return
+        set({ conversations: isLocalWorkClient() ? conversations : conversations.filter(c => c.mode !== 'work') })
 
-        if (conversations.length > 0 && !get().currentConversationId) {
-          const first = conversations.find((c) => (c.mode || 'chat') === get().chatMode)
+        if (view === viewVersion && conversations.length > 0 && !get().currentConversationId) {
+          const first = conversations.find((c) => !c.archivedAt && (c.mode || 'chat') === get().chatMode)
           if (!first) return
-          const currentConversationId = first.id
-          set({ currentConversationId })
-          const conversation = await chatService.getConversation(currentConversationId)
-          // 等待期间用户可能已切换会话，乱序响应不得覆盖当前视图
-          if (get().currentConversationId !== currentConversationId) return
-          set({ messages: conversation.messages || [] })
+          await get().setCurrentConversation(first.id)
         }
       } catch {
         // 页面保持可重试的空状态，不向浏览器日志写入请求配置。
@@ -149,7 +167,13 @@ export const useChatStore = create(
     },
 
     createConversation: async () => {
-      const conversation = await chatService.createConversation(get().chatMode)
+      stopActiveStream()
+      const session = storeVersion
+      const view = ++viewVersion
+      listVersion += 1
+      set({ isSending: false, isTyping: false })
+      const conversation = await chatService.createConversation(isLocalWorkClient() ? get().chatMode : 'chat')
+      if (session !== storeVersion || view !== viewVersion) return null
       set((state) => ({
         conversations: [conversation, ...state.conversations],
         currentConversationId: conversation.id,
@@ -161,25 +185,44 @@ export const useChatStore = create(
     setCurrentConversation: async (id) => {
       // 作废旧流：进行中的流被取消，迟到事件因序号失效被丢弃
       stopActiveStream()
-      set({ currentConversationId: id, isTyping: false })
+      const view = ++viewVersion
+      set({ currentConversationId: id, messages: [], isTyping: false, isSending: false })
 
       try {
         const conversation = await chatService.getConversation(id)
-        // 响应回来时若已切换到其它会话，丢弃这条过期数据
-        if (get().currentConversationId !== id) return
+          // 响应回来时若已切换到其它会话，丢弃这条过期数据
+          if (view !== viewVersion || get().currentConversationId !== id) return
+          if (!isLocalWorkClient() && conversation.mode === 'work') {
+            set({ currentConversationId: null, messages: [], chatMode: 'chat' })
+            return
+          }
         set({ messages: conversation.messages || [], chatMode: conversation.mode || 'chat' })
       } catch {
-        // 保留当前消息，避免把可能含 Authorization 的错误对象写入日志。
+        // 保持该会话的空状态，不把其它会话消息展示为当前记录。
       }
     },
 
-    sendMessage: async (content, { image = null } = {}) => {
-      if ((content.trim() === '' && !image) || get().isSending) return
+    // 后台结果刷新不会取消正在发送的消息，也不会把旧会话响应写进新页面。
+    refreshConversation: async (id) => {
+      if (get().currentConversationId !== id || get().isSending) return
+      const view = viewVersion
+      const session = storeVersion
+      try {
+        const conversation = await chatService.getConversation(id)
+        if (!isLocalWorkClient() && conversation.mode === 'work') return
+        if (view !== viewVersion || session !== storeVersion || get().currentConversationId !== id || get().isSending) return
+        set({ messages: conversation.messages || [] })
+      } catch { /* Task results remain available through the conversation history. */ }
+    },
+
+    sendMessage: async (content, { image = null, files = [] } = {}) => {
+      if ((content.trim() === '' && !image && !files.length) || get().isSending) return
 
       // 发送守卫立即生效，并覆盖会话创建，避免并发发送/并发建会话
       set({ isSending: true })
       // 新发送作废旧流（abort + 序号失效）
       stopActiveStream()
+      viewVersion += 1
       const streamId = streamSeq
       const controller = new AbortController()
       activeStreamController = controller
@@ -190,13 +233,23 @@ export const useChatStore = create(
       const withoutTempMessages = (messages) =>
         messages.filter((message) => message.id !== tempUserId && message.id !== tempAiId)
       const removeTempMessages = () =>
-        set((state) => ({ messages: withoutTempMessages(state.messages), isTyping: false }))
-      const isCurrentStream = () => streamSeq === streamId
+        set((state) => ({
+          messages: withoutTempMessages(state.messages),
+          ...(isCurrentStream() ? { isTyping: false } : {}),
+        }))
+      const isCurrentStream = () => streamSeq === streamId && !controller.signal.aborted
 
       try {
         if (!get().currentConversationId) {
-          // 创建新会话
-          await get().createConversation()
+          // 自动创建属于当前发送；公开的新建操作会取消流，因此在这里直接创建。
+          listVersion += 1
+          const conversation = await chatService.createConversation(isLocalWorkClient() ? get().chatMode : 'chat')
+          if (!isCurrentStream()) return { status: 'aborted' }
+          set((state) => ({
+            conversations: [conversation, ...state.conversations],
+            currentConversationId: conversation.id,
+            messages: [],
+          }))
         }
         const targetId = get().currentConversationId
 
@@ -205,7 +258,7 @@ export const useChatStore = create(
         set((state) => ({
           messages: [
             ...state.messages,
-            { id: tempUserId, role: 'user', content, imagePreviewUrl: image?.previewUrl ?? null, createdAt: new Date().toISOString() },
+            { id: tempUserId, role: 'user', content, imagePreviewUrl: image?.previewUrl ?? null, pendingFiles: files.map((file) => file.name), createdAt: new Date().toISOString() },
             { id: tempAiId, role: 'assistant', content: '', streaming: true },
           ],
           isTyping: true,
@@ -215,23 +268,9 @@ export const useChatStore = create(
           set, get, tempAiId, isCurrentStream, targetId,
         })
 
-        let streamFailure = null
-        try {
-          await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent, image: image?.blob ?? null })
-        } catch (streamError) {
-          streamFailure = streamError
-        }
+        await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent, image: image?.blob ?? null, files })
 
-        if (streamFailure) {
-          removeTempMessages()
-          if (!isCurrentStream() || controller.signal.aborted) {
-            // 切换会话/重置/新发送作废了这条流：静默结束，不当作发送失败展示
-            return { status: 'aborted' }
-          }
-          throw streamFailure
-        }
-
-        if (!isCurrentStream()) {
+        if (!isCurrentStream() || get().currentConversationId !== targetId) {
           // 等待流收尾期间被作废：丢弃结果，不留临时消息
           removeTempMessages()
           return { status: 'aborted' }
@@ -243,18 +282,42 @@ export const useChatStore = create(
           withoutTempMessages,
           targetId,
         })
+      } catch (error) {
+        removeTempMessages()
+        if (!isCurrentStream()) return { status: 'aborted' }
+        throw error
       } finally {
-        if (activeStreamController === controller) activeStreamController = null
-        set({ isSending: false })
+        if (activeStreamController === controller) {
+          activeStreamController = null
+          set({ isSending: false })
+        }
+      }
+    },
+
+    archiveConversation: async (id) => {
+      const session = storeVersion
+      await chatService.setArchived(id, true)
+      if (session !== storeVersion) return
+      listVersion += 1
+      set((state) => ({ conversations: state.conversations.filter((c) => c.id !== id), archiveRevision: state.archiveRevision + 1 }))
+      if (get().currentConversationId === id) {
+        stopActiveStream()
+        viewVersion += 1
+        set({ currentConversationId: null, messages: [], isSending: false, isTyping: false })
+        const next = get().conversations.find((c) => !c.archivedAt && (c.mode || 'chat') === get().chatMode)
+        if (next) await get().setCurrentConversation(next.id)
       }
     },
 
     deleteConversation: async (id) => {
+      const session = storeVersion
       await chatService.deleteConversation(id)
+      if (session !== storeVersion) return
+      listVersion += 1
 
       const deletingCurrent = get().currentConversationId === id
       const nextConversationId = deletingCurrent
-        ? get().conversations.find((conversation) => conversation.id !== id)?.id || null
+        ? get().conversations.find((conversation) => conversation.id !== id && (conversation.mode || 'chat') === get().chatMode)?.id || null
         : get().currentConversationId
       set((state) => {
         const conversations = state.conversations.filter((c) => c.id !== id)
@@ -265,21 +328,37 @@ export const useChatStore = create(
           messages: deletingCurrent ? [] : state.messages,
         }
       })
+      if (deletingCurrent) {
+        stopActiveStream()
+        viewVersion += 1
+        set({ isSending: false, isTyping: false })
+      }
       if (deletingCurrent && nextConversationId) {
         await get().setCurrentConversation(nextConversationId)
       }
     },
 
-    clearMessages: () => set({ messages: [] }),
+    clearMessages: () => {
+      stopActiveStream()
+      viewVersion += 1
+      set({ messages: [], isSending: false, isTyping: false })
+    },
     reset: () => {
       stopActiveStream()
+      storeVersion += 1
+      viewVersion += 1
+      listVersion += 1
       set({
         conversations: [],
+        archiveRevision: 0,
         currentConversationId: null,
         messages: [],
         isTyping: false,
         isSending: false,
+        chatMode: 'chat',
       })
     },
   })
 )
+
+onSessionReset(() => useChatStore.getState().reset())

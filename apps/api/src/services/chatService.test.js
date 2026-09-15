@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
+  companionFindUnique: vi.fn(() => Promise.resolve({ companionState: null, companionRevision: 0 })),
+  companionUpdate: vi.fn(() => Promise.resolve({})),
+  companionLock: vi.fn(() => Promise.resolve([{ id: 'user-1' }])),
   conversationFindFirst: vi.fn(),
   conversationFindUnique: vi.fn(),
   conversationFindMany: vi.fn(),
   conversationCreate: vi.fn(),
   conversationDelete: vi.fn(),
   conversationUpdate: vi.fn(),
+  conversationUpdateMany: vi.fn(),
   messageFindMany: vi.fn(),
   messageUpdate: vi.fn(),
   messageCreate: vi.fn(),
@@ -21,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   generateResponseStream: vi.fn(),
   generateLocalTemplateResponse: vi.fn(),
   generateCompanionNote: vi.fn(),
-  retrieveRelevantMemories: vi.fn(() => []),
+  retrieveRelevantMemories: vi.fn((_text, memories) => memories),
   executeToolCall: vi.fn(),
   detectCrisis: vi.fn(),
   saveChatImage: vi.fn(),
@@ -31,7 +35,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../prisma/client.js', () => {
   const tx = {
-    message: { create: mocks.messageCreate },
+    user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
     conversation: { update: mocks.conversationUpdate },
     crisisLog: { create: mocks.crisisCreate },
   }
@@ -44,6 +50,7 @@ vi.mock('../prisma/client.js', () => {
         findMany: mocks.conversationFindMany,
         create: mocks.conversationCreate,
         update: mocks.conversationUpdate,
+        updateMany: mocks.conversationUpdateMany,
         delete: mocks.conversationDelete,
       },
       message: { findMany: mocks.messageFindMany, update: mocks.messageUpdate },
@@ -101,6 +108,7 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
+  setConversationArchived,
   sendMessage,
   sendMessageStream,
 } from './chatService.js'
@@ -113,13 +121,43 @@ describe('chatService 会话管理', () => {
     mocks.conversationFindMany.mockResolvedValue([{ id: 'c1', messages: [] }])
     const result = await listConversations('user-1')
     expect(mocks.conversationFindMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1' },
+      where: { userId: 'user-1', archivedAt: null },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       skip: 0,
       take: 20,
       include: { messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } },
     })
     expect(result).toHaveLength(1)
+  })
+
+  it('归档查询只返回当前用户的归档对话', async () => {
+    mocks.conversationFindMany.mockResolvedValue([])
+    await listConversations('user-1', { archived: true })
+    expect(mocks.conversationFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: 'user-1', archivedAt: { not: null } },
+    }))
+  })
+
+  it('归档与恢复原子校验归属，保留消息', async () => {
+    mocks.conversationUpdateMany.mockResolvedValue({ count: 1 })
+    await expect(setConversationArchived('c1', 'user-1', true)).resolves.toEqual({ success: true, archived: true })
+    expect(mocks.conversationUpdateMany).toHaveBeenCalledWith({ where: { id: 'c1', userId: 'user-1' }, data: { archivedAt: expect.any(Date) } })
+    await setConversationArchived('c1', 'user-1', false)
+    expect(mocks.conversationUpdateMany).toHaveBeenLastCalledWith({ where: { id: 'c1', userId: 'user-1' }, data: { archivedAt: null } })
+    expect(mocks.conversationDelete).not.toHaveBeenCalled()
+    expect(mocks.messageCreate).not.toHaveBeenCalled()
+    mocks.conversationUpdateMany.mockResolvedValue({ count: 0 })
+    await expect(setConversationArchived('c1', 'other-user', true)).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('拒绝非法归档值，以及向归档会话发送普通或流式消息', async () => {
+    await expect(setConversationArchived('c1', 'user-1', 'true')).rejects.toMatchObject({ statusCode: 400 })
+    expect(mocks.conversationUpdateMany).not.toHaveBeenCalled()
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'c1', archivedAt: new Date() })
+    await expect(sendMessage('c1', 'user-1', '继续聊')).rejects.toMatchObject({ code: 'CONVERSATION_ARCHIVED' })
+    await expect(sendMessageStream('c1', 'user-1', '继续聊').next()).rejects.toMatchObject({ code: 'CONVERSATION_ARCHIVED' })
+    expect(mocks.generateResponse).not.toHaveBeenCalled()
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
   })
 
   it('会话列表分页参数生效且 limit 封顶 50', async () => {
@@ -153,19 +191,19 @@ describe('chatService 会话管理', () => {
     const detail = await getConversation('c1', 'user-1')
     expect(mocks.conversationFindFirst).toHaveBeenCalledWith({
       where: { id: 'c1', userId: 'user-1' },
-      include: { messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 0, take: 50 } },
+      include: { messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 0, take: 50, include: { workArtifacts: { select: { id: true, title: true, format: true, origin: true, sizeBytes: true, createdAt: true } } } } },
     })
     expect(detail.id).toBe('c1')
 
     await getConversation('c1', 'user-1', { page: 2, limit: 30 })
     expect(mocks.conversationFindFirst).toHaveBeenLastCalledWith(expect.objectContaining({
-      include: { messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 30, take: 30 } },
+      include: { messages: expect.objectContaining({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 30, take: 30 }) },
     }))
 
     // limit 超过 100 封顶
     await getConversation('c1', 'user-1', { limit: 5000 })
     expect(mocks.conversationFindFirst).toHaveBeenLastCalledWith(expect.objectContaining({
-      include: { messages: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 0, take: 100 } },
+      include: { messages: expect.objectContaining({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 0, take: 100 }) },
     }))
 
     mocks.conversationFindFirst.mockResolvedValue(null)
@@ -236,6 +274,8 @@ describe('chatService.sendMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
       message: { create: mocks.messageCreate },
       conversation: { update: mocks.conversationUpdate },
       crisisLog: { create: mocks.crisisCreate },
@@ -278,7 +318,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], extraSystem: [{ role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat', derivedInsights: [] },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat' },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -294,7 +334,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], extraSystem: [{ role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat', derivedInsights: [] },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat' },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -319,20 +359,19 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateResponse.mock.calls[0][5]).toEqual({
       allowExternal: true,
       authorizeExternal: expect.any(Function),
-      extraSystem: [{ role: 'system', content: expect.stringContaining('add_todo') }],
+      memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_todo') }],
       scene: 'chat',
       queryEmbedding: null,
       memoryEdges: [],
-      derivedInsights: [],
     })
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
-  it('注入提示词的记忆按重要度排序并封顶 200 条', async () => {
+  it('检索覆盖所有有效正式记忆，不先截断 200 条', async () => {
     await sendMessage('conversation-1', 'user-1', '你好')
 
     expect(mocks.memoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
-      take: 200,
+      where: { userId: 'user-1', OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] },
     }))
   })
 
@@ -408,26 +447,13 @@ describe('chatService.sendMessage', () => {
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
 
-  it('work 会话：网关收 scene=work，系统提示为工作前言加 WORK_TOOLS 目录且不含人格提示词', async () => {
+  it('work 会话进入实际工作模型，保留同意检查与完成后落库', async () => {
     mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
-
-    const result = await sendMessage('conversation-1', 'user-1', '帮我算个账')
-
-    expect(result).toMatchObject({ status: 'ok' })
-    const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.scene).toBe('work')
-    const systemPrompt = options.extraSystem[0].content
-    expect(systemPrompt).toContain('当前是工作模式')
-    // WORK_TOOLS 目录进 prompt：日程四件 + 计算 + 搜索（浏览器/生图/终端已随切割删除）
-    for (const name of ['add_todo', 'calc_convert', 'web_search']) {
-      expect(systemPrompt).toContain(`"tool":"${name}"`)
-    }
-    for (const name of ['browser_open', 'generate_image', 'bash_run', 'use_skill']) {
-      expect(systemPrompt).not.toContain(`"tool":"${name}"`)
-    }
-    // 聊天专属工具与人格提示词不进入工作模式系统提示
-    expect(systemPrompt).not.toContain('add_diary')
-    expect(systemPrompt).not.toContain('人设：')
+    await expect(sendMessage('conversation-1', 'user-1', '帮我算个账')).resolves.toMatchObject({ status: 'ok' })
+    expect(mocks.generateResponse.mock.calls[0][5]).toMatchObject({ scene: 'work', allowExternal: true })
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.executeToolCall).not.toHaveBeenCalled()
+    expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
   it('用户带角色时角色设定在工具目录之前注入', async () => {
@@ -445,74 +471,47 @@ describe('chatService.sendMessage', () => {
     const options = mocks.generateResponse.mock.calls[0][5]
     expect(options.extraSystem[0].content).toContain('角色扮演设定')
     expect(options.extraSystem[0].content).toContain('同桌的你')
-    expect(options.extraSystem[1].content).toContain('add_todo')
+    expect(options.extraSystem.at(-1).content).toContain('add_todo')
   })
 
-  it('用户无角色时不注入角色设定，extraSystem 首条即工具目录', async () => {
+  it('用户无角色时仍注入运行状态，工具目录保持存在', async () => {
     const result = await sendMessage('conversation-1', 'user-1', '你好')
 
     expect(result).toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.extraSystem[0].content).toContain('add_todo')
+    expect(options.extraSystem.at(-1).content).toContain('add_todo')
     expect(options.extraSystem.some((m) => m.content.includes('角色扮演设定'))).toBe(false)
   })
 
-  it('work 会话即便有角色也不注入角色设定', async () => {
+  it('work 会话仍优先处理危机，不进入模型或工作门', async () => {
     mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
-    mocks.userFindUnique.mockResolvedValue({
-      persona: 'toxic',
-      externalLlmConsent: true,
-      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
-      roleName: '同桌的你',
-      roleSetting: '坐我旁边的女生，爱吐槽但总会帮我讲题。',
-    })
-
-    const result = await sendMessage('conversation-1', 'user-1', '帮我算个账')
-
-    expect(result).toMatchObject({ status: 'ok' })
-    const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.extraSystem.some((m) => m.content.includes('角色扮演设定'))).toBe(false)
-    expect(options.extraSystem[0].content).toContain('当前是工作模式')
+    mocks.detectCrisis.mockReturnValue('critical')
+    const result = await sendMessage('conversation-1', 'user-1', '需要帮助')
+    expect(result.status).toBe('blocked')
+    expect(mocks.generateResponse).not.toHaveBeenCalled()
+    expect(mocks.embedQuery).not.toHaveBeenCalled()
   })
 
-  it('每条消息先做隐藏策略斟酌，策略要点作为 system 消息注入工具提示之前', async () => {
-    mocks.generateCompanionNote.mockResolvedValue({
-      content: '先共情再给建议',
-      source: 'local_model',
-      provider: 'p',
-      model: 'm',
-    })
-
-    const result = await sendMessage('conversation-1', 'user-1', '你好')
-
-    expect(result).toMatchObject({ status: 'ok' })
-    expect(mocks.generateCompanionNote).toHaveBeenCalledOnce()
-    const [noteArgs] = mocks.generateCompanionNote.mock.calls[0]
-    expect(noteArgs).toMatchObject({
-      persona: 'toxic',
-      maxTokens: 200,
-      temperature: 0.3,
-      timeoutMs: 12000,
-    })
-    expect(noteArgs.instruction).toContain('内部策略参谋')
-    expect(noteArgs.userText).toContain('对话模式=聊天')
-    expect(noteArgs.userText).toContain('用户消息：你好')
+  it('work 会话延续角色身份，使用工作工具目录', async () => {
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
+    mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION, roleName: '同桌', roleSetting: '一起学习' })
+    await expect(sendMessage('conversation-1', 'user-1', '帮我算个账')).resolves.toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
-    const strategyIndex = options.extraSystem.findIndex((m) => m.content.includes('内部策略要点'))
-    const toolIndex = options.extraSystem.findIndex((m) => m.content.includes('add_todo'))
-    expect(strategyIndex).toBeGreaterThanOrEqual(0)
-    expect(options.extraSystem[strategyIndex].content).toContain('先共情再给建议')
-    expect(strategyIndex).toBeLessThan(toolIndex)
+    expect(options).toMatchObject({ scene: 'work', allowExternal: true })
+    expect(options.extraSystem[0].content).toContain('同桌')
+    expect(options.extraSystem.at(-1).content).toContain('create_artifact')
   })
 
-  it('策略斟酌失败时静默降级，回复与无斟酌时一致', async () => {
-    mocks.generateCompanionNote.mockRejectedValue(new Error('LOCAL_LLM_UNAVAILABLE'))
-
-    const result = await sendMessage('conversation-1', 'user-1', '你好')
-
-    expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
+  it('本地状态取代云端策略斟酌，完成后同事务保存成长依据', async () => {
+    const result = await sendMessage('conversation-1', 'user-1', '谢谢你')
+    expect(result.status).toBe('ok')
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.generateResponse).toHaveBeenCalledOnce()
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.extraSystem).toEqual([{ role: 'system', content: expect.stringContaining('add_todo') }])
+    expect(options.extraSystem[0].content).toContain('【角色运行状态】')
+    expect(options.extraSystem.at(-1).content).toContain('add_todo')
+    expect(mocks.companionUpdate).toHaveBeenCalledOnce()
+    expect(result.aiMessage.companionExperience).toMatchObject({ revision: 1, observation: { positive: 1 } })
   })
 
   it('危机阻断先于策略斟酌，斟酌调用不发生', async () => {
@@ -524,50 +523,39 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('策略斟酌的环境信息按当前小时映射时段', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(2026, 8, 7, 23, 0, 0))
-    try {
-      mocks.generateCompanionNote.mockResolvedValue({
-        content: '轻声收尾',
-        source: 'local_model',
-        provider: 'p',
-        model: 'm',
-      })
-
-      await sendMessage('conversation-1', 'user-1', '睡不着')
-
-      const [noteArgs] = mocks.generateCompanionNote.mock.calls[0]
-      expect(noteArgs.userText).toContain('当前时段=晚上')
-    } finally {
-      vi.useRealTimers()
-    }
+  it('持久学习参数改变下一轮表达，角色状态不会成为用户正式记忆', async () => {
+    const { createCompanionState } = await import('./companionState.js')
+    const state = createCompanionState(Date.now())
+    state.learning.brevity = 0.85
+    mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', companionState: state, companionRevision: 8 })
+    const result = await sendMessage('conversation-1', 'user-1', '你好')
+    expect(mocks.generateResponse.mock.calls[0][5].extraSystem[0].content).toContain('偏简洁')
+    expect(result.aiMessage.companionExperience.basedOnRevision).toBe(8)
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('存在 active 工作台条目时透传 derivedInsights 并触发自动分析', async () => {
+  it('存在未确认草稿时也不查询或传入模型，自动整理仍走原隔离入口', async () => {
     const insights = [{ kind: 'pattern', content: '她习惯深夜学习', confidence: 'medium' }]
     mocks.derivedInsightFindMany.mockResolvedValue(insights)
 
     const result = await sendMessage('conversation-1', 'user-1', '你好')
 
     expect(result).toMatchObject({ status: 'ok' })
-    expect(mocks.derivedInsightFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: 'user-1', status: 'active' },
-    }))
+    expect(mocks.derivedInsightFindMany).not.toHaveBeenCalled()
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.derivedInsights).toEqual(insights)
+    expect(options).not.toHaveProperty('derivedInsights')
     expect(mocks.maybeAutoAnalyze).toHaveBeenCalledWith('user-1', undefined)
   })
 
-  it('无 active 工作台条目时 derivedInsights 为空数组', async () => {
+  it('聊天选项没有未确认草稿入口', async () => {
     const result = await sendMessage('conversation-1', 'user-1', '你好')
 
     expect(result).toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.derivedInsights).toEqual([])
+    expect(options).not.toHaveProperty('derivedInsights')
   })
 
-  it('记忆查询带出 id/embedding；同意时 embedQuery 结果注入 queryEmbedding', async () => {
+  it('记忆查询带出 id/revision/projection；同意时 embedQuery 结果注入 queryEmbedding', async () => {
     mocks.embedQuery.mockResolvedValue([0.1, 0.2, 0.3])
     mocks.memoryFindMany.mockResolvedValue([
       { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', embedding: [0.9] },
@@ -576,19 +564,19 @@ describe('chatService.sendMessage', () => {
     await sendMessage('conversation-1', 'user-1', '今晚吃啥')
 
     expect(mocks.memoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({ id: true, embedding: true }),
+      select: expect.objectContaining({ id: true, revision: true, projection: true }),
     }))
-    expect(mocks.embedQuery).toHaveBeenCalledWith('今晚吃啥', true)
+    expect(mocks.embedQuery).toHaveBeenCalledWith('今晚吃啥', expect.objectContaining({ allowExternal: true, authorizeExternal: expect.any(Function) }))
     expect(mocks.generateResponse.mock.calls[0][5].queryEmbedding).toEqual([0.1, 0.2, 0.3])
   })
 
   it('canonical 边 join 当前记忆集内容注入 memoryEdges；引用集外记忆的边丢弃', async () => {
     mocks.memoryFindMany.mockResolvedValue([
-      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', embedding: [] },
-      { id: 'm2', content: '每周五吃火锅', type: 'episodic', importance: 4, tags: '[]', embedding: [] },
+      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', revision: 1, projection: null },
+      { id: 'm2', content: '每周五吃火锅', type: 'episodic', importance: 4, tags: '[]', revision: 1, projection: null },
     ])
     mocks.memoryEdgeFindMany.mockResolvedValue([
-      { fromMemoryId: 'm1', toMemoryId: 'm2' },
+      { fromMemoryId: 'm1', toMemoryId: 'm2', fromRevision: 1, toRevision: 1, relation: 'related' },
       { fromMemoryId: 'm1', toMemoryId: 'gone' },
     ])
 
@@ -596,10 +584,10 @@ describe('chatService.sendMessage', () => {
 
     expect(mocks.memoryEdgeFindMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', status: 'canonical' },
-      select: { fromMemoryId: true, toMemoryId: true },
+      select: { fromMemoryId: true, toMemoryId: true, fromRevision: true, toRevision: true, relation: true },
     })
     expect(mocks.generateResponse.mock.calls[0][5].memoryEdges).toEqual([
-      { fromMemoryId: 'm1', toMemoryId: 'm2', fromContent: '喜欢火锅', toContent: '每周五吃火锅' },
+      { fromMemoryId: 'm1', toMemoryId: 'm2', fromContent: '喜欢火锅', toContent: '每周五吃火锅', relation: 'related' },
     ])
   })
 })
@@ -620,6 +608,8 @@ describe('chatService.sendMessageStream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
       message: { create: mocks.messageCreate },
       conversation: { update: mocks.conversationUpdate },
       crisisLog: { create: mocks.crisisCreate },
@@ -655,6 +645,25 @@ describe('chatService.sendMessageStream', () => {
         model: 'configured-model',
       },
     ]))
+  })
+
+  it('work 流式危机分支先于接口未接入门', async () => {
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
+    mocks.detectCrisis.mockReturnValue('critical')
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '需要帮助', 'req-work-crisis'))
+    expect(events).toEqual([expect.objectContaining({ type: 'blocked', status: 'blocked' })])
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+    expect(mocks.embedQuery).not.toHaveBeenCalled()
+  })
+
+  it('work 流式会话沿用模型终态协议与事务保存', async () => {
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '做计划', 'req-work'))
+    expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
+    expect(mocks.generateResponseStream.mock.calls[0][5].scene).toBe('work')
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.executeToolCall).not.toHaveBeenCalled()
+    expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
   it('危机输入复用阻断事务落库并产出 blocked，不触达模型与同意检查', async () => {
@@ -705,7 +714,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, extraSystem: [{ role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat', derivedInsights: [] },
+      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat' },
     )
   })
 
@@ -738,6 +747,62 @@ describe('chatService.sendMessageStream', () => {
     expect(mocks.conversationUpdate).not.toHaveBeenCalled()
   })
 
+  it('已取消的请求不查询上下文、不调用模型也不落库', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好', 'cancelled', { signal: controller.signal }))
+    expect(events).toEqual([])
+    expect(mocks.conversationFindFirst).not.toHaveBeenCalled()
+    expect(mocks.embedQuery).not.toHaveBeenCalled()
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('向量查询期间取消后不再斟酌或生成，取消信号贯穿预处理', async () => {
+    const controller = new AbortController()
+    mocks.embedQuery.mockImplementationOnce(async () => { controller.abort(); return null })
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好', 'cancelled', { signal: controller.signal }))
+    expect(events).toEqual([])
+    expect(mocks.embedQuery.mock.calls[0][1]).toMatchObject({ signal: controller.signal })
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it.each(['done', 'toolcall'])('模型在取消后迟到的 %s 不产生消息或工具副作用', async (type) => {
+    const controller = new AbortController()
+    mocks.generateResponseStream.mockImplementationOnce(async function* () {
+      controller.abort()
+      yield { type, content: '已完成', name: 'add_todo', args: { content: '迟到任务' } }
+    })
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好', 'cancelled', { signal: controller.signal }))
+    expect(events).toEqual([])
+    expect(mocks.executeToolCall).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('error 是终态，即使适配器错误地继续 done 也不落库', async () => {
+    mocks.generateResponseStream.mockReturnValueOnce(streamOf([
+      { type: 'error', reason: 'STREAM_FAILED' },
+      { type: 'done', content: '不应保存' },
+    ]))
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好'))
+    expect(events).toEqual([{ type: 'error', reason: 'STREAM_FAILED' }])
+    expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('事务写入期间取消抛错，交由数据库回滚整轮', async () => {
+    const controller = new AbortController()
+    mocks.messageCreate.mockImplementationOnce(async ({ data }) => {
+      controller.abort()
+      return { id: 'cancelled-message', ...data }
+    })
+    await expect(collectEvents(sendMessageStream('conversation-1', 'user-1', '你好', 'cancelled', { signal: controller.signal })))
+      .rejects.toMatchObject({ name: 'AbortError' })
+    expect(mocks.messageCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.conversationUpdate).not.toHaveBeenCalled()
+  })
+
   it('未同意外部模型时装配与 JSON 路径一致（allowExternal false）', async () => {
     mocks.userFindUnique.mockResolvedValue({
       persona: 'gentle',
@@ -750,28 +815,19 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, extraSystem: [{ role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat', derivedInsights: [] },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_todo') }], scene: 'chat' },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
-  it('流式路径：策略要点注入系统消息，产出事件序列与内容不含策略文本', async () => {
-    mocks.generateCompanionNote.mockResolvedValue({
-      content: '先共情再给建议',
-      source: 'local_model',
-      provider: 'p',
-      model: 'm',
-    })
-
-    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好'))
-
-    expect(events.map((event) => event.type)).toEqual(['sentence', 'sentence', 'done'])
+  it('流式路径注入本地状态，成功完成时只学习一次，公开句子保持原有语义', async () => {
+    const output = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好'))
+    expect(output.map((event) => event.type)).toEqual(['sentence', 'sentence', 'done'])
     const options = mocks.generateResponseStream.mock.calls[0][5]
-    const strategy = options.extraSystem.find((m) => m.content.includes('内部策略要点'))
-    expect(strategy?.content).toContain('先共情再给建议')
-    const done = events.at(-1)
-    expect(done.aiMessage.content).not.toContain('先共情再给建议')
-    expect(done.aiMessage.content).not.toContain('内部策略要点')
+    expect(options.extraSystem.some((item) => item.content.includes('【角色运行状态】'))).toBe(true)
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.companionUpdate).toHaveBeenCalledOnce()
+    expect(output.at(-1).aiMessage.content).not.toContain('【角色运行状态】')
   })
 })
 
@@ -812,15 +868,18 @@ describe('chatService 智能体工具回路', () => {
 
     expect(result.status).toBe('ok')
     expect(mocks.executeToolCall).toHaveBeenCalledOnce()
-    expect(mocks.executeToolCall).toHaveBeenCalledWith('user-1', { name: 'add_todo', args: { content: '周六复诊' } }, expect.any(Set), 'chat')
+    expect(mocks.executeToolCall).toHaveBeenCalledWith('user-1', { name: 'add_todo', args: { content: '周六复诊' } }, expect.any(Map), 'chat', expect.objectContaining({ conversationId: 'conversation-1' }))
     expect(mocks.generateResponse).toHaveBeenCalledTimes(2)
     const [secondText, , secondHistory, , , secondOptions] = mocks.generateResponse.mock.calls[1]
     expect(secondText).toBe('帮我记个待办')
-    expect(secondHistory).toEqual([{ role: 'assistant', content: TOOLCALL_TEXT }])
-    expect(secondOptions.extraSystem.at(-1)).toEqual({
-      role: 'system',
-      content: '工具执行结果：{"tool":"add_todo","ok":true,"result":{"id":"t1"}}',
-    })
+    expect(secondOptions.promptInHistory).toBe(true)
+    expect(secondHistory).toEqual([
+      { role: 'user', content: '帮我记个待办' },
+      { role: 'assistant', content: TOOLCALL_TEXT },
+      // 回喂紧跟助手工具 JSON 且用 user 角色（末尾 system 消息常被推理模型无视；
+      // 不走 extraSystem——网关会把 extraSystem 放到会话最前）
+      { role: 'user', content: '工具执行结果：{"tool":"add_todo","ok":true,"result":{"id":"t1"}}' },
+    ])
     expect(mocks.messageCreate.mock.calls[1][0].data.toolRuns).toEqual([
       { tool: 'add_todo', ok: true, summary: '已添加待办「周六复诊」' },
     ])
@@ -855,8 +914,12 @@ describe('chatService 智能体工具回路', () => {
     expect(events[1].aiMessage.toolRuns).toEqual([{ tool: 'add_todo', ok: true, summary: '已添加待办「周六复诊」' }])
     expect(mocks.executeToolCall).toHaveBeenCalledOnce()
     const [, , secondHistory, , , secondOptions] = mocks.generateResponseStream.mock.calls[1]
-    expect(secondHistory).toEqual([{ role: 'assistant', content: TOOLCALL_TEXT }])
-    expect(secondOptions.extraSystem.at(-1).content).toContain('工具执行结果')
+    expect(secondOptions.promptInHistory).toBe(true)
+    expect(secondHistory).toEqual([
+      { role: 'user', content: '帮我记个待办' },
+      { role: 'assistant', content: TOOLCALL_TEXT },
+      { role: 'user', content: '工具执行结果：{"tool":"add_todo","ok":true,"result":{"id":"t1"}}' },
+    ])
   })
 
   it('流式路径：强制文本轮仍输出工具 JSON 时替换为本地模板后落库', async () => {
@@ -879,6 +942,18 @@ describe('chatService 智能体工具回路', () => {
     expect(events[2].aiMessage.content).toBe('兜底回复')
     expect(events[2].aiMessage.toolRuns).toHaveLength(3)
   })
+
+  it('流式第四次仍为 toolcall 事件时与 JSON 路径一致地兜底，不再执行工具', async () => {
+    mocks.generateResponseStream.mockImplementation(() => streamOf([
+      { type: 'toolcall', name: 'add_todo', args: { content: '周六复诊' } },
+    ]))
+    const events = []
+    for await (const event of sendMessageStream('conversation-1', 'user-1', '帮我记个待办')) events.push(event)
+    expect(mocks.executeToolCall).toHaveBeenCalledTimes(3)
+    expect(mocks.generateResponseStream).toHaveBeenCalledTimes(4)
+    expect(events.map((event) => event.type)).toEqual(['replace', 'done'])
+    expect(events.at(-1).aiMessage.content).toBe('兜底回复')
+  })
 })
 
 describe('chatService 图片消息', () => {
@@ -887,6 +962,8 @@ describe('chatService 图片消息', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
       message: { create: mocks.messageCreate },
       conversation: { update: mocks.conversationUpdate },
       crisisLog: { create: mocks.crisisCreate },
@@ -1009,6 +1086,8 @@ describe('chatService 滚动摘要', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
       message: { create: mocks.messageCreate },
       conversation: { update: mocks.conversationUpdate },
       crisisLog: { create: mocks.crisisCreate },
@@ -1107,43 +1186,16 @@ describe('chatService 滚动摘要', () => {
   })
 })
 
-describe('chatService.executeScheduledTask（定时任务执行）', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.userFindUnique.mockResolvedValue({
-      persona: 'toxic',
-      externalLlmConsent: true,
-      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
-    })
-    mocks.memoryFindMany.mockResolvedValue([{ id: 'm1', content: '她怕黑', type: 'preference', importance: 5, tags: [], embedding: null }])
-    mocks.embedQuery.mockResolvedValue(null)
-    mocks.generateResponse.mockResolvedValue({
-      content: '你这周写了 3 篇日记，都很棒……', emotion: 'neutral', source: 'cloud', provider: 'qwen', model: 'm',
-    })
-  })
-
-  it('以任务指令跑 agent 回路：无聊天历史、chat 场景、产出返回不落库', async () => {
-    const out = await executeScheduledTask('user-1', '总结我这周的日记', 'req-task-1')
-    expect(out.content).toContain('日记')
-    expect(out.source).toBe('cloud')
-    const [content, persona, history, memories] = mocks.generateResponse.mock.calls[0]
-    expect(content).toBe('总结我这周的日记')
-    expect(persona).toBe('toxic')
-    expect(history).toEqual([])
-    expect(memories).toHaveLength(1)
-    expect(mocks.messageCreate).not.toHaveBeenCalled() // 不写聊天流
-  })
-
-  it('未同意云端时 allowExternal=false（任务走本地路径/兜底）', async () => {
-    mocks.userFindUnique.mockResolvedValue({
-      persona: 'gentle', externalLlmConsent: false, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
-    })
-    await executeScheduledTask('user-1', '给我一句早安', 'req-task-2')
-    expect(mocks.generateResponse.mock.calls[0][5].allowExternal).toBe(false)
-  })
-
-  it('用户不存在抛 404', async () => {
-    mocks.userFindUnique.mockResolvedValue(null)
-    await expect(executeScheduledTask('nobody', 'x', 'req-task-3')).rejects.toMatchObject({ statusCode: 404 })
+describe('chatService.executeScheduledTask 未接入防御门', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('直接调用也不会读取私有上下文、嵌入、执行工具或落库', async () => {
+    mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION })
+    await expect(executeScheduledTask('user-1', '总结日记', 'req-task')).rejects.toMatchObject({ statusCode: 503, code: 'WORK_CLOUD_NOT_CONNECTED' })
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+    expect(mocks.embedQuery).not.toHaveBeenCalled()
+    expect(mocks.memoryFindMany).not.toHaveBeenCalled()
+    expect(mocks.generateResponse).not.toHaveBeenCalled()
+    expect(mocks.executeToolCall).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
   })
 })

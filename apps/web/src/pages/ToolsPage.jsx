@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import Header from '../components/layout/Header'
 import CareCards from '../components/care/CareCards'
 import { CAPABILITIES } from '../features/capabilities'
-import { CAPABILITY_ICONS, CAPABILITY_TONES, TOOLBOX } from '../features/toolbox'
+import { CAPABILITY_ICONS, CAPABILITY_TONES, TOOLBOX_SECTIONS } from '../features/toolbox'
 
 function CapabilityContent({ capability }) {
   const Icon = CAPABILITY_ICONS[capability.icon]
@@ -18,7 +18,7 @@ function CapabilityContent({ capability }) {
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-text-primary">{capability.title}</h2>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${available ? 'bg-pastel-sprout text-status-local' : 'bg-surface-muted text-text-muted'}`}>
-            {available ? '可使用' : '规划中'}
+            {available ? '接口预览' : '规划中'}
           </span>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-text-secondary">{capability.description}</p>
@@ -39,9 +39,9 @@ export default function ToolsPage() {
         </div>
         <section className="flex items-center gap-4 rounded-3xl bg-gradient-pastel p-5 border border-border-hairline">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-status-info">本地能力空间</p>
-            <h1 className="mt-2 text-xl font-bold text-text-primary">在这台设备上完成</h1>
-            <p className="mt-2 text-sm leading-relaxed text-text-secondary">这里集中承载需要图像或设备能力的独立模块。只有标记为“可使用”的功能可以进入。</p>
+            <p className="text-xs font-semibold text-status-info">云端功能空间</p>
+            <h1 className="mt-2 text-xl font-bold text-text-primary">一起预览新的可能</h1>
+            <p className="mt-2 text-sm leading-relaxed text-text-secondary">各项功能通过后端接口处理。目前云服务尚未连接，生成结果为模拟预览。</p>
           </div>
           <img src="/design-assets/banner-tools.png" alt="" loading="lazy" className="h-24 w-24 shrink-0 rounded-2xl object-cover min-[641px]:h-32 min-[641px]:w-32" onError={event => { event.currentTarget.style.display = 'none' }} />
         </section>
@@ -64,26 +64,38 @@ export default function ToolsPage() {
             )
           })}
         </div>
-        <section className="mt-6">
-          <h2 className="px-1 text-xs font-semibold text-text-muted">姐妹工具箱</h2>
-          <div className="mt-3 grid gap-3 min-[641px]:grid-cols-2">
-            {TOOLBOX.map(tool => {
-              const Icon = tool.icon
-              return (
-                <Link key={tool.id} to={tool.to} className="hover-lift flex items-center gap-4 rounded-3xl bg-surface-card p-4 border border-border-hairline transition-colors hover:bg-pastel-apricot focus:outline-none focus:ring-2 focus:ring-status-info">
-                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tool.tone}`} aria-hidden="true">
-                    <Icon size={23} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base font-semibold text-text-primary">{tool.title}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-text-secondary">{tool.description}</p>
-                  </div>
-                  <ChevronRight size={17} className="shrink-0 text-text-muted" aria-hidden="true" />
-                </Link>
-              )
-            })}
-          </div>
-        </section>
+        {(() => {
+          // 跨组连续序号：卡片入场动效阶梯不因分组重置
+          let cardIndex = -1
+          return TOOLBOX_SECTIONS.map(section => (
+            <section key={section.id} className="mt-6">
+              <h2 className="px-1 text-xs font-semibold text-text-muted">{section.label}</h2>
+              <div className="mt-3 grid gap-3 min-[641px]:grid-cols-2">
+                {section.items.map(tool => {
+                  cardIndex += 1
+                  const Icon = tool.icon
+                  return (
+                    <Link
+                      key={tool.id}
+                      to={tool.to}
+                      className="hover-lift group animate-reveal-up flex items-center gap-4 rounded-3xl bg-surface-card p-4 border border-border-hairline transition-colors hover:bg-pastel-apricot focus:outline-none focus:ring-2 focus:ring-status-info"
+                      style={{ animationDelay: `${cardIndex * 40}ms` }}
+                    >
+                      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl transition-transform group-hover:scale-105 ${tool.tone}`} aria-hidden="true">
+                        <Icon size={23} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-base font-semibold text-text-primary">{tool.title}</h3>
+                        <p className="mt-1 text-xs leading-relaxed text-text-secondary">{tool.description}</p>
+                      </div>
+                      <ChevronRight size={17} className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                    </Link>
+                  )
+                })}
+              </div>
+            </section>
+          ))
+        })()}
       </main>
     </div>
   )

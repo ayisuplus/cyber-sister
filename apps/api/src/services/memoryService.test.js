@@ -12,8 +12,15 @@ const db = vi.hoisted(() => ({
 
 const embedding = vi.hoisted(() => ({ embedMemory: vi.fn() }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
+vi.mock('../prisma/client.js', () => {
+  const client = {
+    $queryRaw: vi.fn(async () => [{ id: 'u1' }]),
+    user: { update: vi.fn() },
+    memoryRevision: { create: vi.fn(), findMany: vi.fn(async () => []) },
+    memoryProjection: { updateMany: vi.fn(), deleteMany: vi.fn() },
+    memoryEdge: { updateMany: vi.fn() },
+    memoryIndexJob: { updateMany: vi.fn() },
+    derivedInsight: { updateMany: vi.fn(), deleteMany: vi.fn() },
     memory: {
       findMany: db.memoryFindMany,
       count: db.memoryCount,
@@ -23,8 +30,10 @@ vi.mock('../prisma/client.js', () => ({
       delete: db.memoryDelete,
       deleteMany: db.memoryDeleteMany,
     },
-  },
-}))
+  }
+  client.$transaction = vi.fn((operation) => operation(client))
+  return { default: client }
+})
 
 vi.mock('./embeddingService.js', () => embedding)
 
@@ -40,9 +49,19 @@ import {
   updateMemory,
 } from './memoryService.js'
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  db.memoryFindMany.mockResolvedValue([])
+})
 
 describe('createMemory', () => {
+  it('工作台确认真实记忆时可显式关闭嵌入，保留数据保存', async () => {
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    const memory = await createMemory('u1', { type: 'semantic', content: '用户确认的事实', origin: 'promoted' }, { projectEmbedding: false })
+    expect(memory.content).toBe('用户确认的事实')
+    expect(db.memoryCreate).toHaveBeenCalled()
+    expect(embedding.embedMemory).not.toHaveBeenCalled()
+  })
   it('创建记忆并解析 JSON 字段返回', async () => {
     db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({
       id: 'm1',
@@ -194,16 +213,16 @@ describe('listMemories', () => {
 
 describe('updateMemory', () => {
   it('只更新传入字段，空更新抛 400', async () => {
-    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1' })
+    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 1 })
     db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null, tags: '[]' }))
 
-    await updateMemory('u1', 'm1', { importance: 8 })
+    await updateMemory('u1', 'm1', { importance: 8, expectedRevision: 1 })
     expect(db.memoryUpdate).toHaveBeenCalledWith({
       where: { id: 'm1' },
-      data: { importance: 8 },
+      data: { importance: 8, revision: { increment: 1 } },
     })
 
-    await expect(updateMemory('u1', 'm1', {})).rejects.toMatchObject({
+    await expect(updateMemory('u1', 'm1', { expectedRevision: 1 })).rejects.toMatchObject({
       statusCode: 400,
       message: '没有可更新的记忆字段',
     })
@@ -220,14 +239,34 @@ describe('updateMemory', () => {
     expect(db.memoryUpdate).not.toHaveBeenCalled()
   })
   it('改内容触发投影重建，只改标签/重要度不触发', async () => {
-    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1' })
+    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 1 })
     db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', userId: 'u1', content: '新内容', ...data, entities: null, tags: '[]' }))
 
-    await updateMemory('u1', 'm1', { tags: ['换标签'] })
+    await updateMemory('u1', 'm1', { tags: ['换标签'], expectedRevision: 1 })
     expect(embedding.embedMemory).not.toHaveBeenCalled()
 
-    await updateMemory('u1', 'm1', { content: '新内容' })
+    await updateMemory('u1', 'm1', { content: '新内容', expectedRevision: 1 })
     expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', content: '新内容' }))
+  })
+
+  it('内容更新与旧向量失效原子保存，新投影失败也不会保留旧向量', async () => {
+    let stored = { id: 'm1', userId: 'u1', revision: 1, content: '旧内容', embedding: [1, 2], embeddingModel: 'old-model', entities: null, tags: '[]' }
+    db.memoryFindFirst.mockResolvedValue(stored)
+    db.memoryUpdate.mockImplementation(({ data }) => {
+      stored = { ...stored, ...data }
+      return Promise.resolve(stored)
+    })
+    embedding.embedMemory.mockResolvedValue(false)
+
+    const memory = await updateMemory('u1', 'm1', { content: '新内容', expectedRevision: 1 })
+
+    expect(db.memoryUpdate).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+      data: { content: '新内容', embedding: [], embeddingModel: null, revision: { increment: 1 } },
+    })
+    expect(stored).toMatchObject({ content: '新内容', embedding: [], embeddingModel: null })
+    expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ content: '新内容', embedding: [] }))
+    expect(memory).not.toHaveProperty('embedding')
   })
 
 })
@@ -236,15 +275,16 @@ describe('deleteMemory / clearAllMemories', () => {
   it('删除前校验归属', async () => {
     db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1' })
     await deleteMemory('u1', 'm1')
-    expect(db.memoryDelete).toHaveBeenCalledWith({ where: { id: 'm1' } })
+    expect(db.memoryDeleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', id: { in: ['m1'] } } })
 
     db.memoryFindFirst.mockResolvedValue(null)
     await expect(deleteMemory('u2', 'm1')).rejects.toMatchObject({ statusCode: 404 })
   })
 
   it('清空记忆返回删除数量', async () => {
+    db.memoryFindMany.mockResolvedValueOnce(Array.from({ length: 7 }, (_, index) => ({ id: `m${index}` })))
     db.memoryDeleteMany.mockResolvedValue({ count: 7 })
     expect(await clearAllMemories('u1')).toBe(7)
-    expect(db.memoryDeleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } })
+    expect(db.memoryDeleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', id: { in: ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'] } } })
   })
 })

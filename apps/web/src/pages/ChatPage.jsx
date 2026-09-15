@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { Heart, Sparkles } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
 import { useComplianceStore } from '../stores/complianceStore'
@@ -15,7 +14,12 @@ import CrisisModal from '../components/chat/CrisisModal'
 import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
 import WorkDesktop from '../components/work/WorkDesktop'
+import AmbientMedia from '../components/work/AmbientMedia'
 import CareCards from '../components/care/CareCards'
+import { DoodleField, LeafSprig, Squiggle } from '../components/chat/Doodles'
+import { useWorkTasks } from '../hooks/useWorkTasks'
+import WorkTaskPanel from '../components/work/WorkTaskPanel'
+import { isLocalWorkClient } from '../features/distribution'
 
 const getSendErrorMessage = (requestError) => {
   const responseError = requestError.response?.data?.error
@@ -23,12 +27,28 @@ const getSendErrorMessage = (requestError) => {
   const code = requestError.code || requestError.response?.data?.code || responseError?.code || responseError
 
   if (code === 'CLOUD_NOT_CONSENTED') {
-    return '需要你先同意使用云端模型才能聊天：请到「我的」页面开启。原输入已保留。'
+    return '需要你先同意使用云端模型才能聊天：请到「设置」页面开启。原输入已保留。'
+  }
+  if (code === 'CONVERSATION_ARCHIVED') {
+    return '这段对话已归档，请到「对话归档」恢复后继续聊天。原输入已保留。'
   }
   if (code === 'LLM_UNAVAILABLE') {
     return '云端模型暂时不可用。原输入已保留，请稍后重试。'
   }
+  if (code === 'WORK_CLOUD_NOT_CONNECTED') {
+    return '工作助手的云端接口尚未接通。可以先从功能桌面预览各项流程，输入已保留。'
+  }
   return '消息发送失败，原输入已保留，请重试。'
+}
+
+const TOPICS = ['今天心情不好', '推荐个电影', '聊聊八卦', '帮我出主意']
+
+// 空态顶部的手写问候：按本机时段轻声打个招呼
+const greetingFor = (hour) => {
+  if (hour >= 5 && hour < 11) return '早安，慢慢醒来'
+  if (hour >= 11 && hour < 17) return '午后好，歇一会儿'
+  if (hour >= 17 && hour < 22) return '傍晚了，辛苦啦'
+  return '夜深了，慢慢来'
 }
 
 export default function ChatPage() {
@@ -37,9 +57,10 @@ export default function ChatPage() {
   const [intervention, setIntervention] = useState(null)
   const [fallbackNoticeState, setFallbackNoticeState] = useState(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [workbenchOpen, setWorkbenchOpen] = useState(false)
   const messages = useChatStore(state => state.messages)
-  const chatMode = useChatStore(state => state.chatMode)
+  const chatMode = useChatStore(state => isLocalWorkClient() ? state.chatMode : 'chat')
+  const workTasks = useWorkTasks(chatMode === 'work')
+  const currentConversationId = useChatStore(state => state.currentConversationId)
   const isTyping = useChatStore(state => state.isTyping)
   const isSending = useChatStore(state => state.isSending)
   const sendMessage = useChatStore(state => state.sendMessage)
@@ -49,6 +70,21 @@ export default function ChatPage() {
   const endSession = useComplianceStore(state => state.endSession)
   const checkUsageTime = useComplianceStore(state => state.checkUsageTime)
   const chatBgUrl = useAppearanceStore(s => s.chatBgUrl)
+  const [greeting] = useState(() => greetingFor(new Date().getHours()))
+
+  // 翻页：会话/模式变化时旧页先翻出（220ms），再挂载新页以书脊为轴翻入
+  const conversationPageKey = `${chatMode}:${currentConversationId ?? 'empty'}`
+  const [renderedPageKey, setRenderedPageKey] = useState(conversationPageKey)
+  const [pageLeaving, setPageLeaving] = useState(false)
+  useEffect(() => {
+    if (conversationPageKey === renderedPageKey) return undefined
+    setPageLeaving(true)
+    const timer = setTimeout(() => {
+      setRenderedPageKey(conversationPageKey)
+      setPageLeaving(false)
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [conversationPageKey, renderedPageKey])
 
   useEffect(() => {
     loadConversations()
@@ -80,6 +116,8 @@ export default function ChatPage() {
   }, [checkUsageTime, endSession, startSession])
 
   useEffect(() => {
+    // 空态（欢迎插画/工作桌面）是顶对齐的整屏内容，不跟随滚到底部
+    if (messages.length === 0 && !isTyping) return
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
@@ -88,7 +126,7 @@ export default function ChatPage() {
     try {
       const result = await sendMessage(text, options)
       if (result?.status === 'blocked') setIntervention(result.intervention)
-      return true
+      return result?.status !== 'aborted'
     } catch (requestError) {
       setError(getSendErrorMessage(requestError))
       return false
@@ -117,42 +155,58 @@ export default function ChatPage() {
     >
       {chatBgUrl && <div className="chat-bg-overlay" aria-hidden="true" />}
       <div className="relative flex min-w-0 flex-1 flex-col">
-      <ChatHeader onOpenDrawer={() => setDrawerOpen(true)} onOpenWorkbench={() => setWorkbenchOpen(true)} />
+      {/* 枝叶只陪空白页；有消息后让出版面，只留晨雾，避免从气泡后面露出半截 */}
+      {chatMode === 'chat' && messages.length === 0 && <DoodleField />}
+      <ChatHeader onOpenDrawer={() => setDrawerOpen(true)} />
       {fallbackNoticeState !== null && (
         <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 scrollbar-hide">
+      {/* key 绑定会话页：切换/新建会话时旧页淡出、新页轻翻落定；上下边缘渐隐进晨雾 */}
+      <div
+        key={renderedPageKey}
+        className={`chat-paper relative z-10 flex-1 space-y-5 overflow-y-auto px-4 pb-6 pt-4 scrollbar-hide ${pageLeaving ? 'animate-page-leave' : 'animate-page-turn'}`}
+      >
+        {chatMode === 'work' && <WorkTaskPanel tasks={workTasks.tasks} cancel={workTasks.cancel} retry={workTasks.retry} decide={workTasks.decide} />}
         {messages.length === 0 && chatMode !== 'work' && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="relative mb-6">
-              <div className="h-48 w-48 overflow-hidden rounded-3xl bg-gradient-pastel shadow-card">
-                <img src="/design-assets/empty-state-chat.png" alt="Amie在这里等你聊天" className="h-full w-full object-cover" />
+          <div className="flex flex-col items-center justify-center py-10">
+            {/* 依次浮现：问候 → 拱窗 → 标题 → 说明 → 话题，全程约 1s，不阻塞点击 */}
+            <p className="animate-reveal-up mb-6 font-hand text-[15px] tracking-[0.2em] text-text-secondary">{greeting}</p>
+
+            {/* 拱窗里的她，背后一团随呼吸明暗的柔光，窗边探进一枝叶子 */}
+            <div className="relative mb-7">
+              <div aria-hidden="true" className="halo-glow animate-breathe absolute -inset-10 rounded-full" />
+              <div className="animate-reveal-up relative h-52 w-44 overflow-hidden rounded-[999px_999px_36px_36px] bg-gradient-pastel shadow-soft ring-1 ring-border-hairline" style={{ animationDelay: '80ms' }}>
+                <AmbientMedia
+                  videoSrc="/design-assets/chat-ambient.mp4"
+                  imageSrc="/design-assets/empty-state-chat.png"
+                  className="ambient-decoration h-full w-full scale-[1.06] object-cover"
+                />
               </div>
-              <div className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full bg-pastel-apricot text-status-warning shadow-card" aria-hidden="true">
-                <Sparkles size={14} />
-              </div>
-              <div className="absolute -bottom-2 -left-2 flex h-7 w-7 items-center justify-center rounded-full bg-pastel-sprout text-status-local shadow-card" aria-hidden="true">
-                <Heart size={13} />
-              </div>
+              <span aria-hidden="true" className="animate-doodle-float absolute -right-7 bottom-1 text-action-primary opacity-40" style={{ animationDuration: '11s' }}>
+                <LeafSprig size={72} flip />
+              </span>
             </div>
 
-            <h1 className="mb-2 text-lg font-semibold text-text-primary">嗨，我是你的Amie</h1>
-            <p className="max-w-[260px] text-center text-sm leading-relaxed text-text-secondary">
+            <h1 className="animate-reveal-up font-display text-[26px] font-medium tracking-[0.02em] text-text-primary" style={{ animationDelay: '160ms' }}>嗨，我是你的Amie</h1>
+            <div className="mb-3 mt-2 flex justify-center">
+              <Squiggle />
+            </div>
+            <p className="animate-reveal-up max-w-[280px] text-center text-sm leading-[1.8] text-text-secondary" style={{ animationDelay: '240ms' }}>
               有什么想聊的，随时找我。<br />
               <span className="text-xs text-text-muted">我是 AI，聊天由经批准的云端模型提供。</span>
             </p>
 
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {['今天心情不好', '推荐个电影', '聊聊八卦', '帮我出主意'].map(topic => (
-                <button key={topic} type="button" onClick={() => handleSend(topic)} className="min-h-11 rounded-full border border-border-subtle bg-surface-card px-4 py-2 text-xs text-text-secondary shadow-card transition-colors hover:bg-pastel-blush hover:text-action-primary">
+            <div className="mt-7 flex flex-wrap justify-center gap-2.5">
+              {TOPICS.map((topic, index) => (
+                <button key={topic} type="button" onClick={() => handleSend(topic)} style={{ animationDelay: `${400 + index * 80}ms` }} className="animate-reveal-up glass-strong min-h-11 rounded-full px-5 py-2 text-[13px] text-text-secondary shadow-soft ring-1 ring-border-hairline transition-colors duration-300 ease-calm hover:bg-pastel-blush hover:text-action-primary active:scale-[0.98]">
                   {topic}
                 </button>
               ))}
             </div>
 
             <div className="mt-6 w-full max-w-sm">
-              <CareCards limit={1} heading={false} />
+              {isLocalWorkClient() && <CareCards limit={1} heading={false} />}
             </div>
           </div>
         )}
@@ -165,12 +219,12 @@ export default function ChatPage() {
 
         {messages.map((message, index) => (
           // 流式占位气泡尚无内容时不渲染空气泡，此阶段由 TypingIndicator 承担进行中视觉
-          message.streaming && !message.content
+          message.streaming && !message.content && !message.progress?.length
             ? null
             : <MessageBubble key={message.id} message={message} isLast={index === messages.length - 1} />
         ))}
 
-        {suggestionUserMessage && (
+        {chatMode === 'chat' && suggestionUserMessage && (
           // key 绑定回复 id：新回复/切换会话后建议状态随之重置，入口只跟随最新正常回复
           <MemorySuggestion key={lastMessage.id} userMessageId={suggestionUserMessage.id} />
         )}
@@ -179,13 +233,12 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div aria-live="polite" className="min-h-5 px-4 text-center text-xs text-danger">{error}</div>
-      <InputBar onSend={handleSend} disabled={isSending || isTyping} />
+      <div aria-live="polite" className="min-h-5 px-4 text-center text-xs text-danger">{error || workTasks.error}</div>
+      <InputBar onSend={handleSend} onBackgroundSend={chatMode === 'work' && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} />
       <CrisisModal intervention={intervention} onClose={() => setIntervention(null)} />
       <AIDisclaimer />
       <UsageReminder />
       <ConversationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
-      {workbenchOpen && <WorkDesktop onClose={() => setWorkbenchOpen(false)} />}
       </div>
     </div>
   )

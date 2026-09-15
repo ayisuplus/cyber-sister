@@ -29,13 +29,13 @@ export default function CloudFallbackNotice({ onClose }) {
   }
 
   return (
-    <section aria-labelledby="cloud-fallback-title" className="mx-4 mt-3 rounded-[20px] bg-surface-card p-4 shadow-card">
+    <section aria-labelledby="cloud-fallback-title" className="mx-4 mt-3 rounded-card bg-surface-card p-4 shadow-card">
       <h2 id="cloud-fallback-title" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
         <Cloud size={16} className="text-status-info" aria-hidden="true" />
         这个姐妹住在云端
       </h2>
       <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）与你主动发送的照片会发送给外部模型供应商处理；不同意暂时无法聊天。你随时可以在「我的」页面改主意。同意后你的记忆内容也会发往该模型生成语义向量，用于找得更准。
+        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）、已确认的相关记忆与你主动发送的照片会发送给外部模型供应商处理；不同意暂时无法聊天。你随时可以在「我的」页面改主意。语义检索使用单独配置的向量服务，开启后会发送记忆正文与检索文本；未配置时使用关键词检索。
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
@@ -50,7 +50,7 @@ export default function CloudFallbackNotice({ onClose }) {
           type="button"
           disabled={pendingChoice !== null}
           onClick={() => decide(true)}
-          className="min-h-11 rounded-xl bg-action-primary text-xs font-semibold text-text-inverse disabled:opacity-50"
+          className="min-h-11 rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover disabled:opacity-50"
         >
           同意并开始聊天
         </button>

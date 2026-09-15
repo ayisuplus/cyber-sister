@@ -59,6 +59,8 @@ describe('云端模型 API 路由合同', () => {
     expect(response.status).toBe(200)
     expect(response.body).toEqual({
       mode: 'external_primary',
+      embedding: { configured: false, model: null, mode: 'keyword', available: null },
+      workGeneration: expect.objectContaining({ mode: 'mock', cloudConnected: false }),
       local: { configured: false, state: 'removed' },
       externalFallback: { configured: true, primary: true, consent: false, version: 'cloud-primary-v3' },
     })

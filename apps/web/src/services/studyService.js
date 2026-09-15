@@ -1,6 +1,10 @@
 import api from './api'
 
 export const studyService = {
+  getActive: async () => (await api.get('/study/active')).data,
+  start: async (data) => (await api.post('/study/active', data)).data,
+  finish: async (id) => (await api.post(`/study/active/${id}/finish`)).data,
+  cancel: async (id) => (await api.delete(`/study/active/${id}`)).data,
   getSummary: async () => {
     const response = await api.get('/study/summary')
     return response.data

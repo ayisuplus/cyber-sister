@@ -8,7 +8,7 @@ export const derivedService = {
   rebuild: async () => (await api.post('/derived/rebuild')).data,
   dismiss: async (id) => (await api.post(`/derived/${id}/dismiss`)).data,
   listEdges: async (status = 'derived') => (await api.get('/derived/edges', { params: { status } })).data,
-  promoteEdge: async (id) => (await api.post(`/derived/edges/${id}/promote`)).data,
+  promoteEdge: async (id, payload) => (await api.post(`/derived/edges/${id}/promote`, payload)).data,
   dismissEdge: async (id) => (await api.post(`/derived/edges/${id}/dismiss`)).data,
   clear: async () => (await api.delete('/derived')).data,
 }

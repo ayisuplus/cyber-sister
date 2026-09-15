@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 在样式和应用加载前确定配色，避免夜间打开时闪过日间页面。
+      (() => {
+        let preference = 'system'
+        try { preference = localStorage.getItem('amie-theme') || 'system' } catch {}
+        const dark = preference === 'dark'
+          || (preference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        const theme = dark ? 'dark' : 'light'
+        document.documentElement.dataset.theme = theme
+        document.documentElement.style.colorScheme = theme
+      })()
+    </script>
     <title>Amie · 你的 AI 闺蜜</title>
   </head>
   <body>

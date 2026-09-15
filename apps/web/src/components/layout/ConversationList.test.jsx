@@ -10,6 +10,7 @@ vi.mock('../../services/chatService', () => ({
     createConversation: vi.fn(),
     streamMessage: vi.fn(),
     deleteConversation: vi.fn(),
+    setArchived: vi.fn(),
   },
 }))
 
@@ -53,6 +54,27 @@ describe('ConversationList', () => {
     expect(screen.getByRole('button', { name: /^周末计划/ })).toBeInTheDocument()
     expect(screen.getByText('帮我安排一下周末')).toBeInTheDocument()
     expect(screen.getByText('8月30日')).toBeInTheDocument()
+  })
+
+  it('archives without deleting messages and exposes archive and settings navigation', async () => {
+    chatService.setArchived.mockResolvedValue({ success: true })
+    render(<MemoryRouter><ConversationList /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: '对话归档' })).toHaveAttribute('href', '/chat/archives')
+    expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings')
+    await userEvent.click(screen.getByRole('button', { name: '归档会话 周末计划' }))
+    expect(chatService.setArchived).toHaveBeenCalledWith('c2', true)
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^周末计划/ })).not.toBeInTheDocument())
+    expect(chatService.deleteConversation).not.toHaveBeenCalled()
+  })
+
+  it('keeps a failed archive visible and prevents archiving an in-flight conversation', async () => {
+    chatService.setArchived.mockRejectedValue(new Error('offline'))
+    useChatStore.setState({ isSending: true })
+    render(<MemoryRouter><ConversationList /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: '归档会话 深夜倾诉' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: '归档会话 周末计划' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('归档失败')
+    expect(screen.getByRole('button', { name: /^周末计划/ })).toBeInTheDocument()
   })
 
   it('highlights the current conversation and switches on click', async () => {
@@ -151,7 +173,7 @@ describe('ConversationList', () => {
 
     useChatStore.setState({ conversations: [] })
     render(<MemoryRouter><ConversationList /></MemoryRouter>)
-    expect(screen.getByText('还没有工作会话，发一条就开始')).toBeInTheDocument()
+    expect(screen.getByText('工作云端尚未接通，可先预览功能')).toBeInTheDocument()
   })
 })
 

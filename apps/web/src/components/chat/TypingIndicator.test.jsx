@@ -4,9 +4,10 @@ import TypingIndicator from './TypingIndicator'
 
 describe('TypingIndicator', () => {
   it('shows the AI avatar with three pulsing dots', () => {
-    const { container, getByText } = render(<TypingIndicator />)
+    const { container } = render(<TypingIndicator />)
 
-    expect(getByText('AI')).toBeInTheDocument()
+    const avatar = container.querySelector('img[src*="ai-avatar-v2"]')
+    expect(avatar).not.toBeNull()
     expect(container.querySelectorAll('.typing-dot')).toHaveLength(3)
   })
 })

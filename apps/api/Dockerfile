@@ -16,6 +16,7 @@ COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
 RUN pnpm install --frozen-lockfile --prod --filter cyber-sister-server...
 
 COPY --chown=node:node apps/api apps/api
+COPY --chown=node:node deploy/runninghub/workflows.json deploy/runninghub/workflows.json
 COPY --chown=node:node packages/llm-gateway packages/llm-gateway
 
 RUN pnpm --filter cyber-sister-server exec prisma generate --schema src/prisma/schema.prisma

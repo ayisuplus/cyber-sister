@@ -3,6 +3,14 @@ import api from './api'
 const MAX_MEMORY_PAGES = 50
 
 export const memoryService = {
+  listPage: async (params = {}) => (await api.get('/memories', { params: { page: 1, limit: 20, ...params } })).data,
+  get: async (id) => (await api.get(`/memories/${id}`)).data,
+  revisions: async (id) => (await api.get(`/memories/${id}/revisions`)).data.revisions,
+  restore: async (id, payload) => (await api.post(`/memories/${id}/restore`, payload)).data,
+  latestIndexJob: async () => (await api.get('/memories/index-jobs/latest')).data,
+  indexJob: async (id) => (await api.get(`/memories/index-jobs/${id}`)).data,
+  createIndexJob: async (mode) => (await api.post('/memories/index-jobs', { mode })).data,
+  cancelIndexJob: async (id) => (await api.post(`/memories/index-jobs/${id}/cancel`)).data,
   list: async () => {
     const first = await api.get('/memories', { params: { page: 1, limit: 100 } })
     if (Array.isArray(first.data)) return first.data

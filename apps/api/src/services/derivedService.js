@@ -9,10 +9,12 @@
  * - 日志只记 userId/requestId/created/skipped，不记内容。
  */
 import prisma from '../prisma/client.js'
-import { findOwned, HttpError } from '../utils/dbHelpers.js'
+import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
 import { detectCrisis } from './detection.js'
 import { createMemory } from './memoryService.js'
+import { assertRevision, conflict, validateSources, withMemoryTransaction } from './memoryGovernance.js'
+import { isWorkCloudConnected, WORK_CLOUD_EXECUTION } from './workCloudService.js'
 import { LlmUnavailableError, assertCloudCallable, getGateway } from './llmService.js'
 import { deriveEdges, clearDerivedEdges } from './edgeService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
@@ -24,7 +26,7 @@ import {
 
 export const INSIGHT_KINDS = ['pattern', 'hypothesis', 'conflict', 'summary']
 const INSIGHT_CONFIDENCES = ['low', 'medium', 'high']
-const INSIGHT_STATUSES = ['active', 'promoted', 'dismissed', 'resolved']
+const INSIGHT_STATUSES = ['active', 'promoted', 'dismissed', 'resolved', 'needs_review']
 
 const MAX_CONTENT_CHARS = 200
 const MAX_EVIDENCE_ITEMS = 2
@@ -39,6 +41,14 @@ const ANALYSIS_TEMPERATURE = 0.3
 
 /** 与 importService 同口径的规范化去重键：NFKC + trim + 小写。 */
 const normalizeKey = (text) => String(text ?? '').normalize('NFKC').trim().toLowerCase()
+
+function mockAnalysis() {
+  return {
+    created: 0, skipped: 'cloud_mock', edgesCreated: 0,
+    preview: { content: '【模拟分析】这里将展示近期理解与待确认的关系。云端尚未接入，未分析对话，也未创建或修改任何条目。' },
+    execution: { ...WORK_CLOUD_EXECUTION },
+  }
+}
 
 /** 与 memorySuggestionService 同款解析口径：提取首个 JSON 数组，失败返回 null。 */
 function extractJsonArray(output) {
@@ -152,21 +162,23 @@ async function selectValidCandidates(userId, items) {
 }
 
 async function runAnalysis(userId, requestId, { manual, consent } = {}) {
+  if (!isWorkCloudConnected()) return mockAnalysis()
   const { allowExternal, authorizeExternal } = consent ?? (await loadConsent(userId))
   // 工作台生成同样走同意门：未同意不得调用云端模型
   assertCloudCallable(allowExternal)
+  const generation = await prisma.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
   const [recentMessages, memories] = await Promise.all([
     prisma.message.findMany({
       where: { conversation: { userId } },
       orderBy: { createdAt: 'desc' },
       take: RECENT_MESSAGE_LIMIT,
-      select: { role: true, content: true },
+      select: { id: true, role: true, content: true },
     }),
     prisma.memory.findMany({
       where: { userId },
       orderBy: { importance: 'desc' },
       take: MEMORY_CONTEXT_LIMIT,
-      select: { content: true },
+      select: { id: true, revision: true, content: true },
     }),
   ])
   // 旧到新排列；危机消息不进入分析输入
@@ -190,14 +202,30 @@ async function runAnalysis(userId, requestId, { manual, consent } = {}) {
   if (!parsed) return { created: 0, skipped: 0 }
   const { valid, skipped } = await selectValidCandidates(userId, parsed)
   if (valid.length > 0) {
-    await prisma.derivedInsight.createMany({
-      data: valid.map((candidate) => ({
+    await withMemoryTransaction(userId, async (tx) => {
+      const current = await tx.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
+      if (current?.memoryEpoch !== generation?.memoryEpoch) throw conflict('记忆已经变化，旧分析结果已丢弃')
+      const data = []
+      for (const candidate of valid) {
+        const sources = candidate.evidence.flatMap((quote) => {
+          const message = messages.find((item) => item.role === 'user' && item.content.includes(quote))
+          if (message) return [{ type: 'message', id: message.id, quote }]
+          const memory = memories.find((item) => item.content.includes(quote))
+          return memory ? [{ type: 'memory', id: memory.id, revision: memory.revision, quote }] : []
+        })
+        // eslint-disable-next-line no-await-in-loop
+        const verified = await validateSources(tx, userId, sources)
+        data.push({
         userId,
         kind: candidate.kind,
         content: candidate.content,
-        evidence: JSON.stringify(candidate.evidence),
+        evidence: JSON.stringify(verified.map((source) => source.quote)),
+        sources: verified,
+        sourceMemoryIds: verified.filter((source) => source.type === 'memory').map((source) => source.id),
         confidence: candidate.confidence,
-      })),
+        })
+      }
+      await tx.derivedInsight.createMany({ data })
     })
   }
   logger.info('工作台分析完成', { userId, requestId, created: valid.length, skipped })
@@ -236,6 +264,7 @@ export async function analyzeNow(userId, requestId) {
  * 未同意 → not_consented；自最新一条 insight 后新消息不足阈值 → threshold。
  */
 export async function maybeAutoAnalyze(userId, requestId) {
+  if (!isWorkCloudConnected()) return { created: 0, skipped: 'cloud_mock', execution: { ...WORK_CLOUD_EXECUTION } }
   try {
     const consent = await loadConsent(userId)
     if (!consent.allowExternal) return { skipped: 'not_consented', created: 0 }
@@ -262,46 +291,54 @@ export async function maybeAutoAnalyze(userId, requestId) {
  * 晋升：把一条工作台条目写进显式记忆（createMemory 为唯一校验权威）。
  * 已有规范化键相同的显式记忆时不重复创建，仅标记晋升。
  */
-export async function promoteInsight(userId, id, { type = 'semantic', importance = 5, tags = [] } = {}) {
-  const insight = await findOwned('derivedInsight', id, userId, '工作台条目')
-  const memories = await prisma.memory.findMany({
-    where: { userId },
-    select: { id: true, content: true },
-  })
-  const key = normalizeKey(insight.content)
-  const existing = memories.find((memory) => normalizeKey(memory.content) === key)
-  let memory
-  if (existing) {
-    memory = await prisma.memory.findUnique({ where: { id: existing.id } })
-    if (memory) {
-      // embedding/embeddingModel 是机器投影：不进 API 响应
-      delete memory.embedding
-      delete memory.embeddingModel
+export async function promoteInsight(userId, id, payload = {}) {
+  return confirmInsight(userId, id, payload, 'promoted')
+}
+
+async function confirmInsight(userId, id, { type = 'semantic', importance = 5, tags = [], content, expectedRevision, asManual = false } = {}, status) {
+  return withMemoryTransaction(userId, async (tx) => {
+    const insight = await tx.derivedInsight.findFirst({ where: { id, userId } })
+    if (!insight) throw new HttpError('工作台条目不存在', 404)
+    if (status === 'resolved' && insight.kind !== 'conflict') throw new HttpError('只有冲突条目需要厘清', 400)
+    if (insight.status === status && expectedRevision === insight.revision - 1) {
+      if ((status === 'resolved' || asManual) && content?.trim() !== insight.resolution) throw conflict('这条理解已按其他内容处理')
+      const memory = await tx.memory.findFirst({ where: { id: insight.promotedMemoryId, userId }, select: { id: true, revision: true, content: true, type: true, importance: true, tags: true, sources: true } })
+      if (!memory) throw conflict('已确认的记忆已删除，不能重复创建')
+      return { memory, insight }
     }
-  } else {
-    memory = await createMemory(userId, { type, content: insight.content, importance, tags, origin: 'promoted', sourceRef: insight.id })
-  }
-  const updated = await prisma.derivedInsight.update({
-    where: { id: insight.id },
-    data: { status: 'promoted', promotedMemoryId: memory.id },
+    assertRevision(insight, expectedRevision)
+    if (insight.status !== 'active' && !(asManual && insight.status === 'needs_review')) throw conflict('该条目已处理或需要重新核对')
+    if (!asManual && (!Array.isArray(insight.sources) || !insight.sources.length)) throw conflict('这条历史草稿未记录可验证来源，请核对后手动记住')
+    const sources = asManual ? [] : await validateSources(tx, userId, insight.sources)
+    const memory = await createMemory(userId, {
+      type, content: status === 'resolved' || asManual ? content : insight.content, importance, tags,
+      origin: asManual ? 'manual' : 'promoted', sourceRef: asManual ? null : insight.id, sources,
+    }, { tx, projectEmbedding: false, deduplicate: true, action: status === 'resolved' ? 'resolve' : 'promote' })
+    const updated = await tx.derivedInsight.update({ where: { id }, data: {
+      status, revision: { increment: 1 }, promotedMemoryId: memory.id,
+      resolution: memory.content,
+    } })
+    return { memory, insight: updated }
   })
-  logger.info('工作台条目晋升', { userId, insightId: insight.id, memoryId: memory.id })
-  return { memory, insight: updated }
 }
 
 /** 忽略一条工作台条目（非本人条目抛 404）。 */
 export async function dismissInsight(userId, id) {
-  const insight = await findOwned('derivedInsight', id, userId, '工作台条目')
-  await prisma.derivedInsight.update({
-    where: { id: insight.id },
-    data: { status: 'dismissed' },
+  await withMemoryTransaction(userId, async (tx) => {
+    const insight = await tx.derivedInsight.findFirst({ where: { id, userId } })
+    if (!insight) throw new HttpError('工作台条目不存在', 404)
+    if (['promoted', 'resolved'].includes(insight.status)) throw conflict('已确认记录请在正式记忆中管理')
+    if (insight.status !== 'dismissed') await tx.derivedInsight.update({ where: { id }, data: { status: 'dismissed', revision: { increment: 1 } } })
   })
-  logger.info('工作台条目忽略', { userId, insightId: insight.id })
+  logger.info('工作台条目忽略', { userId, insightId: id })
 }
 
 /** 整层清空工作台，返回删除数。 */
 export async function clearInsights(userId) {
-  const result = await prisma.derivedInsight.deleteMany({ where: { userId } })
+  const result = await withMemoryTransaction(userId, async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
+    return tx.derivedInsight.deleteMany({ where: { userId, status: { in: ['active', 'dismissed', 'needs_review'] } } })
+  })
   logger.info('清空工作台', { userId, cleared: result.count })
   return result.count
 }
@@ -310,33 +347,8 @@ export async function clearInsights(userId) {
  * 厘清一条冲突条目：用户定稿文案入定典层（origin=promoted），条目转入 resolved 并留存定稿。
  * 与晋升同款规范化键去重：已有相同显式记忆时不重复创建。
  */
-export async function resolveInsight(userId, id, { content, type = 'semantic', importance = 5, tags = [] } = {}) {
-  const insight = await findOwned('derivedInsight', id, userId, '工作台条目')
-  if (insight.kind !== 'conflict') throw new HttpError('只有冲突条目需要厘清', 400)
-  if (insight.status !== 'active') throw new HttpError('该条目已处理过', 400)
-  const memories = await prisma.memory.findMany({
-    where: { userId },
-    select: { id: true, content: true },
-  })
-  const key = normalizeKey(content)
-  const existing = memories.find((memory) => normalizeKey(memory.content) === key)
-  let memory
-  if (existing) {
-    memory = await prisma.memory.findUnique({ where: { id: existing.id } })
-    if (memory) {
-      // embedding/embeddingModel 是机器投影：不进 API 响应
-      delete memory.embedding
-      delete memory.embeddingModel
-    }
-  } else {
-    memory = await createMemory(userId, { type, content, importance, tags, origin: 'promoted', sourceRef: insight.id })
-  }
-  const updated = await prisma.derivedInsight.update({
-    where: { id: insight.id },
-    data: { status: 'resolved', resolution: memory.content, promotedMemoryId: memory.id },
-  })
-  logger.info('工作台冲突厘清', { userId, insightId: insight.id, memoryId: memory.id })
-  return { memory, insight: updated }
+export async function resolveInsight(userId, id, payload = {}) {
+  return confirmInsight(userId, id, payload, 'resolved')
 }
 
 /**
@@ -344,6 +356,7 @@ export async function resolveInsight(userId, id, { content, type = 'semantic', i
  * promoted/resolved 保留为定典历史；未同意先抛 CloudConsentRequiredError，不删任何行。
  */
 export async function rebuildInsights(userId, requestId) {
+  if (!isWorkCloudConnected()) return { cleared: 0, edgesCleared: 0, ...mockAnalysis() }
   const consent = await loadConsent(userId)
   assertCloudCallable(consent.allowExternal)
   const { count } = await prisma.derivedInsight.deleteMany({

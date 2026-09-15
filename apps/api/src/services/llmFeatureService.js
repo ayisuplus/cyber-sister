@@ -1,6 +1,8 @@
 import prisma from '../prisma/client.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import { isCloudProviderConfigured } from './llmService.js'
+import { embeddingStatus } from './embeddingConfig.js'
+import { WORK_CLOUD_EXECUTION } from './workCloudService.js'
 
 function getConsent(userId) {
   return prisma.user.findUnique({
@@ -18,6 +20,8 @@ export async function getLlmStatus(userId) {
   const consent = await getConsent(userId)
   return {
     mode: 'external_primary',
+    embedding: embeddingStatus(),
+    workGeneration: { ...WORK_CLOUD_EXECUTION },
     local: { configured: false, state: 'removed' },
     externalFallback: {
       configured: isCloudProviderConfigured(),

@@ -12,8 +12,8 @@ export default function Modal({ open, title, children }) {
   if (!open) return null
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-5">
-      <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-[340px] rounded-3xl bg-surface-card p-6 text-center shadow-xl animate-fade-in">
+    <div className="overlay-calm animate-overlay-in absolute inset-0 z-50 flex items-center justify-center p-5">
+      <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby={titleId} className="animate-dialog-in w-full max-w-[340px] rounded-card bg-surface-card p-6 text-center shadow-lg">
         <h2 id={titleId} className="text-lg font-bold text-text-primary">{title}</h2>
         {children}
       </div>

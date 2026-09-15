@@ -4,6 +4,7 @@ vi.mock('./api', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -11,6 +12,19 @@ import api from './api'
 import { studyService } from './studyService'
 
 describe('studyService', () => {
+  it('uses active-session endpoints for the server-authoritative timer', async () => {
+    api.get.mockResolvedValue({ data: null })
+    api.post.mockResolvedValue({ data: { id: 'run-1' } })
+    api.delete.mockResolvedValue({ data: { cancelled: true } })
+    expect(await studyService.getActive()).toBe(null)
+    expect(api.get).toHaveBeenCalledWith('/study/active')
+    await studyService.start({ plannedMinutes: 25 })
+    expect(api.post).toHaveBeenCalledWith('/study/active', { plannedMinutes: 25 })
+    await studyService.finish('run-1')
+    expect(api.post).toHaveBeenCalledWith('/study/active/run-1/finish')
+    await studyService.cancel('run-1')
+    expect(api.delete).toHaveBeenCalledWith('/study/active/run-1')
+  })
   it('fetches the summary', async () => {
     api.get.mockResolvedValue({ data: { todayMinutes: 30, weekMinutes: 50, streak: 2, totalSessions: 3 } })
 

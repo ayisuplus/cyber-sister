@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   gatewayComplete: vi.fn(),
 }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
+vi.mock('../prisma/client.js', () => {
+  const client = {
+    $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
+    user: { findUnique: vi.fn(async () => ({ memoryEpoch: 0 })), update: vi.fn() },
     memory: { findMany: mocks.memoryFindMany },
     memoryEdge: {
       findMany: mocks.edgeFindMany,
@@ -21,8 +23,10 @@ vi.mock('../prisma/client.js', () => ({
       update: mocks.edgeUpdate,
       deleteMany: mocks.edgeDeleteMany,
     },
-  },
-}))
+  }
+  client.$transaction = vi.fn((operation) => operation(client))
+  return { default: client }
+})
 // 保留 llmService 的真实错误类，只替换网关装配与同意门前置断言（同 derivedService.test.js 口径）
 vi.mock('./llmService.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -50,10 +54,11 @@ const USER_ID = 'user-1'
 const REQUEST_ID = 'req-1'
 const CONSENT = { allowExternal: true, authorizeExternal: async () => true }
 const MEMORIES = [
-  { id: 'm1', content: '喜欢火锅' },
-  { id: 'm2', content: '每周五吃火锅' },
-  { id: 'm3', content: '周五晚上固定加班' },
+  { id: 'm1', content: '喜欢火锅', revision: 1 },
+  { id: 'm2', content: '每周五吃火锅', revision: 1 },
+  { id: 'm3', content: '周五晚上固定加班', revision: 1 },
 ]
+const EXPECTED = { expectedRevision: 1, expectedFromRevision: 1, expectedToRevision: 1 }
 
 function modelOutput(items) {
   mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify(items), provider: 'qwen', model: 'qwen-model' })
@@ -119,7 +124,7 @@ describe('deriveEdges：同意门与前置', () => {
 describe('deriveEdges：校验与去重', () => {
   it('合法输出建边：1-based 编号映射回记忆 id，evidence 截断到 2 条', async () => {
     modelOutput([
-      { from: 1, to: 2, relation: 'similar', confidence: 'high', evidence: ['片段一', '片段二', '片段三'] },
+      { from: 1, to: 2, relation: 'similar', confidence: 'high', evidence: ['喜欢火锅', '每周五', '片段三'] },
     ])
 
     const result = await deriveEdges(USER_ID, REQUEST_ID, CONSENT)
@@ -130,9 +135,10 @@ describe('deriveEdges：校验与去重', () => {
         userId: USER_ID,
         fromMemoryId: 'm1',
         toMemoryId: 'm2',
+        fromRevision: 1, toRevision: 1,
         relation: 'similar',
         confidence: 'high',
-        evidence: JSON.stringify(['片段一', '片段二']),
+        evidence: JSON.stringify([{ type: 'memory', id: 'm1', revision: 1, quote: '喜欢火锅' }, { type: 'memory', id: 'm2', revision: 1, quote: '每周五' }]),
       }],
     })
   })
@@ -154,7 +160,7 @@ describe('deriveEdges：校验与去重', () => {
     })
   })
 
-  it('derived/canonical 既有边按无向对去重（dismissed 不参与去重），批量内重复同样计 skipped', async () => {
+  it('既有边按无向对去重，重审和已有用户决定的关系不会被后台覆盖', async () => {
     mocks.edgeFindMany.mockResolvedValue([
       { fromMemoryId: 'm2', toMemoryId: 'm1', relation: 'similar' },
     ])
@@ -167,9 +173,8 @@ describe('deriveEdges：校验与去重', () => {
     const result = await deriveEdges(USER_ID, REQUEST_ID, CONSENT)
 
     expect(result).toEqual({ created: 1, skipped: 2 })
-    // 去重查询只覆盖 derived/canonical：dismissed 是草稿处理结果，重建后允许重现
     expect(mocks.edgeFindMany).toHaveBeenCalledWith({
-      where: { userId: USER_ID, status: { in: ['derived', 'canonical'] } },
+      where: { userId: USER_ID, OR: [{ status: { in: ['derived', 'canonical', 'needs_review'] } }, { NOT: { decisions: { equals: [] } } }] },
       select: { fromMemoryId: true, toMemoryId: true, relation: true },
     })
     expect(mocks.edgeCreateMany).toHaveBeenCalledWith({
@@ -252,31 +257,32 @@ describe('listEdges', () => {
 describe('promoteEdge / dismissEdge', () => {
   it('derived → canonical，返回 join 后的单条', async () => {
     mocks.edgeFindFirst.mockResolvedValue({
-      id: 'e1', userId: USER_ID, status: 'derived', fromMemoryId: 'm1', toMemoryId: 'm2',
+      id: 'e1', userId: USER_ID, status: 'derived', fromMemoryId: 'm1', toMemoryId: 'm2', revision: 1, decisions: [],
     })
     mocks.edgeUpdate.mockResolvedValue({
       id: 'e1', userId: USER_ID, status: 'canonical', fromMemoryId: 'm1', toMemoryId: 'm2',
       relation: 'similar', confidence: 'medium', evidence: '[]', createdAt: '2026-09-09T00:00:00.000Z',
     })
     mocks.memoryFindMany.mockResolvedValue([
-      { id: 'm1', content: '甲' },
-      { id: 'm2', content: '乙' },
+      { id: 'm1', content: '甲', revision: 1 },
+      { id: 'm2', content: '乙', revision: 1 },
     ])
 
-    const edge = await promoteEdge(USER_ID, 'e1')
+    const edge = await promoteEdge(USER_ID, 'e1', EXPECTED)
 
-    expect(mocks.edgeUpdate).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { status: 'canonical' } })
+    expect(mocks.edgeUpdate).toHaveBeenCalledWith({ where: { id: 'e1' }, data: expect.objectContaining({ status: 'canonical', fromRevision: 1, toRevision: 1, revision: { increment: 1 } }) })
     expect(edge.status).toBe('canonical')
-    expect(edge.from).toEqual({ id: 'm1', content: '甲' })
-    expect(edge.to).toEqual({ id: 'm2', content: '乙' })
+    expect(edge.from).toEqual({ id: 'm1', content: '甲', revision: 1 })
+    expect(edge.to).toEqual({ id: 'm2', content: '乙', revision: 1 })
   })
 
-  it('canonical 重复确认抛 400「该关系已确认」，dismissed 抛 400「该条目已处理过」', async () => {
-    mocks.edgeFindFirst.mockResolvedValue({ id: 'e1', userId: USER_ID, status: 'canonical' })
-    await expect(promoteEdge(USER_ID, 'e1')).rejects.toMatchObject({ statusCode: 400, message: '该关系已确认' })
+  it('同一个确认请求重试幂等，已忽略关系不能跳过重审', async () => {
+    const edge = { id: 'e1', userId: USER_ID, status: 'canonical', revision: 2, fromMemoryId: 'm1', toMemoryId: 'm2', decisions: [] }
+    mocks.edgeFindFirst.mockResolvedValue(edge)
+    await expect(promoteEdge(USER_ID, 'e1', EXPECTED)).resolves.toMatchObject({ id: 'e1', status: 'canonical' })
 
-    mocks.edgeFindFirst.mockResolvedValue({ id: 'e1', userId: USER_ID, status: 'dismissed' })
-    await expect(promoteEdge(USER_ID, 'e1')).rejects.toMatchObject({ statusCode: 400, message: '该条目已处理过' })
+    mocks.edgeFindFirst.mockResolvedValue({ ...edge, revision: 1, status: 'dismissed' })
+    await expect(promoteEdge(USER_ID, 'e1', EXPECTED)).rejects.toMatchObject({ statusCode: 409 })
     expect(mocks.edgeUpdate).not.toHaveBeenCalled()
   })
 
@@ -286,11 +292,11 @@ describe('promoteEdge / dismissEdge', () => {
   })
 
   it('忽略标记 dismissed', async () => {
-    mocks.edgeFindFirst.mockResolvedValue({ id: 'e1', userId: USER_ID, status: 'derived' })
+    mocks.edgeFindFirst.mockResolvedValue({ id: 'e1', userId: USER_ID, status: 'derived', decisions: [] })
 
     await dismissEdge(USER_ID, 'e1')
 
-    expect(mocks.edgeUpdate).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { status: 'dismissed' } })
+    expect(mocks.edgeUpdate).toHaveBeenCalledWith({ where: { id: 'e1' }, data: expect.objectContaining({ status: 'dismissed', revision: { increment: 1 } }) })
   })
 })
 
@@ -300,7 +306,7 @@ describe('clearDerivedEdges', () => {
 
     expect(await clearDerivedEdges(USER_ID)).toBe(4)
     expect(mocks.edgeDeleteMany).toHaveBeenCalledWith({
-      where: { userId: USER_ID, status: { in: ['derived', 'dismissed'] } },
+      where: { userId: USER_ID, status: { in: ['derived', 'dismissed'] }, decisions: { equals: [] } },
     })
   })
 })

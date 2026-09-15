@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { validateRequired, validateLength, validateEnum, validate } from '../utils/validate.js'
-import { createImageUpload } from '../utils/imageUpload.js'
+import { workMessageUpload } from '../utils/workMessageUpload.js'
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import * as chatService from '../services/chatService.js'
@@ -8,16 +8,6 @@ import { readChatImage } from '../services/chatImageService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
-
-const chatImageUpload = createImageUpload({
-  field: 'image',
-  typeMessage: '仅支持 JPEG/PNG/WebP 图片',
-  limitMessage: '图片不能超过 8MB',
-  fallbackMessage: '图片上传失败，请重试',
-})
-// 仅 multipart 请求走 multer；JSON 请求原样穿过（express.json 已解析）
-const maybeChatImageUpload = (req, res, next) =>
-  (req.is('multipart/form-data') ? chatImageUpload(req, res, next) : next())
 
 router.get('/images/:messageId', async (req, res) => {
   try {
@@ -36,14 +26,29 @@ router.get('/images/:messageId', async (req, res) => {
 
 router.get('/conversations', async (req, res) => {
   try {
+    if (req.query.archived !== undefined && !['true', 'false'].includes(req.query.archived)) {
+      return res.status(400).json({ error: 'archived 必须为 true 或 false' })
+    }
     const conversations = await chatService.listConversations(req.user.userId, {
       page: Number.parseInt(req.query.page, 10),
       limit: Number.parseInt(req.query.limit, 10),
+      ...(req.query.archived !== undefined ? { archived: req.query.archived === 'true' } : {}),
     })
     res.json(conversations)
   } catch (error) {
     logger.error('获取会话列表失败', { error: error.message, userId: req.user.userId })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取会话列表失败' })
+  }
+})
+
+router.patch('/conversations/:id/archive', async (req, res) => {
+  try {
+    if (typeof req.body.archived !== 'boolean') {
+      return res.status(400).json({ error: 'archived 必须是布尔值' })
+    }
+    res.json(await chatService.setConversationArchived(req.params.id, req.user.userId, req.body.archived))
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '归档状态保存失败' })
   }
 })
 
@@ -85,12 +90,16 @@ const validateMessageContent = validate([
 ])
 
 router.post('/conversations/:id/messages', validateMessageContent, async (req, res) => {
+  const controller = new AbortController()
+  const handleClose = () => { if (!res.writableEnded) controller.abort() }
+  res.on('close', handleClose)
   try {
     const result = await chatService.sendMessage(
       req.params.id,
       req.user.userId,
       req.body.content,
       req.requestId,
+      { signal: controller.signal },
     )
     res.json(result)
   } catch (error) {
@@ -103,7 +112,9 @@ router.post('/conversations/:id/messages', validateMessageContent, async (req, r
       error: error.statusCode ? error.message : '发送消息失败',
       ...(error.statusCode && error.code ? { code: error.code } : {}),
     }
-    res.status(statusCode).json(body)
+    if (!controller.signal.aborted) res.status(statusCode).json(body)
+  } finally {
+    res.off('close', handleClose)
   }
 })
 
@@ -112,10 +123,10 @@ const STREAM_HEARTBEAT_MS = 15000
 // 事件编码：data: {"event": <类型>, ...payload}\n\n（类型在 JSON 的 event 字段中，
 // 不使用 SSE event: 行），心跳为注释帧 `: ping\n\n`。
 // error 事件只携带固定 code，绝不包含对话内容。
-router.post('/conversations/:id/messages/stream', maybeChatImageUpload, async (req, res) => {
+router.post('/conversations/:id/messages/stream', workMessageUpload, async (req, res) => {
   // multipart 场景 content 可为空（纯图消息）；错误体形状对齐 utils/validate.js 的 validate() 400 输出
   const content = typeof req.body.content === 'string' ? req.body.content.trim() : ''
-  if (!req.file) {
+  if (!req.file && !req.workFiles?.length) {
     const error = validateRequired(content, '消息内容') || validateLength(content, '消息内容', 1, 10000)
     if (error) return res.status(400).json({ error: '参数验证失败', details: [{ field: 'content', message: error }] })
   } else if (content.length > 10000) {
@@ -155,6 +166,7 @@ router.post('/conversations/:id/messages/stream', maybeChatImageUpload, async (r
       {
         signal: controller.signal,
         image: req.file ? { buffer: req.file.buffer, mime: req.file.mimetype } : null,
+        files: req.workFiles || [],
       },
     )) {
       if (controller.signal.aborted) break
@@ -164,6 +176,9 @@ router.post('/conversations/:id/messages/stream', maybeChatImageUpload, async (r
           break
         case 'replace':
           send('replace', { content: item.content })
+          break
+        case 'tool_progress':
+          send('tool_progress', { step: item.step, status: item.status, tool: item.tool, summary: item.summary, plan: item.plan, sources: item.sources })
           break
         case 'done':
           send('done', {

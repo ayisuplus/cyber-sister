@@ -13,6 +13,17 @@ import api from './api'
 import { toolsService } from './toolsService'
 
 describe('toolsService todos', () => {
+  it('routes period summary and corrections through the authenticated API client', async () => {
+    api.get.mockResolvedValue({ data: { nextDate: '2026-09-30', daysUntil: 18 } })
+    api.put.mockResolvedValue({ data: { id: 'p1', cycleDays: 30 } })
+    api.delete.mockResolvedValue({ data: { success: true } })
+    expect(await toolsService.getPeriodSummary('2026-09-12')).toEqual({ nextDate: '2026-09-30', daysUntil: 18 })
+    expect(await toolsService.updatePeriodRecord('p1', { cycleDays: 30 })).toEqual({ id: 'p1', cycleDays: 30 })
+    await toolsService.deletePeriodRecord('p1')
+    expect(api.get).toHaveBeenCalledWith('/tools/period/summary', { params: { today: '2026-09-12' } })
+    expect(api.put).toHaveBeenCalledWith('/tools/period/p1', { cycleDays: 30 })
+    expect(api.delete).toHaveBeenCalledWith('/tools/period/p1')
+  })
   it('lists todos', async () => {
     api.get.mockResolvedValue({ data: [{ id: 't1' }] })
 

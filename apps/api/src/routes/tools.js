@@ -83,6 +83,21 @@ router.delete('/countdowns/:id', async (req, res) => {
 })
 
 // === 大姨妈 ===
+router.get('/period/summary', async (req, res, next) => {
+  try { res.json(await toolService.getPeriodSummary(req.user.userId, req.query.today)) } catch (error) { next(error) }
+})
+
+router.put('/period/:id', async (req, res, next) => {
+  try { res.json(await toolService.updatePeriodRecord(req.user.userId, req.params.id, req.body)) } catch (error) { next(error) }
+})
+
+router.delete('/period/:id', async (req, res, next) => {
+  try {
+    await toolService.deletePeriodRecord(req.user.userId, req.params.id)
+    res.json({ success: true })
+  } catch (error) { next(error) }
+})
+
 router.get('/period', async (req, res) => {
   try {
     const records = await toolService.listPeriodRecords(req.user.userId)

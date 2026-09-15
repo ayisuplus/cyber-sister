@@ -42,4 +42,29 @@ describe('Modal', () => {
     expect(last).toHaveFocus()
     expect(screen.getByRole('button', { name: '背景操作' })).not.toHaveFocus()
   })
+
+  it('does not steal focus from a replacement modal when the old one closes', () => {
+    function Dialogs({ firstOpen, secondOpen }) {
+      return <><Modal open={firstOpen} title="旧弹层"><button>旧按钮</button></Modal><Modal open={secondOpen} title="新弹层"><button>新按钮</button></Modal></>
+    }
+    const view = render(<Dialogs firstOpen secondOpen={false} />)
+    view.rerender(<Dialogs firstOpen secondOpen />)
+    expect(screen.getByRole('button', { name: '新按钮' })).toHaveFocus()
+    view.rerender(<Dialogs firstOpen={false} secondOpen />)
+    expect(screen.getByRole('button', { name: '新按钮' })).toHaveFocus()
+  })
+
+  it('still restores the original control when focus moved to a non-modal element', () => {
+    const trigger = document.createElement('button')
+    const background = document.createElement('button')
+    document.body.append(trigger, background)
+    trigger.focus()
+    const view = render(<Modal open title="标题"><button>弹层按钮</button></Modal>)
+    background.focus()
+    view.rerender(<Modal open={false} title="标题"><button>弹层按钮</button></Modal>)
+    expect(trigger).toHaveFocus()
+    view.unmount()
+    trigger.remove()
+    background.remove()
+  })
 })

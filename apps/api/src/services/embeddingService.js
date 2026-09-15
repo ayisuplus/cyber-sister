@@ -1,107 +1,78 @@
-/**
- * 记忆语义向量投影服务（project_down 的第一种投影）。
- *
- * - 投影可重建：嵌入失败静默降级（记忆照常保存，仅无向量），绝不阻断记忆 CRUD 或聊天。
- * - embedding 永不进入提示词与 API 响应（检索返回前由 llmService 剥离）。
- * - 同意语义与记忆候选/工作台同款：externalLlmConsent === true 且版本匹配 EXTERNAL_LLM_CONSENT_VERSION。
- * - 网关包只支持 chat/completions，无现成 embedding 能力，此处直连供应商 /embeddings。
- * - 日志只记 userId/error，不记记忆内容与向量。
- */
 import prisma from '../prisma/client.js'
-import { isCloudProviderConfigured, assertCloudCallable } from './llmService.js'
+import { redactSensitiveText } from './llmService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import { withMemoryTransaction } from './memoryGovernance.js'
+import { embeddingConfig } from './embeddingConfig.js'
 import logger from '../utils/logger.js'
 
-const EMBEDDING_TIMEOUT_MS = 15000
+export function embeddingModelName() { return embeddingConfig()?.model ?? null }
 
-export function embeddingModelName() {
-  return process.env.GATEWAY_QWEN_EMBEDDING_MODEL || 'text-embedding-v4'
+export async function hasEmbeddingConsent(userId, database = prisma) {
+  const user = await database.user.findUnique({ where: { id: userId }, select: { externalLlmConsent: true, externalLlmConsentVersion: true } })
+  return user?.externalLlmConsent === true && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
 }
 
-/** 单文本嵌入：供应商未配置或任何失败返回 null，永不抛出；自身不含同意门。 */
-export async function embedText(text) {
-  if (!isCloudProviderConfigured()) return null
+/** 仅使用显式配置的向量能力；调用方负责用户授权。 */
+export async function embedText(text, { signal, config = embeddingConfig() } = {}) {
+  if (!config || signal?.aborted) return null
   try {
-    const response = await fetch(`${process.env.GATEWAY_QWEN_BASE_URL}/embeddings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.GATEWAY_QWEN_API_KEY}`,
-      },
-      body: JSON.stringify({ model: embeddingModelName(), input: String(text ?? '') }),
-      signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
+    const timeout = AbortSignal.timeout(15000)
+    const response = await fetch(`${config.provider}/embeddings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model: config.model, input: redactSensitiveText(text) }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
-    if (!response.ok) return null
+    if (!response.ok || signal?.aborted) return null
     const body = await response.json()
-    const embedding = body?.data?.[0]?.embedding
-    if (!Array.isArray(embedding) || embedding.length === 0) return null
-    if (!embedding.every((value) => typeof value === 'number' && Number.isFinite(value))) return null
-    return embedding
-  } catch {
-    return null
-  }
+    const vector = body?.data?.[0]?.embedding
+    if (!Array.isArray(vector) || vector.length !== config.dimensions || !vector.every(Number.isFinite)
+      || !vector.some((value) => value !== 0) || (body.model && body.model !== config.model)) return null
+    return vector
+  } catch { return null }
 }
 
-/** 与 derivedService/memorySuggestionService 同款的同意读法（内联重复，不抽公共函数）。 */
-async function loadConsent(userId) {
-  const consent = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-  })
-  return consent?.externalLlmConsent === true
-    && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-}
-
-/** 检索查询向量：未同意直接 null（调用方回退关键词路径）。 */
-export async function embedQuery(text, allowExternal) {
-  if (!allowExternal) return null
-  return embedText(text)
-}
-
-/** 单条记忆投影：未同意/未配置/失败均返回 false，永不抛出。 */
-export async function embedMemory(memory) {
+export async function embedQuery(text, { allowExternal = false, authorizeExternal, signal } = {}) {
+  const config = embeddingConfig()
+  if (!config || !allowExternal || signal?.aborted || typeof authorizeExternal !== 'function') return null
   try {
-    if (!isCloudProviderConfigured()) return false
-    if (!await loadConsent(memory.userId)) return false
-    const vector = await embedText(memory.content)
-    if (!vector) {
-      logger.warn('记忆向量投影失败', { userId: memory.userId })
-      return false
-    }
-    await prisma.memory.update({
-      where: { id: memory.id },
-      data: { embedding: vector, embeddingModel: embeddingModelName() },
+    if (await authorizeExternal() !== true || signal?.aborted) return null
+    const vector = await embedText(text, { signal, config })
+    if (!vector || signal?.aborted || await authorizeExternal() !== true) return null
+    const { apiKey: _apiKey, ...identity } = config
+    return { ...identity, vector }
+  } catch { return null }
+}
+
+export async function embedMemory(memory, { signal, jobId } = {}) {
+  const config = embeddingConfig()
+  if (!config || signal?.aborted) return false
+  try {
+    if (!await hasEmbeddingConsent(memory.userId)) return false
+    const vector = await embedText(memory.content, { signal, config })
+    if (!vector || signal?.aborted) return false
+    return await withMemoryTransaction(memory.userId, async (tx) => {
+      if (signal?.aborted || !await hasEmbeddingConsent(memory.userId, tx)) return false
+      if (jobId && !await tx.memoryIndexJob.findFirst({ where: { id: jobId, userId: memory.userId, status: 'running' } })) return false
+      const current = await tx.memory.findFirst({ where: { id: memory.id, userId: memory.userId, revision: memory.revision } })
+      if (!current || (current.expiresAt && current.expiresAt <= new Date())) return false
+      const liveConfig = embeddingConfig()
+      if (!liveConfig || liveConfig.provider !== config.provider || liveConfig.model !== config.model
+        || liveConfig.dimensions !== config.dimensions || liveConfig.ruleVersion !== config.ruleVersion) return false
+      const { apiKey: _apiKey, ...identity } = config
+      await tx.memoryProjection.upsert({ where: { memoryId: memory.id },
+        create: { memoryId: memory.id, memoryRevision: memory.revision, ...identity, vector },
+        update: { memoryRevision: memory.revision, ...identity, vector },
+      })
+      return true
     })
-    return true
   } catch (error) {
-    logger.warn('记忆向量投影失败', { userId: memory.userId, error: error.message })
+    logger.warn('记忆投影未保存', { userId: memory.userId, code: error?.code || 'PROJECTION_FAILED' })
     return false
   }
 }
 
-/**
- * 全量重建该用户的记忆向量：已有向量的计 skipped，其余逐条串行投影。
- * 同意门先于一切：未同意抛 CloudConsentRequiredError、未配置抛 LlmUnavailableError，一行不写。
- */
+// 旧入口转接任务创建，排队不代表完成。
 export async function rebuildEmbeddings(userId) {
-  const allowExternal = await loadConsent(userId)
-  assertCloudCallable(allowExternal)
-  const memories = await prisma.memory.findMany({
-    where: { userId },
-    select: { id: true, content: true, embedding: true },
-  })
-  let embedded = 0
-  let failed = 0
-  let skipped = 0
-  for (const memory of memories) {
-    if (memory.embedding?.length > 0) {
-      skipped += 1
-      continue
-    }
-    // 逐条串行投影：供应商限流下并行只会放大失败面
-    // eslint-disable-next-line no-await-in-loop
-    if (await embedMemory(memory)) embedded += 1
-    else failed += 1
-  }
-  return { embedded, failed, skipped }
+  const { createIndexJob } = await import('./memoryIndexService.js')
+  return createIndexJob(userId, { mode: 'rebuild' })
 }

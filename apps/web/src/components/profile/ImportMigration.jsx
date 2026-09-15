@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { FileUp, Upload } from 'lucide-react'
 import { migrationService } from '../../services/userService'
 
@@ -13,12 +13,16 @@ export default function ImportMigration() {
   const [roleSetting, setRoleSetting] = useState('')
   const [preview, setPreview] = useState(null)
   const [checked, setChecked] = useState([])
+  const [checkedEdges, setCheckedEdges] = useState([])
   const [busy, setBusy] = useState(false)
   const [resultMessage, setResultMessage] = useState('')
+  const fileVersion = useRef(0)
 
   const resetPreview = () => {
+    fileVersion.current++
     setPreview(null)
     setChecked([])
+    setCheckedEdges([])
   }
 
   const handleFile = (event) => {
@@ -29,6 +33,7 @@ export default function ImportMigration() {
     resetPreview()
     setResultMessage('')
     if (!file) return
+    const request = fileVersion.current
     if (file.size > 10 * 1024 * 1024) {
       setParseError('文件不能超过 10MB')
       return
@@ -36,6 +41,7 @@ export default function ImportMigration() {
     // FileReader 而不是 file.text()：jsdom 的 File 没有 .text()，FileReader 全端可用
     const reader = new FileReader()
     reader.onload = () => {
+      if (request !== fileVersion.current) return
       try {
         const parsed = JSON.parse(String(reader.result ?? ''))
         setBundle(parsed)
@@ -44,7 +50,7 @@ export default function ImportMigration() {
         setParseError('这个文件不是有效的 JSON，请选Amie导出的文件')
       }
     }
-    reader.onerror = () => setParseError('文件读取失败，请重试')
+    reader.onerror = () => { if (request === fileVersion.current) setParseError('文件读取失败，请重试') }
     reader.readAsText(file)
   }
 
@@ -56,7 +62,8 @@ export default function ImportMigration() {
       const payload = mode === 'bundle' ? bundle : { format: 'persona-text', roleName, roleSetting }
       const result = await migrationService.previewImport(payload)
       setPreview(result)
-      setChecked((result.memoryCandidates || []).map(() => true))
+      setChecked((result.memoryCandidates || []).map((item) => item.state !== 'conflict'))
+      setCheckedEdges((result.edges || []).map(() => false))
     } catch (error) {
       setResultMessage(error?.response?.data?.error || '解析失败，请检查内容后重试')
       setPreview(null)
@@ -73,7 +80,12 @@ export default function ImportMigration() {
     setResultMessage('')
     try {
       const selected = (preview.memoryCandidates || []).filter((_, index) => checked[index])
-      const payload = { memories: selected }
+      const payload = preview.format === 'cyber-sister-export-v2' ? {
+        memoryBundle: bundle.memoryBundle, selectedIds: selected.map((item) => item.id),
+        selectedEdgeIds: (preview.edges || []).filter((edge, index) => checkedEdges[index]
+          && selected.some((item) => item.id === edge.from) && selected.some((item) => item.id === edge.to)).map((edge) => edge.id),
+      } : { memories: selected }
+      payload.expectedMemoryEpoch = preview.memoryEpoch
       if (preview.role?.ok) payload.role = { name: preview.role.name, setting: preview.role.setting }
       if (preview.persona?.ok) payload.persona = preview.persona.id
       const result = await migrationService.applyImport(payload)
@@ -81,6 +93,7 @@ export default function ImportMigration() {
       if (result.roleApplied) parts.push('角色扮演')
       if (result.personaApplied) parts.push('人格')
       if (result.memoriesApplied > 0) parts.push(`${result.memoriesApplied} 条记忆`)
+      if (result.edgesApplied > 0) parts.push(`${result.edgesApplied} 条关系`)
       const skipped = result.memoriesSkipped > 0 ? `；${result.memoriesSkipped} 条重复或非法已跳过` : ''
       setResultMessage(`已导入${parts.join('、') || '无新内容'}${skipped}。`)
       resetPreview()
@@ -116,6 +129,7 @@ export default function ImportMigration() {
             key={option.id}
             type="button"
             aria-pressed={mode === option.id}
+            disabled={busy}
             onClick={() => { setMode(option.id); resetPreview(); setParseError('') }}
             className={`min-h-11 flex-1 rounded-xl text-xs font-semibold ${mode === option.id ? 'bg-action-primary text-text-inverse' : 'border border-border-subtle text-text-secondary'}`}
           >
@@ -128,12 +142,13 @@ export default function ImportMigration() {
         <label className="mt-2.5 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
           <FileUp size={14} aria-hidden="true" />
           {fileName || '选择Amie导出包（.json）'}
-          <input type="file" accept="application/json,.json" aria-label="选择导出包文件" className="hidden" onChange={handleFile} />
+          <input type="file" accept="application/json,.json" aria-label="选择导出包文件" className="hidden" disabled={busy} onChange={handleFile} />
         </label>
       ) : (
         <div className="mt-2.5 space-y-2">
           <input
             aria-label="角色名"
+            disabled={busy}
             value={roleName}
             maxLength={20}
             onChange={event => { setRoleName(event.target.value); resetPreview() }}
@@ -142,6 +157,7 @@ export default function ImportMigration() {
           />
           <textarea
             aria-label="人设文本"
+            disabled={busy}
             value={roleSetting}
             maxLength={200}
             rows={3}
@@ -179,6 +195,7 @@ export default function ImportMigration() {
                       <input
                         type="checkbox"
                         checked={Boolean(checked[index])}
+                        disabled={busy || candidate.state === 'conflict'}
                         onChange={(event) => {
                           const next = [...checked]
                           next[index] = event.target.checked
@@ -186,13 +203,25 @@ export default function ImportMigration() {
                         }}
                         className="mt-0.5 h-4 w-4"
                       />
-                      <span>{candidate.content}</span>
+                      <span>{candidate.content}{candidate.revision ? ` · 第 ${candidate.revision} 版` : ''}{candidate.state === 'conflict' ? ' · 已有不同内容，不能覆盖' : candidate.state === 'duplicate' ? ' · 已存在，不会重复创建' : ''}</span>
                     </label>
                   </li>
                 ))}
               </ul>
             </fieldset>
           )}
+          {preview.edges?.length > 0 && <fieldset className="mt-3">
+            <legend className="text-xs font-semibold text-text-primary">记忆关系（需要同时选择两端记忆）</legend>
+            <div className="max-h-48 overflow-y-auto">{preview.edges.map((edge, index) => {
+              const fromIndex = preview.memoryCandidates.findIndex((item) => item.id === edge.from)
+              const toIndex = preview.memoryCandidates.findIndex((item) => item.id === edge.to)
+              return <label key={edge.id} className="flex min-h-11 items-start gap-2 py-2 text-xs text-text-secondary">
+                <input type="checkbox" disabled={busy || !checked[fromIndex] || !checked[toIndex]} checked={Boolean(checkedEdges[index] && checked[fromIndex] && checked[toIndex])}
+                  onChange={(event) => setCheckedEdges(checkedEdges.map((value, i) => i === index ? event.target.checked : value))} />
+                <span>{preview.memoryCandidates[fromIndex]?.content} · {{ related: '相关', similar: '相似', contradicts: '冲突' }[edge.relation]} · {preview.memoryCandidates[toIndex]?.content}{edge.status === 'needs_review' ? '（待重审）' : ''}</span>
+              </label>
+            })}</div>
+          </fieldset>}
           {preview.memoriesSkipped > 0 && (
             <p className="mt-1 text-xs text-text-muted">{preview.memoriesSkipped} 条重复或非法候选已自动跳过</p>
           )}

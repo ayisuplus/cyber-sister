@@ -40,12 +40,17 @@ export default function ReminderBell() {
     }
   }, [pollDueDeliveries])
 
-  // 点击面板外关闭
+  // 点击面板外 / Esc 关闭
   useEffect(() => {
     if (!open) return undefined
     const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   const pending = dueDeliveries.length
@@ -57,7 +62,7 @@ export default function ReminderBell() {
         aria-label={pending > 0 ? `提醒，${pending} 条待处理` : '提醒'}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary hover:bg-surface-muted transition-colors"
+        className="relative flex h-11 w-11 items-center justify-center rounded-xl text-text-secondary hover:bg-surface-muted transition-colors"
       >
         <Bell size={19} />
         {pending > 0 && (
@@ -74,7 +79,7 @@ export default function ReminderBell() {
         <div className="absolute right-0 top-11 z-50 w-80 rounded-3xl border border-border-hairline bg-surface-card p-3 shadow-lg">
           <div className="flex items-center justify-between px-1 pb-2">
             <h2 className="text-xs font-semibold text-text-muted">到点提醒</h2>
-            <Link to="/tools/reminders" onClick={() => setOpen(false)} className="text-xs text-action-primary hover:underline">
+            <Link to="/tools/planner?tab=reminders" onClick={() => setOpen(false)} className="text-xs text-action-primary hover:underline">
               管理提醒
             </Link>
           </div>
@@ -98,7 +103,7 @@ export default function ReminderBell() {
                       type="button"
                       aria-label={`忽略提醒「${delivery.reminder?.content}」`}
                       onClick={() => ackDelivery(delivery.id, 'dismissed')}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-surface-card"
+                      className="-m-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg p-1 text-text-muted hover:bg-surface-card"
                     >
                       <X size={15} />
                     </button>
@@ -111,7 +116,7 @@ export default function ReminderBell() {
                   <button
                     type="button"
                     onClick={() => ackDelivery(delivery.id, 'shown')}
-                    className="mt-2 w-full rounded-xl bg-action-primary py-1.5 text-xs font-semibold text-text-inverse hover:bg-action-hover transition-colors"
+                    className="mt-2 min-h-11 w-full rounded-xl bg-action-primary py-1.5 text-xs font-semibold text-text-inverse hover:bg-action-hover transition-colors"
                   >
                     知道了
                   </button>

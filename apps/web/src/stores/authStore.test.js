@@ -82,6 +82,30 @@ describe('authStore session lifecycle', () => {
     expect(useAuthStore.getState().isLoggedIn).toBe(true)
   })
 
+  it('does not let a previous session refresh replace a newly logged-in account token', async () => {
+    useAuthStore.setState(loggedInState)
+    let resolveRefresh
+    authService.refresh.mockImplementation(() => new Promise((resolve) => { resolveRefresh = resolve }))
+    const refresh = useAuthStore.getState().refreshAuth()
+    authService.login.mockResolvedValue({ token: 'new-account-token', user: { id: 'u2' } })
+    await useAuthStore.getState().login('13900000000', '123456')
+    resolveRefresh({ token: 'old-account-token' })
+    await expect(refresh).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(useAuthStore.getState()).toMatchObject({ token: 'new-account-token', user: { id: 'u2' } })
+  })
+
+  it('does not apply a previous account persona response to a new account', async () => {
+    useAuthStore.setState(loggedInState)
+    let resolvePersona
+    authService.updatePersona.mockImplementation(() => new Promise((resolve) => { resolvePersona = resolve }))
+    const update = useAuthStore.getState().updatePersona('rational')
+    authService.login.mockResolvedValue({ token: 'new-account-token', user: { id: 'u2', persona: 'gentle' } })
+    await useAuthStore.getState().login('13900000000', '123456')
+    resolvePersona({ persona: 'rational' })
+    await expect(update).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(useAuthStore.getState().user).toEqual({ id: 'u2', persona: 'gentle' })
+  })
+
   it('clears the local session and chat state when refresh is rejected', async () => {
     useAuthStore.setState(loggedInState)
     useChatStore.setState({ messages: [{ id: 'private-message' }] })

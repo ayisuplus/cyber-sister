@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   memoryFindMany: vi.fn(),
   memoryFindUnique: vi.fn(),
   memoryCreate: vi.fn(),
+  memoryUpdate: vi.fn(),
   derivedFindMany: vi.fn(),
   derivedFindFirst: vi.fn(),
   derivedCreateMany: vi.fn(),
@@ -16,16 +17,24 @@ const mocks = vi.hoisted(() => ({
   gatewayComplete: vi.fn(),
   deriveEdges: vi.fn(),
   clearDerivedEdges: vi.fn(),
+  workCloudConnected: vi.fn(),
+  embedMemory: vi.fn(),
 }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
-    user: { findUnique: mocks.userFindUnique },
-    message: { findMany: mocks.messageFindMany, count: mocks.messageCount },
+vi.mock('../prisma/client.js', () => {
+  const client = {
+    $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
+    user: { findUnique: mocks.userFindUnique, update: vi.fn() },
+    memoryRevision: { create: vi.fn() },
+    memoryProjection: { updateMany: vi.fn() },
+    memoryEdge: { updateMany: vi.fn() },
+    message: { findMany: mocks.messageFindMany, count: mocks.messageCount,
+      findFirst: vi.fn(async () => ({ id: 'msg-source', role: 'user', content: 'synthetic source' })) },
     memory: {
       findMany: mocks.memoryFindMany,
       findUnique: mocks.memoryFindUnique,
       create: mocks.memoryCreate,
+      update: mocks.memoryUpdate,
     },
     derivedInsight: {
       findMany: mocks.derivedFindMany,
@@ -34,8 +43,10 @@ vi.mock('../prisma/client.js', () => ({
       update: mocks.derivedUpdate,
       deleteMany: mocks.derivedDeleteMany,
     },
-  },
-}))
+  }
+  client.$transaction = vi.fn((operation) => operation(client))
+  return { default: client }
+})
 // 保留 llmService 的真实错误类，只替换网关装配与同意门前置断言
 vi.mock('./llmService.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -51,6 +62,11 @@ vi.mock('./edgeService.js', () => ({
   deriveEdges: mocks.deriveEdges,
   clearDerivedEdges: mocks.clearDerivedEdges,
 }))
+// 保留旧生成实现的领域校验回归；下面另测实际默认关闭的隔离门。
+vi.mock('./workCloudService.js', async (importOriginal) => ({
+  ...await importOriginal(), isWorkCloudConnected: mocks.workCloudConnected,
+}))
+vi.mock('./embeddingService.js', () => ({ embedMemory: mocks.embedMemory }))
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -68,6 +84,7 @@ import {
 
 const USER_ID = 'user-1'
 const REQUEST_ID = 'req-1'
+const SOURCES = [{ type: 'message', id: 'msg-source', quote: 'synthetic source' }]
 const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' }
 const NOT_CONSENTED = { externalLlmConsent: null, externalLlmConsentVersion: null }
 const VALID_INSIGHT = {
@@ -88,11 +105,15 @@ function modelOutput(items) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.workCloudConnected.mockReturnValue(true)
   mocks.userFindUnique.mockResolvedValue(CONSENTED)
   mocks.messageFindMany.mockResolvedValue([])
   mocks.messageCount.mockResolvedValue(0)
   mocks.memoryFindMany.mockResolvedValue([])
   mocks.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'mem-new', ...data }))
+  mocks.memoryUpdate.mockImplementation(async ({ where, data }) => ({
+    ...(await mocks.memoryFindMany()).find((memory) => memory.id === where.id), ...data, revision: 2,
+  }))
   mocks.derivedFindMany.mockResolvedValue([])
   mocks.derivedFindFirst.mockResolvedValue(null)
   mocks.derivedCreateMany.mockResolvedValue({ count: 1 })
@@ -164,7 +185,7 @@ describe('工作台：自动分析阈值', () => {
         userId: USER_ID,
         kind: 'pattern',
         content: '她习惯深夜学习',
-        evidence: JSON.stringify(['最近都聊到凌晨']),
+        evidence: '[]', sources: [], sourceMemoryIds: [],
         confidence: 'medium',
       }],
     })
@@ -218,6 +239,7 @@ describe('工作台：解析与候选校验', () => {
         kind: 'summary',
         content: '她最近在准备面试',
         evidence: '[]',
+        sources: [], sourceMemoryIds: [],
         confidence: 'high',
       }],
     })
@@ -267,12 +289,12 @@ describe('工作台：解析与候选校验', () => {
 })
 
 describe('工作台：晋升与治理', () => {
-  const OWNED = { id: 'insight-1', userId: USER_ID, content: '她习惯深夜学习', status: 'active' }
+  const OWNED = { id: 'insight-1', userId: USER_ID, content: '她习惯深夜学习', status: 'active', revision: 1, sources: SOURCES }
 
   it('晋升创建显式记忆并标记 promoted + promotedMemoryId', async () => {
     mocks.derivedFindFirst.mockResolvedValue(OWNED)
 
-    const result = await promoteInsight(USER_ID, 'insight-1')
+    const result = await promoteInsight(USER_ID, 'insight-1', { expectedRevision: 1 })
 
     expect(mocks.memoryCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -286,7 +308,7 @@ describe('工作台：晋升与治理', () => {
     })
     expect(mocks.derivedUpdate).toHaveBeenCalledWith({
       where: { id: 'insight-1' },
-      data: { status: 'promoted', promotedMemoryId: 'mem-new' },
+      data: { status: 'promoted', promotedMemoryId: 'mem-new', revision: { increment: 1 }, resolution: '她习惯深夜学习' },
     })
     expect(result.memory.id).toBe('mem-new')
     expect(result.insight.status).toBe('promoted')
@@ -294,15 +316,15 @@ describe('工作台：晋升与治理', () => {
 
   it('已有规范化键相同的显式记忆时不重复创建，仅标记晋升', async () => {
     mocks.derivedFindFirst.mockResolvedValue({ ...OWNED, content: '她习惯深夜学习 ' })
-    mocks.memoryFindMany.mockResolvedValue([{ id: 'mem-9', content: '她习惯深夜学习' }])
+    mocks.memoryFindMany.mockResolvedValue([{ id: 'mem-9', content: '她习惯深夜学习', type: 'episodic', revision: 1, sources: [] }])
     mocks.memoryFindUnique.mockResolvedValue({ id: 'mem-9', content: '她习惯深夜学习' })
 
-    const result = await promoteInsight(USER_ID, 'insight-1', { type: 'episodic', importance: 8 })
+    const result = await promoteInsight(USER_ID, 'insight-1', { type: 'episodic', importance: 8, expectedRevision: 1 })
 
     expect(mocks.memoryCreate).not.toHaveBeenCalled()
     expect(mocks.derivedUpdate).toHaveBeenCalledWith({
       where: { id: 'insight-1' },
-      data: { status: 'promoted', promotedMemoryId: 'mem-9' },
+      data: { status: 'promoted', promotedMemoryId: 'mem-9', revision: { increment: 1 }, resolution: '她习惯深夜学习' },
     })
     expect(result.memory.id).toBe('mem-9')
   })
@@ -322,12 +344,12 @@ describe('工作台：晋升与治理', () => {
     await dismissInsight(USER_ID, 'insight-1')
     expect(mocks.derivedUpdate).toHaveBeenCalledWith({
       where: { id: 'insight-1' },
-      data: { status: 'dismissed' },
+      data: { status: 'dismissed', revision: { increment: 1 } },
     })
 
     mocks.derivedDeleteMany.mockResolvedValue({ count: 3 })
     await expect(clearInsights(USER_ID)).resolves.toBe(3)
-    expect(mocks.derivedDeleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID } })
+    expect(mocks.derivedDeleteMany).toHaveBeenCalledWith({ where: { userId: USER_ID, status: { in: ['active', 'dismissed', 'needs_review'] } } })
   })
 })
 
@@ -364,7 +386,7 @@ describe('工作台：列表', () => {
 })
 
 describe('工作台：冲突厘清', () => {
-  const CONFLICT = { id: 'insight-c', userId: USER_ID, kind: 'conflict', content: '她既想独居又想合住', status: 'active' }
+  const CONFLICT = { id: 'insight-c', userId: USER_ID, kind: 'conflict', content: '她既想独居又想合住', status: 'active', revision: 1, sources: SOURCES }
 
   it('非冲突条目厘清抛 400', async () => {
     mocks.derivedFindFirst.mockResolvedValue({ ...CONFLICT, kind: 'pattern' })
@@ -376,12 +398,11 @@ describe('工作台：冲突厘清', () => {
     expect(mocks.memoryCreate).not.toHaveBeenCalled()
   })
 
-  it('已处理过的条目厘清抛 400', async () => {
+  it('已处理过的条目厘清抛 409', async () => {
     mocks.derivedFindFirst.mockResolvedValue({ ...CONFLICT, status: 'resolved' })
 
-    await expect(resolveInsight(USER_ID, 'insight-c', { content: '定稿' })).rejects.toMatchObject({
-      statusCode: 400,
-      message: '该条目已处理过',
+    await expect(resolveInsight(USER_ID, 'insight-c', { content: '定稿', expectedRevision: 1 })).rejects.toMatchObject({
+      statusCode: 409,
     })
     expect(mocks.memoryCreate).not.toHaveBeenCalled()
   })
@@ -389,7 +410,7 @@ describe('工作台：冲突厘清', () => {
   it('厘清定稿建记忆（origin=promoted、sourceRef=条目 id），条目 resolved 并留存定稿', async () => {
     mocks.derivedFindFirst.mockResolvedValue(CONFLICT)
 
-    const result = await resolveInsight(USER_ID, 'insight-c', { content: '她想要的是独立书房', importance: 8 })
+    const result = await resolveInsight(USER_ID, 'insight-c', { content: '她想要的是独立书房', importance: 8, expectedRevision: 1 })
 
     expect(mocks.memoryCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -402,7 +423,7 @@ describe('工作台：冲突厘清', () => {
     })
     expect(mocks.derivedUpdate).toHaveBeenCalledWith({
       where: { id: 'insight-c' },
-      data: { status: 'resolved', resolution: '她想要的是独立书房', promotedMemoryId: 'mem-new' },
+      data: { status: 'resolved', resolution: '她想要的是独立书房', promotedMemoryId: 'mem-new', revision: { increment: 1 } },
     })
     expect(result.memory.id).toBe('mem-new')
     expect(result.insight.status).toBe('resolved')
@@ -410,15 +431,15 @@ describe('工作台：冲突厘清', () => {
 
   it('定稿与既有记忆规范化键相同时不重复创建', async () => {
     mocks.derivedFindFirst.mockResolvedValue(CONFLICT)
-    mocks.memoryFindMany.mockResolvedValue([{ id: 'mem-9', content: '她想要的是独立书房' }])
+    mocks.memoryFindMany.mockResolvedValue([{ id: 'mem-9', content: '她想要的是独立书房', type: 'semantic', revision: 1, sources: [] }])
     mocks.memoryFindUnique.mockResolvedValue({ id: 'mem-9', content: '她想要的是独立书房' })
 
-    const result = await resolveInsight(USER_ID, 'insight-c', { content: ' 她想要的是独立书房 ' })
+    const result = await resolveInsight(USER_ID, 'insight-c', { content: ' 她想要的是独立书房 ', expectedRevision: 1 })
 
     expect(mocks.memoryCreate).not.toHaveBeenCalled()
     expect(mocks.derivedUpdate).toHaveBeenCalledWith({
       where: { id: 'insight-c' },
-      data: { status: 'resolved', resolution: '她想要的是独立书房', promotedMemoryId: 'mem-9' },
+      data: { status: 'resolved', resolution: '她想要的是独立书房', promotedMemoryId: 'mem-9', revision: { increment: 1 } },
     })
     expect(result.memory.id).toBe('mem-9')
   })
@@ -483,5 +504,47 @@ describe('工作台：记忆关系派生挂接', () => {
 
     expect(result).toEqual({ created: 0, skipped: 0 })
     expect(mocks.deriveEdges).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('工作台默认 mock 隔离', () => {
+  beforeEach(() => mocks.workCloudConnected.mockReturnValue(false))
+  it('手动、重建、自动入口在已同意场景下均不查询私有上下文或访问模型', async () => {
+    mocks.userFindUnique.mockResolvedValue(CONSENTED)
+    for (const run of [analyzeNow, rebuildInsights, maybeAutoAnalyze]) {
+      const result = await run(USER_ID, REQUEST_ID)
+      expect(result).toMatchObject({ created: 0, skipped: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    }
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+    expect(mocks.messageFindMany).not.toHaveBeenCalled()
+    expect(mocks.messageCount).not.toHaveBeenCalled()
+    expect(mocks.memoryFindMany).not.toHaveBeenCalled()
+    expect(mocks.getGateway).not.toHaveBeenCalled()
+    expect(mocks.gatewayComplete).not.toHaveBeenCalled()
+    expect(mocks.deriveEdges).not.toHaveBeenCalled()
+    expect(mocks.derivedCreateMany).not.toHaveBeenCalled()
+    expect(mocks.derivedDeleteMany).not.toHaveBeenCalled()
+    expect(mocks.clearDerivedEdges).not.toHaveBeenCalled()
+  })
+  it('重建仅预览，不删除或假造既有条目', async () => {
+    const result = await rebuildInsights(USER_ID, REQUEST_ID)
+    expect(result).toMatchObject({ cleared: 0, edgesCleared: 0, edgesCreated: 0 })
+    expect(result.preview.content).toContain('模拟')
+    expect(mocks.derivedDeleteMany).not.toHaveBeenCalled()
+  })
+  it('既有条目仍可确认晋升，禁止隐式嵌入', async () => {
+    mocks.derivedFindFirst.mockResolvedValue({ id: 'i1', userId: USER_ID, kind: 'pattern', content: '用户确认喜欢安静', status: 'active', revision: 1, sources: SOURCES })
+    const result = await promoteInsight(USER_ID, 'i1', { expectedRevision: 1 })
+    expect(result.memory.content).toBe('用户确认喜欢安静')
+    expect(mocks.memoryCreate).toHaveBeenCalled()
+    expect(mocks.embedMemory).not.toHaveBeenCalled()
+  })
+  it('厘清冲突仍保存用户定稿但不嵌入', async () => {
+    mocks.derivedFindFirst.mockResolvedValue({ id: 'i2', userId: USER_ID, kind: 'conflict', content: '旧草稿', status: 'active', revision: 1, sources: SOURCES })
+    const result = await resolveInsight(USER_ID, 'i2', { content: '用户定稿的事实', expectedRevision: 1 })
+    expect(result.memory.content).toBe('用户定稿的事实')
+    expect(mocks.memoryCreate).toHaveBeenCalled()
+    expect(mocks.embedMemory).not.toHaveBeenCalled()
   })
 })

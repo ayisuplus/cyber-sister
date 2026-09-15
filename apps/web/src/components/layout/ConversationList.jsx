@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { format, isSameDay } from 'date-fns'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, BookOpen, Archive, Settings } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import Button from '../ui/Button'
 import ConfirmDialog from '../ui/ConfirmDialog'
@@ -24,22 +24,40 @@ export default function ConversationList({ onNavigate } = {}) {
   const setCurrentConversation = useChatStore(state => state.setCurrentConversation)
   const createConversation = useChatStore(state => state.createConversation)
   const deleteConversation = useChatStore(state => state.deleteConversation)
+  const archiveConversation = useChatStore(state => state.archiveConversation)
+  const isSending = useChatStore(state => state.isSending)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [archiving, setArchiving] = useState(null)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const handleCreate = async () => {
     if (creating) return
     setCreating(true)
+    setError('')
     try {
       await createConversation()
       // createConversation 已自行置 current（chatStore.js L152-160）
       onNavigate?.()
       navigate('/chat')
     } catch {
-      // 新建失败保持现状，列表不变
+      setError('新建会话失败，请重试。')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleArchive = async (id) => {
+    if (archiving) return
+    setArchiving(id)
+    setError('')
+    try {
+      await archiveConversation(id)
+    } catch {
+      setError('归档失败，聊天记录仍保留，请重试。')
+    } finally {
+      setArchiving(null)
     }
   }
 
@@ -53,24 +71,30 @@ export default function ConversationList({ onNavigate } = {}) {
     setPendingDelete(null)
   }
 
-  const visibleConversations = conversations.filter(c => (c.mode || 'chat') === chatMode)
+  const visibleConversations = conversations.filter(c => !c.archivedAt && (c.mode || 'chat') === chatMode)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-border-hairline px-4 py-3">
-        <h2 className="display-serif text-sm font-semibold text-text-primary">会话</h2>
+        <h2 className="display-serif flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+          <BookOpen size={14} className="text-action-primary" aria-hidden="true" />
+          会话
+        </h2>
       </div>
 
-      <nav className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-2">
+      {error && <p role="alert" className="px-4 py-2 text-xs text-danger">{error}</p>}
+
+      <nav aria-label="会话列表" className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-2">
         {visibleConversations.length === 0 && (
-          <p className="px-3 py-8 text-center text-xs text-text-muted">{chatMode === 'work' ? '还没有工作会话，发一条就开始' : '还没有会话，从下方新建一个吧'}</p>
+          <p className="px-3 py-8 text-center text-xs text-text-muted">{chatMode === 'work' ? '工作云端尚未接通，可先预览功能' : '还没有会话，从下方新建一个吧'}</p>
         )}
         {visibleConversations.map((conversation) => {
           const active = conversation.id === currentConversationId
           const title = conversation.title || '新会话'
           const preview = conversation.messages?.[0]?.content || ''
           return (
-            <div key={conversation.id} className={`flex items-center rounded-control transition-colors ${active ? 'bg-pastel-blush' : 'hover:bg-surface-muted'}`}>
+            <div key={conversation.id} className={`relative flex items-center rounded-control transition-colors duration-300 ease-calm ${active ? 'bg-pastel-blush' : 'hover:bg-surface-muted'}`}>
+              {active && <span aria-hidden="true" className="animate-grow-y absolute inset-y-3 left-1 w-[3px] rounded-full bg-action-primary" />}
               <button
                 type="button"
                 onClick={() => {
@@ -79,7 +103,7 @@ export default function ConversationList({ onNavigate } = {}) {
                   navigate('/chat')
                 }}
                 aria-current={active ? 'true' : undefined}
-                className={`flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2 text-left ${active ? 'text-action-primary' : 'text-text-secondary'}`}
+                className={`flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-control px-3 py-2 text-left focus-visible:ring-2 focus-visible:ring-status-info ${active ? 'text-action-primary' : 'text-text-secondary'}`}
               >
                 <span className="flex items-baseline justify-between gap-2">
                   <span className={`truncate text-sm ${active ? 'font-semibold' : ''}`}>{title}</span>
@@ -89,9 +113,19 @@ export default function ConversationList({ onNavigate } = {}) {
               </button>
               <button
                 type="button"
+                aria-label={`归档会话 ${title}`}
+                title="归档并保留聊天记录"
+                disabled={archiving !== null || (active && isSending)}
+                onClick={() => handleArchive(conversation.id)}
+                className="flex h-11 w-9 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors duration-300 ease-calm hover:bg-pastel-mist hover:text-action-primary disabled:opacity-40"
+              >
+                <Archive size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
                 aria-label={`删除会话 ${title}`}
                 onClick={() => setPendingDelete(conversation)}
-                className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-pastel-blush hover:text-danger"
+                className="-my-1.5 mr-1 flex h-11 w-9 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors duration-300 ease-calm hover:bg-pastel-blush hover:text-danger focus-visible:ring-2 focus-visible:ring-status-info"
               >
                 <Trash2 size={14} aria-hidden="true" />
               </button>
@@ -105,6 +139,10 @@ export default function ConversationList({ onNavigate } = {}) {
           <Plus size={16} aria-hidden="true" />
           新会话
         </Button>
+        <div className="mt-2 grid grid-cols-2 gap-1">
+          <Link to="/chat/archives" onClick={onNavigate} className="flex min-h-11 items-center justify-center gap-2 rounded-control text-sm text-text-secondary transition-colors duration-300 ease-calm hover:bg-surface-muted"><Archive size={16} aria-hidden="true" />对话归档</Link>
+          <Link to="/settings" onClick={onNavigate} className="flex min-h-11 items-center justify-center gap-2 rounded-control text-sm text-text-secondary transition-colors duration-300 ease-calm hover:bg-surface-muted"><Settings size={16} aria-hidden="true" />设置</Link>
+        </div>
       </div>
 
       <ConfirmDialog

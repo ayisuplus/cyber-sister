@@ -6,31 +6,37 @@ const mocks = vi.hoisted(() => ({
   srFindUnique: vi.fn(),
   srFindFirst: vi.fn(),
   srUpdate: vi.fn(),
+  srUpdateMany: vi.fn(),
   srDelete: vi.fn(),
   rdCreate: vi.fn(),
   rdFindMany: vi.fn(),
   rdFindUnique: vi.fn(),
-  rdUpdate: vi.fn(),
+  rdUpdateMany: vi.fn(),
+  transaction: vi.fn(),
 }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
+vi.mock('../prisma/client.js', () => {
+  const db = {
     scheduledReminder: {
       create: mocks.srCreate,
       findMany: mocks.srFindMany,
       findUnique: mocks.srFindUnique,
       findFirst: mocks.srFindFirst,
       update: mocks.srUpdate,
+      updateMany: mocks.srUpdateMany,
       delete: mocks.srDelete,
     },
     reminderDelivery: {
       create: mocks.rdCreate,
       findMany: mocks.rdFindMany,
       findUnique: mocks.rdFindUnique,
-      update: mocks.rdUpdate,
+      updateMany: mocks.rdUpdateMany,
     },
-  },
-}))
+    $transaction: mocks.transaction,
+  }
+  mocks.transaction.mockImplementation((run) => run(db))
+  return { default: db }
+})
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -42,9 +48,17 @@ import {
   ackDelivery,
   deleteScheduledReminder,
   updateScheduledReminder,
+  claimTaskDelivery,
+  completeTaskDelivery,
+  failTaskDelivery,
 } from './reminderService.js'
 
 const local = (y, mo, d, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi)
+
+beforeEach(() => {
+  mocks.srUpdateMany.mockResolvedValue({ count: 1 })
+  mocks.rdUpdateMany.mockResolvedValue({ count: 1 })
+})
 
 describe('computeNextFire', () => {
   const after = local(2026, 9, 10, 12, 0) // 周四 12:00（2026-09-10 是周四）
@@ -134,28 +148,26 @@ describe('ackDelivery', () => {
 
   it('一次性提醒 ack 后置 done', async () => {
     const delivery = {
-      id: 'd1', fireAt: local(2026, 9, 10, 8, 0),
+      id: 'd1', status: 'pending', result: null, fireAt: local(2026, 9, 10, 8, 0),
       reminder: { id: 'r1', userId: 'u1', freq: 'once', status: 'active', nextFireAt: local(2026, 9, 10, 8, 0) },
     }
     mocks.rdFindUnique.mockResolvedValue(delivery)
-    mocks.rdUpdate.mockResolvedValue({ ...delivery, status: 'shown' })
     mocks.srUpdate.mockResolvedValue({})
     await ackDelivery('d1', 'u1', 'shown')
-    expect(mocks.srUpdate).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { status: 'done' } })
+    expect(mocks.srUpdateMany).toHaveBeenCalledWith({ where: expect.objectContaining({ id: 'r1', status: 'active', nextFireAt: delivery.fireAt }), data: { status: 'done' } })
   })
 
   it('循环提醒 ack 后推进 nextFireAt 到下一次', async () => {
     const fireAt = local(2026, 9, 10, 8, 0) // 周四
     const delivery = {
-      id: 'd1', fireAt,
+      id: 'd1', status: 'pending', result: null, fireAt,
       reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '08:00', weekdays: [], monthDay: null, status: 'active', nextFireAt: fireAt },
     }
     mocks.rdFindUnique.mockResolvedValue(delivery)
-    mocks.rdUpdate.mockResolvedValue({})
     mocks.srUpdate.mockResolvedValue({})
     await ackDelivery('d1', 'u1', 'dismissed')
-    expect(mocks.srUpdate).toHaveBeenCalledWith({
-      where: { id: 'r1' },
+    expect(mocks.srUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'r1', status: 'active', nextFireAt: fireAt }),
       data: { nextFireAt: local(2026, 9, 11, 8, 0) },
     })
   })
@@ -164,6 +176,42 @@ describe('ackDelivery', () => {
     mocks.rdFindUnique.mockResolvedValue({ id: 'd1', reminder: { userId: 'other' } })
     await expect(ackDelivery('d1', 'u1', 'shown')).rejects.toMatchObject({ statusCode: 404 })
     await expect(ackDelivery('d1', 'u1', 'noop')).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it.each(['shown', 'dismissed'])('未执行的任务不能通过 %s 消耗投递或推进调度', async (action) => {
+    mocks.rdFindUnique.mockResolvedValue({
+      id: 'd1', status: 'pending', result: null, fireAt: local(2026, 9, 10, 8, 0),
+      reminder: { id: 'r1', userId: 'u1', instruction: '整理日记', freq: 'once', status: 'active', nextFireAt: local(2026, 9, 10, 8, 0) },
+    })
+    await expect(ackDelivery('d1', 'other', action)).rejects.toMatchObject({ statusCode: 404 })
+    await expect(ackDelivery('d1', 'u1', action)).rejects.toMatchObject({ statusCode: 409 })
+    expect(mocks.rdUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('已有结果的历史任务仍可确认', async () => {
+    const delivery = {
+      id: 'd1', status: 'pending', result: '历史真实结果', fireAt: local(2026, 9, 10, 8, 0),
+      reminder: { id: 'r1', userId: 'u1', instruction: '整理日记', freq: 'once', status: 'done', nextFireAt: local(2026, 9, 10, 8, 0) },
+    }
+    mocks.rdFindUnique.mockResolvedValueOnce(delivery).mockResolvedValue({ ...delivery, status: 'shown' })
+    await expect(ackDelivery('d1', 'u1', 'shown')).resolves.toMatchObject({ status: 'shown', result: '历史真实结果' })
+    expect(mocks.rdUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'd1', status: 'pending', reminder: { userId: 'u1' },
+        OR: [{ result: { not: null } }, { reminder: { instruction: null } }],
+      },
+      data: { status: 'shown' },
+    })
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('确认期间纯提醒被编辑为任务，条件更新失败后返回 409', async () => {
+    const delivery = { id: 'd1', status: 'pending', result: null, reminder: { userId: 'u1', instruction: null } }
+    mocks.rdFindUnique.mockResolvedValueOnce(delivery).mockResolvedValue({ ...delivery, reminder: { userId: 'u1', instruction: '整理日记' } })
+    mocks.rdUpdateMany.mockResolvedValueOnce({ count: 0 })
+    await expect(ackDelivery('d1', 'u1', 'shown')).rejects.toMatchObject({ statusCode: 409 })
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -206,46 +254,149 @@ describe('定时任务（instruction）', () => {
     }))).rejects.toMatchObject({ statusCode: 400 })
   })
 
-  it('completeTaskDelivery：写入产出保持 pending，调度立即推进', async () => {
+  it('completeTaskDelivery：领取后原子保存结果并推进当前调度', async () => {
     const fireAt = local(2026, 9, 10, 20, 0)
-    mocks.rdFindUnique.mockResolvedValue({
-      id: 'd1', fireAt,
-      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '20:00', weekdays: [], monthDay: null, status: 'active' },
+    const delivery = {
+      id: 'd1', fireAt, status: 'running', result: null,
+      reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '20:00', weekdays: [], monthDay: null, status: 'active', nextFireAt: fireAt },
+    }
+    mocks.rdFindUnique.mockResolvedValueOnce(delivery).mockResolvedValue({ ...delivery, status: 'pending', result: '任务结果' })
+    const updated = await completeTaskDelivery('d1', 'u1', '任务结果')
+    expect(updated).toMatchObject({ status: 'pending', result: '任务结果' })
+    expect(mocks.rdUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'running', reminder: { userId: 'u1' } },
+      data: { status: 'pending', result: '任务结果' },
     })
-    mocks.rdUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'd1', ...data }))
-    mocks.srUpdate.mockResolvedValue({})
-    const { completeTaskDelivery } = await import('./reminderService.js')
-    const updated = await completeTaskDelivery('d1', 'u1', '你这周写了 3 篇日记……')
-    expect(updated.result).toContain('日记')
-    expect(updated.status).toBeUndefined() // 未动 status，保持 pending
-    expect(mocks.srUpdate).toHaveBeenCalledWith({
-      where: { id: 'r1' },
+    expect(mocks.srUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'r1', status: 'active', nextFireAt: fireAt }),
       data: { nextFireAt: local(2026, 9, 11, 20, 0) },
     })
+    expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
-  it('failTaskDelivery：标记 failed 并推进，一次性任务直接 done', async () => {
-    mocks.rdFindUnique.mockResolvedValue({
-      id: 'd1', fireAt: local(2026, 9, 10, 20, 0),
-      reminder: { id: 'r1', userId: 'u1', freq: 'once', status: 'active' },
-    })
-    mocks.rdUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'd1', ...data }))
-    mocks.srUpdate.mockResolvedValue({})
-    const { failTaskDelivery } = await import('./reminderService.js')
+  it('failTaskDelivery：领取后标记 failed 并推进，一次性任务直接 done', async () => {
+    const fireAt = local(2026, 9, 10, 20, 0)
+    const delivery = {
+      id: 'd1', fireAt, status: 'running',
+      reminder: { id: 'r1', userId: 'u1', freq: 'once', status: 'active', nextFireAt: fireAt },
+    }
+    mocks.rdFindUnique.mockResolvedValueOnce(delivery).mockResolvedValue({ ...delivery, status: 'failed' })
     const updated = await failTaskDelivery('d1', 'u1')
     expect(updated.status).toBe('failed')
-    expect(mocks.srUpdate).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { status: 'done' } })
+    expect(mocks.rdUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'running', reminder: { userId: 'u1' } },
+      data: { status: 'failed' },
+    })
+    expect(mocks.srUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'r1', status: 'active', nextFireAt: fireAt }),
+      data: { status: 'done' },
+    })
+    expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
   it('任务投递 ack 不再重复推进调度', async () => {
     const fireAt = local(2026, 9, 10, 20, 0)
     mocks.rdFindUnique.mockResolvedValue({
-      id: 'd1', fireAt,
+      id: 'd1', status: 'pending', result: null, fireAt,
       // 执行时已推进到明天（nextFireAt > fireAt）
       reminder: { id: 'r1', userId: 'u1', freq: 'daily', time: '20:00', weekdays: [], monthDay: null, status: 'active', nextFireAt: local(2026, 9, 11, 20, 0) },
     })
-    mocks.rdUpdate.mockResolvedValue({})
     await ackDelivery('d1', 'u1', 'shown')
-    expect(mocks.srUpdate).not.toHaveBeenCalled()
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('定时任务领取与并发边界', () => {
+  const fireAt = local(2026, 9, 10, 20, 0)
+  const updatedAt = local(2026, 9, 9)
+  const task = () => ({
+    id: 'd1', fireAt, status: 'pending', result: null,
+    reminder: { id: 'r1', userId: 'u1', instruction: '记录日程', freq: 'daily', time: '20:00', status: 'active', nextFireAt: fireAt, updatedAt },
+  })
+  beforeEach(() => vi.clearAllMocks())
+
+  it('并发领取只有条件更新成功者获得任务及最新指令', async () => {
+    const delivery = task()
+    mocks.rdFindUnique.mockImplementation(() => Promise.resolve({ ...delivery, reminder: { ...delivery.reminder } }))
+    mocks.rdUpdateMany.mockImplementation(async ({ where, data }) => {
+      if (delivery.status !== where.status) return { count: 0 }
+      delivery.status = data.status
+      return { count: 1 }
+    })
+    const claims = await Promise.all([claimTaskDelivery('d1', 'u1'), claimTaskDelivery('d1', 'u1')])
+    expect(claims.filter(Boolean)).toHaveLength(1)
+    expect(claims.find(Boolean)).toMatchObject({ status: 'running', reminder: { instruction: '记录日程' } })
+    expect(mocks.rdUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'pending', result: null, reminder: { userId: 'u1', status: 'active', nextFireAt: fireAt, updatedAt } },
+      data: { status: 'running' },
+    })
+  })
+
+  it.each([
+    { status: 'running', result: null },
+    { status: 'pending', result: '已完成' },
+    { status: 'failed', result: null },
+    { status: 'dismissed', result: null },
+  ])('不会重新领取已有进度或结果的投递 %j', async (state) => {
+    mocks.rdFindUnique.mockResolvedValue({ ...task(), ...state })
+    expect(await claimTaskDelivery('d1', 'u1')).toBeNull()
+    expect(mocks.rdUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('领取前调度暂停或改期导致条件更新失败，不执行旧快照', async () => {
+    mocks.rdFindUnique.mockResolvedValue(task())
+    mocks.rdUpdateMany.mockResolvedValue({ count: 0 })
+    expect(await claimTaskDelivery('d1', 'u1')).toBeNull()
+  })
+
+  it('他人任务不能领取或完成', async () => {
+    mocks.rdFindUnique.mockResolvedValue(task())
+    await expect(claimTaskDelivery('d1', 'other')).rejects.toMatchObject({ statusCode: 404 })
+    await expect(completeTaskDelivery('d1', 'other', 'x')).rejects.toMatchObject({ statusCode: 404 })
+    expect(mocks.rdUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('已改期或暂停的调度不会被旧任务完成覆盖', async () => {
+    for (const reminder of [
+      { ...task().reminder, nextFireAt: local(2026, 9, 20, 20, 0) },
+      { ...task().reminder, status: 'paused' },
+    ]) {
+      mocks.rdFindUnique.mockResolvedValue({ ...task(), status: 'running', reminder })
+      await completeTaskDelivery('d1', 'u1', '结果')
+    }
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('重复完成不会再次推进调度', async () => {
+    mocks.rdFindUnique.mockResolvedValue({ ...task(), result: '已经完成' })
+    mocks.rdUpdateMany.mockResolvedValue({ count: 0 })
+    await completeTaskDelivery('d1', 'u1', '重放结果')
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('推进调度失败向事务传播错误，不能提交半个完成状态', async () => {
+    mocks.rdFindUnique.mockResolvedValue({ ...task(), status: 'running' })
+    mocks.srUpdateMany.mockRejectedValueOnce(new Error('schedule unavailable'))
+    await expect(completeTaskDelivery('d1', 'u1', '结果')).rejects.toThrow('schedule unavailable')
+    expect(mocks.transaction).toHaveBeenCalledOnce()
+    expect(mocks.rdFindUnique).toHaveBeenCalledOnce()
+  })
+
+  it('任务运行时拒绝确认，确认与领取竞争也不推进调度', async () => {
+    mocks.rdFindUnique.mockResolvedValue({ ...task(), status: 'running' })
+    await expect(ackDelivery('d1', 'u1', 'shown')).rejects.toMatchObject({ statusCode: 409 })
+    expect(mocks.rdUpdateMany).not.toHaveBeenCalled()
+
+    mocks.rdFindUnique.mockResolvedValueOnce({ ...task(), reminder: { ...task().reminder, instruction: null } }).mockResolvedValue({ ...task(), status: 'running' })
+    mocks.rdUpdateMany.mockResolvedValue({ count: 0 })
+    await expect(ackDelivery('d1', 'u1', 'shown')).rejects.toMatchObject({ statusCode: 409 })
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('确认旧投递不会把下一次时间倒退', async () => {
+    mocks.rdFindUnique.mockResolvedValue({ ...task(), result: '历史真实结果', reminder: { ...task().reminder, nextFireAt: local(2026, 9, 15, 20, 0) } })
+    await ackDelivery('d1', 'u1', 'dismissed')
+    expect(mocks.srUpdateMany).not.toHaveBeenCalled()
   })
 })

@@ -10,6 +10,7 @@ const service = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   sendMessageStream: vi.fn(),
   deleteConversation: vi.fn(),
+  setConversationArchived: vi.fn(),
 }))
 
 const db = vi.hoisted(() => ({
@@ -42,6 +43,28 @@ app.use('/', chatRoutes)
 
 describe('chat route 响应合同', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('归档筛选严格接收布尔查询参数', async () => {
+    service.listConversations.mockResolvedValue([])
+    expect((await request(app).get('/conversations?archived=true')).status).toBe(200)
+    expect(service.listConversations).toHaveBeenCalledWith('user-1', { page: NaN, limit: NaN, archived: true })
+    service.listConversations.mockClear()
+    expect((await request(app).get('/conversations?archived=1')).status).toBe(400)
+    expect(service.listConversations).not.toHaveBeenCalled()
+  })
+
+  it('归档和恢复绑定登录用户，参数错误不写入，内部错误不泄露', async () => {
+    service.setConversationArchived.mockResolvedValue({ success: true, archived: true })
+    expect((await request(app).patch('/conversations/c1/archive').send({ archived: true, userId: 'other' })).status).toBe(200)
+    expect(service.setConversationArchived).toHaveBeenCalledWith('c1', 'user-1', true)
+    service.setConversationArchived.mockClear()
+    expect((await request(app).patch('/conversations/c1/archive').send({ archived: 'false' })).status).toBe(400)
+    expect(service.setConversationArchived).not.toHaveBeenCalled()
+    service.setConversationArchived.mockRejectedValue(new Error('private database address'))
+    const failure = await request(app).patch('/conversations/c1/archive').send({ archived: false })
+    expect(failure.status).toBe(500)
+    expect(failure.body).toEqual({ error: '归档状态保存失败' })
+  })
 
   it('本地模型未配置返回稳定 code 和 503', async () => {
     service.sendMessage.mockRejectedValue(Object.assign(new Error('本地模型尚未配置'), {
@@ -284,6 +307,17 @@ describe('chat stream route SSE 合同', () => {
     }])
   })
 
+  it('工作接口未接入时沿用SSE固定错误码，不输出输入正文或假回复', async () => {
+    service.sendMessageStream.mockImplementation(async function* () {
+      yield* streamOf([])
+      throw Object.assign(new Error('工作模式云端接口尚未接入'), { code: 'WORK_CLOUD_NOT_CONNECTED', statusCode: 503 })
+    })
+    const response = await request(app).post('/conversations/conversation-1/messages/stream').send({ content: '不可回显的工作指令' })
+    expect(response.status).toBe(200)
+    expect(parseSseFrames(response.text)).toEqual([{ event: 'error', code: 'WORK_CLOUD_NOT_CONNECTED' }])
+    expect(response.text).not.toContain('不可回显')
+  })
+
   it('模型失败编码为固定 code 的 error 事件，不含对话内容', async () => {
     service.sendMessageStream.mockReturnValue(streamOf([
       { type: 'error', reason: 'LLM_UNAVAILABLE' },
@@ -389,6 +423,27 @@ describe('chat stream route SSE 合同', () => {
 
       await vi.waitFor(() => expect(capturedSignal.aborted).toBe(true))
     } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
+  it('JSON 客户端断线同样取消回合，不能继续提交文件', async () => {
+    let signal
+    service.sendMessage.mockImplementation((_id, _user, _content, _request, options) => {
+      signal = options.signal
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    })
+    const server = app.listen(0)
+    await new Promise((resolve) => server.once('listening', resolve))
+    const req = http.request({ port: server.address().port, path: '/conversations/c1/messages', method: 'POST', headers: { 'content-type': 'application/json' } })
+    req.on('error', () => {})
+    try {
+      req.end(JSON.stringify({ content: '生成文件' }))
+      await vi.waitFor(() => expect(signal).toBeDefined())
+      req.destroy()
+      await vi.waitFor(() => expect(signal.aborted).toBe(true))
+    } finally {
+      req.destroy()
       await new Promise((resolve) => server.close(resolve))
     }
   })

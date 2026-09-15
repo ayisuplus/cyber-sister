@@ -81,7 +81,9 @@ describe('ProfilePage 云端模型同意', () => {
     renderPage()
 
     expect(await screen.findByText(/cloud-primary-v3 · 尚未选择/)).toBeInTheDocument()
-    expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
+    expect(screen.getByText(/已配置的聊天模型/)).toBeInTheDocument()
+    expect(screen.getByText(/语义检索使用单独配置的向量服务/)).toBeInTheDocument()
+    expect(screen.getByText(/待确认草稿不会进入聊天/)).toBeInTheDocument()
     expect(screen.getByText(/拒绝或撤回后聊天不可用/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '暂不开启' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '允许云端模型' })).toBeEnabled()
@@ -134,7 +136,7 @@ describe('ProfilePage 数据与迁移', () => {
     await user.click(await screen.findByRole('button', { name: '导出我的全部数据（JSON）' }))
 
     expect(mocks.downloadExport).toHaveBeenCalledTimes(1)
-    expect(await screen.findByText(/已导出到 cyber-sister-export-2026-09-07\.json/)).toBeInTheDocument()
+    expect(await screen.findByText(/已发起下载 cyber-sister-export-2026-09-07\.json/)).toBeInTheDocument()
   })
 
   it('导出失败时提示重试', async () => {

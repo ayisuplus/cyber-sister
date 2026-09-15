@@ -35,9 +35,11 @@ export default function DiaryPage() {
   const [saveError, setSaveError] = useState('')
   const [commentLoading, setCommentLoading] = useState(false)
   const [commentError, setCommentError] = useState('')
+  const [commentPreview, setCommentPreview] = useState(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const entry = entries[selectedDay] || null
+  const preview = commentPreview?.day === selectedDay ? commentPreview : null
 
   // 编辑器填充只发生在：月加载落地（编辑器走单日接口，404 即「这一天还没有日记」）与点选日历
   const applyToEditor = useCallback((target) => {
@@ -46,6 +48,7 @@ export default function DiaryPage() {
     setSavedTip('')
     setSaveError('')
     setCommentError('')
+    setCommentPreview(null)
   }, [])
   const selectedDayRef = useRef(selectedDay)
   useEffect(() => { selectedDayRef.current = selectedDay }, [selectedDay])
@@ -91,6 +94,7 @@ export default function DiaryPage() {
     const trimmed = content.trim()
     if (!trimmed || saving) return
     setSaving(true); setSaveError(''); setSavedTip('')
+    setCommentPreview(null)
     try {
       const saved = await diaryService.saveDay(selectedDay, { content: trimmed, mood })
       setEntries(prev => ({
@@ -119,7 +123,9 @@ export default function DiaryPage() {
     setCommentLoading(true); setCommentError('')
     try {
       const result = await diaryService.requestComment(selectedDay)
-      setEntries(prev => ({
+      if (result.source === 'cloud_mock') {
+        setCommentPreview({ ...result, day: selectedDay })
+      } else setEntries(prev => ({
         ...prev,
         [selectedDay]: {
           ...prev[selectedDay],
@@ -148,6 +154,7 @@ export default function DiaryPage() {
       setMood('neutral')
       setSavedTip('')
       setCommentError('')
+      setCommentPreview(null)
     } catch {
       setSaveError('删除失败，请稍后再试')
     }
@@ -226,7 +233,7 @@ export default function DiaryPage() {
               />
               <div className="mt-1 flex items-center justify-between text-xs text-text-muted">
                 <span>{savedTip && <span className="text-status-local">{savedTip}</span>}</span>
-                <span>{content.length}/2000</span>
+                <span className="tabular-nums">{content.length}/2000</span>
               </div>
               {saveError && <p role="alert" className="mt-1 text-xs text-danger">{saveError}</p>}
 
@@ -242,12 +249,13 @@ export default function DiaryPage() {
                 <span className="inline-flex rounded-full bg-pastel-mist px-2 py-0.5 text-[10px] font-medium text-status-info">AI</span>
                 <h2 className="text-sm font-semibold text-text-primary">姐妹的回应</h2>
               </div>
-              {entry?.aiComment ? (
+              {entry?.aiComment || preview ? (
                 <div className="mt-3">
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{entry.aiComment}</p>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{preview?.aiComment || entry.aiComment}</p>
                   <div className="mt-2">
-                    <SourceBadge source={entry.aiCommentSource} />
+                    <SourceBadge source={preview?.source || entry.aiCommentSource} />
                   </div>
+                  {preview && <p className="mt-2 text-xs text-text-muted">这是模拟回应，未连接云端，也未保存到日记。</p>}
                 </div>
               ) : (
                 <div className="mt-3">

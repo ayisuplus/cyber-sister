@@ -3,6 +3,7 @@ import express from 'express'
 import request from 'supertest'
 
 const service = vi.hoisted(() => ({
+  getActiveSession: vi.fn(), startSession: vi.fn(), finishSession: vi.fn(), cancelSession: vi.fn(),
   listSessions: vi.fn(),
   recordSession: vi.fn(),
   getSummary: vi.fn(),
@@ -29,6 +30,21 @@ const httpError = (message, statusCode, code) => Object.assign(new Error(message
 beforeEach(() => vi.clearAllMocks())
 
 describe('自习路由', () => {
+  it('binds start, resume, finish and cancel operations to the authenticated user', async () => {
+    service.getActiveSession.mockReturnValue(null)
+    service.startSession.mockReturnValue({ id: 'run-1', status: 'running' })
+    service.finishSession.mockReturnValue({ id: 'run-1', status: 'finished' })
+    service.cancelSession.mockReturnValue({ cancelled: true })
+    expect((await request(app).get('/active')).body).toBe(null)
+    expect((await request(app).post('/active').send({ plannedMinutes: 25 })).status).toBe(200)
+    expect(service.startSession).toHaveBeenCalledWith('user-1', { plannedMinutes: 25 })
+    expect((await request(app).post('/active/run-1/finish')).body.status).toBe('finished')
+    expect(service.finishSession).toHaveBeenCalledWith('user-1', 'run-1')
+    expect((await request(app).delete('/active/run-1')).body.cancelled).toBe(true)
+    expect(service.cancelSession).toHaveBeenCalledWith('user-1', 'run-1')
+    service.finishSession.mockImplementation(() => { throw httpError('不存在', 404) })
+    expect((await request(app).post('/active/other/finish')).status).toBe(404)
+  })
   it('GET /sessions 默认 30 天，days 参数透传', async () => {
     service.listSessions.mockResolvedValue([])
     const ok = await request(app).get('/sessions')

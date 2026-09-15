@@ -31,8 +31,10 @@ export default function useGlobalShortcuts() {
   useEffect(() => {
     if (pathname === '/login') return undefined
     const onKeyDown = (event) => {
+      if (event.key === 'Escape' && helpOpenRef.current) { setHelp(false); return }
+      // 弹层期间由弹层处理键盘，避免聚焦背后的输入框或创建新会话。
+      if (document.querySelector('[aria-modal="true"]')) return
       if (event.key === 'Escape') {
-        if (helpOpenRef.current) { setHelp(false); return }
         if (isTypingTarget(document.activeElement) && document.activeElement instanceof HTMLElement) document.activeElement.blur()
         return
       }

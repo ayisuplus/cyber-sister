@@ -4,7 +4,7 @@ export default function Spinner({ onDark = false }) {
     <span
       role="status"
       aria-label="加载中"
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 ${onDark ? 'border-pastel-blush border-t-surface-card' : 'border-border-subtle border-t-action-primary'}`}
+      className={`inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 ${onDark ? 'border-pastel-blush border-t-surface-card' : 'border-border-subtle border-t-action-primary'}`}
     />
   )
 }

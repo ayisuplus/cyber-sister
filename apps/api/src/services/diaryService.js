@@ -1,11 +1,10 @@
 /**
  * 日记服务：按本地日历日一记（userId+day 唯一），心情与聊天同词表，
- * AI 回应经人格化短评生成（内容统一脱敏、同意门与聊天一致）。
+ * 回应接口当前返回明确标注的模拟预览，不调用模型或写回预览内容。
  */
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
-import { generateCompanionNote } from './llmService.js'
-import { buildUserModelOptions } from './userModelOptions.js'
+import { generateWorkComment } from './workCloudService.js'
 import { parseUtcDay, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 
@@ -82,7 +81,7 @@ export async function deleteEntry(userId, dayStr) {
 }
 
 /**
- * 为某天日记生成（或复用）AI 闺蜜回应。
+ * 读取既有回应，或为已保存日记返回不落库的模拟预览。
  * 幂等：已有回应直接返回，不重复消耗模型；内容被编辑后回应清空，可再生成。
  */
 export async function generateComment(userId, dayStr, requestId) {
@@ -93,21 +92,6 @@ export async function generateComment(userId, dayStr, requestId) {
     return { aiComment: entry.aiComment, source: entry.aiCommentSource, reused: true }
   }
 
-  const { user, modelOptions } = await buildUserModelOptions(userId)
-  const note = await generateCompanionNote({
-    persona: user.persona,
-    instruction: [
-      `用户写了 ${dayStr} 的日记，心情是「${MOOD_LABELS[entry.mood]}」。`,
-      '作为她的 AI 闺蜜，用 2-3 句话回应：先接住她的情绪，再给一点轻轻的陪伴或鼓励；',
-      '不说教、不评价、不替她做决定。',
-    ].join(''),
-    userText: entry.content,
-  }, requestId, modelOptions)
-
-  const updated = await prisma.diaryEntry.update({
-    where: { id: entry.id },
-    data: { aiComment: note.content, aiCommentSource: note.source },
-  })
-  logger.info('生成日记回应', { userId, day: dayStr, source: note.source })
-  return { aiComment: updated.aiComment, source: updated.aiCommentSource, reused: false }
+  const note = await generateWorkComment('diary', { userId, day: dayStr, entryId: entry.id, requestId })
+  return { aiComment: note.content, source: note.source, reused: false, execution: note.execution }
 }

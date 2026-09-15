@@ -5,6 +5,7 @@ vi.mock('./api', () => ({
     get: vi.fn(),
     post: vi.fn(),
     delete: vi.fn(),
+    patch: vi.fn(),
   },
   getPersistedToken: vi.fn(),
   refreshAccessToken: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('./api', () => ({
 
 import api, { getPersistedToken, refreshAccessToken } from './api'
 import { chatService } from './chatService'
+import { resetSession } from './sessionLifecycle'
 
 describe('chatService', () => {
   it('lists and creates conversations', async () => {
@@ -22,7 +24,7 @@ describe('chatService', () => {
     const list = await chatService.getConversations()
     const created = await chatService.createConversation()
 
-    expect(api.get).toHaveBeenCalledWith('/chat/conversations')
+    expect(api.get).toHaveBeenCalledWith('/chat/conversations', undefined)
     expect(list).toEqual([{ id: 'c1' }])
     expect(api.post).toHaveBeenCalledWith('/chat/conversations', { mode: 'chat' })
     expect(created).toEqual({ id: 'c2' })
@@ -33,7 +35,7 @@ describe('chatService', () => {
 
     const result = await chatService.getConversation('c1')
 
-    expect(api.get).toHaveBeenCalledWith('/chat/conversations/c1')
+    expect(api.get).toHaveBeenCalledWith('/chat/conversations/c1', undefined)
     expect(result.messages).toEqual([{ id: 'm1' }])
   })
 
@@ -83,6 +85,30 @@ describe('chatService.streamMessage', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('does not refresh or replay an old account stream when its 401 arrives late', async () => {
+    let resolveResponse
+    fetchMock.mockReturnValue(new Promise((resolve) => { resolveResponse = resolve }))
+    const pending = collectEvents()
+    resetSession()
+    resolveResponse(sseResponse([], 401))
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(refreshAccessToken).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('does not replay a stream cancelled while token refresh was pending', async () => {
+    const controller = new AbortController()
+    let resolveRefresh
+    fetchMock.mockResolvedValue(sseResponse([], 401))
+    refreshAccessToken.mockImplementation(() => new Promise((resolve) => { resolveRefresh = resolve }))
+    const pending = collectEvents('c1', 'draft', { signal: controller.signal })
+    await vi.waitFor(() => expect(refreshAccessToken).toHaveBeenCalledOnce())
+    controller.abort()
+    resolveRefresh('new-token')
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it('posts to the stream endpoint with bearer token, credentials and JSON body', async () => {

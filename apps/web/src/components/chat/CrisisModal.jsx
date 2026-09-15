@@ -11,8 +11,8 @@ export default function CrisisModal({ intervention, onClose }) {
   if (!intervention) return null
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-5">
-      <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="crisis-title" aria-describedby="crisis-message" className="w-full max-w-[340px] rounded-3xl bg-surface-card p-6 text-center shadow-xl">
+    <div className="overlay-calm animate-overlay-in absolute inset-0 z-50 flex items-center justify-center p-5">
+      <div ref={dialogRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="crisis-title" aria-describedby="crisis-message" className="animate-dialog-quick w-full max-w-[340px] rounded-3xl bg-surface-card p-6 text-center shadow-lg">
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-pastel-blush">
           <Heart size={32} className="text-danger" />
         </div>
@@ -40,7 +40,7 @@ export default function CrisisModal({ intervention, onClose }) {
           </div>
         )}
 
-        <button ref={closeRef} type="button" onClick={onClose} className="mt-6 min-h-12 w-full rounded-[12px] bg-action-primary hover:bg-action-hover font-semibold text-text-inverse focus:ring-2 focus:ring-status-info" style={{ boxShadow: 'var(--cs-shadow-button)' }}>
+        <button ref={closeRef} type="button" onClick={onClose} className="mt-6 min-h-12 w-full rounded-control bg-action-primary hover:bg-action-hover font-semibold text-text-inverse focus-visible:ring-2 focus-visible:ring-status-info shadow-button">
           我知道了
         </button>
       </div>

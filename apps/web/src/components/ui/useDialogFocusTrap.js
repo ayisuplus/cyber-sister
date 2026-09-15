@@ -7,6 +7,9 @@ const FOCUSABLE_SELECTOR = [
   'select:not([disabled])',
   'textarea:not([disabled])',
   '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable]',
+  'audio[controls]',
+  'video[controls]',
 ].join(',')
 
 export default function useDialogFocusTrap(open, dialogRef, initialFocusRef) {
@@ -45,6 +48,9 @@ export default function useDialogFocusTrap(open, dialogRef, initialFocusRef) {
     document.addEventListener('keydown', trapFocus)
     return () => {
       document.removeEventListener('keydown', trapFocus)
+      // 新弹层可能已经接管焦点；关闭旧弹层时不把用户带回背景页面。
+      const focusedModal = document.activeElement?.closest('[aria-modal="true"]')
+      if (focusedModal && focusedModal !== dialog) return
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
     }
   }, [dialogRef, initialFocusRef, open])

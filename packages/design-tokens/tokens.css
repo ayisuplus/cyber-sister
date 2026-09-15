@@ -5,10 +5,11 @@
  * - apps/web/src/styles/globals.css   @import '../../../../packages/design-tokens/tokens.css'
  *
  * 2026-09-09 换肤：雾玫瑰粉彩 → 鼠尾草绿植物系（对齐落地页 Botanical Editorial 与 Amie 新品牌）。
- * 变量名全部保持不变，组件零改动；对比度沿用 axe 门禁（正文/辅助文字 ≥4.5:1，白字按钮 ≥4.5:1）。
+ * 日夜模式共用语义变量；正文/辅助文字与主操作按钮文字对比度均须 ≥4.5:1。
  */
 
 :root {
+  color-scheme: light;
   /* ---- 品牌五色（植物系粉彩，仅承担背景与分区，禁止用于小字号正文） ---- */
   --cs-pastel-blush: #F0F4E8;   /* 对话暖区、轻提示、柔和选中面（柔雾绿） */
   --cs-pastel-mist: #E2EDE4;    /* 信息、说明、冷静分区（青绿雾） */
@@ -37,6 +38,7 @@
   --cs-surface-card: #FFFFFF;   /* 卡片 */
   --cs-surface-muted: #F3F1E6;  /* 弱分区 */
   --cs-surface-input: #FFFFFF;  /* 输入框 */
+  --cs-surface-overlay: rgba(40, 48, 34, 0.32); /* 弹层遮罩：暖墨绿而非纯黑，压暗但不冰冷 */
 
   --cs-border-hairline: #E5E3D3;
   --cs-border-subtle: #E8E5D5;
@@ -46,20 +48,97 @@
   /* ---- 渐变（--cs-gradient-action 由 apps/web globals.css 自行定义，此处不重复） ---- */
   --cs-gradient-hero: linear-gradient(135deg, var(--cs-pastel-blush) 0%, var(--cs-pastel-mist) 100%);
   --cs-gradient-warm: linear-gradient(135deg, var(--cs-pastel-apricot) 0%, var(--cs-pastel-blush) 100%);
-  --cs-gradient-bubble: linear-gradient(135deg, #FFFFFF 0%, var(--cs-pastel-blush) 100%);
-  --cs-gradient-bubble-user: linear-gradient(135deg, #E3EBD4 0%, var(--cs-pastel-blush) 100%);
-  --cs-gradient-bubble-ai: linear-gradient(135deg, var(--cs-pastel-mist) 0%, var(--cs-pastel-lavender) 100%);
   --cs-gradient-subtle: linear-gradient(180deg, var(--cs-surface-page) 0%, var(--cs-pastel-blush) 100%);
-  --cs-shadow-sm: 0 1px 2px rgba(95, 112, 73, 0.05), 0 8px 20px rgba(95, 112, 73, 0.07);
-  --cs-shadow-md: 0 4px 12px rgba(95, 112, 73, 0.10);
-  --cs-shadow-lg: 0 8px 24px rgba(95, 112, 73, 0.12);
-  --cs-shadow-card: 0 2px 8px rgba(95, 112, 73, 0.08);
+  /* 分层柔影：贴地一层 + 远处一层大而淡的负扩散，像光线穿过纸面，而不是贴纸 */
+  --cs-shadow-sm: 0 1px 2px rgba(56, 66, 46, 0.04), 0 8px 24px -6px rgba(56, 66, 46, 0.08);
+  --cs-shadow-md: 0 2px 4px rgba(56, 66, 46, 0.04), 0 12px 28px -8px rgba(56, 66, 46, 0.14);
+  --cs-shadow-lg: 0 2px 6px rgba(56, 66, 46, 0.05), 0 24px 56px -16px rgba(56, 66, 46, 0.20);
+  --cs-shadow-card: 0 1px 2px rgba(56, 66, 46, 0.04), 0 6px 18px -6px rgba(56, 66, 46, 0.10);
   --cs-shadow-input: inset 0 1px 2px rgba(95, 112, 73, 0.06);
-  --cs-shadow-button: 0 2px 6px rgba(95, 112, 73, 0.20);
+  --cs-shadow-button: 0 1px 2px rgba(56, 66, 46, 0.10), 0 6px 16px -6px rgba(95, 112, 73, 0.40);
   --cs-shadow-phone: 0 12px 40px rgba(95, 112, 73, 0.16);
+  --cs-shadow-soft: 0 1px 1px rgba(56, 66, 46, 0.03), 0 2px 6px rgba(56, 66, 46, 0.04), 0 12px 32px -10px rgba(56, 66, 46, 0.10);
+  --cs-shadow-float: 0 1px 2px rgba(56, 66, 46, 0.04), 0 10px 28px -8px rgba(56, 66, 46, 0.14), 0 28px 56px -28px rgba(56, 66, 46, 0.18);
 
-  /* ---- 圆角（卡片 24px 基线，控件约 14px） ---- */
-  --cs-radius-card: 24px;
-  --cs-radius-control: 14px;
-  --cs-radius-sheet: 28px;
+  /* ---- 圆角（卡片 30px 基线，控件约 18px，整体偏圆润） ---- */
+  --cs-radius-card: 30px;
+  --cs-radius-control: 18px;
+  --cs-radius-sheet: 34px;
+
+  /* ---- 静谧层（2026-09-15）：慢、柔、有质感 ----
+   * 动效只减速不回弹；环境循环以 8s 为一次呼吸（4s 吸 / 4s 呼）。
+   * 玻璃与气泡色随日夜 surface 自动换算（var 在 :root 上按当前主题求值）。 */
+  --cs-ease-calm: cubic-bezier(0.22, 1, 0.36, 1);
+  --cs-ease-breathe: cubic-bezier(0.37, 0, 0.63, 1);
+  --cs-dur-quick: 200ms;
+  --cs-dur-soft: 320ms;
+  --cs-dur-settle: 560ms;
+  --cs-dur-breath: 8s;
+
+  --cs-surface-glass: color-mix(in srgb, var(--cs-surface-card) 72%, transparent);
+  --cs-surface-glass-strong: color-mix(in srgb, var(--cs-surface-card) 86%, transparent);
+  --cs-bubble-ai: color-mix(in srgb, var(--cs-surface-card) 82%, var(--cs-pastel-mist));
+  --cs-bubble-user: #E7EEDC;   /* 正文 #38422E 8.8:1 */
+
+  /* 晨雾：鼠尾草雾 / 米杏 / 青雾，只作大面积环境光 */
+  --cs-glow-1: rgba(196, 214, 178, 0.55);
+  --cs-glow-2: rgba(242, 224, 192, 0.60);
+  --cs-glow-3: rgba(192, 220, 208, 0.50);
+  --cs-grain-opacity: 0.05;
+  --cs-focus-halo: 0 0 0 6px color-mix(in srgb, var(--cs-focus-info) 14%, transparent);
+
+  /* 系统字体栈，零下载（V3.0 §3）。展示衬线刻意不含 SimSun：Windows 上小字号发虚。 */
+  --cs-font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'Microsoft YaHei', serif;
+  --cs-font-hand: 'Kaiti SC', 'STKaiti', 'KaiTi', 'STKaitiSC-Regular', cursive;
+}
+
+/* 夜间：深墨绿表面与柔和鼠尾草色，保留植物手账的层次。 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cs-pastel-blush: #2B372B;
+  --cs-pastel-mist: #263C33;
+  --cs-pastel-sprout: #303C29;
+  --cs-pastel-apricot: #383329;
+  --cs-pastel-lavender: #30392F;
+
+  --cs-action-primary: #B8CA9F;
+  --cs-action-primary-hover: #CBDBB5;
+  --cs-action-hover: #CBDBB5;
+  --cs-focus-info: #A1D3C0;
+  --cs-status-info: #A1D3C0;
+  --cs-status-local: #B3CE99;
+  --cs-warning: #E7C477;
+  --cs-danger: #FFA99F;
+
+  --cs-text-primary: #E9EEE3;
+  --cs-text-secondary: #C0CAB8;
+  --cs-text-muted: #ABB8A4;
+  --cs-text-inverse: #19231B;
+
+  --cs-surface-page: #141D1A;
+  --cs-surface-card: #1E2A24;
+  --cs-surface-muted: #243129;
+  --cs-surface-input: #18231E;
+  --cs-surface-overlay: rgba(0, 0, 0, 0.6);
+  --cs-border-hairline: #354139;
+  --cs-border-subtle: #3B493E;
+  --cs-border-default: #51614F;
+  --cs-border-control: #788973;
+
+  --cs-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 24px -6px rgba(0, 0, 0, 0.24);
+  --cs-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.2), 0 12px 28px -8px rgba(0, 0, 0, 0.32);
+  --cs-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.24), 0 24px 56px -16px rgba(0, 0, 0, 0.45);
+  --cs-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 18px -6px rgba(0, 0, 0, 0.28);
+  --cs-shadow-input: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  --cs-shadow-button: 0 1px 2px rgba(0, 0, 0, 0.24), 0 6px 16px -6px rgba(0, 0, 0, 0.4);
+  --cs-shadow-phone: 0 12px 40px rgba(0, 0, 0, 0.3);
+  --cs-shadow-soft: 0 1px 1px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.12), 0 12px 32px -10px rgba(0, 0, 0, 0.34);
+  --cs-shadow-float: 0 1px 2px rgba(0, 0, 0, 0.2), 0 10px 28px -8px rgba(0, 0, 0, 0.38), 0 28px 56px -28px rgba(0, 0, 0, 0.5);
+
+  /* 月下森林：深松 / 暖褐 / 深青的微光，比日间更收敛 */
+  --cs-bubble-user: #2E3D2F;   /* 正文 #E9EEE3 10:1 */
+  --cs-glow-1: rgba(92, 128, 94, 0.22);
+  --cs-glow-2: rgba(128, 110, 72, 0.14);
+  --cs-glow-3: rgba(70, 118, 114, 0.20);
+  --cs-grain-opacity: 0.07;
 }

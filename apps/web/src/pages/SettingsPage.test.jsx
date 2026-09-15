@@ -1,7 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../components/chat/CompanionStatePanel', () => ({ default: () => <div>她的状态</div> }))
+
+vi.mock('../services/modelStatusService', () => ({ modelStatusService: { getStatus: vi.fn().mockResolvedValue({ externalFallback: { configured: true, consent: true } }) } }))
 
 vi.mock('../services/toolsService', () => ({
   toolsService: {
@@ -26,6 +30,7 @@ vi.mock('../services/userService', () => ({
 
 import { toolsService } from '../services/toolsService'
 import { useToolsStore } from '../stores/toolsStore'
+import { startThemeSync } from '../stores/themeStore'
 import { profileService } from '../services/userService'
 import SettingsPage from './SettingsPage'
 
@@ -34,12 +39,16 @@ const renderPage = () => render(
     <Routes>
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/profile/memories" element={<h1>记忆页</h1>} />
+      <Route path="/profile" element={<h1>资料页</h1>} />
+      <Route path="/chat/archives" element={<h1>归档页</h1>} />
     </Routes>
   </MemoryRouter>,
 )
 
 describe('SettingsPage', () => {
+  let stopThemeSync
   beforeEach(() => {
+    stopThemeSync = startThemeSync()
     useToolsStore.setState({ reminders: [] })
     toolsService.getReminders.mockResolvedValue([
       { id: 'r-water', type: 'water', time: '08:00', isActive: true },
@@ -50,7 +59,32 @@ describe('SettingsPage', () => {
     profileService.update.mockImplementation(async (payload) => payload)
   })
 
+  afterEach(() => {
+    stopThemeSync()
+    delete document.documentElement.dataset.theme
+    document.documentElement.style.removeProperty('color-scheme')
+  })
+
   const toggleOf = (label) => screen.getByText(label).closest('div').querySelector('button')
+
+  it('provides persistent day, night and system appearance choices', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    expect(screen.getByRole('group', { name: '外观' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '跟随系统' })).toBeChecked()
+
+    await user.click(screen.getByRole('radio', { name: '夜间' }))
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+    expect(localStorage.getItem('amie-theme')).toBe('dark')
+    expect(profileService.update).not.toHaveBeenCalled()
+
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('radio', { name: '日间' })).toBeChecked()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    await user.click(screen.getByRole('radio', { name: '跟随系统' }))
+    expect(localStorage.getItem('amie-theme')).toBe('system')
+  })
 
   it('renders the three server-backed reminder switches enabled by default', async () => {
     renderPage()
@@ -114,7 +148,7 @@ describe('SettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    const careToggle = await screen.findByRole('button', { name: '她来想你总开关' })
+    const careToggle = await screen.findByRole('switch', { name: '她来想你总开关' })
     await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-brand-pink'))
 
     await user.click(careToggle)
@@ -130,7 +164,7 @@ describe('SettingsPage', () => {
     profileService.get.mockResolvedValue({ careEnabled: false })
     renderPage()
 
-    const careToggle = await screen.findByRole('button', { name: '她来想你总开关' })
+    const careToggle = await screen.findByRole('switch', { name: '她来想你总开关' })
     await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-text-muted'))
   })
 
@@ -138,5 +172,38 @@ describe('SettingsPage', () => {
     renderPage()
 
     expect(screen.getByText('1.0.0')).toBeInTheDocument()
+  })
+
+  it('opens conversation archives from settings', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: '对话归档' }))
+    expect(await screen.findByRole('heading', { name: '归档页' })).toBeInTheDocument()
+  })
+
+  it('opens the existing profile and appearance editor', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: '我的资料与装扮' }))
+    expect(await screen.findByRole('heading', { name: '资料页' })).toBeInTheDocument()
+  })
+
+  it('shows an error and preserves care settings if saving fails', async () => {
+    profileService.update.mockRejectedValueOnce(new Error('offline'))
+    renderPage()
+    const toggle = screen.getByRole('switch', { name: '她来想你总开关' })
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    await userEvent.click(toggle)
+    expect(await screen.findByRole('alert')).toHaveTextContent('关怀设置保存失败')
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    expect(toggle).toBeEnabled()
+  })
+
+  it('shows an error and preserves reminder settings if saving fails', async () => {
+    toolsService.updateReminder.mockRejectedValueOnce(new Error('offline'))
+    renderPage()
+    const toggle = screen.getByRole('switch', { name: '喝水提醒' })
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    await userEvent.click(toggle)
+    expect(await screen.findByRole('alert')).toHaveTextContent('提醒设置保存失败')
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
   })
 })

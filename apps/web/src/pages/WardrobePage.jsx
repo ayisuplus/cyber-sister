@@ -1,69 +1,56 @@
 import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { Box, ChevronLeft, ImagePlus, ShieldCheck } from 'lucide-react'
+import { Box, ChevronLeft, ImagePlus } from 'lucide-react'
 import '@google/model-viewer'
 import Header from '../components/layout/Header'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import EmptyState from '../components/ui/EmptyState'
+import Spinner from '../components/ui/Spinner'
 import { wardrobeService } from '../services/wardrobeService'
+import { workMediaService } from '../services/workMediaService'
+import { getSessionVersion, onSessionReset } from '../services/sessionLifecycle'
+import useWorkMediaPreview from '../hooks/useWorkMediaPreview'
+import SourceBadge from '../components/ui/SourceBadge'
 
-// 3D 衣柜：拍一张单品照 → 外部图生 3D → GLB 落库；列表 + <model-viewer> 旋转预览。
-// 外部服务未配置时服务端诚实 503，本页原样展示文案，不装成功。
+// 模拟请求独立展示，不进入已有衣柜；真实历史模型仍可查看、下载和删除。
 export default function WardrobePage() {
   const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [file, setFile] = useState(null)
+  const media = useWorkMediaPreview(workMediaService.previewWardrobe)
   const [name, setName] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState('')
   const [selected, setSelected] = useState(null) // null | 列表项 → 详情态
   const [deleting, setDeleting] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
     let alive = true
+    const session = getSessionVersion()
+    const current = () => alive && session === getSessionVersion()
     wardrobeService.list()
-      .then((list) => { if (alive) setItems(list) })
-      .catch(() => { if (alive) setLoadError('衣柜列表加载失败，请稍后重试') })
-    return () => { alive = false }
+      .then((list) => { if (current()) setItems(list) })
+      .catch(() => { if (current()) setLoadError('衣柜列表加载失败，请稍后重试') })
+      .finally(() => { if (current()) setLoading(false) })
+    const unsubscribe = onSessionReset(() => { setItems([]); setSelected(null); setName(''); setDeleting(false); setLoadError(''); setLoading(false); if (fileInputRef.current) fileInputRef.current.value = '' })
+    return () => { alive = false; unsubscribe() }
   }, [])
 
   const handleFileChange = (event) => {
-    setFile(event.target.files?.[0] || null)
-    setCreateError('')
-  }
-
-  const handleCreate = async () => {
-    if (!file || creating) return
-    setCreating(true)
-    setCreateError('')
-    try {
-      const formData = new FormData()
-      formData.append('image', file)
-      if (name.trim()) formData.append('name', name.trim())
-      const created = await wardrobeService.create(formData)
-      setItems(previous => [created, ...previous])
-      setFile(null)
-      setName('')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    } catch (err) {
-      if (err.response?.data?.code === 'IMAGE_TO_3D_NOT_CONFIGURED') {
-        setCreateError(err.response.data.error || '3D 生成服务还没接好，开放后第一时间告诉你')
-      } else {
-        setCreateError(err.response?.data?.error || '生成失败，请重试')
-      }
-    } finally {
-      setCreating(false)
-    }
+    media.setFile(event.target.files?.[0] || null)
+    event.target.value = ''
   }
 
   const handleDelete = async () => {
     if (!selected) return
+    const session = getSessionVersion()
     try {
       await wardrobeService.remove(selected.id)
+      if (session !== getSessionVersion()) return
       setItems(previous => previous.filter(item => item.id !== selected.id))
       setDeleting(false)
       setSelected(null)
     } catch {
+      if (session !== getSessionVersion()) return
       setDeleting(false)
       setLoadError('删除失败，请重试')
     }
@@ -81,12 +68,9 @@ export default function WardrobePage() {
             <div>
               <h1 className="text-base font-semibold text-text-primary">3D 衣柜</h1>
               <p className="mt-1 text-xs leading-relaxed text-text-secondary">
-                拍一张单品照，生成可以转着看的 3D 模型收进衣柜。
+                选好单品照片，提交云端接口模拟预览。已有衣物和模型仍可在下方管理。
               </p>
-              <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-surface-card px-3 py-1 text-xs font-semibold text-status-info">
-                <ShieldCheck size={12} aria-hidden="true" />
-                3D 生成走外部服务，未接好时如实提示
-              </span>
+              <p className="mt-2 text-xs leading-relaxed text-text-secondary">提交时原图会发送至应用后端，仅用于本次内存校验，不保存照片，不转发至云端供应商。</p>
             </div>
           </div>
         </section>
@@ -96,40 +80,45 @@ export default function WardrobePage() {
         {selected === null ? (
           <>
             <section aria-label="上传单品" className="mt-4 rounded-3xl bg-surface-card p-5 shadow-card">
-              <input ref={fileInputRef} type="file" accept="image/*" aria-label="选择单品照片" className="sr-only" onChange={handleFileChange} />
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" aria-label="选择单品照片" className="sr-only" onChange={handleFileChange} />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="flex min-h-20 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border-default bg-surface-page text-sm text-text-secondary transition-colors hover:bg-pastel-mist"
               >
                 <ImagePlus size={22} className="text-status-info" aria-hidden="true" />
-                {file ? `已选：${file.name}` : '选择一张单品照片'}
+                {media.file ? `已选：${media.file.name}` : '选择一张单品照片'}
               </button>
+              <p className="mt-2 text-xs text-text-muted">PNG、JPEG 或 WebP，最大 8MB</p>
+              {media.imageUrl && media.file && <figure className="mt-3"><img src={media.imageUrl} alt={`单品原图：${media.file.name}`} className="max-h-56 w-full rounded-2xl object-contain" /><figcaption className="mt-2 text-center text-xs text-text-secondary">原图 · 尚未生成模型</figcaption></figure>}
               <input
                 type="text"
                 value={name}
-                onChange={event => setName(event.target.value)}
+                onChange={event => { media.invalidate(); setName(event.target.value) }}
                 maxLength={30}
                 aria-label="单品名字"
                 placeholder="比如：黑色风衣"
                 className="mt-3 min-h-11 w-full rounded-2xl border border-border-default bg-surface-input px-3 text-sm text-text-primary"
               />
-              {createError && <p role="alert" className="mt-2 text-xs text-danger">{createError}</p>}
+              {media.error && <p role="alert" className="mt-2 text-sm text-danger">{media.error}</p>}
               <button
                 type="button"
-                onClick={handleCreate}
-                disabled={!file || creating}
+                onClick={() => media.submit(name)}
+                disabled={!media.file || media.busy}
                 className="mt-3 flex min-h-12 w-full items-center justify-center rounded-2xl bg-action-primary hover:bg-action-hover text-sm font-semibold text-text-inverse shadow-card transition-transform active:scale-95 disabled:opacity-50"
               >
-                {creating ? '正在生成…' : '生成 3D 模型'}
+                {media.busy ? '正在模拟预览…' : '提交模拟预览'}
               </button>
+              {media.result && <div role="status" aria-label="模拟预览结果" className="mt-3 rounded-2xl bg-pastel-apricot p-4"><SourceBadge source={media.result.source} /><p className="mt-2 text-sm leading-relaxed text-text-primary">{media.result.result.message}</p><p className="mt-2 text-xs text-text-secondary">当前没有可查看或下载的生成模型，衣柜未新增单品。</p></div>}
             </section>
 
             <section aria-label="衣柜列表" className="mt-4">
-              {items.length === 0 ? (
-                <p className="rounded-3xl bg-surface-card p-5 text-center text-sm text-text-secondary shadow-card">
-                  衣柜还空着，传一张单品照试试。
-                </p>
+              {loading ? (
+                <div className="flex justify-center py-8"><Spinner /></div>
+              ) : items.length === 0 ? (
+                <div className="rounded-3xl bg-surface-card shadow-card">
+                  <EmptyState icon={Box} title="衣柜还空着" description="可以在上方体验模拟预览，当前不会新增衣物。" />
+                </div>
               ) : (
                 <div className="grid gap-3 min-[641px]:grid-cols-2">
                   {items.map(item => (
@@ -141,7 +130,7 @@ export default function WardrobePage() {
                     >
                       <img src={item.sourceUrl} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />
                       <div className="min-w-0 flex-1">
-                        <h2 className="truncate text-base font-semibold text-text-primary">{item.name}</h2>
+                        <h2 title={item.name} className="truncate text-base font-semibold text-text-primary">{item.name}</h2>
                         <p className="mt-1 text-xs text-text-muted">{format(new Date(item.createdAt), 'yyyy-MM-dd')}</p>
                       </div>
                     </button>

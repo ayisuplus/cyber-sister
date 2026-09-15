@@ -35,6 +35,8 @@ export function loadRuntimeSecrets(env = process.env) {
     ['INTERNAL_TEST_PHONES', 'INTERNAL_TEST_PHONES_FILE'],
     ['INSTANCE_ADMIN_PHONES', 'INSTANCE_ADMIN_PHONES_FILE'],
     ['GATEWAY_QWEN_API_KEY', 'GATEWAY_QWEN_API_KEY_FILE'],
+    ['MEMORY_EMBEDDING_API_KEY', 'MEMORY_EMBEDDING_API_KEY_FILE'],
+    ['RUNNINGHUB_API_KEY', 'RUNNINGHUB_API_KEY_FILE'],
   ]
 
   for (const [valueName, fileName] of mappings) {
@@ -58,6 +60,8 @@ export function validateRuntimeConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || 'development'
   const protectedEnvironment = appEnv === 'internal' || nodeEnv === 'production'
   const errors = []
+  if (env.APP_DISTRIBUTION && !['web', 'local'].includes(env.APP_DISTRIBUTION)) errors.push('APP_DISTRIBUTION 必须为 web 或 local')
+  if (env.APP_DISTRIBUTION === 'local' && env.BIND_ADDRESS !== '127.0.0.1') errors.push('本地工作运行时必须绑定 127.0.0.1')
 
   if (appEnv === 'internal' && nodeEnv !== 'test') {
     for (const name of [

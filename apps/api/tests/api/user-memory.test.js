@@ -14,6 +14,11 @@ vi.mock('../../src/prisma/client.js', () => {
   }
 
   const client = {
+    memoryRevision: { create: async () => ({}), findMany: async () => [] },
+    memoryProjection: { deleteMany: async () => ({}), updateMany: async () => ({}) },
+    memoryEdge: { updateMany: async () => ({}) },
+    memoryIndexJob: { updateMany: async () => ({}) },
+    derivedInsight: { updateMany: async () => ({}), deleteMany: async () => ({}) },
     user: {
       findUnique: async ({ where, select }) => selectRecord(state.users.get(where.id) || null, select),
       update: async ({ where, data, select }) => {
@@ -29,6 +34,7 @@ vi.mock('../../src/prisma/client.js', () => {
         const memory = {
           id: `memory-${state.nextMemoryId++}`,
           entities: null,
+          revision: 1,
           expiresAt: null,
           createdAt: now,
           updatedAt: now,
@@ -37,7 +43,7 @@ vi.mock('../../src/prisma/client.js', () => {
         state.memories.push(memory)
         return memory
       },
-      findMany: async ({ where, skip, take }) => state.memories
+      findMany: async ({ where, skip = 0, take = state.memories.length }) => state.memories
         .filter((memory) => memory.userId === where.userId)
         .filter((memory) => !where.type || memory.type === where.type)
         .filter((memory) => !where.content || memory.content.includes(where.content.contains))
@@ -53,7 +59,7 @@ vi.mock('../../src/prisma/client.js', () => {
       ) || null,
       update: async ({ where, data }) => {
         const memory = state.memories.find((item) => item.id === where.id)
-        Object.assign(memory, data, { updatedAt: new Date() })
+        Object.assign(memory, data, { revision: data.revision?.increment ? memory.revision + data.revision.increment : memory.revision, updatedAt: new Date() })
         return memory
       },
       delete: async ({ where }) => {
@@ -62,7 +68,7 @@ vi.mock('../../src/prisma/client.js', () => {
       },
       deleteMany: async ({ where }) => {
         const before = state.memories.length
-        state.memories = state.memories.filter((memory) => memory.userId !== where.userId)
+        state.memories = state.memories.filter((memory) => memory.userId !== where.userId || (where.id?.in && !where.id.in.includes(memory.id)))
         return { count: before - state.memories.length }
       },
     },
@@ -186,7 +192,7 @@ describe('用户、同意与显式记忆 API', () => {
     const updated = await request(app)
       .put(`/api/memories/${created.body.id}`)
       .set(authed())
-      .send({ type: 'procedural', importance: 9, tags: ['偏好'] })
+      .send({ type: 'procedural', importance: 9, tags: ['偏好'], expectedRevision: created.body.revision })
     const deleted = await request(app)
       .delete(`/api/memories/${created.body.id}`)
       .set(authed())

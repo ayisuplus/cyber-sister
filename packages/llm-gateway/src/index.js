@@ -37,16 +37,18 @@
  *   GATEWAY_SCENE_chat=llamacpp,qwen         场景路由顺序（本地优先）
  *
  * 约束：
- * - complete 非流式（stream:false），stream 流式（stream:true）；本地供应商失败重试 1 次，外部供应商不重试。
+ * - complete 非流式（stream:false），stream 流式（stream:true）；供应商失败最多重试 1 次，外部每次尝试均重新授权。
  * - 外部供应商仅在 allowExternal 且 authorizeExternal() === true 时调用，且每次调用前重新授权。
  * - 日志只记 requestId/scene/provider/model/attempt/latencyMs/result，绝不记录消息内容与密钥。
  */
 import { getPersonaSystemPrompt } from './personas.js'
 
 /* global AbortSignal, TextDecoder */
-const DEFAULT_TIMEOUT_MS = 90_000
+// 推理模型（dots 等）多轮工具回路下单轮可能超过 90s，留足余量
+const DEFAULT_TIMEOUT_MS = 180_000
 const LOCAL_MAX_ATTEMPTS = 2
-const EXTERNAL_MAX_ATTEMPTS = 1
+// dots 等预览端点偶发超时/断流，多给一次重试机会
+const EXTERNAL_MAX_ATTEMPTS = 2
 
 function parseProviderConfig(env, name) {
   const key = name.toUpperCase()
@@ -80,15 +82,16 @@ function buildRequestMessages({ scene, persona, messages, systemAppend }) {
   return [...systemMessages, ...messages]
 }
 
-async function callOpenAiCompatible(provider, payload, timeoutMs) {
+async function callOpenAiCompatible(provider, payload, timeoutMs, signal) {
   const headers = { 'content-type': 'application/json' }
   if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
   // OpenAI 兼容约定：baseUrl 已含 /v1（与 llama.cpp、DashScope、OpenAI SDK 一致）
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const response = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   })
   if (!response.ok) {
     const error = new Error(`provider http ${response.status}`)
@@ -96,11 +99,26 @@ async function callOpenAiCompatible(provider, payload, timeoutMs) {
     throw error
   }
   const data = await response.json()
+  if (payload.tools?.length && data?.choices?.[0]?.message?.tool_calls?.length) {
+    const call = nativeToolCall(data.choices[0].message.tool_calls, data.choices[0].finish_reason)
+    return JSON.stringify({ tool: call.name, args: call.args })
+  }
   const content = data?.choices?.[0]?.message?.content
   return typeof content === 'string' && content.trim() ? content.trim() : null
 }
 
 const SSE_FRAME_SEPARATOR = /\r\n\r\n|\n\n/
+
+function nativeToolCall(calls, finishReason) {
+  const malformed = { name: '__malformed__', args: {} }
+  if (calls.length !== 1 || finishReason !== 'tool_calls') return malformed
+  const fn = calls[0]?.function
+  if (typeof fn?.name !== 'string' || !fn.name || fn.name.length > 128 || typeof fn.arguments !== 'string' || fn.arguments.length > 256000) return malformed
+  try {
+    const args = JSON.parse(fn.arguments)
+    return args && typeof args === 'object' && !Array.isArray(args) ? { name: fn.name, args } : malformed
+  } catch { return malformed }
+}
 
 function parseSseFrame(frame) {
   // 一帧内允许多行 data:，按 SSE 规范以 \n 拼接。
@@ -119,8 +137,8 @@ function parseSseFrame(frame) {
   } catch {
     throw new Error('provider stream malformed frame')
   }
-  const text = parsed?.choices?.[0]?.delta?.content
-  return typeof text === 'string' && text ? { text } : null
+  const choice = parsed?.choices?.[0]
+  return choice ? { text: typeof choice.delta?.content === 'string' ? choice.delta.content : '', toolCalls: choice.delta?.tool_calls, finishReason: choice.finish_reason } : null
 }
 
 /**
@@ -148,6 +166,21 @@ async function* streamOpenAiCompatible(provider, payload, timeoutMs, signal) {
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
   let sawDone = false
+  const calls = new Map()
+  let finishReason
+  const collectNative = (event) => {
+    if (event?.finishReason) finishReason = event.finishReason
+    if (!payload.tools?.length || !Array.isArray(event?.toolCalls)) return false
+    for (const part of event.toolCalls) {
+      if (!Number.isSafeInteger(part.index) || part.index < 0 || part.index > 7) throw new Error('provider invalid tool index')
+      const call = calls.get(part.index) || { function: { name: '', arguments: '' } }
+      if (typeof part.function?.name === 'string') call.function.name += part.function.name
+      if (typeof part.function?.arguments === 'string') call.function.arguments += part.function.arguments
+      if (call.function.name.length > 128 || call.function.arguments.length > 256000) throw new Error('provider tool output too large')
+      calls.set(part.index, call)
+    }
+    return event.toolCalls.length > 0
+  }
   try {
     for (;;) {
       // SSE 分片只能串行读取，禁用 no-await-in-loop 是刻意的。
@@ -155,6 +188,7 @@ async function* streamOpenAiCompatible(provider, payload, timeoutMs, signal) {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
+      if (buffer.length > 1024 * 1024) throw new Error('provider stream frame too large')
       for (;;) {
         const match = SSE_FRAME_SEPARATOR.exec(buffer)
         if (!match) break
@@ -163,16 +197,23 @@ async function* streamOpenAiCompatible(provider, payload, timeoutMs, signal) {
         buffer = buffer.slice(match.index + match[0].length)
         if (event?.done) {
           sawDone = true
+          if (calls.size) yield { type: 'toolcall', ...nativeToolCall([...calls.values()], finishReason) }
           return
         }
-        if (event?.text) yield event.text
+        if (collectNative(event)) yield { type: 'tool_pending' }
+        if (event?.text) yield { type: 'delta', text: event.text }
       }
     }
     buffer += decoder.decode()
     if (buffer.trim()) {
       const event = parseSseFrame(buffer)
-      if (event?.done) sawDone = true
-      else if (event?.text) yield event.text
+      if (event?.done) {
+        sawDone = true
+        if (calls.size) yield { type: 'toolcall', ...nativeToolCall([...calls.values()], finishReason) }
+      } else {
+        if (collectNative(event)) yield { type: 'tool_pending' }
+        if (event?.text) yield { type: 'delta', text: event.text }
+      }
     }
   } finally {
     await reader.cancel().catch(() => {})
@@ -228,6 +269,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
       timeoutMs = DEFAULT_TIMEOUT_MS,
       maxTokens,
       temperature,
+      signal,
     } = request || {}
     if (!scene || !Array.isArray(messages) || messages.length === 0) return null
 
@@ -235,22 +277,24 @@ export async function createGateway(env = process.env, { logger } = {}) {
     const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend })
 
     for (const provider of candidates) {
-      // 每个外部供应商调用前必须重新授权，串行是契约要求。
-      // eslint-disable-next-line no-await-in-loop
-      if (provider.scope === 'external' && !(await isExternalCallAuthorized(request))) {
-        continue
-      }
       const maxAttempts = provider.scope === 'external' ? EXTERNAL_MAX_ATTEMPTS : LOCAL_MAX_ATTEMPTS
       const payload = { model: provider.model, messages: finalMessages, stream: false }
+      if (request.tools?.length) Object.assign(payload, { tools: request.tools, tool_choice: 'auto', parallel_tool_calls: false })
       if (Number.isFinite(maxTokens)) payload.max_tokens = maxTokens
       if (Number.isFinite(temperature)) payload.temperature = temperature
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        if (signal?.aborted) return null
+        // 每次 HTTP 尝试前读取授权，重试不能复用上一次同意。
+        // eslint-disable-next-line no-await-in-loop
+        if (provider.scope === 'external' && !(await isExternalCallAuthorized(request))) break
+        if (signal?.aborted) return null
         const startedAt = Date.now()
         try {
           // 失败重试必须串行等待上一次结果。
           // eslint-disable-next-line no-await-in-loop
-          const content = await callOpenAiCompatible(provider, payload, timeoutMs)
+          const content = await callOpenAiCompatible(provider, payload, timeoutMs, signal)
+          if (signal?.aborted) return null
           const latencyMs = Date.now() - startedAt
           if (content) {
             log.info({
@@ -264,6 +308,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
             attempt, latencyMs, result: 'empty',
           }, 'llm gateway empty completion')
         } catch (error) {
+          if (signal?.aborted) return null
           const latencyMs = Date.now() - startedAt
           const status = error?.status
           log.warn({
@@ -311,28 +356,31 @@ export async function createGateway(env = process.env, { logger } = {}) {
 
     for (const provider of candidates) {
       if (emitted) break
-      // 每个外部供应商调用前必须重新授权，串行是契约要求。
-      // eslint-disable-next-line no-await-in-loop
-      if (provider.scope === 'external' && !(await isExternalCallAuthorized(request))) {
-        continue
-      }
       const maxAttempts = provider.scope === 'external' ? EXTERNAL_MAX_ATTEMPTS : LOCAL_MAX_ATTEMPTS
       const payload = { model: provider.model, messages: finalMessages, stream: true }
+      if (request.tools?.length) Object.assign(payload, { tools: request.tools, tool_choice: 'auto', parallel_tool_calls: false })
       if (Number.isFinite(maxTokens)) payload.max_tokens = maxTokens
       if (Number.isFinite(temperature)) payload.temperature = temperature
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (emitted) break
+        if (signal?.aborted) return
+        // eslint-disable-next-line no-await-in-loop
+        if (provider.scope === 'external' && !(await isExternalCallAuthorized(request))) break
+        if (signal?.aborted) return
         const startedAt = Date.now()
         let produced = 0
         try {
           // 失败重试必须串行等待上一次流结束。
           // eslint-disable-next-line no-await-in-loop
-          for await (const text of streamOpenAiCompatible(provider, payload, timeoutMs, signal)) {
-            produced += 1
+          for await (const event of streamOpenAiCompatible(provider, payload, timeoutMs, signal)) {
+            if (signal?.aborted) return
             emitted = true
-            yield { type: 'delta', text }
+            if (event.type === 'tool_pending') continue
+            produced += 1
+            yield event
           }
+          if (signal?.aborted) return
           const latencyMs = Date.now() - startedAt
           if (produced === 0) {
             // 空流与 complete 的空回复同语义：未产出内容，允许重试/换供应商。
@@ -372,7 +420,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
         }
       }
     }
-    yield { type: 'error', reason: 'all_providers_failed' }
+    if (!signal?.aborted) yield { type: 'error', reason: 'all_providers_failed' }
   }
 
   return { complete, stream }

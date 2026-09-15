@@ -11,6 +11,7 @@ const service = vi.hoisted(() => ({
   ackDelivery: vi.fn(),
   completeTaskDelivery: vi.fn(),
   failTaskDelivery: vi.fn(),
+  claimTaskDelivery: vi.fn(),
   executeScheduledTask: vi.fn(),
 }))
 
@@ -30,7 +31,10 @@ app.use((req, _res, next) => {
 })
 app.use('/', reminderRoutes)
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+
+})
 
 describe('自定义提醒路由', () => {
   it('GET /scheduled 返回提醒列表', async () => {
@@ -83,40 +87,36 @@ describe('自定义提醒路由', () => {
   })
 })
 
-describe('定时任务惰性执行', () => {
-  it('到点任务执行 agent 回路并把产出写入投递后返回', async () => {
-    const delivery = {
-      id: 'd1', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
-      reminder: { id: 'r1', content: '每周日记总结', freq: 'weekly', time: '20:00', instruction: '总结我这周的日记' },
-    }
-    service.listDueReminders.mockResolvedValue([delivery])
-    service.executeScheduledTask.mockResolvedValue({ content: '你这周写了 3 篇日记……', source: 'cloud' })
-    service.completeTaskDelivery.mockResolvedValue({})
-
+describe('定时任务接口未接入', () => {
+  const task = () => ({ id: 'd1', status: 'pending', result: null, reminder: { id: 'r1', instruction: '总结日记' } })
+  it('到期任务保持待处理，不领取、不调用模型、不推进调度', async () => {
+    service.listDueReminders.mockResolvedValue([task()])
+    service.executeScheduledTask.mockResolvedValue({ content: '不可出现的真实结果', source: 'qwen' })
     const res = await request(app).get('/due')
     expect(res.status).toBe(200)
-    expect(service.executeScheduledTask).toHaveBeenCalledWith('user-1', '总结我这周的日记', expect.any(String))
-    expect(service.completeTaskDelivery).toHaveBeenCalledWith('d1', 'user-1', '你这周写了 3 篇日记……')
-    expect(res.body.deliveries[0].result).toContain('日记')
+    expect(res.body).toMatchObject({ deliveries: [], deferredTaskCount: 1, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
+    expect(service.executeScheduledTask).not.toHaveBeenCalled()
+    expect(service.completeTaskDelivery).not.toHaveBeenCalled()
+    expect(service.failTaskDelivery).not.toHaveBeenCalled()
   })
-
-  it('执行失败标记 failed 且不进铃铛；纯提醒不受影响', async () => {
-    const taskDelivery = {
-      id: 'd1', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
-      reminder: { id: 'r1', content: '任务', freq: 'daily', time: '20:00', instruction: '做点什么' },
-    }
-    const plainDelivery = {
-      id: 'd2', fireAt: '2026-09-10T12:00:00.000Z', status: 'pending', result: null,
-      reminder: { id: 'r2', content: '喝水', freq: 'daily', time: '08:00', instruction: null },
-    }
-    service.listDueReminders.mockResolvedValue([taskDelivery, plainDelivery])
-    service.executeScheduledTask.mockRejectedValue(new Error('provider down'))
-    service.failTaskDelivery.mockResolvedValue({})
-
+  it('纯提醒与历史真实任务结果仍可显示', async () => {
+    service.listDueReminders.mockResolvedValue([
+      task(),
+      { id: 'd2', status: 'pending', result: null, reminder: { content: '喝水', instruction: null } },
+      { ...task(), id: 'd3', result: '之前真实完成的结果' },
+    ])
     const res = await request(app).get('/due')
-    expect(res.status).toBe(200)
-    expect(service.failTaskDelivery).toHaveBeenCalledWith('d1', 'user-1')
-    expect(res.body.deliveries).toHaveLength(1)
-    expect(res.body.deliveries[0].reminder.content).toBe('喝水')
+    expect(res.body.deliveries.map((d) => d.id)).toEqual(['d2', 'd3'])
+    expect(res.body.deferredTaskCount).toBe(1)
+    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
+  })
+  it('重复和并发轮询也不会执行或消费任务', async () => {
+    service.listDueReminders.mockResolvedValue([task()])
+    const results = await Promise.all([request(app).get('/due'), request(app).get('/due')])
+    expect(results.every((res) => res.body.deferredTaskCount === 1)).toBe(true)
+    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
+    expect(service.completeTaskDelivery).not.toHaveBeenCalled()
+    expect(service.failTaskDelivery).not.toHaveBeenCalled()
   })
 })

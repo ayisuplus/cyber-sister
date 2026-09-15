@@ -1,0 +1,3025 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Amie 工作模式接口联调契约",
+    "version": "2026-09-12",
+    "description": "当前实现的新增/改变接口子集，固定mock阶段；不是整站API清单或已接通云服务声明。个人记录仍由现有API持久化，模拟生成结果不入库。源码优先，详见同名Markdown。"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/memories/suggestions": {
+      "post": {
+        "operationId": "getWorkMemorySuggestions",
+        "summary": "拒绝从工作会话历史消息调用真实记忆提取",
+        "x-source": "apps/api/src/routes/memories.js",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "先核对本人用户消息与会话归属。mode=work的普通历史消息在提取前返回503；危机消息沿用既有安全分支返回空candidates。普通chat模式记忆建议不属于本轮mock边界。",
+        "responses": {
+          "200": {
+            "description": "危机内容排除，或既有普通chat结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "candidates"
+                  ],
+                  "properties": {
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "messageId缺失或不是用户消息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人消息不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "工作模式云端未连接",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "code"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "WORK_CLOUD_NOT_CONNECTED"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminders/deliveries/{id}/ack": {
+      "post": {
+        "operationId": "ackReminderDelivery",
+        "summary": "确认纯提醒或已有结果的任务投递，拒绝未执行任务",
+        "x-source": "apps/api/src/routes/reminders.js",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "shown",
+                      "dismissed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "按本人归属校验。pending且instruction非空、result=null，或running的投递返回409；不会借由ack推进未执行任务。纯提醒或已有结果的pending投递可确认，推进调度遵守原有状态/时间条件；事务中的条件更新与复查覆盖竞态。",
+        "responses": {
+          "200": {
+            "description": "确认后的投递记录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "delivery"
+                  ],
+                  "properties": {
+                    "delivery": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "action不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人投递不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "任务未执行或正在执行，暂不能确认",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/letters": {
+      "get": {
+        "operationId": "listExistingLetters",
+        "summary": "仅读取本人既有来信，GET不生成新信",
+        "x-source": "apps/api/src/routes/letters.js",
+        "responses": {
+          "200": {
+            "description": "按weekStart从新到旧排列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "letters"
+                  ],
+                  "properties": {
+                    "letters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "既有Letter记录"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/status": {
+      "get": {
+        "operationId": "getWorkStatus",
+        "summary": "获取工作模式十项功能的固定联调状态",
+        "x-source": "apps/api/src/routes/work.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/diary/{day}/comment": {
+      "post": {
+        "operationId": "previewDiaryComment",
+        "summary": "复用本人既有短评或返回新的模拟预览",
+        "x-source": "apps/api/src/routes/diary.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人记录不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "day",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ]
+      }
+    },
+    "/reading/notes/{noteId}/comment": {
+      "post": {
+        "operationId": "previewReadingComment",
+        "summary": "复用本人既有短评或返回新的模拟预览",
+        "x-source": "apps/api/src/routes/reading.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人记录不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/study/sessions/{id}/comment": {
+      "post": {
+        "operationId": "previewStudyComment",
+        "summary": "复用本人既有短评或返回新的模拟预览",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人记录不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/habits/cheer": {
+      "post": {
+        "operationId": "previewHabitCheer",
+        "summary": "预览模拟鼓励；没有习惯时 cheer/source 为 null",
+        "x-source": "apps/api/src/routes/habits.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HabitCheer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/derived/analyze": {
+      "post": {
+        "operationId": "previewDerivedAnalysis",
+        "summary": "预览模拟分析，不读取模型上下文或创建理解与关系",
+        "x-source": "apps/api/src/routes/derived.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/derived/rebuild": {
+      "post": {
+        "operationId": "previewDerivedRebuild",
+        "summary": "模拟重建；不清空已有理解或关系",
+        "x-source": "apps/api/src/routes/derived.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/letters/generate": {
+      "post": {
+        "operationId": "previewWeeklyLetter",
+        "summary": "预览模拟来信，不读周记录、不写信箱",
+        "x-source": "apps/api/src/routes/letters.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LetterPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/study/active": {
+      "get": {
+        "operationId": "getActiveStudy",
+        "summary": "读取本人进程内计时；不存在或过期返回 null",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyRunOrNull"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "startStudy",
+        "summary": "创建本人一轮服务端模拟计时",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "时长或科目不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "尚有未处理的本人轮次",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "进程内计时容量已满",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyStart"
+              }
+            }
+          }
+        },
+        "description": "每用户一轮，进程内最多1000用户，自开始24小时过期；服务重启即丢失。未完成或未保存的旧轮次返回409；已保存轮次可由新轮次替换。"
+      }
+    },
+    "/study/active/{id}/finish": {
+      "post": {
+        "operationId": "finishStudy",
+        "summary": "幂等结束计时并冻结服务端时长；此操作不写学习记录",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "计时不存在或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "actualMinutes=min(plannedMinutes,max(1,ceil((finishedAt-startedAt)/60000)))。第二次finish保持原finishedAt和actualMinutes。不存在、跨用户或已过期返回404。"
+      }
+    },
+    "/study/active/{id}": {
+      "delete": {
+        "operationId": "cancelStudy",
+        "summary": "移除本轮进程内状态；不删除已经确认的数据库记录",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "cancelled"
+                  ],
+                  "properties": {
+                    "cancelled": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "计时不存在或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "记录正在保存",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/study/sessions": {
+      "post": {
+        "operationId": "saveStudySession",
+        "summary": "确认保存已结束计时，或手动补录自习",
+        "x-source": "apps/api/src/routes/study.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudySession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "记录字段不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "指定计时不存在或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "指定计时尚未结束",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudySave"
+              }
+            }
+          }
+        },
+        "description": "确认写入既有数据库。runId路径在轮次仍存在时对并发及重试复用一次保存结果，失败保留finished轮次；运行中返回409。该去重不跨服务重启、过期、取消或新轮次替换。无runId的手动补录每次创建一条记录，实际时长由调用方申报。"
+      }
+    },
+    "/tools/period/summary": {
+      "get": {
+        "operationId": "getPeriodSummary",
+        "summary": "按本人最新记录进行服务端日历推算",
+        "x-source": "apps/api/src/routes/tools.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "today",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "description": "today用于客户端时区的日历日，省略则取服务器本地今日。nextDate=最新startDate+cycleDays；daysUntil=max(0,两日期差)。没有记录则nextDate/daysUntil/basedOnRecordId为null。不是云端生成结果。"
+      }
+    },
+    "/tools/period/{id}": {
+      "put": {
+        "operationId": "updatePeriod",
+        "summary": "编辑本人经期记录，允许清空endDate",
+        "x-source": "apps/api/src/routes/tools.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "日期或周期不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人经期记录不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeriodUpdate"
+              }
+            }
+          }
+        },
+        "description": "省略字段保持原值。结束日期不能早于开始日期，cycleDays为20–45整数；日期按UTC零点存储。"
+      },
+      "delete": {
+        "operationId": "deletePeriod",
+        "summary": "删除本人经期记录",
+        "x-source": "apps/api/src/routes/tools.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "本人经期记录不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/work/media/makeup/preview": {
+      "post": {
+        "operationId": "previewMakeupMedia",
+        "summary": "上传照片与美颜参数进行模拟校验",
+        "x-source": "apps/api/src/routes/workMedia.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MakeupPreview"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "图片缺失、签名/MIME不符、参数或表单字段不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "图片超过8MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image",
+                  "params"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "单张PNG/JPEG/WebP，非空，最多8MiB；服务端核对文件签名与MIME，不做完整图像解码。"
+                  },
+                  "params": {
+                    "type": "string",
+                    "description": "JSON字符串，包含且仅包含smooth/whiten/slim/eye四个0–100整数；UTF-8字段最多1024字节。",
+                    "example": "{\"smooth\":30,\"whiten\":20,\"slim\":0,\"eye\":0}"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "description": "仅内存接收，不保存上传图、不访问远程URL、不调用云端、ComfyUI或本地模型。最多1个文件和1个文本字段；未产生可下载图片或3D模型。"
+      }
+    },
+    "/work/media/wardrobe/preview": {
+      "post": {
+        "operationId": "previewWardrobeMedia",
+        "summary": "上传单品图片进行模拟校验",
+        "x-source": "apps/api/src/routes/workMedia.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardrobePreview"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "图片缺失、签名/MIME不符、参数或表单字段不合法",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "图片超过8MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "单张PNG/JPEG/WebP，非空，最多8MiB；服务端核对文件签名与MIME，不做完整图像解码。"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "description": "可选，去掉首尾空白；空值显示未命名单品。"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "description": "仅内存接收，不保存上传图、不访问远程URL、不调用云端、ComfyUI或本地模型。最多1个文件和1个文本字段；未产生可下载图片或3D模型。"
+      }
+    },
+    "/reminders/due": {
+      "get": {
+        "operationId": "getDueReminders",
+        "summary": "读取可展示投递，并报告延后执行的任务数量",
+        "x-source": "apps/api/src/routes/reminders.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DueReminders"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "会为到期active提醒创建或复用pending投递行。instruction非空且result=null的任务不返回给前台，计入deferredTaskCount；不会领取任务、调用模型、写result或推进nextFireAt。execution.persisted=false指模拟生成结果，并不代表本次轮询没有投递行写入。"
+      }
+    },
+    "/reminders/scheduled/{id}": {
+      "put": {
+        "operationId": "updateScheduledReminder",
+        "summary": "编辑本人提醒或将status改为paused/active",
+        "x-source": "apps/api/src/routes/reminders.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "reminder"
+                  ],
+                  "properties": {
+                    "reminder": {
+                      "type": "object",
+                      "description": "持久化后的ScheduledReminder记录"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderUpdate"
+              }
+            }
+          }
+        },
+        "description": "时间字段任一变化会重新计算nextFireAt；once需要date/time、weekly需要weekdays、monthly需要monthDay。含instruction的计划可保存，但mock阶段不会自动执行。"
+      }
+    },
+    "/tools/todos/{id}": {
+      "put": {
+        "operationId": "updateTodo",
+        "summary": "编辑本人日程内容、日期、时间或完成状态",
+        "x-source": "apps/api/src/routes/tools.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "更新后的Todo记录"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodoUpdate"
+              }
+            }
+          }
+        },
+        "description": "设置dueTime前必须有dueDate，清空日期同时清空其时间。其余省略字段保持原值。"
+      }
+    },
+    "/habits/{id}": {
+      "patch": {
+        "operationId": "editHabit",
+        "summary": "修改本人习惯名称与图标，保留打卡历史",
+        "x-source": "apps/api/src/routes/habits.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedHabit"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HabitUpdate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reading/notes/{noteId}": {
+      "delete": {
+        "operationId": "deleteReadingNote",
+        "summary": "删除本人笔记与已保存短评",
+        "x-source": "apps/api/src/routes/reading.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/chat/conversations/{id}/messages": {
+      "post": {
+        "operationId": "sendWorkMessage",
+        "summary": "既有消息端点：普通工作会话请求返回503",
+        "x-source": "apps/api/src/routes/chat.js",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "既有危机阻断或普通聊天结果，非本契约的工作生成结果。"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录、Token 无效或已过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "工作模式云端未连接",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "code"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "WORK_CLOUD_NOT_CONNECTED"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "服务错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "本条只描述mode=work的变化；服务端从已鉴权的会话记录读取mode。危机识别仍先于工作云端门，保留原阻断路径。普通工作内容在模型、工具和消息落库前被拒绝；普通chat模式不属于本轮工作接口mock范围。"
+      }
+    },
+    "/chat/conversations/{id}/messages/stream": {
+      "post": {
+        "operationId": "streamWorkMessage",
+        "summary": "流式工作消息通过SSE error事件报告未连接",
+        "x-source": "apps/api/src/routes/chat.js",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "请求校验后已发送HTTP200 SSE响应头，因此未连接错误在流内报告，不能按普通消息的HTTP503判断。既有危机内容仍走blocked事件。此schema只记录本轮工作模式变化，既有图片上传及普通chat事件不在范围内。",
+        "responses": {
+          "200": {
+            "description": "未连接时发送一个error事件后结束，通常无delta/done",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "data: {\"event\":\"error\",\"code\":\"WORK_CLOUD_NOT_CONNECTED\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "description": "请求校验失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录或Token无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "CloudMockExecution": {
+        "type": "object",
+        "required": [
+          "mode",
+          "cloudConnected",
+          "persisted"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "mock"
+            ]
+          },
+          "cloudConnected": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "persisted": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        }
+      },
+      "PreviewText": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "MockComment": {
+        "type": "object",
+        "required": [
+          "aiComment",
+          "source",
+          "reused",
+          "execution"
+        ],
+        "properties": {
+          "aiComment": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "cloud_mock"
+            ]
+          },
+          "reused": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          }
+        }
+      },
+      "ReusedComment": {
+        "type": "object",
+        "required": [
+          "aiComment",
+          "source",
+          "reused"
+        ],
+        "properties": {
+          "aiComment": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
+          },
+          "reused": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        }
+      },
+      "CommentResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MockComment"
+          },
+          {
+            "$ref": "#/components/schemas/ReusedComment"
+          }
+        ],
+        "description": "新请求返回不落库的模拟短评；已有本人短评保持原 source，reused=true，不补造 execution 字段。"
+      },
+      "HabitCheer": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "cheer",
+              "source",
+              "execution"
+            ],
+            "properties": {
+              "cheer": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "cloud_mock"
+                ]
+              },
+              "execution": {
+                "$ref": "#/components/schemas/CloudMockExecution"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "cheer",
+              "source"
+            ],
+            "properties": {
+              "cheer": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  null
+                ]
+              },
+              "source": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  null
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "AnalysisPreview": {
+        "type": "object",
+        "required": [
+          "created",
+          "skipped",
+          "edgesCreated",
+          "preview",
+          "execution"
+        ],
+        "properties": {
+          "created": {
+            "type": "number",
+            "enum": [
+              0
+            ]
+          },
+          "skipped": {
+            "type": "string",
+            "enum": [
+              "cloud_mock"
+            ]
+          },
+          "edgesCreated": {
+            "type": "number",
+            "enum": [
+              0
+            ]
+          },
+          "preview": {
+            "$ref": "#/components/schemas/PreviewText"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          }
+        }
+      },
+      "RebuildPreview": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AnalysisPreview"
+          },
+          {
+            "type": "object",
+            "required": [
+              "cleared",
+              "edgesCleared"
+            ],
+            "properties": {
+              "cleared": {
+                "type": "number",
+                "enum": [
+                  0
+                ]
+              },
+              "edgesCleared": {
+                "type": "number",
+                "enum": [
+                  0
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LetterPreview": {
+        "type": "object",
+        "required": [
+          "letter",
+          "created",
+          "reason",
+          "preview",
+          "execution"
+        ],
+        "properties": {
+          "letter": {
+            "type": "object",
+            "nullable": true,
+            "enum": [
+              null
+            ]
+          },
+          "created": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "cloud_mock"
+            ]
+          },
+          "preview": {
+            "$ref": "#/components/schemas/PreviewText"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          }
+        }
+      },
+      "WorkStatus": {
+        "type": "object",
+        "required": [
+          "browser",
+          "execution",
+          "recordStorage",
+          "features"
+        ],
+        "properties": {
+          "browser": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "running",
+              "headed"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "running": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "headed": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              }
+            }
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          },
+          "recordStorage": {
+            "type": "string",
+            "enum": [
+              "api"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "minItems": 10,
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "api",
+                "generation"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "api": {
+                  "type": "string"
+                },
+                "generation": {
+                  "type": "string",
+                  "enum": [
+                    "not_connected",
+                    "mock",
+                    "server_calculation"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "StudySession": {
+        "type": "object",
+        "required": [
+          "id",
+          "subject",
+          "plannedMinutes",
+          "actualMinutes",
+          "note",
+          "aiComment",
+          "aiCommentSource",
+          "startedAt",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "actualMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "aiComment": {
+            "type": "string",
+            "nullable": true
+          },
+          "aiCommentSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StudyRunExecution": {
+        "type": "object",
+        "required": [
+          "mode",
+          "storage",
+          "persisted",
+          "expiresAt"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "mock"
+            ]
+          },
+          "storage": {
+            "type": "string",
+            "enum": [
+              "memory"
+            ]
+          },
+          "persisted": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StudyStart": {
+        "type": "object",
+        "required": [
+          "plannedMinutes"
+        ],
+        "properties": {
+          "plannedMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true
+          }
+        }
+      },
+      "StudySave": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "runId"
+            ],
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 200,
+                "nullable": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "actualMinutes"
+            ],
+            "properties": {
+              "actualMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "plannedMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "subject": {
+                "type": "string",
+                "maxLength": 20,
+                "nullable": true
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 200,
+                "nullable": true
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "not": {
+              "required": [
+                "runId"
+              ]
+            }
+          }
+        ],
+        "description": "提供 runId 时只使用本人已结束计时的服务端时长、科目、开始时间，额外客户端同名值被忽略；note 可选。不提供 runId 则保留既有手动补录。"
+      },
+      "PeriodUpdate": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "cycleDays": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 45
+          }
+        }
+      },
+      "PeriodRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "userId",
+          "startDate",
+          "endDate",
+          "cycleDays",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cycleDays": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 45
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PeriodSummary": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "nextDate",
+          "daysUntil",
+          "basedOnRecordId",
+          "source"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "format": "date"
+          },
+          "nextDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "daysUntil": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "basedOnRecordId": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "server_calculation"
+            ]
+          }
+        }
+      },
+      "MakeupParams": {
+        "type": "object",
+        "required": [
+          "smooth",
+          "whiten",
+          "slim",
+          "eye"
+        ],
+        "properties": {
+          "smooth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "whiten": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "slim": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "eye": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "MakeupPreview": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "source",
+          "execution",
+          "result"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "cloud_mock"
+            ]
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          },
+          "result": {
+            "type": "object",
+            "required": [
+              "kind",
+              "imageUrl",
+              "params",
+              "message"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image"
+                ]
+              },
+              "imageUrl": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  null
+                ]
+              },
+              "params": {
+                "$ref": "#/components/schemas/MakeupParams"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "WardrobePreview": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "source",
+          "execution",
+          "result"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "cloud_mock"
+            ]
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          },
+          "result": {
+            "type": "object",
+            "required": [
+              "kind",
+              "modelUrl",
+              "name",
+              "message"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
+              "modelUrl": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  null
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "ReminderUpdate": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "instruction": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ]
+          },
+          "freq": {
+            "type": "string",
+            "enum": [
+              "once",
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "weekdays": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            }
+          },
+          "monthDay": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          }
+        }
+      },
+      "DueReminders": {
+        "type": "object",
+        "required": [
+          "deliveries",
+          "deferredTaskCount",
+          "execution"
+        ],
+        "properties": {
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "status",
+                "result",
+                "reminder",
+                "fireAt"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending"
+                  ]
+                },
+                "result": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "reminder": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "content",
+                    "freq",
+                    "time",
+                    "instruction"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "freq": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "instruction": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                },
+                "fireAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "deferredTaskCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "execution": {
+            "$ref": "#/components/schemas/CloudMockExecution"
+          }
+        }
+      },
+      "TodoUpdate": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "dueTime": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "nullable": true
+          },
+          "isDone": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HabitUpdate": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "droplet",
+              "moon",
+              "dumbbell",
+              "book",
+              "flower",
+              "pen"
+            ]
+          }
+        }
+      },
+      "SavedHabit": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "icon"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          }
+        }
+      },
+      "StudyRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "subject",
+          "plannedMinutes",
+          "startedAt",
+          "finishedAt",
+          "actualMinutes",
+          "savedSession",
+          "serverNow",
+          "execution"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "finished",
+              "saved"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "actualMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240,
+            "nullable": true
+          },
+          "savedSession": {
+            "type": "object",
+            "required": [
+              "id",
+              "subject",
+              "plannedMinutes",
+              "actualMinutes",
+              "note",
+              "aiComment",
+              "aiCommentSource",
+              "startedAt",
+              "createdAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string",
+                "nullable": true
+              },
+              "plannedMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "actualMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "note": {
+                "type": "string",
+                "nullable": true
+              },
+              "aiComment": {
+                "type": "string",
+                "nullable": true
+              },
+              "aiCommentSource": {
+                "type": "string",
+                "nullable": true
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "nullable": true
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/StudyRunExecution"
+          }
+        }
+      },
+      "StudyRunOrNull": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "subject",
+          "plannedMinutes",
+          "startedAt",
+          "finishedAt",
+          "actualMinutes",
+          "savedSession",
+          "serverNow",
+          "execution"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "finished",
+              "saved"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "actualMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240,
+            "nullable": true
+          },
+          "savedSession": {
+            "type": "object",
+            "required": [
+              "id",
+              "subject",
+              "plannedMinutes",
+              "actualMinutes",
+              "note",
+              "aiComment",
+              "aiCommentSource",
+              "startedAt",
+              "createdAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string",
+                "nullable": true
+              },
+              "plannedMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "actualMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 240
+              },
+              "note": {
+                "type": "string",
+                "nullable": true
+              },
+              "aiComment": {
+                "type": "string",
+                "nullable": true
+              },
+              "aiCommentSource": {
+                "type": "string",
+                "nullable": true
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "nullable": true
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/StudyRunExecution"
+          }
+        },
+        "nullable": true
+      }
+    }
+  }
+}

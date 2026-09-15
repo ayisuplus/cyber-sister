@@ -1,12 +1,11 @@
 /**
- * 专注自习服务：番茄钟结束后的自习记录、今日/本周/连续天数统计，
- * 每条记录可生成幂等的姐妹人格化短评（脱敏、同意门与日记一致）。
- * 记录不可编辑只可删，短评不会因内容变化失效。
+ * 自习计时联调、确认记录与统计。计时状态是有界的进程内模拟；
+ * 用户确认的记录写入数据库，新的云端短评只返回模拟预览。
  */
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
-import { generateCompanionNote } from './llmService.js'
-import { buildUserModelOptions } from './userModelOptions.js'
+import { randomUUID } from 'node:crypto'
+import { generateWorkComment } from './workCloudService.js'
 import { streakOf } from './habitService.js'
 import logger from '../utils/logger.js'
 
@@ -14,6 +13,68 @@ const MAX_MINUTES = 240
 const SUBJECT_MAX = 20
 const NOTE_MAX = 200
 const DAY_MS = 24 * 60 * 60 * 1000
+// 联调中的计时接口仅保存在当前进程；确认后的自习记录仍写入原数据库。
+const activeRuns = new Map()
+const MAX_ACTIVE_USERS = 1000
+
+function pruneRuns() {
+  for (const [userId, run] of activeRuns) {
+    if (run.expiresAt <= Date.now() && !run.saving) activeRuns.delete(userId)
+  }
+}
+
+function serializeRun(run) {
+  if (!run) return null
+  return {
+    id: run.id, status: run.status, subject: run.subject, plannedMinutes: run.plannedMinutes,
+    startedAt: new Date(run.startedAt).toISOString(), finishedAt: run.finishedAt ? new Date(run.finishedAt).toISOString() : null,
+    actualMinutes: run.actualMinutes ?? null, savedSession: run.savedSession ?? null,
+    serverNow: new Date().toISOString(),
+    execution: { mode: 'mock', storage: 'memory', persisted: false, expiresAt: new Date(run.expiresAt).toISOString() },
+  }
+}
+
+function ownedRun(userId, runId) {
+  pruneRuns()
+  const run = activeRuns.get(userId)
+  if (!run || run.id !== runId) throw new HttpError('这次计时不存在或已过期，请重新开始', 404)
+  return run
+}
+
+export function getActiveSession(userId) {
+  pruneRuns()
+  return serializeRun(activeRuns.get(userId))
+}
+
+export function startSession(userId, { plannedMinutes, subject } = {}) {
+  validateMinutes(plannedMinutes)
+  const safeSubject = subject == null ? null : String(subject).trim() || null
+  if (safeSubject?.length > SUBJECT_MAX) throw new HttpError(`科目不能超过${SUBJECT_MAX}个字符`, 400)
+  pruneRuns()
+  const current = activeRuns.get(userId)
+  if (current && current.status !== 'saved') throw new HttpError('还有一轮自习未处理，请继续或放弃它', 409)
+  if (!current && activeRuns.size >= MAX_ACTIVE_USERS) throw new HttpError('模拟计时已满，请稍后再试', 503)
+  const run = { id: randomUUID(), status: 'running', subject: safeSubject, plannedMinutes, startedAt: Date.now(), expiresAt: Date.now() + DAY_MS }
+  activeRuns.set(userId, run)
+  return serializeRun(run)
+}
+
+export function finishSession(userId, runId) {
+  const run = ownedRun(userId, runId)
+  if (run.status === 'running') {
+    run.finishedAt = Date.now()
+    run.actualMinutes = Math.min(run.plannedMinutes, Math.max(1, Math.ceil((run.finishedAt - run.startedAt) / 60000)))
+    run.status = 'finished'
+  }
+  return serializeRun(run)
+}
+
+export function cancelSession(userId, runId) {
+  const run = ownedRun(userId, runId)
+  if (run.saving) throw new HttpError('这次记录正在保存，请稍后重试', 409)
+  activeRuns.delete(userId)
+  return { cancelled: true }
+}
 
 function validateMinutes(minutes) {
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES) {
@@ -41,7 +102,24 @@ function localDayString(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export async function recordSession(userId, { plannedMinutes, actualMinutes, subject, note, startedAt }) {
+export async function recordSession(userId, { plannedMinutes, actualMinutes, subject, note, startedAt, runId } = {}) {
+  if (runId !== undefined) {
+    const run = ownedRun(userId, runId)
+    if (run.status === 'running') throw new HttpError('请先结束这次计时再保存', 409)
+    if (run.savedSession) return run.savedSession
+    if (run.saving) return run.saving
+    run.saving = recordSession(userId, {
+      plannedMinutes: run.plannedMinutes, actualMinutes: run.actualMinutes,
+      subject: run.subject, startedAt: run.startedAt, note,
+    })
+    try {
+      run.savedSession = await run.saving
+      run.status = 'saved'
+      return run.savedSession
+    } finally {
+      run.saving = null
+    }
+  }
   const actual = validateMinutes(actualMinutes)
   const planned = plannedMinutes === undefined ? actual : validateMinutes(plannedMinutes)
   let safeSubject
@@ -107,8 +185,7 @@ export async function getSummary(userId) {
 }
 
 /**
- * 为一次自习记录生成（或复用）AI 闺蜜回应。
- * 幂等：已有回应直接返回，不重复消耗模型；记录不可编辑，无需失效逻辑。
+ * 复用既有回应；未生成过的记录只预览模拟云端回应，不写入数据库。
  */
 export async function generateSessionComment(userId, sessionId, requestId) {
   const session = await prisma.studySession.findFirst({ where: { id: sessionId, userId } })
@@ -117,17 +194,9 @@ export async function generateSessionComment(userId, sessionId, requestId) {
     return { aiComment: session.aiComment, source: session.aiCommentSource, reused: true }
   }
 
-  const { user, modelOptions } = await buildUserModelOptions(userId)
-  const note = await generateCompanionNote({
-    persona: user.persona,
-    instruction: `用户刚完成一次专注自习：科目「${session.subject || '未标记'}」，计划 ${session.plannedMinutes} 分钟，实际专注 ${session.actualMinutes} 分钟。${session.note ? '她记了一句收获，回应时可以呼应它。' : ''}作为她的 AI 闺蜜，用 1-2 句话回应：认可她的投入，顺便提醒她休息一下眼睛、喝口水；不说教、不打鸡血、不和任何人比较。`,
-    userText: session.note || '我刚专注完，陪我一下？',
-  }, requestId, modelOptions)
-
-  const updated = await prisma.studySession.update({
-    where: { id: session.id },
-    data: { aiComment: note.content, aiCommentSource: note.source },
+  const result = await generateWorkComment('study', {
+    subject: session.subject, plannedMinutes: session.plannedMinutes,
+    actualMinutes: session.actualMinutes, note: session.note, requestId,
   })
-  logger.info('生成自习回应', { userId, source: note.source })
-  return { aiComment: updated.aiComment, source: updated.aiCommentSource, reused: false }
+  return { aiComment: result.content, source: result.source, reused: false, execution: result.execution }
 }

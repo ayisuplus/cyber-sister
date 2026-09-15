@@ -57,7 +57,7 @@ describe('LettersPage', () => {
     letterService.list.mockResolvedValue({ letters: [] })
     renderPage()
 
-    expect(await screen.findByText(/还没到能写信的时候/)).toBeInTheDocument()
+    expect(await screen.findByText('信箱还空着')).toBeInTheDocument()
   })
 
   it('shows a load error', async () => {
@@ -65,5 +65,16 @@ describe('LettersPage', () => {
     renderPage()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('加载失败，请检查网络后重试')
+  })
+
+  it('shows a simulated letter separately without adding it to the real inbox', async () => {
+    const user = userEvent.setup()
+    letterService.generate.mockResolvedValue({ letter: null, created: false, execution: { mode: 'mock' }, preview: { content: '模拟信件样例' } })
+    renderPage()
+    await screen.findByText('9月7日那周的信')
+    await user.click(screen.getByRole('button', { name: '预览一封信' }))
+    expect(await screen.findByRole('region', { name: '模拟来信预览' })).toHaveTextContent('模拟信件样例')
+    expect(screen.getAllByText(/那周的信/)).toHaveLength(2)
+    expect(letterService.list).toHaveBeenCalledTimes(1)
   })
 })

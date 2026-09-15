@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   const instance = vi.fn()
+  instance.post = vi.fn()
   instance.interceptors = {
     request: { use: vi.fn() },
     response: { use: vi.fn() },
@@ -19,6 +20,7 @@ vi.mock('axios', () => ({
 
 import api from './api'
 import { useAuthStore } from '../stores/authStore'
+import { resetSession } from './sessionLifecycle'
 
 const attachAuth = (token) => {
   useAuthStore.setState({ token, user: { id: 'u1' }, isLoggedIn: true })
@@ -87,9 +89,11 @@ describe('api response interceptor', () => {
   it('never tries to refresh for failed login or refresh calls', async () => {
     const loginError = unauthorized({ config: { url: '/auth/login', headers: {} } })
     const refreshError = unauthorized({ config: { url: '/auth/refresh', headers: {} } })
+    const logoutError = unauthorized({ config: { url: '/auth/logout', headers: {} } })
 
     await expect(responseErrorInterceptor(loginError)).rejects.toBe(loginError)
     await expect(responseErrorInterceptor(refreshError)).rejects.toBe(refreshError)
+    await expect(responseErrorInterceptor(logoutError)).rejects.toBe(logoutError)
     expect(mocks.axiosPost).not.toHaveBeenCalled()
   })
 
@@ -109,7 +113,7 @@ describe('api response interceptor', () => {
 
     const result = await responseErrorInterceptor(error)
 
-    expect(mocks.axiosPost).toHaveBeenCalledWith('/api/auth/refresh', {}, { withCredentials: true })
+    expect(mocks.axiosPost).toHaveBeenCalledWith('/api/auth/refresh', {}, { withCredentials: true, timeout: 75_000 })
     // 内存中的 store 被更新（persist 同步 localStorage），不会被旧 token 回写覆盖
     expect(useAuthStore.getState().token).toBe('fresh-token')
     const persisted = JSON.parse(localStorage.getItem('cyber-sister-auth'))
@@ -118,6 +122,61 @@ describe('api response interceptor', () => {
     expect(error.config.headers.Authorization).toBe('Bearer fresh-token')
     expect(mocks.instance).toHaveBeenCalledWith(error.config)
     expect(result).toEqual({ data: 'retried-response' })
+  })
+
+  it('rejects an old account refresh without overwriting or retrying under the new account', async () => {
+    attachAuth('old-token')
+    let resolveRefresh
+    mocks.axiosPost.mockImplementation(() => new Promise((resolve) => { resolveRefresh = resolve }))
+    const pending = responseErrorInterceptor(unauthorized())
+    await vi.waitFor(() => expect(mocks.axiosPost).toHaveBeenCalledOnce())
+    resetSession()
+    useAuthStore.setState({ token: 'new-token', user: { id: 'u2' }, isLoggedIn: true })
+    resolveRefresh({ data: { token: 'old-refreshed-token' } })
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(useAuthStore.getState()).toMatchObject({ token: 'new-token', user: { id: 'u2' } })
+    expect(mocks.instance).not.toHaveBeenCalled()
+  })
+
+  it('does not refresh a delayed 401 belonging to a previous account', async () => {
+    attachAuth('old-token')
+    const config = requestInterceptor({ url: '/old-write', headers: {} })
+    mocks.instance.post.mockResolvedValue({ data: { token: 'new-token', user: { id: 'u2' } } })
+    await useAuthStore.getState().login('13900000000', '123456')
+    await expect(responseErrorInterceptor({ config, response: { status: 401 } })).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(mocks.axiosPost).not.toHaveBeenCalled()
+  })
+
+  it('finishes refresh before dispatching a new login that replaces its cookie', async () => {
+    attachAuth('old-token')
+    let resolveRefresh
+    mocks.axiosPost.mockImplementation(() => new Promise((resolve) => { resolveRefresh = resolve }))
+    const refresh = useAuthStore.getState().refreshAuth()
+    await vi.waitFor(() => expect(mocks.axiosPost).toHaveBeenCalledOnce())
+    mocks.instance.post.mockResolvedValue({ data: { token: 'new-token', user: { id: 'u2' } } })
+    const login = useAuthStore.getState().login('13900000000', '123456')
+    await Promise.resolve()
+    expect(mocks.instance.post).not.toHaveBeenCalled()
+    resolveRefresh({ data: { token: 'old-refreshed-token' } })
+    await refresh
+    await login
+    expect(mocks.instance.post).toHaveBeenCalledOnce()
+    expect(useAuthStore.getState()).toMatchObject({ token: 'new-token', user: { id: 'u2' } })
+  })
+
+  it('allows a queued login after an older refresh fails', async () => {
+    attachAuth('expired-token')
+    let rejectRefresh
+    mocks.axiosPost.mockImplementation(() => new Promise((_, reject) => { rejectRefresh = reject }))
+    const refresh = useAuthStore.getState().refreshAuth()
+    const rejected = expect(refresh).rejects.toThrow('expired')
+    await vi.waitFor(() => expect(mocks.axiosPost).toHaveBeenCalledOnce())
+    mocks.instance.post.mockResolvedValue({ data: { token: 'new-token', user: { id: 'u2' } } })
+    const login = useAuthStore.getState().login('13900000000', '123456')
+    rejectRefresh(new Error('expired'))
+    await rejected
+    await login
+    expect(useAuthStore.getState()).toMatchObject({ token: 'new-token', user: { id: 'u2' }, isLoggedIn: true })
   })
 
   it('queues concurrent 401s behind the in-flight refresh and retries all of them', async () => {
@@ -133,6 +192,7 @@ describe('api response interceptor', () => {
     const secondPromise = responseErrorInterceptor(second)
 
     // 第二次 401 进入等待队列，不会触发第二次刷新
+    await vi.waitFor(() => expect(mocks.axiosPost).toHaveBeenCalledOnce())
     expect(mocks.axiosPost).toHaveBeenCalledTimes(1)
     expect(mocks.instance).not.toHaveBeenCalled()
 
@@ -156,6 +216,7 @@ describe('api response interceptor', () => {
 
     const firstPromise = responseErrorInterceptor(first)
     const secondPromise = responseErrorInterceptor(second)
+    await vi.waitFor(() => expect(mocks.axiosPost).toHaveBeenCalledOnce())
     rejectRefresh(refreshFailure)
 
     await expect(firstPromise).rejects.toBe(refreshFailure)

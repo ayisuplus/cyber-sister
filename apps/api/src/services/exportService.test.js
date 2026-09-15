@@ -17,12 +17,16 @@ const db = vi.hoisted(() => ({
   wardrobeItemFindMany: vi.fn(),
   edgeFindMany: vi.fn(),
   letterFindMany: vi.fn(),
+  workTaskFindMany: vi.fn(),
 }))
 
-vi.mock('../prisma/client.js', () => ({
-  default: {
+vi.mock('../prisma/client.js', () => {
+  const client = {
     user: { findUnique: db.userFindUnique },
-    memory: { findMany: db.memoryFindMany },
+    memory: { findMany: async (args) => {
+      const rows = await db.memoryFindMany(args)
+      return args.include?.revisions ? rows.map((memory, index) => ({ ...memory, id: 'm' + index, portableId: 'portable' + index, revision: 1, revisions: [] })) : rows
+    } },
     conversation: { findMany: db.conversationFindMany },
     todo: { findMany: db.todoFindMany },
     countdown: { findMany: db.countdownFindMany },
@@ -37,8 +41,11 @@ vi.mock('../prisma/client.js', () => ({
     wardrobeItem: { findMany: db.wardrobeItemFindMany },
     memoryEdge: { findMany: db.edgeFindMany },
     letter: { findMany: db.letterFindMany },
-  },
-}))
+    workTask: { findMany: db.workTaskFindMany },
+  }
+  client.$transaction = vi.fn((operation) => operation(client))
+  return { default: client }
+})
 
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -63,7 +70,7 @@ describe('exportService.buildUserExport', () => {
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -81,19 +88,44 @@ describe('exportService.buildUserExport', () => {
     expect(JSON.stringify(bundle)).not.toContain('refreshToken')
   })
 
-  it('全部 16 张表按当前用户过滤查询', async () => {
+  it('角色成长与正式记忆分节导出，消息保留数值经历依据', async () => {
+    db.userFindUnique.mockResolvedValue({ companionRevision: 3, companionState: { schemaVersion: 1, experienceCount: 3 } })
+    db.conversationFindMany.mockResolvedValue([{ messages: [{ role: 'assistant', content: '好的', companionExperience: { revision: 3, observation: { positive: 1 } } }] }])
+    const bundle = await buildUserExport('user-1')
+    expect(bundle.companion).toEqual({ revision: 3, state: { schemaVersion: 1, experienceCount: 3 } })
+    expect(bundle.conversations[0].messages[0].companionExperience).toMatchObject({ revision: 3 })
+    expect(bundle.memories).toEqual([])
+  })
+
+  it('全部 17 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: { userId: 'user-1' },
       }))
     }
+  })
+
+  it('工作文件正文跟随所属消息导出，不只留下不可迁移的下载 id', async () => {
+    const artifact = { id: 'a1', title: '任务报告', format: 'md', content: '# 报告', sizeBytes: 8, createdAt: new Date('2026-09-15T00:00:00Z') }
+    db.conversationFindMany.mockResolvedValue([{ mode: 'work', messages: [{ role: 'assistant', content: '已交付', workArtifacts: [artifact] }] }])
+    const bundle = await buildUserExport('user-1')
+    expect(bundle.conversations[0].messages[0].workArtifacts).toEqual([{ ...artifact, createdAt: '2026-09-15T00:00:00.000Z' }])
+  })
+
+  it('待完成任务保留用户上传内容，导出查询排除执行令牌与模型检查点', async () => {
+    const attachment = { title: '输入', format: 'csv', content: 'value\n425', encoding: 'utf8' }
+    db.workTaskFindMany.mockResolvedValue([{ content: '分析文件', status: 'failed', attachments: [attachment], createdAt: new Date('2026-09-15T00:00:00Z') }])
+    const bundle = await buildUserExport('user-1')
+    expect(bundle.workTasks[0]).toMatchObject({ status: 'failed', attachments: [attachment], createdAt: '2026-09-15T00:00:00.000Z' })
+    const select = db.workTaskFindMany.mock.calls[0][0].select
+    for (const key of ['leaseToken', 'requestKey', 'requestHash', 'checkpoint']) expect(select).not.toHaveProperty(key)
   })
 
   it('妆容预设全字段导出；衣柜只导出单品元数据（二进制资产走 v1 边界）', async () => {

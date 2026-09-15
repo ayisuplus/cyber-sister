@@ -13,20 +13,21 @@ vi.mock('../stores/chatStore', () => {
 
 import useGlobalShortcuts from './useGlobalShortcuts'
 
-function Harness() {
+function Harness({ modalRole = undefined }) {
   const { helpOpen } = useGlobalShortcuts()
   const { pathname } = useLocation()
   return (
     <div>
       <textarea aria-label="聊天消息" />
       <div data-testid="pathname">{pathname}</div>
-      <div data-testid="help">{helpOpen ? 'open' : 'closed'}</div>
+      <div data-testid="help" role={helpOpen ? 'dialog' : undefined} aria-modal={helpOpen ? 'true' : undefined}>{helpOpen ? 'open' : 'closed'}</div>
+      {modalRole && <div role={modalRole} aria-modal="true" aria-label="沉浸书桌"><button type="button">关闭书桌</button><input aria-label="弹层输入" /></div>}
     </div>
   )
 }
 
-const renderAt = (route) => render(
-  <MemoryRouter initialEntries={[route]}><Harness /></MemoryRouter>,
+const renderAt = (route, modalRole = undefined) => render(
+  <MemoryRouter initialEntries={[route]}><Harness modalRole={modalRole} /></MemoryRouter>,
 )
 
 describe('useGlobalShortcuts', () => {
@@ -99,6 +100,46 @@ describe('useGlobalShortcuts', () => {
     fireEvent.keyDown(document, { key: 'O', metaKey: true, shiftKey: true })
 
     expect(mocks.createConversation).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['dialog', 'alertdialog'])('keeps / and ? inside an active %s', (modalRole) => {
+    renderAt('/chat', modalRole)
+    const close = screen.getByRole('button', { name: '关闭书桌' })
+    close.focus()
+
+    fireEvent.keyDown(close, { key: '/' })
+    expect(document.activeElement).toBe(close)
+    fireEvent.keyDown(close, { key: '?' })
+    expect(screen.getByTestId('help')).toHaveTextContent('closed')
+    expect(document.activeElement).toBe(close)
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('does not create a background conversation with %s while a modal is open', (modifier) => {
+    renderAt('/tools', 'dialog')
+
+    fireEvent.keyDown(document, { key: 'O', [modifier]: true, shiftKey: true })
+
+    expect(mocks.createConversation).not.toHaveBeenCalled()
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/tools')
+  })
+
+  it('leaves Escape focus handling to the active modal', () => {
+    renderAt('/chat', 'dialog')
+    const input = screen.getByRole('textbox', { name: '弹层输入' })
+    input.focus()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('resumes background shortcuts once the modal is removed', () => {
+    const { rerender } = renderAt('/chat', 'dialog')
+    rerender(<MemoryRouter initialEntries={['/chat']}><Harness /></MemoryRouter>)
+
+    fireEvent.keyDown(document, { key: '/' })
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '聊天消息' }))
   })
 
   it('stays inert on /login', () => {

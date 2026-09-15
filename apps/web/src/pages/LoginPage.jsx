@@ -2,9 +2,13 @@ import { useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ArrowRight, Lock, ShieldCheck, Smartphone } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import Spinner from '../components/ui/Spinner'
+import BrandMark from '../components/ui/BrandMark'
+import { LeafSprig } from '../components/chat/Doodles'
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/
 const CODE_PATTERN = /^\d{6}$/
+const BACKEND_PENDING = import.meta.env.VITE_BACKEND_PENDING === 'true'
 
 // 防呆：粘贴板里的空格/连字符等一律剔除，只留数字，避免肉眼不可见的字符送检失败。
 const digitsOnly = (value) => value.replace(/\D/g, '')
@@ -23,6 +27,7 @@ export default function LoginPage() {
 
   const handleLogin = async (event) => {
     event.preventDefault()
+    if (BACKEND_PENDING) return
     // 本地格式校验先行：格式根本不合法的请求不发给服务端，避免白扣锁定计数。
     if (!phone) { setError('请输入手机号'); return }
     if (!PHONE_PATTERN.test(phone)) { setError('手机号是 11 位数字、以 1 开头，再检查一下'); return }
@@ -57,33 +62,38 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-surface-card">
-      <div className="relative flex min-h-[310px] flex-col items-center justify-center overflow-hidden bg-gradient-pastel px-8 py-6">
-        <div className="absolute -left-12 top-10 h-40 w-40 rounded-full bg-pastel-blush blur-2xl opacity-70" aria-hidden="true" />
-        <div className="absolute -right-10 bottom-3 h-44 w-44 rounded-full bg-pastel-sprout blur-2xl opacity-70" aria-hidden="true" />
+      <div className="relative flex min-h-[310px] flex-col items-center justify-center overflow-hidden bg-gradient-pastel px-8 pb-12 pt-8">
+        {/* 两枝叶子从卡片边缘探进来，极慢摇曳 */}
+        <span aria-hidden="true" className="animate-doodle-float absolute -left-1 bottom-6 text-action-primary opacity-25" style={{ animationDuration: '13s' }}>
+          <LeafSprig size={96} />
+        </span>
+        <span aria-hidden="true" className="animate-doodle-float absolute -right-1 top-5 text-action-primary opacity-20" style={{ animationDuration: '15s', animationDelay: '-6s' }}>
+          <LeafSprig size={76} flip />
+        </span>
 
-        <div className="relative z-10 mb-4 flex h-24 w-24 items-center justify-center rounded-3xl bg-surface-card shadow-card">
-          <img src="/design-assets/logo.png" alt="Amie" className="h-16 w-16 object-contain" onError={event => { event.currentTarget.style.display = 'none' }} />
+        <div className="relative z-10 mb-5 h-36 w-32 overflow-hidden rounded-[999px_999px_28px_28px] bg-surface-card shadow-soft ring-4 ring-surface-card">
+          <img src="/design-assets/hero-login.png" alt="" loading="lazy" className="h-full w-full object-cover saturate-[.85]" onError={event => { event.currentTarget.style.display = 'none' }} />
         </div>
-        <img src="/design-assets/hero-login.png" alt="" loading="lazy" className="relative z-10 mb-4 max-h-36 w-auto max-w-full rounded-2xl object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
 
-        <h1 className="relative z-10 mb-2 text-3xl font-bold tracking-tight text-text-primary">Amie</h1>
-        <p className="relative z-10 text-sm font-medium text-text-secondary">像闺蜜一样好好说话</p>
-        <span className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full bg-surface-card px-3 py-1.5 text-xs font-medium text-status-info shadow-card">
+        <BrandMark as="h1" size="lg" className="relative z-10" />
+        <p className="relative z-10 mt-3 font-hand text-[15px] tracking-[0.18em] text-text-secondary">像闺蜜一样好好说话</p>
+        <span className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full bg-surface-card px-3 py-1.5 text-xs font-medium text-status-info shadow-soft">
           <ShieldCheck size={14} aria-hidden="true" />
           聊天由经批准的云端模型提供，用你的同意才开放
         </span>
       </div>
 
-      <div className="relative z-10 -mt-8 flex-1 rounded-t-[32px] bg-surface-card px-8 pt-8 overflow-y-auto">
+      <div className="relative z-10 -mt-8 flex-1 rounded-t-[32px] bg-surface-card px-8 pb-8 pt-8 overflow-y-auto">
         <form className="space-y-5" onSubmit={handleLogin}>
+          {BACKEND_PENDING && <p role="status" className="text-center text-sm text-text-secondary">聊天后端正在接入，登录暂未开放。工作模式将通过本地客户端提供。</p>}
           <div className="group relative">
             <Smartphone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors group-focus-within:text-status-info" aria-hidden="true" />
-            <input id="phone" aria-label="手机号" autoComplete="tel" type="tel" inputMode="numeric" value={phone} onChange={event => setPhone(digitsOnly(event.target.value).slice(0, 11))} placeholder="请输入 11 位手机号" maxLength={11} className="min-h-12 w-full rounded-2xl bg-surface-input pl-12 pr-4 text-sm text-text-primary outline-none transition-all placeholder:text-text-muted focus:bg-surface-card focus:ring-2 focus:ring-status-info" />
+            <input id="phone" aria-label="手机号" autoComplete="tel" type="tel" inputMode="numeric" value={phone} onChange={event => setPhone(digitsOnly(event.target.value).slice(0, 11))} placeholder="请输入 11 位手机号" maxLength={11} className="field-calm min-h-12 w-full rounded-2xl pl-12 pr-4 text-sm text-text-primary placeholder:text-text-muted" />
           </div>
 
           <div className="group relative">
             <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors group-focus-within:text-status-info" aria-hidden="true" />
-            <input id="verification-code" aria-label="内测验证码" autoComplete="one-time-code" inputMode="numeric" type="text" ref={codeInputRef} value={code} onChange={event => setCode(digitsOnly(event.target.value).slice(0, 6))} placeholder="6 位数字验证码" maxLength={6} className="min-h-12 w-full rounded-2xl bg-surface-input pl-12 pr-4 text-sm text-text-primary outline-none transition-all placeholder:text-text-muted focus:bg-surface-card focus:ring-2 focus:ring-status-info" />
+            <input id="verification-code" aria-label="内测验证码" autoComplete="one-time-code" inputMode="numeric" type="text" ref={codeInputRef} value={code} onChange={event => setCode(digitsOnly(event.target.value).slice(0, 6))} placeholder="6 位数字验证码" maxLength={6} className="field-calm min-h-12 w-full rounded-2xl pl-12 pr-4 text-sm text-text-primary placeholder:text-text-muted" />
           </div>
 
           {error && <p role="alert" className="text-center text-xs text-danger">{error}</p>}
@@ -92,16 +102,16 @@ export default function LoginPage() {
             <span className="inline-block rounded-full bg-pastel-blush px-3 py-1 text-xs text-action-primary">请输入内测负责人单独发放的验证码</span>
           </p>
 
-          <button type="submit" disabled={loading} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px] bg-action-primary font-semibold text-text-inverse transition-colors hover:bg-action-hover focus:ring-2 focus:ring-status-info disabled:opacity-60" style={{ boxShadow: 'var(--cs-shadow-button)' }}>
+          <button type="submit" disabled={loading || BACKEND_PENDING} className="group flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-action-primary font-semibold text-text-inverse shadow-button transition-[background-color,box-shadow,transform] duration-300 ease-calm hover:bg-action-hover hover:shadow-md focus-visible:ring-2 focus-visible:ring-status-info active:scale-[0.99] disabled:opacity-60">
             {loading ? (
               <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-pastel-blush border-t-surface-card" aria-hidden="true" />
+                <Spinner onDark />
                 登录中...
               </>
             ) : (
               <>
                 开始聊天
-                <ArrowRight size={18} aria-hidden="true" />
+                <ArrowRight size={18} aria-hidden="true" className="transition-transform duration-300 ease-calm group-hover:translate-x-[3px]" />
               </>
             )}
           </button>

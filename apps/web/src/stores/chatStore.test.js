@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../services/chatService', () => ({
   chatService: {
@@ -7,11 +7,24 @@ vi.mock('../services/chatService', () => ({
     createConversation: vi.fn(),
     streamMessage: vi.fn(),
     deleteConversation: vi.fn(),
+    setArchived: vi.fn(),
   },
 }))
 
 import { chatService } from '../services/chatService'
 import { useChatStore } from './chatStore'
+
+afterEach(() => vi.unstubAllEnvs())
+
+it('web refuses work mode and discards a loaded work conversation', async () => {
+  vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
+  useChatStore.getState().reset()
+  useChatStore.getState().setChatMode('work')
+  expect(useChatStore.getState().chatMode).toBe('chat')
+  chatService.getConversation.mockResolvedValue({ id: 'work-1', mode: 'work', messages: [{ content: 'hidden' }] })
+  await useChatStore.getState().setCurrentConversation('work-1')
+  expect(useChatStore.getState()).toMatchObject({ chatMode: 'chat', messages: [], currentConversationId: null })
+})
 
 const resetStore = () => useChatStore.setState({
   conversations: [],
@@ -27,6 +40,140 @@ const streamScript = (events) => (conversationId, content, { onEvent }) => {
   for (const event of events) onEvent(event)
   return Promise.resolve()
 }
+
+const deferred = () => {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+describe('chatStore lifecycle ownership', () => {
+  beforeEach(() => {
+    useChatStore.getState().reset()
+    resetStore()
+  })
+
+  it('后台结果刷新不会覆盖切换后的会话或中断在途消息', async () => {
+    useChatStore.setState({ currentConversationId: 'c1', messages: [{ id: 'old' }] })
+    const response = deferred()
+    chatService.getConversation.mockReturnValueOnce(response.promise)
+    const refreshing = useChatStore.getState().refreshConversation('c1')
+    useChatStore.setState({ currentConversationId: 'c2', messages: [{ id: 'new' }] })
+    response.resolve({ messages: [{ id: 'late' }] })
+    await refreshing
+    expect(useChatStore.getState().messages).toEqual([{ id: 'new' }])
+    chatService.getConversation.mockClear()
+    useChatStore.setState({ isSending: true })
+    await useChatStore.getState().refreshConversation('c2')
+    expect(chatService.getConversation).not.toHaveBeenCalled()
+  })
+
+  it('工作工具进度在空白回复中可见，终态后的迟到工具和内容不再污染回复', async () => {
+    useChatStore.setState({ chatMode: 'work', currentConversationId: 'c1', conversations: [{ id: 'c1', mode: 'work' }] })
+    chatService.streamMessage.mockImplementation(async (_id, _text, { onEvent }) => {
+      onEvent({ event: 'tool_progress', step: 0, tool: 'create_artifact', status: 'running' })
+      expect(useChatStore.getState().messages.at(-1).progress[0].status).toBe('running')
+      expect(useChatStore.getState().isTyping).toBe(false)
+      onEvent({ event: 'done', userMessage: { id: 'u1', role: 'user', content: '报告' }, aiMessage: { id: 'a1', role: 'assistant', content: '完成' } })
+      onEvent({ event: 'tool_progress', step: 1, tool: 'web_search', status: 'running' })
+      onEvent({ event: 'delta', text: 'late' })
+      expect(useChatStore.getState().messages.at(-1).content).toBe('')
+      expect(useChatStore.getState().messages.at(-1).progress).toHaveLength(1)
+    })
+    await useChatStore.getState().sendMessage('报告')
+    expect(useChatStore.getState().messages.at(-1).content).toBe('完成')
+  })
+
+  it('archives the active conversation and selects the next active conversation', async () => {
+    chatService.setArchived.mockResolvedValue({ success: true })
+    chatService.getConversation.mockResolvedValue({ id: 'c2', messages: [{ id: 'm2' }] })
+    useChatStore.setState({ conversations: [{ id: 'c1' }, { id: 'c2' }], currentConversationId: 'c1', messages: [{ id: 'm1' }] })
+    await useChatStore.getState().archiveConversation('c1')
+    expect(useChatStore.getState().conversations.map(c => c.id)).toEqual(['c2'])
+    expect(useChatStore.getState().currentConversationId).toBe('c2')
+    expect(useChatStore.getState().messages).toEqual([{ id: 'm2' }])
+  })
+
+  it('keeps the list on archive failure and ignores a late response after logout', async () => {
+    useChatStore.setState({ conversations: [{ id: 'c1' }], currentConversationId: 'c1' })
+    chatService.setArchived.mockRejectedValueOnce(new Error('offline'))
+    await expect(useChatStore.getState().archiveConversation('c1')).rejects.toThrow('offline')
+    expect(useChatStore.getState().conversations).toEqual([{ id: 'c1' }])
+    const pending = deferred()
+    chatService.setArchived.mockReturnValueOnce(pending.promise)
+    const action = useChatStore.getState().archiveConversation('c1')
+    useChatStore.getState().reset()
+    useChatStore.setState({ conversations: [{ id: 'new-account' }] })
+    pending.resolve({ success: true })
+    await action
+    expect(useChatStore.getState().conversations).toEqual([{ id: 'new-account' }])
+  })
+
+  it('does not restore a previous account list after reset', async () => {
+    const list = deferred()
+    chatService.getConversations.mockReturnValue(list.promise)
+    chatService.getConversation.mockResolvedValue({ messages: [{ id: 'old-private' }] })
+    const pending = useChatStore.getState().loadConversations()
+    useChatStore.getState().reset()
+    list.resolve([{ id: 'old-account' }])
+    await pending
+    expect(useChatStore.getState().conversations).toEqual([])
+    expect(useChatStore.getState().currentConversationId).toBeNull()
+    expect(chatService.getConversation).not.toHaveBeenCalled()
+  })
+
+  it('does not send or select a conversation created after reset', async () => {
+    const creation = deferred()
+    chatService.createConversation.mockReturnValue(creation.promise)
+    chatService.streamMessage.mockResolvedValue()
+    const pending = useChatStore.getState().sendMessage('previous account draft')
+    useChatStore.getState().reset()
+    creation.resolve({ id: 'old-created' })
+    await expect(pending).resolves.toEqual({ status: 'aborted' })
+    expect(useChatStore.getState().currentConversationId).toBeNull()
+    expect(chatService.streamMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps a new stream busy when an aborted older stream settles late', async () => {
+    const old = deferred()
+    const current = deferred()
+    chatService.streamMessage.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    useChatStore.setState({ currentConversationId: 'old' })
+    const oldSend = useChatStore.getState().sendMessage('old')
+    useChatStore.getState().reset()
+    useChatStore.setState({ currentConversationId: 'new' })
+    const newSend = useChatStore.getState().sendMessage('new')
+    old.resolve()
+    await oldSend
+    expect(useChatStore.getState()).toMatchObject({ isSending: true, isTyping: true })
+    useChatStore.getState().reset()
+    current.resolve()
+    await newSend
+  })
+
+  it('drops an older fetch even when the user reselects the same conversation', async () => {
+    const old = deferred()
+    const current = deferred()
+    chatService.getConversation.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const first = useChatStore.getState().setCurrentConversation('same')
+    const second = useChatStore.getState().setCurrentConversation('same')
+    current.resolve({ messages: [{ id: 'latest' }] })
+    await second
+    old.resolve({ messages: [{ id: 'obsolete' }] })
+    await first
+    expect(useChatStore.getState().messages).toEqual([{ id: 'latest' }])
+  })
+
+  it('clears old messages immediately while a different conversation loads', async () => {
+    useChatStore.setState({ currentConversationId: 'old', messages: [{ id: 'old-message' }] })
+    const current = deferred()
+    chatService.getConversation.mockReturnValue(current.promise)
+    const pending = useChatStore.getState().setCurrentConversation('new')
+    expect(useChatStore.getState().messages).toEqual([])
+    current.resolve({ messages: [] })
+    await pending
+  })
+})
 
 describe('chatStore', () => {
   beforeEach(resetStore)
@@ -227,14 +374,14 @@ describe('chatStore conversation management', () => {
     expect(chatService.streamMessage).not.toHaveBeenCalled()
   })
 
-  it('keeps previous messages when switching to a conversation that fails to load', async () => {
+  it('keeps the selected conversation empty when its history fails to load', async () => {
     useChatStore.setState({ messages: [{ id: 'keep', role: 'user', content: '保留' }] })
     chatService.getConversation.mockRejectedValue(new Error('offline'))
 
     await useChatStore.getState().setCurrentConversation('c2')
 
     expect(useChatStore.getState().currentConversationId).toBe('c2')
-    expect(useChatStore.getState().messages).toEqual([{ id: 'keep', role: 'user', content: '保留' }])
+    expect(useChatStore.getState().messages).toEqual([])
   })
 
   it('moves to the next conversation after deleting the current one', async () => {
@@ -446,8 +593,7 @@ describe('chatStore stale response guards', () => {
     const result = await sendPromise.catch((error) => error)
 
     expect(useChatStore.getState().messages).toEqual([{ id: 'm-c2' }])
-    // 终态事件被丢弃，视为流中断而非阻断
-    expect(result.code).toBe('STREAM_FAILED')
+    expect(result).toEqual({ status: 'aborted' })
   })
 
   it('discards a conversation fetch that resolves after the user switched away', async () => {
@@ -463,7 +609,7 @@ describe('chatStore stale response guards', () => {
     resolveFirst({ id: 'c1', messages: [{ id: 'stale' }] })
     await switchPromise
 
-    expect(useChatStore.getState().messages).toEqual([{ id: 'keep' }])
+    expect(useChatStore.getState().messages).toEqual([])
   })
 
   it('discards the auto-selected conversation payload if the user picked another one meanwhile', async () => {

@@ -4,8 +4,7 @@
  */
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
-import { generateCompanionNote } from './llmService.js'
-import { buildUserModelOptions } from './userModelOptions.js'
+import { generateWorkComment } from './workCloudService.js'
 import { localTodayUtc, parseUtcDay, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 
@@ -136,27 +135,12 @@ export async function findHabitByName(userId, name) {
 }
 
 /**
- * 聚合打卡状态生成 1-2 句人格化鼓励。
- * 只把习惯名/连续天数/今日完成计数送入模型，不送任何正文内容。
+ * 已有习惯时返回不落库的模拟鼓励；当前不会向模型发送打卡记录。
  */
 export async function generateCheer(userId, requestId) {
   const status = await listHabitsWithStatus(userId)
   if (status.length === 0) return { cheer: null, source: null }
 
-  const { user, modelOptions } = await buildUserModelOptions(userId)
-  const doneToday = status.filter((h) => h.checkedToday).length
-  const summary = status
-    .map((h) => `${h.name}：连续 ${h.streak} 天${h.checkedToday ? '（今天已打卡）' : '（今天还没打）'}`)
-    .join('；')
-  const note = await generateCompanionNote({
-    persona: user.persona,
-    instruction: [
-      `用户今天的手帐打卡情况：${summary}。共 ${status.length} 个习惯，今天已完成 ${doneToday} 个。`,
-      '作为她的 AI 闺蜜，用 1-2 句话回应：做得好就具体夸，没开始就轻轻催一下；',
-      '不说教、不排名、不和别人比较。',
-    ].join(''),
-    userText: '看看我今天的手帐打卡怎么样？',
-  }, requestId, modelOptions)
-  logger.info('生成手帐鼓励', { userId, source: note.source })
-  return { cheer: note.content, source: note.source }
+  const note = await generateWorkComment('habit', { userId, requestId })
+  return { cheer: note.content, source: note.source, execution: note.execution }
 }

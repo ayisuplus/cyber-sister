@@ -10,6 +10,7 @@ vi.mock('../services/userService', () => ({
 
 import { userService } from '../services/userService'
 import { useAppearanceStore } from './appearanceStore'
+import { resetSession } from '../services/sessionLifecycle'
 
 const resetStore = () => useAppearanceStore.setState({ homeBgUrl: null, chatBgUrl: null, loaded: false, assetUrlCache: {} })
 
@@ -69,5 +70,43 @@ describe('appearanceStore', () => {
     await expect(useAppearanceStore.getState().resolveAssetUrl('/user/assets/avatar?v=2')).resolves.toBeNull()
     userService.fetchAssetUrl.mockResolvedValue('blob:retry')
     await expect(useAppearanceStore.getState().resolveAssetUrl('/user/assets/avatar?v=2')).resolves.toBe('blob:retry')
+  })
+
+  it('releases account assets and refetches the same avatar path after session reset', async () => {
+    userService.fetchAssetUrl.mockResolvedValue('blob:account-a')
+    await useAppearanceStore.getState().resolveAssetUrl('/user/assets/avatar')
+    useAppearanceStore.setState({ homeBgUrl: 'blob:home-a', chatBgUrl: 'blob:chat-a', loaded: true })
+    resetSession()
+    await Promise.resolve()
+    expect(useAppearanceStore.getState()).toMatchObject({ homeBgUrl: null, chatBgUrl: null, loaded: false, assetUrlCache: {} })
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:account-a')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:home-a')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:chat-a')
+    userService.fetchAssetUrl.mockResolvedValue('blob:account-b')
+    await expect(useAppearanceStore.getState().resolveAssetUrl('/user/assets/avatar')).resolves.toBe('blob:account-b')
+    expect(userService.fetchAssetUrl).toHaveBeenCalledTimes(2)
+  })
+
+  it('discards and releases an old account avatar that resolves after reset', async () => {
+    let resolveAsset
+    userService.fetchAssetUrl.mockImplementation(() => new Promise((resolve) => { resolveAsset = resolve }))
+    const pending = useAppearanceStore.getState().resolveAssetUrl('/user/assets/avatar')
+    resetSession()
+    resolveAsset('blob:late-old-avatar')
+    await expect(pending).resolves.toBeNull()
+    expect(useAppearanceStore.getState().assetUrlCache).toEqual({})
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:late-old-avatar')
+  })
+
+  it('does not repopulate backgrounds when a previous account load finishes', async () => {
+    let resolveAsset
+    userService.fetchAssetUrl.mockReturnValueOnce(new Promise((resolve) => { resolveAsset = resolve })).mockResolvedValueOnce('blob:old-chat')
+    const pending = useAppearanceStore.getState().loadAppearance()
+    resetSession()
+    resolveAsset('blob:old-home')
+    await pending
+    expect(useAppearanceStore.getState()).toMatchObject({ homeBgUrl: null, chatBgUrl: null, loaded: false })
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:old-home')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:old-chat')
   })
 })

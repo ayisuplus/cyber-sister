@@ -59,6 +59,22 @@ describe('DiaryPage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('加载中…')
   })
 
+  it('labels mock comments and keeps them out of the saved diary state', async () => {
+    const user = userEvent.setup()
+    diaryService.listMonth.mockResolvedValue([todayEntry()])
+    diaryService.getDay.mockResolvedValue(todayEntry())
+    diaryService.requestComment.mockResolvedValue({ aiComment: '模拟日记回应', source: 'cloud_mock' })
+    const view = renderPage()
+    await user.click(await screen.findByRole('button', { name: /让姐妹看看/ }))
+    expect(await screen.findByText('模拟结果 · 未连接云端')).toBeInTheDocument()
+    expect(screen.getByText(/这是模拟回应，未连接云端，也未保存到日记/)).toBeInTheDocument()
+    expect(diaryService.saveDay).not.toHaveBeenCalled()
+    view.unmount()
+    renderPage()
+    await screen.findByLabelText('日记内容')
+    expect(screen.queryByText('模拟日记回应')).not.toBeInTheDocument()
+  })
+
   it('shows a retryable error when loading fails', async () => {
     const user = userEvent.setup()
     diaryService.listMonth.mockRejectedValueOnce(new Error('offline'))

@@ -113,24 +113,16 @@ describe('diaryService', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('generates and persists a persona comment for uncommented entries', async () => {
+  it('returns a clearly labelled mock without model or persistence for an owned diary', async () => {
     mocks.diaryFindUnique.mockResolvedValue(ENTRY)
-    mocks.generateCompanionNote.mockResolvedValue({ content: '今天这么开心，我也跟着亮起来了。', source: 'qwen' })
-    mocks.diaryUpdate.mockImplementation(async ({ data }) => ({ ...ENTRY, ...data }))
-
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' })
     const result = await generateComment('u1', '2026-09-04', 'req-d2')
-
-    expect(result.aiComment).toContain('开心')
-    const [noteArgs, requestId, modelOptions] = mocks.generateCompanionNote.mock.calls[0]
-    expect(noteArgs.persona).toBe('gentle')
-    expect(noteArgs.instruction).toContain('开心')
-    expect(noteArgs.userText).toBe('今天很开心')
-    expect(requestId).toBe('req-d2')
-    expect(modelOptions.allowExternal).toBe(false)
-    expect(mocks.diaryUpdate.mock.calls[0][0].data).toEqual({
-      aiComment: '今天这么开心，我也跟着亮起来了。',
-      aiCommentSource: 'qwen',
-    })
+    expect(result).toMatchObject({ source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(result.aiComment).toContain('模拟')
+    expect(mocks.diaryFindUnique).toHaveBeenCalledWith({ where: { userId_day: { userId: 'u1', day: expect.any(Date) } } })
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.diaryUpdate).not.toHaveBeenCalled()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
   })
 
   it('requires an existing entry before commenting', async () => {

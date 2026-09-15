@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Sparkles, Trash2 } from 'lucide-react'
+import { BookOpen, Sparkles, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import EmptyState from '../components/ui/EmptyState'
 import SourceBadge from '../components/ui/SourceBadge'
 import Spinner from '../components/ui/Spinner'
 import { readingService } from '../services/readingService'
@@ -16,15 +17,17 @@ const STATUS_GROUPS = [
 ]
 const inputClass = 'w-full rounded-2xl bg-surface-input p-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-status-info'
 
-function NoteItem({ note, onComment }) {
+function NoteItem({ note, onComment, onDelete }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [preview, setPreview] = useState(null)
 
   const handleComment = async () => {
     if (loading) return
     setLoading(true); setError('')
     try {
-      await onComment(note.id)
+      const result = await onComment(note.id)
+      if (result.source === 'cloud_mock') setPreview(result)
     } catch (requestError) {
       const code = requestError?.response?.data?.code
       setError(code === 'CLOUD_NOT_CONSENTED' ? 'not_consented' : 'unavailable')
@@ -40,18 +43,20 @@ function NoteItem({ note, onComment }) {
           <span className="mt-0.5 inline-flex shrink-0 rounded-full bg-pastel-apricot px-2 py-0.5 text-[10px] font-medium text-text-secondary">第 {note.page} 页</span>
         )}
         <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{note.content}</p>
+        <button type="button" aria-label={`删除笔记 ${note.content.slice(0, 16)}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-text-muted hover:text-danger" onClick={() => onDelete(note)}><Trash2 size={16} /></button>
       </div>
       <div className="mt-2">
         <div className="flex items-center gap-2">
           <span className="inline-flex rounded-full bg-pastel-mist px-2 py-0.5 text-[10px] font-medium text-status-info">AI</span>
           <span className="text-xs font-semibold text-text-primary">姐妹的回应</span>
         </div>
-        {note.aiComment ? (
+        {note.aiComment || preview ? (
           <div className="mt-2">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{note.aiComment}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{preview?.aiComment || note.aiComment}</p>
             <div className="mt-1">
-              <SourceBadge source={note.aiCommentSource} />
+              <SourceBadge source={preview?.source || note.aiCommentSource} />
             </div>
+            {preview && <p className="mt-2 text-xs text-text-muted">这是模拟回应，未连接云端，也未保存到笔记。</p>}
           </div>
         ) : (
           <div className="mt-2">
@@ -82,23 +87,31 @@ function BookCard({ book, onUpdated, onDeleted }) {
   const [saving, setSaving] = useState(false)
   const [noteError, setNoteError] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [noteToDelete, setNoteToDelete] = useState(null)
+  const [actionError, setActionError] = useState('')
+  const [notesError, setNotesError] = useState('')
+  const [notesReload, setNotesReload] = useState(0)
+  const [updating, setUpdating] = useState(false)
 
   useEffect(() => {
     let cancelled = false
+    setNotesError('')
     readingService.listNotes(book.id)
       .then(list => { if (!cancelled) setNotes(list) })
-      .catch(() => {})
+      .catch(() => { if (!cancelled) setNotesError('笔记加载失败，请重试') })
     return () => { cancelled = true }
-  }, [book.id])
+  }, [book.id, notesReload])
 
   const progress = book.totalPages ? Math.min(100, Math.round((book.currentPage / book.totalPages) * 100)) : null
 
   const handleStatus = async (status) => {
-    if (status === book.status) return
+    if (status === book.status || updating) return
+    setUpdating(true); setActionError('')
     try {
       const updated = await readingService.updateBook(book.id, { status })
       onUpdated(updated)
-    } catch { /* 状态切换失败：保持原展示，下次进入页面时以服务端为准 */ }
+    } catch { setActionError('阅读状态更新失败，请重试') }
+    finally { setUpdating(false) }
   }
 
   const handleAddNote = async () => {
@@ -119,15 +132,27 @@ function BookCard({ book, onUpdated, onDeleted }) {
 
   const handleComment = async (noteId) => {
     const result = await readingService.requestNoteComment(noteId)
-    setNotes(prev => prev.map(n => (n.id === noteId ? { ...n, aiComment: result.aiComment, aiCommentSource: result.source } : n)))
+    if (result.source !== 'cloud_mock') setNotes(prev => prev.map(n => (n.id === noteId ? { ...n, aiComment: result.aiComment, aiCommentSource: result.source } : n)))
+    return result
+  }
+
+  const handleDeleteNote = async () => {
+    const target = noteToDelete
+    setNoteToDelete(null); setActionError('')
+    if (!target) return
+    try {
+      await readingService.deleteNote(target.id)
+      setNotes(prev => prev.filter(item => item.id !== target.id))
+    } catch { setActionError('删除笔记失败，请重试') }
   }
 
   const handleDelete = async () => {
     setShowDeleteConfirm(false)
+    setActionError('')
     try {
       await readingService.deleteBook(book.id)
       onDeleted(book.id)
-    } catch { /* 删除失败：书卡保留在列表中，用户可重试 */ }
+    } catch { setActionError('删除书籍失败，请重试') }
   }
 
   return (
@@ -152,7 +177,7 @@ function BookCard({ book, onUpdated, onDeleted }) {
           <div className="h-2 w-full rounded-full bg-surface-muted">
             <div className="h-2 rounded-full bg-action-primary" style={{ width: `${progress}%` }} />
           </div>
-          <p className="mt-1 text-xs text-text-muted">读到 {book.currentPage}/{book.totalPages} 页</p>
+          <p className="mt-1 text-xs text-text-muted tabular-nums">读到 {book.currentPage}/{book.totalPages} 页</p>
         </div>
       ) : (
         <p className="mt-2 text-xs text-text-muted">已读 {book.currentPage} 页</p>
@@ -164,6 +189,7 @@ function BookCard({ book, onUpdated, onDeleted }) {
             key={group.value}
             type="button"
             aria-pressed={book.status === group.value}
+            disabled={updating}
             onClick={() => handleStatus(group.value)}
             className={`min-h-11 flex-1 rounded-xl text-xs ${book.status === group.value ? 'bg-pastel-blush font-semibold text-action-primary' : 'bg-surface-muted text-text-muted'}`}
           >
@@ -172,6 +198,8 @@ function BookCard({ book, onUpdated, onDeleted }) {
         ))}
       </div>
 
+      {actionError && <p role="alert" className="mt-2 text-xs text-danger">{actionError}</p>}
+      {notesError && <div className="mt-2"><p role="alert" className="text-xs text-danger">{notesError}</p><Button variant="secondary" onClick={() => setNotesReload(value => value + 1)}>重试笔记</Button></div>}
       <div className="mt-3">
         <Button variant="secondary" className="w-full" onClick={() => setShowNoteForm(v => !v)}>
           {showNoteForm ? '收起' : '记一笔'}
@@ -206,11 +234,20 @@ function BookCard({ book, onUpdated, onDeleted }) {
       {notes.length > 0 && (
         <ul className="mt-3 space-y-2">
           {notes.map(note => (
-            <NoteItem key={note.id} note={note} onComment={handleComment} />
+            <NoteItem key={note.id} note={note} onComment={handleComment} onDelete={setNoteToDelete} />
           ))}
         </ul>
       )}
 
+      <ConfirmDialog
+        open={noteToDelete !== null}
+        title="删除这条笔记"
+        description="这条感想及其已保存的回应会一起删除，确定继续吗？"
+        confirmLabel="删除笔记"
+        danger
+        onConfirm={handleDeleteNote}
+        onCancel={() => setNoteToDelete(null)}
+      />
       <ConfirmDialog
         open={showDeleteConfirm}
         title={`删除《${book.title}》`}
@@ -315,7 +352,7 @@ export default function ReadingPage() {
             <Button variant="secondary" className="mt-3" onClick={() => setReloadTick(tick => tick + 1)}>重试</Button>
           </div>
         ) : books.length === 0 ? (
-          <p className="py-8 text-center text-sm text-text-muted">书架还空着，先加一本想读的书吧</p>
+          <EmptyState icon={BookOpen} title="书架还空着" description="先加一本想读的书吧" />
         ) : (
           STATUS_GROUPS.map(group => {
             const groupBooks = books.filter(b => b.status === group.value)

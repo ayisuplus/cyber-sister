@@ -4,6 +4,7 @@
  */
 import prisma from '../prisma/client.js'
 import { findOwned, deleteOwned, HttpError } from '../utils/dbHelpers.js'
+import { localTodayUtc, parseUtcDay, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 
 const MAX_TODO_CONTENT_LENGTH = 500
@@ -24,10 +25,10 @@ function validateTodoContent(content) {
 function validateTodoDueDate(dueDate) {
   if (dueDate === undefined) return undefined
   if (dueDate === null || dueDate === '') return null
-  if (typeof dueDate !== 'string' || !TODO_DATE_PATTERN.test(dueDate) || Number.isNaN(new Date(dueDate).getTime())) {
+  if (typeof dueDate !== 'string' || !TODO_DATE_PATTERN.test(dueDate)) {
     throw new HttpError('日程日期必须是 yyyy-MM-dd 格式', 400)
   }
-  return new Date(dueDate)
+  return parseUtcDay(dueDate)
 }
 
 function validateTodoDueTime(dueTime) {
@@ -81,8 +82,12 @@ export async function updateTodo(userId, todoId, { content, dueDate, isDone, due
   if (content !== undefined) updateData.content = validateTodoContent(content)
   if (dueDate !== undefined) updateData.dueDate = validateTodoDueDate(dueDate)
   if (dueTime !== undefined) updateData.dueTime = validateTodoDueTime(dueTime)
-  if (isDone !== undefined) updateData.isDone = isDone
+  if (isDone !== undefined) {
+    if (typeof isDone !== 'boolean') throw new HttpError('完成状态必须是布尔值', 400)
+    updateData.isDone = isDone
+  }
   const effectiveDate = dueDate !== undefined ? updateData.dueDate : existing.dueDate
+  if (dueDate !== undefined && !effectiveDate && dueTime === undefined) updateData.dueTime = null
   if (updateData.dueTime && !effectiveDate) throw new HttpError('设置时间前请先选择日期', 400)
   const todo = await prisma.todo.update({ where: { id: todoId }, data: updateData })
   logger.info('更新日程', { todoId, userId })
@@ -104,9 +109,10 @@ export function listCountdowns(userId) {
 }
 
 export async function createCountdown(userId, { title, targetDate }) {
+  if (typeof title !== 'string' || !title.trim() || title.trim().length > 100) throw new HttpError('倒数日名称必须为1到100个字符', 400)
   // 日期契约：'yyyy-MM-dd' 按 UTC 零点存储，前端按本地日历日解析比较
   const countdown = await prisma.countdown.create({
-    data: { userId, title, targetDate: new Date(targetDate) },
+    data: { userId, title: title.trim(), targetDate: parseUtcDay(targetDate) },
   })
   logger.info('创建倒数日', { countdownId: countdown.id, userId })
   return countdown
@@ -127,17 +133,47 @@ export function listPeriodRecords(userId) {
 }
 
 export async function createPeriodRecord(userId, { startDate, endDate, cycleDays }) {
-  // 日期契约：'yyyy-MM-dd' 按 UTC 零点存储，前端按本地日历日解析比较
+  const start = parseUtcDay(startDate)
+  const end = endDate ? parseUtcDay(endDate) : null
+  if (end && end < start) throw new HttpError('结束日期不能早于开始日期', 400)
   const record = await prisma.periodRecord.create({
     data: {
       userId,
-      startDate: new Date(startDate),
-      endDate: endDate ? new Date(endDate) : null,
+      startDate: start,
+      endDate: end,
       cycleDays: validateCycleDays(cycleDays) ?? 28,
     },
   })
   logger.info('创建经期记录', { recordId: record.id, userId })
   return record
+}
+
+export async function updatePeriodRecord(userId, recordId, payload) {
+  const record = await findOwned('periodRecord', recordId, userId, '经期记录')
+  const start = payload.startDate === undefined ? record.startDate : parseUtcDay(payload.startDate)
+  const end = payload.endDate === undefined ? record.endDate : (payload.endDate ? parseUtcDay(payload.endDate) : null)
+  if (end && end < start) throw new HttpError('结束日期不能早于开始日期', 400)
+  const cycleDays = validateCycleDays(payload.cycleDays) ?? record.cycleDays
+  return prisma.periodRecord.update({ where: { id: record.id }, data: { startDate: start, endDate: end, cycleDays } })
+}
+
+export async function deletePeriodRecord(userId, recordId) {
+  await deleteOwned('periodRecord', recordId, userId, '经期记录')
+}
+
+// 客户端仅提供其日历日用于时区展示；预测口径与记录读取集中在后端。
+export async function getPeriodSummary(userId, today) {
+  const asOf = today === undefined ? localTodayUtc() : parseUtcDay(today)
+  const latest = await prisma.periodRecord.findFirst({ where: { userId }, orderBy: { startDate: 'desc' } })
+  const next = latest ? new Date(latest.startDate) : null
+  if (next) next.setUTCDate(next.getUTCDate() + latest.cycleDays)
+  return {
+    asOf: toUtcDayString(asOf),
+    nextDate: next ? toUtcDayString(next) : null,
+    daysUntil: next ? Math.max(0, Math.round((next.getTime() - asOf.getTime()) / 86400000)) : null,
+    basedOnRecordId: latest?.id ?? null,
+    source: 'server_calculation',
+  }
 }
 
 // ============ 提醒 ============

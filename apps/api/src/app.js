@@ -1,3 +1,7 @@
+import { startMemoryIndexWorker, stopMemoryIndexWorker } from './services/memoryIndexService.js'
+import { startWorkTaskWorker, stopWorkTaskWorker } from './services/workTaskService.js'
+import { isLocalWorkRuntime, localWorkOnly } from './config/distribution.js'
+import { startWorkContainerReaper, stopWorkContainerReaper } from './services/workExecutionService.js'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
@@ -17,6 +21,7 @@ import memoriesRoutes from './routes/memories.js'
 import complianceRoutes from './routes/compliance.js'
 import llmRoutes from './routes/llm.js'
 import workRoutes from './routes/work.js'
+import workMediaRoutes from './routes/workMedia.js'
 import asrRoutes from './routes/asr.js'
 import derivedRoutes from './routes/derived.js'
 import makeupPresetRoutes from './routes/makeupPresets.js'
@@ -76,6 +81,8 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true,
 }))
+// 迁移包与前端 10MB 上限一致；其他 JSON 请求维持原上限。
+app.use('/api/user/import', express.json({ limit: '10mb' }))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 
@@ -114,6 +121,14 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '请求过于频繁，请稍后再试' },
+  // 进度轮询有独立的鉴权与额度，不能耗尽聊天、保存及退出登录的普通额度。
+  skip: (req) => req.method === 'GET' && /^\/api\/(?:memories\/index-jobs\/[^/]+|work\/tasks(?:\/[^/]+)?)$/.test(req.originalUrl.split('?')[0]),
+})
+const memoryProgressLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false,
+  skip: (req) => req.method !== 'GET',
+  keyGenerator: (req) => `user:${req.user.userId}`,
+  message: { error: '进度查询过于频繁，请稍后刷新' },
 })
 
 // Makeup 通过内部服务转发时所有请求共享容器 IP；模型能力在鉴权后按用户限流，
@@ -128,6 +143,10 @@ const llmUserLimiter = rateLimit({
 })
 
 app.use('/api/llm', authMiddleware, llmUserLimiter, llmRoutes)
+app.use('/api/memories/index-jobs', authMiddleware, memoryProgressLimiter)
+app.use('/api/work/tasks', authMiddleware, memoryProgressLimiter)
+app.use('/api/work', authMiddleware, localWorkOnly)
+app.use(['/api/tools', '/api/diary', '/api/habits', '/api/reading', '/api/study', '/api/derived', '/api/makeup-presets', '/api/wardrobe', '/api/letters', '/api/reminders', '/api/care'], authMiddleware, localWorkOnly)
 app.use('/api', limiter)
 
 app.use('/api/auth', authRoutes)
@@ -147,6 +166,7 @@ app.use('/api/reading', authMiddleware, readingRoutes)
 app.use('/api/study', authMiddleware, studyRoutes)
 app.use('/api/compliance', authMiddleware, complianceRoutes)
 app.use('/api/work', authMiddleware, workRoutes)
+app.use('/api/work/media', authMiddleware, workMediaRoutes)
 app.use('/api/asr', authMiddleware, asrRoutes)
 app.use('/api/derived', authMiddleware, derivedRoutes)
 app.use('/api/makeup-presets', authMiddleware, makeupPresetRoutes)
@@ -204,6 +224,11 @@ app.use((err, req, res, _next) => {
 const isTestEnv = NODE_ENV === 'test' || process.env.VITEST === 'true'
 let server = null
 if (!isTestEnv) {
+  void startMemoryIndexWorker().catch(() => logger.warn('记忆索引任务尚未就绪'))
+  if (isLocalWorkRuntime()) {
+    startWorkTaskWorker()
+    startWorkContainerReaper()
+  }
   // 内测环境 BIND_ADDRESS 已经 validateRuntimeConfig 强制校验为具体私网 IPv4；
   // 开发环境未设置时保持 Node 默认绑定行为。
   const bindAddress = process.env.BIND_ADDRESS
@@ -221,8 +246,11 @@ async function gracefulShutdown(signal) {
   if (isShuttingDown) return
   isShuttingDown = true
   logger.info(`收到 ${signal} 信号，开始优雅关闭`)
+  stopMemoryIndexWorker()
   const closeDependencies = async () => {
     try {
+      await stopWorkTaskWorker()
+      await stopWorkContainerReaper()
       await prisma.$disconnect()
       usageTracker.destroy()
     } catch (error) {

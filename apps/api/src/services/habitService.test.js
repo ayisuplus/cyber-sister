@@ -186,21 +186,14 @@ describe('habitService AI 鼓励', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('sends only aggregate counts and names to the model', async () => {
-    mocks.habitFindMany.mockResolvedValue([
-      { ...HABIT, checkins: [{ day: utcDay(0) }, { day: utcDay(-1) }] },
-      { ...HABIT, id: 'h2', name: '早睡', icon: 'moon', checkins: [] },
-    ])
-    mocks.generateCompanionNote.mockResolvedValue({ content: '喝水连续两天了，稳。', source: 'qwen' })
-
+  it('previews encouragement without inference or writing checkins', async () => {
+    mocks.habitFindMany.mockResolvedValue([{ ...HABIT, checkins: [{ day: utcDay(0) }] }])
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' })
     const result = await generateCheer('u1', 'req-c2')
-
-    expect(result.cheer).toContain('喝水')
-    const [noteArgs] = mocks.generateCompanionNote.mock.calls[0]
-    expect(noteArgs.instruction).toContain('喝水：连续 2 天（今天已打卡）')
-    expect(noteArgs.instruction).toContain('早睡：连续 0 天（今天还没打）')
-    expect(noteArgs.instruction).toContain('共 2 个习惯，今天已完成 1 个')
-    expect(noteArgs.instruction).not.toContain('content')
-    expect(noteArgs.userText).not.toContain('香水')
+    expect(result.cheer).toContain('模拟')
+    expect(result).toMatchObject({ source: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false } })
+    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
+    expect(mocks.userFindUnique).not.toHaveBeenCalled()
+    expect(mocks.checkinCreate).not.toHaveBeenCalled()
   })
 })

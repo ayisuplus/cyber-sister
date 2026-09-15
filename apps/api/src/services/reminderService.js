@@ -199,19 +199,19 @@ export async function listDueReminders(userId, now = new Date()) {
 }
 
 // 调度推进：一次性置 done，循环类算下一次（执行或确认后共用）
-async function advanceSchedule(reminder, fireAt) {
-  if (reminder.freq === 'once') {
-    await prisma.scheduledReminder.update({ where: { id: reminder.id }, data: { status: 'done' } })
-  } else {
-    await prisma.scheduledReminder.update({
-      where: { id: reminder.id },
-      data: { nextFireAt: computeNextFire(reminder, fireAt) },
-    })
-  }
+async function advanceSchedule(db, reminder, fireAt) {
+  // 旧投递、已暂停或已编辑的调度不可被晚到的执行/确认覆盖。
+  if (reminder.status !== 'active' || reminder.nextFireAt.getTime() !== fireAt.getTime()) return
+  await db.scheduledReminder.updateMany({
+    where: { id: reminder.id, userId: reminder.userId, status: 'active', nextFireAt: fireAt, updatedAt: reminder.updatedAt },
+    data: reminder.freq === 'once'
+      ? { status: 'done' }
+      : { nextFireAt: computeNextFire(reminder, fireAt) },
+  })
 }
 
-async function findOwnedDelivery(deliveryId, userId) {
-  const delivery = await prisma.reminderDelivery.findUnique({
+async function findOwnedDelivery(db, deliveryId, userId) {
+  const delivery = await db.reminderDelivery.findUnique({
     where: { id: deliveryId },
     include: { reminder: true },
   })
@@ -219,29 +219,48 @@ async function findOwnedDelivery(deliveryId, userId) {
   return delivery
 }
 
+/** 持久领取：并发轮询只能有一个执行者；崩溃留下 running，禁止自动重试未知副作用。 */
+export function claimTaskDelivery(deliveryId, userId) {
+  return prisma.$transaction(async (db) => {
+    const delivery = await findOwnedDelivery(db, deliveryId, userId)
+    if (!delivery.reminder.instruction || delivery.status !== 'pending' || delivery.result != null) return null
+    const claimed = await db.reminderDelivery.updateMany({
+      where: {
+        id: deliveryId, status: 'pending', result: null,
+        reminder: {
+          userId, status: 'active', nextFireAt: delivery.fireAt,
+          updatedAt: delivery.reminder.updatedAt,
+        },
+      },
+      data: { status: 'running' },
+    })
+    return claimed.count === 1 ? { ...delivery, status: 'running' } : null
+  })
+}
+
+function finishTaskDelivery(deliveryId, userId, data) {
+  return prisma.$transaction(async (db) => {
+    const delivery = await findOwnedDelivery(db, deliveryId, userId)
+    const updated = await db.reminderDelivery.updateMany({
+      where: { id: deliveryId, status: 'running', reminder: { userId } },
+      data,
+    })
+    if (updated.count === 1) await advanceSchedule(db, delivery.reminder, delivery.fireAt)
+    return findOwnedDelivery(db, deliveryId, userId)
+  })
+}
+
 /**
  * 定时任务执行成功：产出写入投递（保持 pending 等用户在铃铛里看到），调度立即推进。
  * 推进不依赖用户确认，避免未读时反复执行同一批任务。
  */
-export async function completeTaskDelivery(deliveryId, userId, result) {
-  const delivery = await findOwnedDelivery(deliveryId, userId)
-  const updated = await prisma.reminderDelivery.update({
-    where: { id: deliveryId },
-    data: { result: String(result ?? '').slice(0, 4000) },
-  })
-  await advanceSchedule(delivery.reminder, delivery.fireAt)
-  return updated
+export function completeTaskDelivery(deliveryId, userId, result) {
+  return finishTaskDelivery(deliveryId, userId, { status: 'pending', result: String(result ?? '').slice(0, 4000) })
 }
 
 /** 定时任务执行失败：标记 failed 并推进调度，不做无限重试。 */
-export async function failTaskDelivery(deliveryId, userId) {
-  const delivery = await findOwnedDelivery(deliveryId, userId)
-  const updated = await prisma.reminderDelivery.update({
-    where: { id: deliveryId },
-    data: { status: 'failed' },
-  })
-  await advanceSchedule(delivery.reminder, delivery.fireAt)
-  return updated
+export function failTaskDelivery(deliveryId, userId) {
+  return finishTaskDelivery(deliveryId, userId, { status: 'failed' })
 }
 
 /**
@@ -249,17 +268,25 @@ export async function failTaskDelivery(deliveryId, userId) {
  */
 export async function ackDelivery(deliveryId, userId, action) {
   if (!['shown', 'dismissed'].includes(action)) throw new HttpError('操作只能是 shown 或 dismissed', 400)
-  const delivery = await findOwnedDelivery(deliveryId, userId)
-
-  const updated = await prisma.reminderDelivery.update({
-    where: { id: deliveryId },
-    data: { status: action },
+  return prisma.$transaction(async (db) => {
+    const delivery = await findOwnedDelivery(db, deliveryId, userId)
+    if (delivery.status === 'running') throw new HttpError('任务正在执行，请稍后确认', 409)
+    if (delivery.status === 'pending' && delivery.reminder.instruction && delivery.result == null) {
+      throw new HttpError('任务尚未执行，暂时不能确认', 409)
+    }
+    const updated = await db.reminderDelivery.updateMany({
+      where: {
+        id: deliveryId, status: 'pending', reminder: { userId },
+        OR: [{ result: { not: null } }, { reminder: { instruction: null } }],
+      },
+      data: { status: action },
+    })
+    if (updated.count === 1) await advanceSchedule(db, delivery.reminder, delivery.fireAt)
+    const current = await findOwnedDelivery(db, deliveryId, userId)
+    if (current.status === 'running') throw new HttpError('任务正在执行，请稍后确认', 409)
+    if (current.status === 'pending' && current.reminder.instruction && current.result == null) {
+      throw new HttpError('任务尚未执行，暂时不能确认', 409)
+    }
+    return current
   })
-
-  // 纯提醒在确认时才推进（任务已在执行时推进，这里重复推进无副作用：
-  // 一次性已 done，循环类 nextFireAt 已越过本次 fireAt，computeNextFire 幂等）
-  if (delivery.reminder.status !== 'done' && delivery.reminder.nextFireAt <= delivery.fireAt) {
-    await advanceSchedule(delivery.reminder, delivery.fireAt)
-  }
-  return updated
 }

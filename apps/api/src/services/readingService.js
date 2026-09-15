@@ -1,12 +1,11 @@
 /**
  * 陪伴阅读服务：书架（想读/在读/读完）、页码进度、一句话感想笔记，
- * 每条笔记可生成幂等的姐妹人格化短评（脱敏、同意门与日记一致）。
+ * 既有短评可以读取；新回应仅返回明确标注的模拟预览，不调用模型或落库。
  * 笔记不可编辑只可删，短评不会因内容变化失效。
  */
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
-import { generateCompanionNote } from './llmService.js'
-import { buildUserModelOptions } from './userModelOptions.js'
+import { generateWorkComment } from './workCloudService.js'
 import logger from '../utils/logger.js'
 
 export const BOOK_STATUSES = new Set(['want', 'reading', 'finished'])
@@ -156,7 +155,7 @@ export async function deleteNote(userId, noteId) {
 }
 
 /**
- * 为一条阅读笔记生成（或复用）AI 闺蜜回应。
+ * 读取笔记的既有回应，或返回不落库的模拟预览。
  * 幂等：已有回应直接返回，不重复消耗模型；笔记不可编辑，无需失效逻辑。
  */
 export async function generateNoteComment(userId, noteId, requestId) {
@@ -166,19 +165,8 @@ export async function generateNoteComment(userId, noteId, requestId) {
     return { aiComment: note.aiComment, source: note.aiCommentSource, reused: true }
   }
 
-  const { user, modelOptions } = await buildUserModelOptions(userId)
-  const aiNote = await generateCompanionNote({
-    persona: user.persona,
-    instruction: `用户正在读《${note.book.title}》${note.page ? `，读到第 ${note.page} 页` : ''}，写下了一条读书感想。作为她的 AI 闺蜜，用 2-3 句话回应：接住她的感受或想法，可以轻轻往深处陪一句；不说教、不剧透、不评价她的理解对错。`,
-    userText: note.content,
-  }, requestId, modelOptions)
-
-  const updated = await prisma.readingNote.update({
-    where: { id: note.id },
-    data: { aiComment: aiNote.content, aiCommentSource: aiNote.source },
-  })
-  logger.info('生成笔记回应', { userId, source: aiNote.source })
-  return { aiComment: updated.aiComment, source: updated.aiCommentSource, reused: false }
+  const aiNote = await generateWorkComment('reading', { userId, noteId: note.id, requestId })
+  return { aiComment: aiNote.content, source: aiNote.source, reused: false, execution: aiNote.execution }
 }
 
 /** 聊天工具用：按书名精确匹配书架，没有则自动上架（在读），可顺带记页码/感想。 */

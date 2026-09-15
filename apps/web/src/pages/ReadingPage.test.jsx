@@ -65,7 +65,7 @@ describe('ReadingPage', () => {
   it('shows the empty shelf hint when there are no books', async () => {
     renderPage()
 
-    expect(await screen.findByText('书架还空着，先加一本想读的书吧')).toBeInTheDocument()
+    expect(await screen.findByText('书架还空着')).toBeInTheDocument()
   })
 
   it('adds a book and clears the form', async () => {
@@ -105,5 +105,48 @@ describe('ReadingPage', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('还没有同意使用云端模型')
     expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
+  })
+
+  it('deletes a note only after confirmation and keeps it when the request fails', async () => {
+    mocks.listBooks.mockResolvedValue([BOOK])
+    mocks.listNotes.mockResolvedValue([NOTE])
+    mocks.deleteNote.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ success: true })
+    renderPage()
+    const remove = await screen.findByRole('button', { name: `删除笔记 ${NOTE.content}` })
+    await userEvent.click(remove)
+    expect(mocks.deleteNote).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '删除笔记', exact: true }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('删除笔记失败')
+    expect(screen.getByText(NOTE.content)).toBeInTheDocument()
+    await userEvent.click(remove)
+    await userEvent.click(screen.getByRole('button', { name: '删除笔记', exact: true }))
+    await waitFor(() => expect(screen.queryByText(NOTE.content)).not.toBeInTheDocument())
+    expect(mocks.deleteNote).toHaveBeenCalledWith('n1')
+  })
+
+  it('reports note-loading and status-update failures without discarding the book', async () => {
+    mocks.listBooks.mockResolvedValue([BOOK])
+    mocks.listNotes.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([NOTE])
+    mocks.updateBook.mockRejectedValue(new Error('offline'))
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('笔记加载失败')
+    await userEvent.click(screen.getByRole('button', { name: '重试笔记' }))
+    expect(await screen.findByText(NOTE.content)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '读完', exact: true }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('阅读状态更新失败')
+    expect(screen.getByRole('button', { name: '在读', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('keeps mock comments separate from the saved note', async () => {
+    mocks.listBooks.mockResolvedValue([BOOK])
+    mocks.listNotes.mockResolvedValue([NOTE])
+    mocks.requestNoteComment.mockResolvedValue({ aiComment: '模拟读书回应', source: 'cloud_mock' })
+    const view = renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: /让姐妹看看/ }))
+    expect(await screen.findByText(/这是模拟回应，未连接云端，也未保存到笔记/)).toBeInTheDocument()
+    view.unmount()
+    renderPage()
+    await screen.findByText(NOTE.content)
+    expect(screen.queryByText('模拟读书回应')).not.toBeInTheDocument()
   })
 })
