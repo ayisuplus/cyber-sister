@@ -1,12 +1,24 @@
-import { useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { ImagePlus, Mic, Send, Square, X, Paperclip } from 'lucide-react'
 import Spinner from '../ui/Spinner'
 import { useVoiceInput } from './useVoiceInput'
 import { useChatStore } from '../../stores/chatStore'
 import { prepareChatImage } from '../../features/chat/imageResize'
-import ChatSkillPresets from './ChatSkillPresets'
 
-export default function InputBar({ onSend, onBackgroundSend, disabled }) {
+// 自动增高，上限 120px，超出出滚动条
+const fitHeight = (el) => {
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  el.style.overflowY = el.scrollHeight > 120 ? 'auto' : 'hidden'
+}
+
+// ref.fillDraft(text)：开场区的敏感话题只填成草稿——输入框已有文字或图片时不覆盖，也从不自动发送。
+// onDraftChange(hasDraft)：把"是否已有草稿"告诉聊天页，开场区据此置灰草稿类话题。
+/**
+ * @typedef {{ onSend: (text: string, options?: object) => Promise<boolean> | boolean, onBackgroundSend?: (text: string, options?: object) => Promise<boolean> | boolean, disabled?: boolean, onDraftChange?: (hasDraft: boolean) => void }} InputBarProps
+ * @typedef {{ fillDraft: (draft: string) => boolean }} InputBarHandle
+ */
+const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('react').ForwardedRef<InputBarHandle>} ref */ function InputBar({ onSend, onBackgroundSend, disabled, onDraftChange }, ref) {
   const [text, setText] = useState('')
   const [image, setImage] = useState(null) // null | { blob, previewUrl }
   const [imageError, setImageError] = useState('')
@@ -20,6 +32,23 @@ export default function InputBar({ onSend, onBackgroundSend, disabled }) {
   const voice = useVoiceInput((transcript) => {
     setText(prev => (prev ? `${prev} ${transcript}` : transcript))
   }, chatMode === 'chat')
+
+  const hasDraft = Boolean(text.trim() || image)
+  useEffect(() => { onDraftChange?.(hasDraft) }, [hasDraft, onDraftChange])
+
+  useImperativeHandle(ref, () => ({
+    fillDraft(draft) {
+      if (hasDraft || disabled) return false
+      setText(draft)
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) return
+        fitHeight(el)
+        el.focus()
+      })
+      return true
+    },
+  }), [hasDraft, disabled])
 
   const handleImagePicked = async (e) => {
     const file = e.target.files?.[0]
@@ -69,13 +98,9 @@ export default function InputBar({ onSend, onBackgroundSend, disabled }) {
     }
   }
 
-  // 自动增高，上限 120px，超出出滚动条
   const handleChange = (e) => {
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-    el.style.overflowY = el.scrollHeight > 120 ? 'auto' : 'hidden'
-    setText(el.value)
+    fitHeight(e.target)
+    setText(e.target.value)
   }
 
   // 胶囊内的无底圆形图标按钮（44px 触控）
@@ -84,13 +109,6 @@ export default function InputBar({ onSend, onBackgroundSend, disabled }) {
   return (
     <div className="safe-area-bottom relative z-10">
       <div className="mx-auto w-full max-w-[880px] px-3 pb-3 pt-1 min-[641px]:px-5 min-[641px]:pb-5">
-        {chatMode === 'chat' && (
-          <ChatSkillPresets
-            disabled={disabled}
-            hasDraft={Boolean(text.trim() || image)}
-            onSelect={(draft) => { setText(draft); textareaRef.current?.focus() }}
-          />
-        )}
         {chatMode === 'work' && onBackgroundSend && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
           <input type="checkbox" checked={background} disabled={disabled || Boolean(image)} onChange={(event) => setBackground(event.target.checked)} />
           后台执行 <span className="text-text-muted">关闭页面后继续，稍后查看结果</span>
@@ -178,4 +196,6 @@ export default function InputBar({ onSend, onBackgroundSend, disabled }) {
       </div>
     </div>
   )
-}
+})
+
+export default InputBar

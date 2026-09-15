@@ -15,7 +15,7 @@ import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
 import WorkDesktop from '../components/work/WorkDesktop'
 import AmbientMedia from '../components/work/AmbientMedia'
-import CareCards from '../components/care/CareCards'
+import Openers from '../components/chat/Openers'
 import { DoodleField, LeafSprig, Squiggle } from '../components/chat/Doodles'
 import { useWorkTasks } from '../hooks/useWorkTasks'
 import WorkTaskPanel from '../components/work/WorkTaskPanel'
@@ -41,8 +41,6 @@ const getSendErrorMessage = (requestError) => {
   return '消息发送失败，原输入已保留，请重试。'
 }
 
-const TOPICS = ['今天心情不好', '推荐个电影', '聊聊八卦', '帮我出主意']
-
 // 空态顶部的手写问候：按本机时段轻声打个招呼
 const greetingFor = (hour) => {
   if (hour >= 5 && hour < 11) return '早安，慢慢醒来'
@@ -53,6 +51,8 @@ const greetingFor = (hour) => {
 
 export default function ChatPage() {
   const messagesEndRef = useRef(null)
+  const inputRef = useRef(null)
+  const [draftLocked, setDraftLocked] = useState(false)
   const [error, setError] = useState('')
   const [intervention, setIntervention] = useState(null)
   const [fallbackNoticeState, setFallbackNoticeState] = useState(null)
@@ -197,16 +197,13 @@ export default function ChatPage() {
               <span className="text-xs text-text-muted">我是 AI，聊天由经批准的云端模型提供。</span>
             </p>
 
-            <div className="mt-7 flex flex-wrap justify-center gap-2.5">
-              {TOPICS.map((topic, index) => (
-                <button key={topic} type="button" onClick={() => handleSend(topic)} style={{ animationDelay: `${400 + index * 80}ms` }} className="animate-reveal-up glass-strong min-h-11 rounded-full px-5 py-2 text-[13px] text-text-secondary shadow-soft ring-1 ring-border-hairline transition-colors duration-300 ease-calm hover:bg-pastel-blush hover:text-action-primary active:scale-[0.98]">
-                  {topic}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-6 w-full max-w-sm">
-              {isLocalWorkClient() && <CareCards limit={1} heading={false} />}
+            <div className="mt-7 w-full">
+              <Openers
+                onSend={handleSend}
+                onDraft={(draft) => inputRef.current?.fillDraft(draft)}
+                draftLocked={draftLocked}
+                withCare={isLocalWorkClient()}
+              />
             </div>
           </div>
         )}
@@ -234,7 +231,7 @@ export default function ChatPage() {
       </div>
 
       <div aria-live="polite" className="min-h-5 px-4 text-center text-xs text-danger">{error || workTasks.error}</div>
-      <InputBar onSend={handleSend} onBackgroundSend={chatMode === 'work' && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} />
+      <InputBar ref={inputRef} onSend={handleSend} onBackgroundSend={chatMode === 'work' && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} onDraftChange={setDraftLocked} />
       <CrisisModal intervention={intervention} onClose={() => setIntervention(null)} />
       <AIDisclaimer />
       <UsageReminder />

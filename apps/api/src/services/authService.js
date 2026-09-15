@@ -110,7 +110,7 @@ export async function findOrCreateInternalUser(phone) {
   if (user) return user
   try {
     user = await prisma.user.create({
-      data: { phone, nickname: '内测用户', persona: 'toxic' },
+      data: { phone, nickname: '内测用户', persona: 'gentle' },
     })
     logger.info('新内测用户注册', { userId: user.id })
     return user

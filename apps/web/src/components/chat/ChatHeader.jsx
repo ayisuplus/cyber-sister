@@ -1,9 +1,6 @@
 import { Menu, Sparkles, Settings } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
-
-import { getPersona } from '../../features/personas'
 import { isLocalWorkClient } from '../../features/distribution'
 
 const MODE_OPTIONS = [
@@ -12,8 +9,6 @@ const MODE_OPTIONS = [
 ]
 
 export default function ChatHeader({ onOpenDrawer }) {
-  const user = useAuthStore(state => state.user)
-  const personaInfo = getPersona(user?.persona)
   const chatMode = useChatStore(state => state.chatMode)
   const setChatMode = useChatStore(state => state.setChatMode)
 
@@ -40,18 +35,12 @@ export default function ChatHeader({ onOpenDrawer }) {
             <img src="/design-assets/ai-avatar-v2.png" alt="Amie AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
           </div>
 
+          {/* 只写她的名字；说话方式在「她」页面里选，不在页头展示 */}
           <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-[18px] font-normal italic leading-tight tracking-[0.02em] text-text-primary">Amie</h2>
-              {chatMode === 'chat' && <span className="text-xs" aria-hidden="true">{personaInfo.emoji}</span>}
-            </div>
-            {chatMode === 'work' ? (
+            <h2 className="font-display text-[18px] font-normal italic leading-tight tracking-[0.02em] text-text-primary">Amie</h2>
+            {chatMode === 'work' && (
               <span className="mt-0.5 inline-flex w-fit items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium bg-pastel-mist text-status-info">
                 工作模式
-              </span>
-            ) : (
-              <span className={`mt-0.5 inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${personaInfo.chatBadgeClass}`}>
-                {personaInfo.chatTag}
               </span>
             )}
           </div>

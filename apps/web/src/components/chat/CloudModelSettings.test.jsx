@@ -28,6 +28,17 @@ describe('CloudModelSettings', () => {
     await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false'))
   })
 
+  it('carries the full disclosure of what reaches the cloud model, with the consent version', async () => {
+    modelStatusService.getStatus.mockResolvedValue({ externalFallback: { configured: true, consent: null, version: 'cloud-primary-v3' } })
+    render(<CloudModelSettings />)
+
+    expect(await screen.findByText('同意版本：cloud-primary-v3')).toBeInTheDocument()
+    expect(screen.getByText(/脱敏后的消息、最多 5 条已确认的相关记忆及其已确认关联/)).toBeInTheDocument()
+    expect(screen.getByText(/语义检索使用单独配置的向量服务/)).toBeInTheDocument()
+    expect(screen.getByText(/待确认草稿不会进入聊天/)).toBeInTheDocument()
+    expect(screen.getByText(/拒绝或撤回后聊天不可用/)).toBeInTheDocument()
+  })
+
   it('reports missing configuration and refreshes status', async () => {
     modelStatusService.getStatus.mockResolvedValueOnce({ externalFallback: { configured: false, consent: true } })
     render(<CloudModelSettings />)

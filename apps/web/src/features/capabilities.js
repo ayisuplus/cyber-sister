@@ -1,4 +1,5 @@
-// 能力注册表：导航与展示的唯一来源。媒体生成接口当前固定模拟，未连接云端服务。
+// 过渡期：仅供工作模式功能桌面（WorkDesktop）使用，随工作模式一并删除；页面导航见 features/registry.js。
+// 媒体生成接口当前固定模拟，未连接云端服务。
 export const CAPABILITIES = [
   {
     id: 'makeup-room',

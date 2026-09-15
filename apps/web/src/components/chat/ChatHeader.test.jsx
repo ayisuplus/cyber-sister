@@ -29,27 +29,15 @@ describe('ChatHeader', () => {
     expect(screen.getByText('AI 生成 · 云端模型')).toBeInTheDocument()
   })
 
-  it.each([
-    ['toxic', '毒舌·护短·嘴硬心软'],
-    ['gentle', '包容·耐心·讲道理'],
-    ['rational', '清晰·务实·有边界'],
-    ['energetic', '热情·捧场·行动力'],
-    ['sister', '共情·念叨·靠得住'],
-    ['cool', '话少·冷静·关键时刻靠谱'],
-  ])('shows the %s persona tag', (persona, tag) => {
+  it.each(['toxic', 'gentle', 'cool', 'energetic'])('shows only her name, without a persona badge, for %s', (persona) => {
     useAuthStore.setState({ user: { id: 'u1', persona } })
 
     render(<ChatHeader />)
 
-    expect(screen.getByText(tag)).toBeInTheDocument()
-  })
-
-  it('falls back to the toxic persona for unknown or missing personas', () => {
-    useAuthStore.setState({ user: { id: 'u1', persona: 'unknown-persona' } })
-
-    render(<ChatHeader />)
-
-    expect(screen.getByText('毒舌·护短·嘴硬心软')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Amie' })).toBeInTheDocument()
+    for (const tag of ['毒舌·护短·嘴硬心软', '包容·耐心·讲道理', '话少·冷静·关键时刻靠谱', '热情·捧场·行动力']) {
+      expect(screen.queryByText(tag)).not.toBeInTheDocument()
+    }
   })
 
   it('hides the broken avatar image instead of showing a broken icon', () => {
@@ -71,7 +59,7 @@ describe('ChatHeader', () => {
     expect(screen.getByRole('button', { name: '工作' })).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('clicking 工作 switches the store to work mode and swaps the persona badge for the work badge', async () => {
+  it('clicking 工作 switches the store to work mode and shows the work badge', async () => {
     useAuthStore.setState({ user: { id: 'u1', persona: 'gentle' } })
 
     render(<ChatHeader />)

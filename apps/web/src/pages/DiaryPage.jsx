@@ -21,7 +21,8 @@ const MOODS = [
 const moodOf = (value) => MOODS.find(m => m.value === value) || null
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 
-export default function DiaryPage() {
+// embedded：作为「手记」页签嵌入时不渲染自己的页头
+export default function DiaryPage({ embedded = false } = {}) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
   const [entries, setEntries] = useState({})
   const [selectedDay, setSelectedDay] = useState(todayString())
@@ -170,7 +171,7 @@ export default function DiaryPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
-      <Header title="日记" showBack />
+      {!embedded && <Header title="日记" showBack />}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {loading ? (
@@ -268,7 +269,7 @@ export default function DiaryPage() {
                   )}
                   {commentError === 'not_consented' && (
                     <p role="alert" className="mt-2 text-xs text-danger">
-                      还没有同意使用云端模型，去<Link to="/profile" className="underline">「我的 → 云端模型」</Link>开启后再让她看看吧
+                      还没有同意使用云端模型，去<Link to="/settings" className="underline">「设置 → 聊天模型」</Link>开启后再让她看看吧
                     </p>
                   )}
                   {commentError === 'unavailable' && (

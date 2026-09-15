@@ -8,14 +8,16 @@ vi.mock('../../services/memoryService', () => ({
 vi.mock('../../services/derivedService', () => ({
   derivedService: Object.fromEntries(['list', 'listEdges', 'promote', 'resolve', 'dismiss', 'promoteEdge', 'dismissEdge', 'clear', 'analyze', 'rebuild'].map((name) => [name, vi.fn()])),
 }))
+// 「她」页面里的节奏面板有独立测试；这里只看记忆的确认边界
+vi.mock('../chat/CompanionStatePanel', () => ({ default: () => null }))
 import { memoryService } from '../../services/memoryService'
 import { derivedService } from '../../services/derivedService'
-import MemoryHubPage from '../../pages/MemoryHubPage'
+import HerPage from '../../pages/HerPage'
 import MemoryDetailPanel from './MemoryDetailPanel'
 import MemoryIndexPanel from './MemoryIndexPanel'
 
 const draft = { id: 'draft1', revision: 1, kind: 'pattern', status: 'active', content: '常在周末爬山', sources: [{ type: 'memory', id: 'm1', revision: 1, quote: '周末爬山' }] }
-const renderHub = (tab = 'pending') => render(<MemoryRouter initialEntries={['/memories?tab=' + tab]}><MemoryHubPage /></MemoryRouter>)
+const renderHub = (tab = 'pending') => render(<MemoryRouter initialEntries={['/her?tab=' + tab]}><HerPage /></MemoryRouter>)
 beforeEach(() => {
   vi.resetAllMocks()
   memoryService.listPage.mockResolvedValue({ data: [], total: 0 })

@@ -6,8 +6,6 @@ vi.mock('../services/authService', () => ({
     logout: vi.fn(),
     refresh: vi.fn(),
     updatePersona: vi.fn(),
-    updateRolePlay: vi.fn(),
-    clearRolePlay: vi.fn(),
   },
 }))
 
@@ -134,30 +132,9 @@ describe('authStore session lifecycle', () => {
     expect(useAuthStore.getState().user).toBeNull()
   })
 
-  it('applies a roleplay setting to the stored user', async () => {
-    useAuthStore.setState(loggedInState)
-    authService.updateRolePlay.mockResolvedValue({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-
-    await useAuthStore.getState().updateRolePlay({ name: '同桌的你', setting: '爱吐槽' })
-
-    expect(useAuthStore.getState().user).toMatchObject({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-  })
-
-  it('clears roleplay fields after clearRolePlay', async () => {
-    useAuthStore.setState({ ...loggedInState, user: { id: 'u1', roleName: '同桌的你', roleSetting: '爱吐槽' } })
-    authService.clearRolePlay.mockResolvedValue({ success: true })
-
-    await useAuthStore.getState().clearRolePlay()
-
-    expect(useAuthStore.getState().user).toMatchObject({ roleName: null, roleSetting: null })
-  })
-
-  it('ignores roleplay updates when logged out', async () => {
-    authService.updateRolePlay.mockResolvedValue({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-
-    await useAuthStore.getState().updateRolePlay({ name: '同桌的你', setting: '爱吐槽' })
-
-    expect(useAuthStore.getState().user).toBeNull()
+  it('no longer offers roleplay actions', () => {
+    expect(useAuthStore.getState()).not.toHaveProperty('updateRolePlay')
+    expect(useAuthStore.getState()).not.toHaveProperty('clearRolePlay')
   })
 
   it('merges profile updates into the stored user', () => {

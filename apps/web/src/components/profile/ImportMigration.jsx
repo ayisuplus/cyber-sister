@@ -2,15 +2,12 @@ import { useRef, useState } from 'react'
 import { FileUp, Upload } from 'lucide-react'
 import { migrationService } from '../../services/userService'
 
-// 数据迁移导入（迁移窗口）：上传自家导出包 JSON 或粘贴外部人设文本（豆包/千问智能体）。
-// 预览绝不落库；应用只落用户逐条勾选的候选，角色扮演与记忆全部走服务端既有校验与红线闸。
+// 数据迁移导入：上传自家导出包 JSON。预览绝不落库；应用只落用户逐条勾选的候选（人格、记忆与记忆关系），
+// 全部走服务端既有校验。角色扮演已取消，导出包里的旧角色值与外部人设文本都不再导入。
 export default function ImportMigration() {
-  const [mode, setMode] = useState('bundle') // bundle | persona-text
   const [fileName, setFileName] = useState('')
   const [bundle, setBundle] = useState(null)
   const [parseError, setParseError] = useState('')
-  const [roleName, setRoleName] = useState('')
-  const [roleSetting, setRoleSetting] = useState('')
   const [preview, setPreview] = useState(null)
   const [checked, setChecked] = useState([])
   const [checkedEdges, setCheckedEdges] = useState([])
@@ -59,8 +56,7 @@ export default function ImportMigration() {
     setBusy(true)
     setResultMessage('')
     try {
-      const payload = mode === 'bundle' ? bundle : { format: 'persona-text', roleName, roleSetting }
-      const result = await migrationService.previewImport(payload)
+      const result = await migrationService.previewImport(bundle)
       setPreview(result)
       setChecked((result.memoryCandidates || []).map((item) => item.state !== 'conflict'))
       setCheckedEdges((result.edges || []).map(() => false))
@@ -71,8 +67,6 @@ export default function ImportMigration() {
       setBusy(false)
     }
   }
-
-  const previewReady = mode === 'bundle' ? Boolean(bundle) : Boolean(roleName.trim() && roleSetting.trim())
 
   const handleApply = async () => {
     if (busy || !preview) return
@@ -86,12 +80,10 @@ export default function ImportMigration() {
           && selected.some((item) => item.id === edge.from) && selected.some((item) => item.id === edge.to)).map((edge) => edge.id),
       } : { memories: selected }
       payload.expectedMemoryEpoch = preview.memoryEpoch
-      if (preview.role?.ok) payload.role = { name: preview.role.name, setting: preview.role.setting }
       if (preview.persona?.ok) payload.persona = preview.persona.id
       const result = await migrationService.applyImport(payload)
       const parts = []
-      if (result.roleApplied) parts.push('角色扮演')
-      if (result.personaApplied) parts.push('人格')
+      if (result.personaApplied) parts.push('说话方式')
       if (result.memoriesApplied > 0) parts.push(`${result.memoriesApplied} 条记忆`)
       if (result.edgesApplied > 0) parts.push(`${result.edgesApplied} 条关系`)
       const skipped = result.memoriesSkipped > 0 ? `；${result.memoriesSkipped} 条重复或非法已跳过` : ''
@@ -99,8 +91,6 @@ export default function ImportMigration() {
       resetPreview()
       setBundle(null)
       setFileName('')
-      setRoleName('')
-      setRoleSetting('')
     } catch (error) {
       setResultMessage(error?.response?.data?.error || '导入失败，请重试')
     } finally {
@@ -108,9 +98,7 @@ export default function ImportMigration() {
     }
   }
 
-  const applyDisabled = busy || !preview || (
-    !preview.role?.ok && !preview.persona?.ok && !checked.some(Boolean)
-  )
+  const applyDisabled = busy || !preview || (!preview.persona?.ok && !checked.some(Boolean))
 
   return (
     <div className="mt-3 border-t border-border-hairline pt-3">
@@ -118,71 +106,24 @@ export default function ImportMigration() {
         <Upload size={15} className="text-status-info" />
         导入数据
       </h3>
-      <p className="mt-1.5 text-xs leading-relaxed text-text-secondary">从别的平台搬来的姐妹（比如下线的智能体），或自己的导出包。先解析预览，你逐条确认后才真正落库；角色扮演命中恋人红线会被如实拒绝。</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-text-secondary">把自己的 Amie 导出包带回来。先解析预览，你逐条确认后才真正落库。</p>
 
-      <div role="group" aria-label="导入方式" className="mt-2.5 flex gap-2">
-        {[
-          { id: 'bundle', label: '上传导出包' },
-          { id: 'persona-text', label: '粘贴人设文本' },
-        ].map(option => (
-          <button
-            key={option.id}
-            type="button"
-            aria-pressed={mode === option.id}
-            disabled={busy}
-            onClick={() => { setMode(option.id); resetPreview(); setParseError('') }}
-            className={`min-h-11 flex-1 rounded-xl text-xs font-semibold ${mode === option.id ? 'bg-action-primary text-text-inverse' : 'border border-border-subtle text-text-secondary'}`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      {mode === 'bundle' ? (
-        <label className="mt-2.5 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
-          <FileUp size={14} aria-hidden="true" />
-          {fileName || '选择Amie导出包（.json）'}
-          <input type="file" accept="application/json,.json" aria-label="选择导出包文件" className="hidden" disabled={busy} onChange={handleFile} />
-        </label>
-      ) : (
-        <div className="mt-2.5 space-y-2">
-          <input
-            aria-label="角色名"
-            disabled={busy}
-            value={roleName}
-            maxLength={20}
-            onChange={event => { setRoleName(event.target.value); resetPreview() }}
-            placeholder="角色名，比如：豆包上的「念念」"
-            className="w-full rounded-2xl bg-surface-input p-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-status-info"
-          />
-          <textarea
-            aria-label="人设文本"
-            disabled={busy}
-            value={roleSetting}
-            maxLength={200}
-            rows={3}
-            onChange={event => { setRoleSetting(event.target.value); resetPreview() }}
-            placeholder="粘贴对方智能体的人设/角色描述…"
-            className="w-full resize-none rounded-2xl bg-surface-input p-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-status-info"
-          />
-        </div>
-      )}
+      <label className="mt-2.5 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
+        <FileUp size={14} aria-hidden="true" />
+        {fileName || '选择Amie导出包（.json）'}
+        <input type="file" accept="application/json,.json" aria-label="选择导出包文件" className="hidden" disabled={busy} onChange={handleFile} />
+      </label>
       {parseError && <p role="alert" className="mt-2 text-xs text-danger">{parseError}</p>}
 
-      <button type="button" disabled={busy || !previewReady} onClick={handlePreview} className="mt-2.5 min-h-11 w-full rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">
+      <button type="button" disabled={busy || !bundle} onClick={handlePreview} className="mt-2.5 min-h-11 w-full rounded-xl border border-border-subtle text-xs font-semibold text-text-secondary disabled:opacity-50">
         {busy && !preview ? '正在解析…' : '解析预览'}
       </button>
 
       {preview && (
         <div className="mt-3 rounded-2xl bg-surface-muted p-3">
-          {preview.role && (
-            <p className={`text-xs ${preview.role.ok ? 'text-text-primary' : 'text-danger'}`}>
-              角色扮演「{preview.role.name}」{preview.role.ok ? '：可导入' : `：${preview.role.error}`}
-            </p>
-          )}
           {preview.persona && (
-            <p className={`mt-1 text-xs ${preview.persona.ok ? 'text-text-primary' : 'text-danger'}`}>
-              人格 {preview.persona.id}{preview.persona.ok ? '：可导入' : `：${preview.persona.error}`}
+            <p className={`text-xs ${preview.persona.ok ? 'text-text-primary' : 'text-danger'}`}>
+              说话方式 {preview.persona.id}{preview.persona.ok ? '：可导入' : `：${preview.persona.error}`}
             </p>
           )}
           {preview.memoryCandidates?.length > 0 && (

@@ -55,11 +55,11 @@ describe('importService.previewImport', () => {
     await expect(previewImport(USER_ID, { ...BUNDLE, version: 2 })).rejects.toMatchObject({ statusCode: 400 })
   })
 
-  it('自家导出包：角色/人格/记忆候选全部结构化，其余数据段如实标注不导入', async () => {
+  it('自家导出包：人格/记忆候选结构化，旧角色值不再导入，其余数据段如实标注不导入', async () => {
     const result = await previewImport(USER_ID, BUNDLE)
 
     expect(result.format).toBe('cyber-sister-export')
-    expect(result.role).toMatchObject({ name: '同桌的你', ok: true })
+    expect(result).not.toHaveProperty('role')
     expect(result.persona).toMatchObject({ id: 'toxic', ok: true })
     expect(result.memoryCandidates).toHaveLength(2)
     expect(result.memoriesSkipped).toBe(0)
@@ -98,16 +98,6 @@ describe('importService.previewImport', () => {
     expect(result.memoriesSkipped).toBe(3)
   })
 
-  it('角色扮演命中恋人红线时 ok=false 并带原因，不阻断记忆候选', async () => {
-    const result = await previewImport(USER_ID, {
-      ...BUNDLE,
-      user: { ...BUNDLE.user, roleName: '我的女朋友' },
-    })
-
-    expect(result.role).toMatchObject({ ok: false, error: expect.stringContaining('我是你姐妹，不是你对象') })
-    expect(result.memoryCandidates).toHaveLength(2)
-  })
-
   it('人格 id 非法时 ok=false 并带合法清单', async () => {
     const result = await previewImport(USER_ID, {
       ...BUNDLE,
@@ -117,22 +107,9 @@ describe('importService.previewImport', () => {
     expect(result.persona).toMatchObject({ ok: false })
   })
 
-  it('persona-text 格式：只产出角色候选，说明记忆走帮我记住', async () => {
-    const result = await previewImport(USER_ID, {
-      format: 'persona-text',
-      roleName: '合租室友',
-      roleSetting: '爱做饭，经常喊我一起吃饭',
-    })
-
-    expect(result.format).toBe('persona-text')
-    expect(result.role).toMatchObject({ ok: true, name: '合租室友' })
-    expect(result.memoryCandidates).toEqual([])
-    expect(result.notes[0]).toContain('帮我记住')
-  })
-
-  it('persona-text 空人设 400；无法识别的格式 400', async () => {
-    await expect(previewImport(USER_ID, { format: 'persona-text', roleName: '', roleSetting: '' }))
-      .rejects.toMatchObject({ statusCode: 400, message: '人设文本不能为空' })
+  it('外部人设文本（角色扮演）与无法识别的格式一律 400', async () => {
+    await expect(previewImport(USER_ID, { format: 'persona-text', roleName: '合租室友', roleSetting: '爱做饭' }))
+      .rejects.toMatchObject({ statusCode: 400, message: '无法识别的导入格式：只支持 Amie 导出包（JSON）' })
     await expect(previewImport(USER_ID, { hello: 'world' }))
       .rejects.toMatchObject({ statusCode: 400 })
   })
@@ -146,22 +123,15 @@ describe('importService.applyImport', () => {
     db.memoryCreate.mockImplementation(({ data }) => Promise.resolve(data))
   })
 
-  it('角色扮演经恋人红线闸：命中即 400，不落任何内容', async () => {
-    await expect(applyImport(USER_ID, { role: { name: '我的女朋友', setting: '温柔' }, memories: [{ type: 'semantic', content: 'x', importance: 5, tags: [] }] }))
-      .rejects.toMatchObject({ statusCode: 400 })
-    expect(db.userUpdate).not.toHaveBeenCalled()
-    expect(db.memoryCreate).not.toHaveBeenCalled()
-  })
-
-  it('角色 + 人格 + 记忆全部落库并计数', async () => {
+  it('人格 + 记忆落库并计数；即使负载里带旧角色也绝不写入角色字段', async () => {
     const result = await applyImport(USER_ID, {
       role: { name: '同桌的你', setting: '爱吐槽但会帮我讲题' },
       persona: 'toxic',
       memories: [{ type: 'semantic', content: '喜欢火锅', importance: 8, tags: ['饮食'] }],
     })
 
-    expect(result).toEqual({ roleApplied: true, personaApplied: true, memoriesApplied: 1, memoriesSkipped: 0 })
-    expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { roleName: '同桌的你', roleSetting: '爱吐槽但会帮我讲题' } }))
+    expect(result).toEqual({ personaApplied: true, memoriesApplied: 1, memoriesSkipped: 0 })
+    expect(db.userUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ roleName: expect.anything() }) }))
     expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { persona: 'toxic' } }))
     expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { memoryEpoch: { increment: 1 } } }))
     expect(db.memoryCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -178,7 +148,7 @@ describe('importService.applyImport', () => {
       ],
     })
 
-    expect(result).toEqual({ roleApplied: false, personaApplied: false, memoriesApplied: 1, memoriesSkipped: 1 })
+    expect(result).toEqual({ personaApplied: false, memoriesApplied: 1, memoriesSkipped: 1 })
   })
 
   it('没有任何可导入内容时 400', async () => {

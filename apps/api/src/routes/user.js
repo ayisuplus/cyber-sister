@@ -94,25 +94,6 @@ router.put('/persona', validate([
   }
 })
 
-router.put('/roleplay', async (req, res) => {
-  try {
-    res.json(await userService.updateRolePlay(req.user.userId, req.body))
-  } catch (error) {
-    logger.error('设置角色扮演失败', { error: error.message, userId: req.user.userId })
-    sendError(res, error, '设置角色扮演失败')
-  }
-})
-
-router.delete('/roleplay', async (req, res) => {
-  try {
-    await userService.clearRolePlay(req.user.userId)
-    res.json({ success: true })
-  } catch (error) {
-    logger.error('清除角色扮演失败', { error: error.message, userId: req.user.userId })
-    sendError(res, error, '清除角色扮演失败')
-  }
-})
-
 router.get('/external-llm-consent', async (req, res) => {
   try {
     res.json(await userService.getExternalLlmConsent(req.user.userId))

@@ -124,7 +124,8 @@ describe('Auth API', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.token).toBeTypeOf('string')
-    expect(res.body.user).toMatchObject({ phone: allowedPhone, persona: 'toxic' })
+    expect(res.body.user).toMatchObject({ phone: allowedPhone, persona: 'gentle' })
+    expect(res.body.user).not.toHaveProperty('roleName')
     expect(res.headers['set-cookie'][0]).toContain('HttpOnly')
     expect(res.headers['set-cookie'][0]).toContain('Secure')
     expect(state.refreshTokens).toHaveLength(1)

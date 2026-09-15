@@ -13,7 +13,8 @@ import useWorkMediaPreview from '../hooks/useWorkMediaPreview'
 import SourceBadge from '../components/ui/SourceBadge'
 
 // 模拟请求独立展示，不进入已有衣柜；真实历史模型仍可查看、下载和删除。
-export default function WardrobePage() {
+// embedded：作为「装扮」页签嵌入时不渲染自己的页头
+export default function WardrobePage({ embedded = false } = {}) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -58,7 +59,7 @@ export default function WardrobePage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
-      <Header title="3D 衣柜" showBack />
+      {!embedded && <Header title="3D 衣柜" showBack />}
       <main className="flex-1 overflow-y-auto px-4 py-5">
         <section className="rounded-3xl bg-pastel-mist p-5 shadow-card">
           <div className="flex items-start gap-3">

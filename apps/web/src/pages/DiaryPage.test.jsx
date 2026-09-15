@@ -159,7 +159,7 @@ describe('DiaryPage', () => {
     await user.click(screen.getByRole('button', { name: /让姐妹看看/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('还没有同意使用云端模型')
-    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
+    expect(screen.getByRole('link', { name: /聊天模型/ })).toHaveAttribute('href', '/settings')
   })
 
   it('shows a retry-later message when the model is unavailable', async () => {

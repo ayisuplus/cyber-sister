@@ -160,7 +160,7 @@ export default function HandbookPage() {
               )}
               {cheerError === 'not_consented' && (
                 <p role="alert" className="mt-3 text-xs text-danger">
-                  还没有同意使用云端模型，去<Link to="/profile" className="underline">「我的 → 云端模型」</Link>开启后再让她看看吧
+                  还没有同意使用云端模型，去<Link to="/settings" className="underline">「设置 → 聊天模型」</Link>开启后再让她看看吧
                 </p>
               )}
               {cheerError === 'unavailable' && (

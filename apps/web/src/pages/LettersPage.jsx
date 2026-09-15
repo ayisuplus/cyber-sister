@@ -12,7 +12,8 @@ const formatWeekStart = (weekStart) => {
 }
 
 // 历史信件与模拟预览分别展示，预览不会进入信箱。
-export default function LettersPage() {
+// embedded：作为「手记」页签嵌入时不渲染自己的页头
+export default function LettersPage({ embedded = false } = {}) {
   const [letters, setLetters] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -52,7 +53,7 @@ export default function LettersPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
-      <Header title="她的信" showBack />
+      {!embedded && <Header title="她的信" showBack />}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         <p className="px-1 text-xs leading-relaxed text-text-secondary">

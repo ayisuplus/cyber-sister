@@ -15,8 +15,9 @@ const KIND_META = {
 }
 
 // 「她来想你」主动关怀卡：只发有用的，每条都附「为什么看到这条」并可按日忽略；
-// 加载失败/为空一律静默不渲染，绝不用假数据占位。
-export default function CareCards({ limit = 3, heading = true }) {
+// 加载失败/为空一律静默不渲染，绝不用假数据占位。onCount 汇报当前可见条数（开场区据此补足话题）。
+/** @param {{ limit?: number, heading?: boolean, onCount?: (count: number) => void }} props */
+export default function CareCards({ limit = 3, heading = true, onCount }) {
   const [cards, setCards] = useState([])
   const [loaded, setLoaded] = useState(false)
 
@@ -28,6 +29,10 @@ export default function CareCards({ limit = 3, heading = true }) {
       .finally(() => { if (alive) setLoaded(true) })
     return () => { alive = false }
   }, [])
+
+  useEffect(() => {
+    if (loaded) onCount?.(Math.min(cards.length, limit))
+  }, [loaded, cards.length, limit, onCount])
 
   const dismiss = (key) => {
     // 乐观移除；忽略失败不打扰——明日同一条件成立时它自然会再来

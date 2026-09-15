@@ -1,10 +1,10 @@
 /**
  * 数据迁移导入服务：POST /api/user/import/preview 与 /apply 的执行体。
  *
- * v1 范围（迁移窗口：接住豆包/千问智能体难民 + 自家导出包回灌）：
- * - 导入对象只有三类：角色扮演（roleName/roleSetting）、人格 id、显式记忆候选。
- * - 预览绝不落库；应用只落用户逐条确认的候选，记忆经 createMemory 既有校验，
- *   角色扮演经 updateRolePlay 既有长度与恋人红线闸——导入不能绕过任何一道闸。
+ * 范围（自家导出包回灌）：
+ * - 导入对象只有两类：人格 id、显式记忆候选（v2 含记忆关系）。
+ * - 角色扮演已取消（2026-09 功能收拢）：导出包里的旧角色值与外部人设文本都不再导入。
+ * - 预览绝不落库；应用只落用户逐条确认的候选，记忆经 createMemory 既有校验——导入不能绕过任何一道闸。
  * - 对话/日记/手帐等其余数据段不导入（无规范目标形态，v1 边界如实说明）。
  * - 同意状态绝不导入：重新同意是用户的主动行为（cloud-primary-v3）。
  * 日志只记 userId 与计数，不记导入内容。
@@ -12,7 +12,7 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { createMemory } from './memoryService.js'
-import { PERSONAS, assertRolePlayAllowed, updateRolePlay, switchPersona } from './userService.js'
+import { PERSONAS, switchPersona } from './userService.js'
 import { EXPORT_VERSION } from './exportService.js'
 import { previewMemoryImport, applyMemoryImport } from './memoryTransferService.js'
 import { conflict, withMemoryTransaction } from './memoryGovernance.js'
@@ -70,18 +70,6 @@ function dedupeCandidates(items, existingKeys) {
   return { candidates, skipped }
 }
 
-function rolePreview(roleName, roleSetting) {
-  const name = typeof roleName === 'string' ? roleName.trim() : ''
-  const setting = typeof roleSetting === 'string' ? roleSetting.trim() : ''
-  if (!name && !setting) return null
-  try {
-    assertRolePlayAllowed(name, setting)
-    return { name, setting, ok: true, error: null }
-  } catch (error) {
-    return { name, setting, ok: false, error: error.message }
-  }
-}
-
 function personaPreview(persona) {
   if (typeof persona !== 'string' || !persona) return null
   return PERSONAS.includes(persona)
@@ -99,7 +87,7 @@ export async function previewImport(userId, payload) {
     if (!payload.memoryBundle) throw new HttpError('v2 导出包缺少正式记忆及版本数据，不能降级导入', 400)
     const preview = await previewMemoryImport(userId, payload.memoryBundle)
     return { format: 'cyber-sister-export-v2', memoryEpoch, memoryCandidates: preview.memories, edges: preview.edges,
-      role: rolePreview(payload.user?.roleName, payload.user?.roleSetting), persona: personaPreview(payload.user?.persona),
+      persona: personaPreview(payload.user?.persona),
       memoriesSkipped: preview.memories.filter((item) => item.state === 'duplicate').length,
       notes: ['会恢复所选记忆的版本和所选关系；有冲突的记忆不会覆盖。', '聊天原文不导入，原始消息来源可能显示为缺失。云端授权不会导入。'],
     }
@@ -110,7 +98,6 @@ export async function previewImport(userId, payload) {
     return {
       format: 'cyber-sister-export',
       memoryEpoch,
-      role: rolePreview(payload.user?.roleName, payload.user?.roleSetting),
       persona: personaPreview(payload.user?.persona),
       memoryCandidates: candidates,
       memoriesSkipped: skipped,
@@ -121,24 +108,10 @@ export async function previewImport(userId, payload) {
     }
   }
 
-  if (payload?.format === 'persona-text') {
-    const role = rolePreview(payload.roleName, payload.roleSetting)
-    if (!role) throw new HttpError('人设文本不能为空', 400)
-    return {
-      format: 'persona-text',
-      memoryEpoch,
-      role,
-      persona: null,
-      memoryCandidates: [],
-      memoriesSkipped: 0,
-      notes: ['只导入角色扮演设定；记忆请在聊天里用「帮我记住」逐条确认。'],
-    }
-  }
-
-  throw new HttpError('无法识别的导入格式：支持Amie导出包（JSON）或 persona-text 人设文本', 400)
+  throw new HttpError('无法识别的导入格式：只支持 Amie 导出包（JSON）', 400)
 }
 
-/** 应用：只落用户逐条确认的候选，全部走既有校验与红线闸。 */
+/** 应用：只落用户逐条确认的候选，全部走既有校验。 */
 export async function applyImport(userId, payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new HttpError('导入内容不能为空', 400)
@@ -149,16 +122,11 @@ export async function applyImport(userId, payload) {
     const current = await tx.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
     if (current?.memoryEpoch !== payload.expectedMemoryEpoch) throw conflict('记忆已变化，旧导入预览已失效，请重新预览；本次没有写入任何内容')
   }
-  const result = { roleApplied: false, personaApplied: false, memoriesApplied: 0, memoriesSkipped: 0 }
+  const result = { personaApplied: false, memoriesApplied: 0, memoriesSkipped: 0 }
   if (payload.memoryBundle) {
     Object.assign(result, await applyMemoryImport(userId, { bundle: payload.memoryBundle, selectedIds: payload.selectedIds, selectedEdgeIds: payload.selectedEdgeIds }, tx))
   }
 
-  if (payload.role) {
-    // updateRolePlay 内含长度与恋人红线闸；校验失败按 400 透传，不静默降级
-    await updateRolePlay(userId, { name: payload.role.name, setting: payload.role.setting }, tx)
-    result.roleApplied = true
-  }
   if (payload.persona) {
     await switchPersona(userId, payload.persona, tx)
     result.personaApplied = true
@@ -176,7 +144,7 @@ export async function applyImport(userId, payload) {
     }
   }
 
-  if (!payload.memoryBundle && !result.roleApplied && !result.personaApplied && result.memoriesApplied === 0 && result.memoriesSkipped === 0) {
+  if (!payload.memoryBundle && !result.personaApplied && result.memoriesApplied === 0 && result.memoriesSkipped === 0) {
     throw new HttpError('没有可导入的内容', 400)
   }
   return result

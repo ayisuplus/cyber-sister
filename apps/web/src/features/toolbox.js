@@ -1,5 +1,5 @@
-// 功能桌面/发现页共享的功能目录：姐妹工具箱分组 + 能力图标与配色映射。
-// ToolsPage 与工作模式功能桌面（WorkDesktop）共用这一份，避免两处漂移。
+// 过渡期：仅供工作模式功能桌面（WorkDesktop）使用，随工作模式一并删除。
+// 页面导航的唯一来源已是 features/registry.js。
 import { BookHeart, BookOpen, CalendarHeart, Camera, GraduationCap, Lightbulb, ListTodo, Mail, NotebookPen, Shirt, Sparkles, WandSparkles } from 'lucide-react'
 
 export const CAPABILITY_ICONS = {

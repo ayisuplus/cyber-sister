@@ -1,3 +1,4 @@
+import { createRef } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -90,47 +91,41 @@ describe('InputBar', () => {
     asrService.getAsrStatus.mockResolvedValue({ available: true, configured: true, reason: null })
   })
 
-  it('health presets fill an editable draft without sending or replacing existing input', async () => {
-    const user = userEvent.setup()
+  it('fillDraft puts an editable draft into an empty composer without sending it', async () => {
+    const ref = createRef()
     const onSend = vi.fn().mockResolvedValue(false)
-    render(<InputBar onSend={onSend} disabled={false} />)
-    await user.click(screen.getByText('聊天预设 · 身体与情绪'))
-    await user.click(screen.getByRole('button', { name: '就诊准备' }))
-    const input = screen.getByRole('textbox', { name: '聊天消息' })
-    expect(input.value).toContain('要求暂停')
+    render(<InputBar ref={ref} onSend={onSend} disabled={false} />)
+
+    let filled
+    act(() => { filled = ref.current.fillDraft('我有点害怕妇科检查，想准备就诊问题清单。') })
+
+    expect(filled).toBe(true)
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveValue('我有点害怕妇科检查，想准备就诊问题清单。')
     expect(onSend).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '经期困扰' })).toBeDisabled()
-    await user.clear(input)
+  })
+
+  it('fillDraft never replaces what the user is already writing', async () => {
+    const user = userEvent.setup()
+    const ref = createRef()
+    render(<InputBar ref={ref} onSend={vi.fn()} disabled={false} />)
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
     await user.type(input, '我的原输入')
-    await user.click(screen.getByRole('button', { name: '经期困扰' }))
-    expect(input).toHaveValue('我的原输入')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    let filled
+    act(() => { filled = ref.current.fillDraft('预设文案') })
+
+    expect(filled).toBe(false)
     expect(input).toHaveValue('我的原输入')
   })
 
-  it('emotion presets remain editable, do not auto-send, and preserve drafts across groups', async () => {
+  it('reports whether a draft exists so sensitive openers can be disabled', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn().mockResolvedValue(false)
-    render(<InputBar onSend={onSend} disabled={false} />)
-    await user.click(screen.getByText('聊天预设 · 身体与情绪'))
-    await user.click(screen.getByRole('button', { name: '情绪与关系', exact: true }))
-    expect(screen.getByRole('button', { name: '情绪与关系', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await user.click(screen.getByRole('button', { name: '内疚与修复' }))
-    const input = screen.getByRole('textbox', { name: '聊天消息' })
-    expect(input.value).toContain('不把内疚感直接当成我有错')
-    expect(onSend).not.toHaveBeenCalled()
-    const draft = input.value
-    await user.click(screen.getByRole('button', { name: '身体呵护', exact: true }))
-    expect(input).toHaveValue(draft)
-    expect(screen.getByRole('button', { name: '经期困扰' })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
-    expect(input).toHaveValue(draft)
-  })
+    const onDraftChange = vi.fn()
+    render(<InputBar onSend={vi.fn()} disabled={false} onDraftChange={onDraftChange} />)
 
-  it('does not show body care presets in work mode', () => {
-    useChatStore.setState({ chatMode: 'work' })
-    render(<InputBar onSend={vi.fn()} disabled={false} />)
-    expect(screen.queryByText('聊天预设 · 身体与情绪')).not.toBeInTheDocument()
+    expect(onDraftChange).toHaveBeenLastCalledWith(false)
+    await user.type(screen.getByRole('textbox', { name: '聊天消息' }), '你好')
+    expect(onDraftChange).toHaveBeenLastCalledWith(true)
   })
 
   it('keeps the original input when sending is not confirmed', async () => {

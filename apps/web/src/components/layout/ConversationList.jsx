@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { format, isSameDay } from 'date-fns'
-import { Plus, Trash2, BookOpen, Archive, Settings } from 'lucide-react'
+import { Plus, Trash2, BookOpen, Archive } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import Button from '../ui/Button'
 import ConfirmDialog from '../ui/ConfirmDialog'
+import AppNav from './AppNav'
 
 // 全端唯一会话列表：列表 / 切换 / 新建 / 删除；显隐与宽度由宿主（AppSidebar / ConversationDrawer）承担。
 // 会话条目含标题、最近一条消息摘要与更新时间；删除走应用内确认弹窗。
@@ -75,11 +76,14 @@ export default function ConversationList({ onNavigate } = {}) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-border-hairline px-4 py-3">
+      <div className="flex items-center justify-between border-b border-border-hairline py-1 pl-4 pr-1">
         <h2 className="display-serif flex items-center gap-1.5 text-sm font-semibold text-text-primary">
           <BookOpen size={14} className="text-action-primary" aria-hidden="true" />
           会话
         </h2>
+        <Link to="/chat/archives" onClick={onNavigate} aria-label="对话归档" title="对话归档" className="flex h-11 w-11 items-center justify-center rounded-full text-text-muted transition-colors duration-300 ease-calm hover:bg-surface-muted hover:text-action-primary">
+          <Archive size={15} aria-hidden="true" />
+        </Link>
       </div>
 
       {error && <p role="alert" className="px-4 py-2 text-xs text-danger">{error}</p>}
@@ -139,10 +143,7 @@ export default function ConversationList({ onNavigate } = {}) {
           <Plus size={16} aria-hidden="true" />
           新会话
         </Button>
-        <div className="mt-2 grid grid-cols-2 gap-1">
-          <Link to="/chat/archives" onClick={onNavigate} className="flex min-h-11 items-center justify-center gap-2 rounded-control text-sm text-text-secondary transition-colors duration-300 ease-calm hover:bg-surface-muted"><Archive size={16} aria-hidden="true" />对话归档</Link>
-          <Link to="/settings" onClick={onNavigate} className="flex min-h-11 items-center justify-center gap-2 rounded-control text-sm text-text-secondary transition-colors duration-300 ease-calm hover:bg-surface-muted"><Settings size={16} aria-hidden="true" />设置</Link>
-        </div>
+        <AppNav onNavigate={onNavigate} />
       </div>
 
       <ConfirmDialog

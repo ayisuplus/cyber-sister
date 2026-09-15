@@ -66,7 +66,7 @@ function NoteItem({ note, onComment, onDelete }) {
             </Button>
             {error === 'not_consented' && (
               <p role="alert" className="mt-2 text-xs text-danger">
-                还没有同意使用云端模型，去<Link to="/profile" className="underline">「我的 → 云端模型」</Link>开启后再让她看看吧
+                还没有同意使用云端模型，去<Link to="/settings" className="underline">「设置 → 聊天模型」</Link>开启后再让她看看吧
               </p>
             )}
             {error === 'unavailable' && (
@@ -261,7 +261,8 @@ function BookCard({ book, onUpdated, onDeleted }) {
   )
 }
 
-export default function ReadingPage() {
+// embedded：作为「手记」页签嵌入时不渲染自己的页头
+export default function ReadingPage({ embedded = false } = {}) {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -306,7 +307,7 @@ export default function ReadingPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
-      <Header title="一起读书" showBack />
+      {!embedded && <Header title="一起读书" showBack />}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         <Card className="p-4">

@@ -100,7 +100,7 @@ test('a blocked crisis response is rendered without a provider reply', async ({ 
   await expectNoSeriousAxeFindings(page)
 })
 
-test('persona switches immediately and explicit memories support CRUD', async ({ page }) => {
+test('her page: speaking style switches immediately and explicit memories support CRUD', async ({ page }) => {
   await seedAuth(page)
   let memories = []
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
@@ -134,13 +134,13 @@ test('persona switches immediately and explicit memories support CRUD', async ({
     return json(route, 400, { error: 'unexpected memory request' })
   })
 
-  await page.goto('/profile')
-  await page.getByRole('button', { name: /理性军师/ }).click()
-  await expect(page.getByText('人格已切换，下一条消息立即生效')).toBeVisible()
-  await expect(page.getByRole('button', { name: /理性军师/ })).toHaveAttribute('aria-pressed', 'true')
+  // 说话方式与记忆同在「她」页面，不再需要跳转
+  await page.goto('/her')
+  await page.getByRole('button', { name: /安静/ }).click()
+  await expect(page.getByText('换好了，下一条消息就用这种方式和你说话')).toBeVisible()
+  await expect(page.getByRole('button', { name: /安静/ })).toHaveAttribute('aria-pressed', 'true')
   await expectNoSeriousAxeFindings(page)
 
-  await page.getByRole('button', { name: /显式记忆管理/ }).click()
   await expect(page.getByText('还没有记忆')).toBeVisible()
   await page.getByLabel('记忆内容').fill('我喜欢低饱和豆沙色')
   await page.getByLabel('标签（逗号分隔）').fill('妆容，豆沙色')
@@ -156,7 +156,8 @@ test('persona switches immediately and explicit memories support CRUD', async ({
   await expectNoSeriousAxeFindings(page)
 
   await page.getByRole('button', { name: '删除这条记忆' }).click()
-  await expect(page.getByText('记忆已删除')).toBeVisible()
+  await page.getByRole('button', { name: '确认删除' }).click()
+  await expect(page.getByText('记忆及其历史、索引和依赖已删除')).toBeVisible()
   await expect(page.getByText('还没有记忆')).toBeVisible()
 })
 
@@ -677,31 +678,6 @@ test('study: run a pomodoro, finish early and record it', async ({ page }) => {
   await expectNoSeriousAxeFindings(page)
 })
 
-test('roleplay: set and clear a custom role on profile', async ({ page }) => {
-  await seedAuth(page)
-  await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
-    accepted: true, version: 'cloud-primary-v3', updatedAt: '2026-08-29T00:00:00.000Z',
-  }))
-  let saved = null
-  await page.route('**/api/user/roleplay', route => {
-    if (route.request().method() === 'DELETE') { saved = null; return json(route, 200, { success: true }) }
-    saved = route.request().postDataJSON()
-    return json(route, 200, { roleName: saved.name, roleSetting: saved.setting })
-  })
-  await page.goto('/profile')
-
-  await page.getByLabel('角色名').fill('同桌的你')
-  await page.getByLabel('角色设定').fill('坐我旁边的女生，爱吐槽但总会帮我讲题。')
-  await page.getByRole('button', { name: '保存角色' }).click()
-  await expect(page.getByText('角色已设置，下一条消息立即生效')).toBeVisible()
-  expect(saved).toEqual({ name: '同桌的你', setting: '坐我旁边的女生，爱吐槽但总会帮我讲题。' })
-
-  await page.getByRole('button', { name: '清除角色' }).click()
-  await expect(page.getByText('已清除角色设定')).toBeVisible()
-  await expectNoSeriousAxeFindings(page)
-})
-
-
 // 2x2 有效 PNG：选照片/单品上传用（<img> 能触发 onLoad）
 const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 
@@ -730,11 +706,11 @@ test('work mode: grouped desktop replaces the empty state and preserves mode swi
   await expect(desktop).toHaveCount(0)
   await expect(page.getByText('嗨，我是你的Amie')).toBeVisible()
 
-  // 卡片直达对应路由
+  // 卡片直达对应入口：旧路由收拢到「装扮」的衣柜页签
   await modeSwitch.getByRole('button', { name: '工作' }).click()
   await desktop.getByRole('button', { name: '灵感装扮' }).click()
   await desktop.getByRole('link', { name: /3D 衣柜/ }).click()
-  await expect(page).toHaveURL(/\/tools\/wardrobe/)
+  await expect(page).toHaveURL(/\/tools\/style\?tab=wardrobe$/)
 })
 
 test('makeup room: save and re-apply parameter presets without local inference', async ({ page }) => {
@@ -919,8 +895,9 @@ test('workspace: confirm a derived relation edge under the edges tab', async ({ 
   await expect(page.getByRole('button', { name: '确认关系' })).toHaveCount(0)
 })
 
-test('tools: care touchpoint card shows reason and dismisses in place', async ({ page }) => {
+test('chat openers: her care card shows reason and dismisses in place', async ({ page }) => {
   await seedAuth(page)
+  await mockChatBootstrap(page, true)
   const card = {
     key: 'countdown:c1:2026-09-09',
     kind: 'countdown',
@@ -940,8 +917,9 @@ test('tools: care touchpoint card shows reason and dismisses in place', async ({
     return json(route, 400, { error: 'unexpected care request' })
   })
 
-  await page.goto('/tools')
-  await expect(page.getByText('她来想你')).toBeVisible()
+  // 发现页已收拢：她的关怀只在空白对话的开场区出现
+  await page.goto('/chat')
+  await expect(page.getByRole('region', { name: '她来想你' })).toBeVisible()
   await expect(page.getByText('「面试」还有 1 天')).toBeVisible()
   await expect(page.getByText('为什么看到这条：你在倒数日里记的日子')).toBeVisible()
 

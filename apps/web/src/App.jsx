@@ -8,21 +8,16 @@ import LoginPage from './pages/LoginPage'
 import ChatPage from './pages/ChatPage'
 
 // 路由级代码分割：登录/聊天为关键路径保持直出，其余页面按需加载（首屏包体收敛）
-const ToolsPage = lazy(() => import('./pages/ToolsPage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
-const MemoryHubPage = lazy(() => import('./pages/MemoryHubPage'))
+const HerPage = lazy(() => import('./pages/HerPage'))
 const MembershipPage = lazy(() => import('./pages/MembershipPage'))
-const MakeupRoomPage = lazy(() => import('./pages/MakeupRoomPage'))
-const WardrobePage = lazy(() => import('./pages/WardrobePage'))
+const StylePage = lazy(() => import('./pages/StylePage'))
+const NotesPage = lazy(() => import('./pages/NotesPage'))
 const PeriodPage = lazy(() => import('./pages/PeriodPage'))
 const PlannerPage = lazy(() => import('./pages/PlannerPage'))
-const DiaryPage = lazy(() => import('./pages/DiaryPage'))
 const HandbookPage = lazy(() => import('./pages/HandbookPage'))
-const ReadingPage = lazy(() => import('./pages/ReadingPage'))
 const StudyPage = lazy(() => import('./pages/StudyPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ConversationArchivePage = lazy(() => import('./pages/ConversationArchivePage'))
-const LettersPage = lazy(() => import('./pages/LettersPage'))
 
 function ProtectedRoute({ children }) {
   const isLoggedIn = useAuthStore(state => state.isLoggedIn)
@@ -37,6 +32,13 @@ function DefaultRedirect() {
   return <Navigate to={isLoggedIn ? '/chat' : '/login'} replace />
 }
 
+// 旧入口收拢到新入口：未指定页签时沿用原链接的 ?tab=（如 /memories?tab=pending → /her?tab=pending）
+/** @param {{ to: string, tab?: string }} props */
+function Moved({ to, tab }) {
+  const { search } = useLocation()
+  return <Navigate to={tab ? `${to}?tab=${tab}` : `${to}${search}`} replace />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -47,26 +49,31 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
           <Route path="/chat/archives" element={<ProtectedRoute><ConversationArchivePage /></ProtectedRoute>} />
-          <Route path="/tools" element={<ProtectedRoute><ToolsPage /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-          <Route path="/memories" element={<ProtectedRoute><MemoryHubPage /></ProtectedRoute>} />
-          <Route path="/profile/memories" element={<Navigate to="/memories" replace />} />
-          <Route path="/profile/membership" element={<ProtectedRoute><MembershipPage /></ProtectedRoute>} />
-          <Route path="/tools/makeup-room" element={<ProtectedRoute><MakeupRoomPage /></ProtectedRoute>} />
-          <Route path="/tools/wardrobe" element={<ProtectedRoute><WardrobePage /></ProtectedRoute>} />
-          <Route path="/tools/period" element={<ProtectedRoute><PeriodPage /></ProtectedRoute>} />
-          <Route path="/tools/planner" element={<ProtectedRoute><PlannerPage /></ProtectedRoute>} />
-          {/* 旧三页路由重定向到合并后的日程与提醒页（后端 care touchpoints 的 action.to 仍指旧路径，靠这里兼容） */}
-          <Route path="/tools/countdown" element={<Navigate to="/tools/planner?tab=countdown" replace />} />
-          <Route path="/tools/todo" element={<Navigate to="/tools/planner?tab=todo" replace />} />
-          <Route path="/tools/reminders" element={<Navigate to="/tools/planner?tab=reminders" replace />} />
-          <Route path="/tools/diary" element={<ProtectedRoute><DiaryPage /></ProtectedRoute>} />
-          <Route path="/tools/handbook" element={<ProtectedRoute><HandbookPage /></ProtectedRoute>} />
-          <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />
-          <Route path="/tools/study" element={<ProtectedRoute><StudyPage /></ProtectedRoute>} />
-          <Route path="/tools/workspace" element={<Navigate to="/memories?tab=pending" replace />} />
-          <Route path="/tools/letters" element={<ProtectedRoute><LettersPage /></ProtectedRoute>} />
+          <Route path="/her" element={<ProtectedRoute><HerPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/profile/membership" element={<ProtectedRoute><MembershipPage /></ProtectedRoute>} />
+          {/* 本地客户端功能统一在 /tools/ 下：安排、手记、经期、装扮 */}
+          <Route path="/tools/schedule" element={<ProtectedRoute><PlannerPage /></ProtectedRoute>} />
+          <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
+          <Route path="/tools/period" element={<ProtectedRoute><PeriodPage /></ProtectedRoute>} />
+          <Route path="/tools/style" element={<ProtectedRoute><StylePage /></ProtectedRoute>} />
+          <Route path="/tools/handbook" element={<ProtectedRoute><HandbookPage /></ProtectedRoute>} />
+          <Route path="/tools/study" element={<ProtectedRoute><StudyPage /></ProtectedRoute>} />
+          {/* 旧路径（含后端关怀卡 action.to 与外部深链）一律收拢到新入口 */}
+          <Route path="/memories" element={<Moved to="/her" />} />
+          <Route path="/profile" element={<Moved to="/settings" />} />
+          <Route path="/profile/memories" element={<Moved to="/her" />} />
+          <Route path="/tools" element={<Navigate to="/chat" replace />} />
+          <Route path="/tools/workspace" element={<Moved to="/her" tab="pending" />} />
+          <Route path="/tools/planner" element={<Moved to="/tools/schedule" />} />
+          <Route path="/tools/todo" element={<Moved to="/tools/schedule" tab="todo" />} />
+          <Route path="/tools/countdown" element={<Moved to="/tools/schedule" tab="countdown" />} />
+          <Route path="/tools/reminders" element={<Moved to="/tools/schedule" tab="reminders" />} />
+          <Route path="/tools/diary" element={<Moved to="/tools/notes" tab="diary" />} />
+          <Route path="/tools/reading" element={<Moved to="/tools/notes" tab="reading" />} />
+          <Route path="/tools/letters" element={<Moved to="/tools/notes" tab="letters" />} />
+          <Route path="/tools/makeup-room" element={<Moved to="/tools/style" tab="makeup" />} />
+          <Route path="/tools/wardrobe" element={<Moved to="/tools/style" tab="wardrobe" />} />
           <Route path="/" element={<DefaultRedirect />} />
           <Route path="*" element={<DefaultRedirect />} />
         </Routes>

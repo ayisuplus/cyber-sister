@@ -60,23 +60,6 @@ export const useAuthStore = create(
         return response.persona
       },
 
-      updateRolePlay: async ({ name, setting }) => {
-        const session = getSessionVersion()
-        const response = await authService.updateRolePlay({ name, setting })
-        assertSessionVersion(session)
-        const user = get().user
-        if (user) set({ user: { ...user, roleName: response.roleName, roleSetting: response.roleSetting } })
-        return response
-      },
-
-      clearRolePlay: async () => {
-        const session = getSessionVersion()
-        await authService.clearRolePlay()
-        assertSessionVersion(session)
-        const user = get().user
-        if (user) set({ user: { ...user, roleName: null, roleSetting: null } })
-      },
-
       updateProfile: (updates) => {
         const user = get().user
         if (user) set({ user: { ...user, ...updates } })

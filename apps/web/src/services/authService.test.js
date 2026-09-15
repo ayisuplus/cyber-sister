@@ -42,24 +42,6 @@ describe('authService', () => {
     expect(result).toEqual({ persona: 'rational' })
   })
 
-  it('updates the roleplay setting', async () => {
-    api.put.mockResolvedValue({ data: { roleName: '同桌的你', roleSetting: '爱吐槽' } })
-
-    const result = await authService.updateRolePlay({ name: '同桌的你', setting: '爱吐槽' })
-
-    expect(api.put).toHaveBeenCalledWith('/user/roleplay', { name: '同桌的你', setting: '爱吐槽' })
-    expect(result).toEqual({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-  })
-
-  it('clears the roleplay setting', async () => {
-    api.delete.mockResolvedValue({ data: { success: true } })
-
-    const result = await authService.clearRolePlay()
-
-    expect(api.delete).toHaveBeenCalledWith('/user/roleplay')
-    expect(result).toEqual({ success: true })
-  })
-
   it('propagates request failures to the caller', async () => {
     api.post.mockRejectedValue(new Error('invalid code'))
 

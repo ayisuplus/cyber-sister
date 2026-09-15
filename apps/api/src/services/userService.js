@@ -25,8 +25,6 @@ export async function getProfile(userId) {
       avatarUrl: true,
       birthDate: true,
       careEnabled: true,
-      roleName: true,
-      roleSetting: true,
       createdAt: true,
     },
   })
@@ -76,8 +74,6 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
       isVip: true,
       vipExpireAt: true,
       avatarUrl: true,
-      roleName: true,
-      roleSetting: true,
     },
   })
 
@@ -98,49 +94,9 @@ export async function switchPersona(userId, persona, database = prisma) {
   logger.info('人格切换', { userId, persona })
   return user
 }
-/**
- * 角色扮演恋人红线（PRD §4.3 永远不做恋人模式；人格提示词同样禁止发展恋爱/暧昧关系）。
- * 确定性词表，供产品负责人审阅与补充；name 与 setting 任一命中即拒绝。
- * 只拦截明确亲密关系称谓，不误伤「对象」（目标）、「伴侣犬」等普通语义由人工复核兜底。
- */
-const ROLE_INTIMATE_PATTERNS = [
-  /恋人|情侣|爱人|老婆|老公|妻子|丈夫|夫君|娘子|相公|媳妇/,
-  /女朋友|男朋友|女友|男友|网恋对象|暧昧对象|虚拟恋人/,
-  /伴侣|灵魂伴侣|红颜知己|蓝颜知己|主人|主仆/,
-]
 
-/** 恋人红线断言：命中时抛 400，文案沿用品牌口径（迁移导入复用同一闸）。 */
-export function assertRolePlayAllowed(name, setting) {
-  const text = `${name ?? ''}\n${setting ?? ''}`
-  if (ROLE_INTIMATE_PATTERNS.some((pattern) => pattern.test(text))) {
-    throw new HttpError('角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象', 400)
-  }
-}
-
-export async function updateRolePlay(userId, { name, setting }, database = prisma) {
-  if (typeof name !== 'string' || !name.trim() || name.trim().length > 20) {
-    throw new HttpError('角色名必须为1到20个字符', 400)
-  }
-  if (typeof setting !== 'string' || !setting.trim() || setting.trim().length > 200) {
-    throw new HttpError('角色设定必须为1到200个字符', 400)
-  }
-  assertRolePlayAllowed(name.trim(), setting.trim())
-  const user = await database.user.update({
-    where: { id: userId },
-    data: { roleName: name.trim(), roleSetting: setting.trim() },
-    select: { roleName: true, roleSetting: true },
-  })
-  logger.info('设置角色扮演', { userId })
-  return user
-}
-
-export async function clearRolePlay(userId) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { roleName: null, roleSetting: null },
-  })
-  logger.info('清除角色扮演', { userId })
-}
+// 角色扮演已取消（2026-09 功能收拢）：一个 Amie、三种说话方式。
+// users.role_name/role_setting 列保留且只随数据导出带出旧值，聊天不再读取。
 
 export async function getExternalLlmConsent(userId) {
   const consent = await prisma.user.findUnique({

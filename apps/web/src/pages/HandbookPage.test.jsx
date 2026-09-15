@@ -228,6 +228,6 @@ describe('HandbookPage', () => {
     await user.click(await screen.findByRole('button', { name: /姐妹说两句/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('还没有同意使用云端模型')
-    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
+    expect(screen.getByRole('link', { name: /聊天模型/ })).toHaveAttribute('href', '/settings')
   })
 })

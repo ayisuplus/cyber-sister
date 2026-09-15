@@ -14,7 +14,8 @@ import useWorkMediaPreview from '../hooks/useWorkMediaPreview'
 const buttonClass = 'min-h-11 rounded-2xl border border-border-default bg-surface-card px-4 text-sm font-semibold text-text-secondary'
 const inputClass = 'mt-4 min-h-11 w-full rounded-2xl border border-border-default bg-surface-input px-3 text-sm text-text-primary'
 
-export default function MakeupRoomPage() {
+// embedded：作为「装扮」页签嵌入时不渲染自己的页头
+export default function MakeupRoomPage({ embedded = false } = {}) {
   const media = useWorkMediaPreview(workMediaService.previewMakeup)
   const [settings, setSettings] = useState({ ...BEAUTY_PRESETS.find(p => p.id === 'natural').settings })
   const [activePresetId, setActivePresetId] = useState('natural')
@@ -162,7 +163,7 @@ export default function MakeupRoomPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
-      <Header title="化妆间" showBack />
+      {!embedded && <Header title="化妆间" showBack />}
       <main className="flex-1 overflow-y-auto px-4 py-5">
         <section className="rounded-3xl bg-pastel-mist p-5 shadow-card">
           <h1 className="flex items-center gap-2 text-base font-semibold text-text-primary"><SlidersHorizontal size={22} aria-hidden="true" />化妆间</h1>

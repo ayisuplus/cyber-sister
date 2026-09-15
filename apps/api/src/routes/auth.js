@@ -64,8 +64,6 @@ router.post('/login', validate([
         persona: user.persona,
         isVip: user.isVip,
         avatarUrl: user.avatarUrl,
-        roleName: user.roleName,
-        roleSetting: user.roleSetting,
       },
     })
   } catch (error) {

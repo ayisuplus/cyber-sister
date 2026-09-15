@@ -23,7 +23,7 @@ describe('CloudFallbackNotice', () => {
     expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
     expect(screen.getByText(/手机号、邮箱、证件号会被替换/)).toBeInTheDocument()
     expect(screen.getByText(/不同意暂时无法聊天/)).toBeInTheDocument()
-    expect(screen.getByText(/「我的」页面改主意/)).toBeInTheDocument()
+    expect(screen.getByText(/「设置 → 聊天模型」里改主意/)).toBeInTheDocument()
   })
 
   it('records consent when allowing the cloud model and closes', async () => {

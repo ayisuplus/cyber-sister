@@ -104,7 +104,7 @@ describe('ReadingPage', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('还没有同意使用云端模型')
-    expect(screen.getByRole('link', { name: /云端模型/ })).toHaveAttribute('href', '/profile')
+    expect(screen.getByRole('link', { name: /聊天模型/ })).toHaveAttribute('href', '/settings')
   })
 
   it('deletes a note only after confirmation and keeps it when the request fails', async () => {

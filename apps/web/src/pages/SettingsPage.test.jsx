@@ -3,43 +3,40 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../components/chat/CompanionStatePanel', () => ({ default: () => <div>她的状态</div> }))
+const mocks = vi.hoisted(() => ({
+  setBackground: vi.fn(),
+  clearBackground: vi.fn(),
+  resolveAssetUrl: vi.fn(),
+  appearance: { homeBgUrl: null, chatBgUrl: null },
+}))
 
 vi.mock('../services/modelStatusService', () => ({ modelStatusService: { getStatus: vi.fn().mockResolvedValue({ externalFallback: { configured: true, consent: true } }) } }))
 
-vi.mock('../services/toolsService', () => ({
-  toolsService: {
-    getTodos: vi.fn(),
-    createTodo: vi.fn(),
-    updateTodo: vi.fn(),
-    deleteTodo: vi.fn(),
-    getCountdowns: vi.fn(),
-    createCountdown: vi.fn(),
-    deleteCountdown: vi.fn(),
-    getPeriodRecords: vi.fn(),
-    createPeriodRecord: vi.fn(),
-    getReminders: vi.fn(),
-    updateReminder: vi.fn(),
-    getWeather: vi.fn(),
-  },
-}))
-
 vi.mock('../services/userService', () => ({
   profileService: { get: vi.fn(), update: vi.fn() },
+  userService: { uploadAsset: vi.fn(), deleteAsset: vi.fn(), fetchAssetUrl: vi.fn() },
+  migrationService: { downloadExport: vi.fn(), previewImport: vi.fn(), applyImport: vi.fn() },
 }))
 
-import { toolsService } from '../services/toolsService'
-import { useToolsStore } from '../stores/toolsStore'
+vi.mock('../stores/appearanceStore', () => ({
+  useAppearanceStore: selector => selector({
+    ...mocks.appearance,
+    setBackground: mocks.setBackground,
+    clearBackground: mocks.clearBackground,
+    resolveAssetUrl: mocks.resolveAssetUrl,
+  }),
+}))
+
 import { startThemeSync } from '../stores/themeStore'
-import { profileService } from '../services/userService'
+import { useAuthStore } from '../stores/authStore'
+import { migrationService, profileService, userService } from '../services/userService'
 import SettingsPage from './SettingsPage'
 
 const renderPage = () => render(
   <MemoryRouter initialEntries={['/settings']}>
     <Routes>
       <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/profile/memories" element={<h1>记忆页</h1>} />
-      <Route path="/profile" element={<h1>资料页</h1>} />
+      <Route path="/her" element={<h1>她页</h1>} />
       <Route path="/chat/archives" element={<h1>归档页</h1>} />
     </Routes>
   </MemoryRouter>,
@@ -48,13 +45,10 @@ const renderPage = () => render(
 describe('SettingsPage', () => {
   let stopThemeSync
   beforeEach(() => {
+    vi.clearAllMocks()
     stopThemeSync = startThemeSync()
-    useToolsStore.setState({ reminders: [] })
-    toolsService.getReminders.mockResolvedValue([
-      { id: 'r-water', type: 'water', time: '08:00', isActive: true },
-      { id: 'r-sleep', type: 'sleep', time: '23:00', isActive: true },
-      { id: 'r-period', type: 'period', time: '09:00', isActive: true },
-    ])
+    useAuthStore.setState({ user: { id: 'u1', nickname: '小赛', persona: 'gentle' } })
+    mocks.resolveAssetUrl.mockResolvedValue(null)
     profileService.get.mockResolvedValue({ careEnabled: true })
     profileService.update.mockImplementation(async (payload) => payload)
   })
@@ -64,8 +58,6 @@ describe('SettingsPage', () => {
     delete document.documentElement.dataset.theme
     document.documentElement.style.removeProperty('color-scheme')
   })
-
-  const toggleOf = (label) => screen.getByText(label).closest('div').querySelector('button')
 
   it('provides persistent day, night and system appearance choices', async () => {
     const user = userEvent.setup()
@@ -86,62 +78,37 @@ describe('SettingsPage', () => {
     expect(localStorage.getItem('amie-theme')).toBe('system')
   })
 
-  it('renders the three server-backed reminder switches enabled by default', async () => {
+  it('keeps a single cloud consent control and no duplicate profile page', async () => {
     renderPage()
 
-    expect(toolsService.getReminders).toHaveBeenCalledTimes(1)
-    await waitFor(() => {
-      for (const label of ['喝水提醒', '睡觉提醒', '大姨妈提醒']) {
-        expect(toggleOf(label).querySelector('svg')).toHaveClass('text-brand-pink')
-      }
-    })
+    expect(await screen.findAllByRole('switch', { name: '允许云端模型处理聊天' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '允许云端模型' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '我的资料与装扮' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /退出登录/ })).toHaveLength(1)
   })
 
-  it('flips a reminder switch off and back on through the server', async () => {
-    const user = userEvent.setup()
-    toolsService.updateReminder
-      .mockResolvedValueOnce({ id: 'r-water', type: 'water', isActive: false })
-      .mockResolvedValueOnce({ id: 'r-water', type: 'water', isActive: true })
+  it('shows no fake reminders, role-play, companion panel, dead buttons or fake account deletion', async () => {
     renderPage()
+    await waitFor(() => expect(profileService.get).toHaveBeenCalled())
 
-    await waitFor(() => expect(toggleOf('喝水提醒').querySelector('svg')).toHaveClass('text-brand-pink'))
-
-    await user.click(toggleOf('喝水提醒'))
-    expect(toolsService.updateReminder).toHaveBeenCalledWith('r-water', { isActive: false })
-    await waitFor(() => expect(toggleOf('喝水提醒').querySelector('svg')).toHaveClass('text-text-muted'))
-
-    await user.click(toggleOf('喝水提醒'))
-    expect(toolsService.updateReminder).toHaveBeenCalledWith('r-water', { isActive: true })
-    await waitFor(() => expect(toggleOf('喝水提醒').querySelector('svg')).toHaveClass('text-brand-pink'))
-
-    // 其它开关不受影响
-    expect(toggleOf('睡觉提醒').querySelector('svg')).toHaveClass('text-brand-pink')
+    for (const text of ['喝水提醒', '睡觉提醒', '大姨妈提醒', '角色扮演', '她的状态', '主动关怀消息', '清空所有记忆', '一键清空对话记录', '用户协议', '注销账号']) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument()
+    }
   })
 
-  it('disables reminder switches the server has no record for', async () => {
-    toolsService.getReminders.mockResolvedValue([])
-    renderPage()
-
-    await waitFor(() => expect(toggleOf('喝水提醒')).toBeDisabled())
-    expect(toggleOf('喝水提醒').querySelector('svg')).toHaveClass('text-text-muted')
-  })
-
-  it('navigates to the memory management page', async () => {
+  it('navigates to her memories', async () => {
     const user = userEvent.setup()
     renderPage()
 
     await user.click(screen.getByRole('button', { name: /记忆管理/ }))
 
-    expect(await screen.findByRole('heading', { name: '记忆页' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '她页' })).toBeInTheDocument()
   })
 
-  it('shows no proactive toggle, dead buttons or fake account deletion', async () => {
+  it('opens conversation archives from settings', async () => {
     renderPage()
-    await waitFor(() => expect(toolsService.getReminders).toHaveBeenCalled())
-
-    for (const text of ['主动关怀消息', '清空所有记忆', '一键清空对话记录', '用户协议', '注销账号']) {
-      expect(screen.queryByText(text)).not.toBeInTheDocument()
-    }
+    await userEvent.click(screen.getByRole('button', { name: '对话归档' }))
+    expect(await screen.findByRole('heading', { name: '归档页' })).toBeInTheDocument()
   })
 
   it('flips 她来想你 off and on through the server (real users.care_enabled)', async () => {
@@ -168,24 +135,6 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(careToggle.querySelector('svg')).toHaveClass('text-text-muted'))
   })
 
-  it('shows static app information', () => {
-    renderPage()
-
-    expect(screen.getByText('1.0.0')).toBeInTheDocument()
-  })
-
-  it('opens conversation archives from settings', async () => {
-    renderPage()
-    await userEvent.click(screen.getByRole('button', { name: '对话归档' }))
-    expect(await screen.findByRole('heading', { name: '归档页' })).toBeInTheDocument()
-  })
-
-  it('opens the existing profile and appearance editor', async () => {
-    renderPage()
-    await userEvent.click(screen.getByRole('button', { name: '我的资料与装扮' }))
-    expect(await screen.findByRole('heading', { name: '资料页' })).toBeInTheDocument()
-  })
-
   it('shows an error and preserves care settings if saving fails', async () => {
     profileService.update.mockRejectedValueOnce(new Error('offline'))
     renderPage()
@@ -197,13 +146,96 @@ describe('SettingsPage', () => {
     expect(toggle).toBeEnabled()
   })
 
-  it('shows an error and preserves reminder settings if saving fails', async () => {
-    toolsService.updateReminder.mockRejectedValueOnce(new Error('offline'))
+  it('shows static app information', () => {
     renderPage()
-    const toggle = screen.getByRole('switch', { name: '喝水提醒' })
-    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
-    await userEvent.click(toggle)
-    expect(await screen.findByRole('alert')).toHaveTextContent('提醒设置保存失败')
-    expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+    expect(screen.getByText('1.0.0')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsPage 形象', () => {
+  let stopThemeSync
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stopThemeSync = startThemeSync()
+    useAuthStore.setState({ user: { id: 'u1', nickname: '小赛', persona: 'gentle' } })
+    mocks.resolveAssetUrl.mockResolvedValue(null)
+    profileService.get.mockResolvedValue({ careEnabled: true })
+  })
+  afterEach(() => stopThemeSync())
+
+  it('渲染头像 / 主页背景 / 聊天背景三个槽位行，未设置时显示占位', () => {
+    renderPage()
+
+    expect(screen.getByRole('heading', { name: '形象' })).toBeInTheDocument()
+    expect(screen.getByText('头像')).toBeInTheDocument()
+    expect(screen.getByText('主页背景')).toBeInTheDocument()
+    expect(screen.getByText('聊天背景')).toBeInTheDocument()
+    expect(screen.getAllByText('未设置')).toHaveLength(2)
+    expect(screen.getByLabelText('更换头像')).toBeInTheDocument()
+    expect(screen.getByLabelText('选择主页背景图片')).toBeInTheDocument()
+    expect(screen.getByLabelText('选择聊天背景图片')).toBeInTheDocument()
+  })
+
+  it('上传头像成功后写回 authStore user.avatarUrl', async () => {
+    const user = userEvent.setup()
+    userService.uploadAsset.mockResolvedValue({ url: '/api/user/assets/avatar?v=9' })
+    renderPage()
+
+    await user.upload(screen.getByLabelText('更换头像'), new File(['x'], 'a.png', { type: 'image/png' }))
+
+    expect(userService.uploadAsset).toHaveBeenCalledWith('avatar', expect.any(File))
+    await waitFor(() => expect(useAuthStore.getState().user.avatarUrl).toBe('/api/user/assets/avatar?v=9'))
+  })
+
+  it('上传聊天背景走 appearanceStore.setBackground', async () => {
+    const user = userEvent.setup()
+    mocks.setBackground.mockResolvedValue(undefined)
+    renderPage()
+
+    await user.upload(screen.getByLabelText('选择聊天背景图片'), new File(['x'], 'bg.png', { type: 'image/png' }))
+
+    expect(mocks.setBackground).toHaveBeenCalledWith('bg-chat', expect.any(File))
+    expect(userService.uploadAsset).not.toHaveBeenCalled()
+  })
+})
+
+describe('SettingsPage 数据与迁移', () => {
+  let stopThemeSync
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stopThemeSync = startThemeSync()
+    mocks.resolveAssetUrl.mockResolvedValue(null)
+    profileService.get.mockResolvedValue({ careEnabled: true })
+  })
+  afterEach(() => stopThemeSync())
+
+  it('渲染数据导出区并承诺永久免费', () => {
+    renderPage()
+
+    expect(screen.getByRole('heading', { name: '数据与迁移' })).toBeInTheDocument()
+    expect(screen.getByText(/永久免费，不设会员门槛/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '导出我的全部数据（JSON）' })).toBeEnabled()
+  })
+
+  it('点击导出触发下载并提示文件名', async () => {
+    const user = userEvent.setup()
+    migrationService.downloadExport.mockResolvedValue('cyber-sister-export-2026-09-07.json')
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '导出我的全部数据（JSON）' }))
+
+    expect(migrationService.downloadExport).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText(/已发起下载 cyber-sister-export-2026-09-07\.json/)).toBeInTheDocument()
+  })
+
+  it('导出失败时提示重试', async () => {
+    const user = userEvent.setup()
+    migrationService.downloadExport.mockRejectedValue(new Error('network down'))
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '导出我的全部数据（JSON）' }))
+
+    expect(await screen.findByText('导出失败，请重试')).toBeInTheDocument()
   })
 })

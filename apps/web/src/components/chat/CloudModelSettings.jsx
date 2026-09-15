@@ -62,7 +62,9 @@ export default function CloudModelSettings() {
             {status?.consent === true ? <ToggleRight size={26} className="text-brand-pink" aria-hidden="true" /> : <ToggleLeft size={26} className="text-text-muted" aria-hidden="true" />}
           </button>
         </div>
-        <p className="text-xs leading-relaxed text-text-secondary">开启后，聊天内容、已确认的相关记忆和你主动发送的照片会交由聊天模型处理。如已配置独立向量服务，也会发送记忆正文与检索文本。关闭后暂停聊天和向量生成，已有记录仍保留。工作模式目前仅提供模拟结果。</p>
+        {/* 唯一的云端授权处（原「我的 → 云端模型」已并入）：外发范围说明两处合并，只增不减 */}
+        <p className="text-xs leading-relaxed text-text-secondary">聊天会把脱敏后的消息、最多 5 条已确认的相关记忆及其已确认关联、你主动发送的照片交给已配置的聊天模型。语义检索使用单独配置的向量服务，开启后会发送记忆正文和检索文本；未配置时使用关键词检索。待确认草稿不会进入聊天。拒绝或撤回后聊天不可用，也会暂停向量生成，已有记录仍保留。工作模式目前仅提供模拟结果。</p>
+        {status?.version && <p className="text-xs text-text-muted">同意版本：{status.version}</p>}
         {status?.embedding && <p className="text-xs text-text-secondary">记忆检索：{status.embedding.configured ? `向量模型 ${status.embedding.model} 已配置，实际可用性以任务结果为准` : '使用关键词检索，向量服务尚未配置'}</p>}
         <p className="text-xs text-text-secondary">工作台整理：模拟预览，尚未生成真实理解。</p>
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}

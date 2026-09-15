@@ -456,7 +456,7 @@ describe('chatService.sendMessage', () => {
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
 
-  it('用户带角色时角色设定在工具目录之前注入', async () => {
+  it('角色扮演已取消：旧数据里的角色值不再注入系统提示', async () => {
     mocks.userFindUnique.mockResolvedValue({
       persona: 'toxic',
       externalLlmConsent: true,
@@ -469,8 +469,7 @@ describe('chatService.sendMessage', () => {
 
     expect(result).toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.extraSystem[0].content).toContain('角色扮演设定')
-    expect(options.extraSystem[0].content).toContain('同桌的你')
+    expect(options.extraSystem.some((m) => m.content.includes('角色扮演设定') || m.content.includes('同桌的你'))).toBe(false)
     expect(options.extraSystem.at(-1).content).toContain('add_todo')
   })
 
@@ -492,13 +491,12 @@ describe('chatService.sendMessage', () => {
     expect(mocks.embedQuery).not.toHaveBeenCalled()
   })
 
-  it('work 会话延续角色身份，使用工作工具目录', async () => {
+  it('work 会话使用工作工具目录', async () => {
     mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
-    mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION, roleName: '同桌', roleSetting: '一起学习' })
+    mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION })
     await expect(sendMessage('conversation-1', 'user-1', '帮我算个账')).resolves.toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
     expect(options).toMatchObject({ scene: 'work', allowExternal: true })
-    expect(options.extraSystem[0].content).toContain('同桌')
     expect(options.extraSystem.at(-1).content).toContain('create_artifact')
   })
 

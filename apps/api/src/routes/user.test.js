@@ -6,8 +6,6 @@ const service = vi.hoisted(() => ({
   getProfile: vi.fn(),
   updateProfile: vi.fn(),
   switchPersona: vi.fn(),
-  updateRolePlay: vi.fn(),
-  clearRolePlay: vi.fn(),
   getExternalLlmConsent: vi.fn(),
   updateExternalLlmConsent: vi.fn(),
   getMembership: vi.fn(),
@@ -121,31 +119,10 @@ describe('人格路由', () => {
   })
 })
 
-describe('角色扮演路由', () => {
-  it('设置角色透传 service 返回值', async () => {
-    service.updateRolePlay.mockResolvedValue({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-
-    const ok = await request(app).put('/roleplay').send({ name: '同桌的你', setting: '爱吐槽' })
-    expect(ok.status).toBe(200)
-    expect(ok.body).toEqual({ roleName: '同桌的你', roleSetting: '爱吐槽' })
-    expect(service.updateRolePlay).toHaveBeenCalledWith('user-1', { name: '同桌的你', setting: '爱吐槽' })
-  })
-
-  it('service 校验错误按 statusCode 透传', async () => {
-    service.updateRolePlay.mockRejectedValue(httpError('角色名必须为1到20个字符', 400))
-
-    const fail = await request(app).put('/roleplay').send({ name: '', setting: '爱吐槽' })
-    expect(fail.status).toBe(400)
-    expect(fail.body).toEqual({ error: '角色名必须为1到20个字符' })
-  })
-
-  it('清除角色返回 success', async () => {
-    service.clearRolePlay.mockResolvedValue(undefined)
-
-    const ok = await request(app).delete('/roleplay')
-    expect(ok.status).toBe(200)
-    expect(ok.body).toEqual({ success: true })
-    expect(service.clearRolePlay).toHaveBeenCalledWith('user-1')
+describe('角色扮演已取消', () => {
+  it.each(['put', 'delete'])('%s /roleplay 不再提供', async (method) => {
+    const response = await request(app)[method]('/roleplay').send({ name: '同桌的你', setting: '爱吐槽' })
+    expect(response.status).toBe(404)
   })
 })
 

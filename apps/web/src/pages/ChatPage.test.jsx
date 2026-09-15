@@ -106,13 +106,32 @@ describe('ChatPage', () => {
     expect(localStorage.getItem('cyber-sister-disclaimer-shown')).toBe('true')
   })
 
-  it('greets with topic shortcuts on an empty conversation', async () => {
+  it('greets with a few openers on an empty conversation, without an always-on preset panel', async () => {
     renderPage()
 
     expect(await screen.findByText('嗨，我是你的Amie')).toBeInTheDocument()
-    for (const topic of ['今天心情不好', '推荐个电影', '聊聊八卦', '帮我出主意']) {
+    const openers = within(screen.getByRole('group', { name: '开场话题' })).getAllByRole('button')
+    expect(openers.length).toBeLessThanOrEqual(4)
+    for (const topic of ['今天心情不好', '推荐个电影']) {
       expect(screen.getByRole('button', { name: topic })).toBeInTheDocument()
     }
+    expect(screen.queryByText('聊天预设 · 身体与情绪')).not.toBeInTheDocument()
+  })
+
+  it('a sensitive opener only drafts into the composer and never sends on its own', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const [draftOpener] = within(await screen.findByRole('group', { name: '开场话题' }))
+      .getAllByRole('button')
+      .filter(button => button.title === '填进输入框，改好再发')
+    await user.click(draftOpener)
+
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    await waitFor(() => expect(input.value.length).toBeGreaterThan(10))
+    expect(chatService.streamMessage).not.toHaveBeenCalled()
+    expect(chatService.createConversation).not.toHaveBeenCalled()
+    await waitFor(() => expect(draftOpener).toBeDisabled())
   })
 
   it('shows the primary care card in the empty state when touchpoints exist', async () => {
