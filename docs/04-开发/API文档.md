@@ -7,6 +7,8 @@
 >
 > 本文面向前端与集成开发者。所有示例均为 JSON。
 
+> **2026-09-16 功能收拢更新**（以 [Spec §1/§3/§4.1/§6.1](../Spec_Amie_v1.0.md) 为准）：界面只提供三种说话方式，新用户默认 `gentle`；角色扮演接口已移除；只有一种对话，新建会话接口拒绝 `mode=work`；日程、倒数日、旧提醒、手帐（`/api/habits`）与自习（`/api/study`）接口已下线（404），由「安排」`/api/reminders` 替代，`/api/tools` 只剩经期与关闭的天气；导出新增 `scheduledTasks`。「安排 / 手记 / 经期 / 装扮」相关接口只在本地运行时开放，网页版返回 403 `LOCAL_CLIENT_REQUIRED`。
+
 > **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](记忆系统接口-20260913.md)为准。
 
 > **2026-09-12 对话归档更新**：会话列表默认只返回未归档记录；归档筛选、恢复接口与聊天限制见[模型连接与对话归档](模型连接与对话归档-20260912.md)。
@@ -176,7 +178,7 @@ Authorization: Bearer <access_token>
 { "persona": "toxic" }
 ```
 
-`persona` 取值：`toxic`（毒舌互怼） · `gentle`（温柔姐姐） · `rational`（疯批搭子）
+`persona` 取值：界面只提供三种说话方式——`gentle`（温柔，新用户默认） · `toxic`（直爽） · `cool`（安静）；`rational | energetic | sister` 仍是合法值（Spec §3）。
 
 **行为要点**
 
@@ -222,24 +224,9 @@ Authorization: Bearer <access_token>
 
 订阅会员（内测未接入真实支付）。
 
-### PUT /api/user/roleplay — 设置角色扮演
+### ~~PUT /api/user/roleplay~~ — 已移除（2026-09-15）
 
-**请求**
-
-```json
-{ "name": "合租室友", "setting": "爱做饭，经常喊我一起吃饭" }
-```
-
-- `name` 必填，trim 后 1–20 字符；`setting` 必填，1–200 字符
-- `DELETE /api/user/roleplay` 清除角色扮演
-
-**恋人红线（400）**：`name` 或 `setting` 任一命中亲密关系词表（恋人/情侣/爱人/老婆/老公/妻子/丈夫/夫君/娘子/相公/媳妇/女朋友/男朋友/女友/男友/网恋对象/暧昧对象/虚拟恋人/伴侣/灵魂伴侣/红颜知己/蓝颜知己/主人/主仆）即拒绝，不落库：
-
-```json
-{ "error": "角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象" }
-```
-
-普通非亲密关系（合租室友、同桌等）不受影响。迁移导入复用同一道闸。
+角色扮演随功能收拢取消：设置与清除接口均已移除，聊天不再注入角色设定，导入也不再接收角色。已有的 `roleName / roleSetting` 只随导出带出。
 
 ### GET /api/user/export — 一键导出全部数据
 
@@ -260,6 +247,7 @@ Authorization: Bearer <access_token>
   "memories": [ { "type": "semantic", "content": "...", "importance": 7, "tags": ["..."], "createdAt": "..." } ],
   "conversations": [ { "messages": [ { "role": "user", "content": "...", "emotion": null,
       "source": "qwen", "importance": null, "toolRuns": null, "createdAt": "..." } ] } ],
+  "scheduledTasks": [ { "content": "妈妈生日", "freq": "yearly", "time": "09:00", "status": "active", "deliveries": [] } ],
   "todos": [], "countdowns": [], "periodRecords": [], "reminders": [],
   "diaryEntries": [], "habits": [ { "checkins": [] } ],
   "books": [ { "notes": [] } ],
@@ -267,33 +255,30 @@ Authorization: Bearer <access_token>
 }
 ```
 
+- `scheduledTasks`（2026-09-15 起）：安排的调度字段原样导出，`deliveries` 为到点记录（含她执行任务的产出）；`todos / countdowns / reminders / habits / studySessions` 是已停用功能的历史，照旧导出。
+
 - `user` 段**不含** id、phone 与任何凭据
 - **不导出**：refresh token（凭据，绝不外发）、危机日志（安全运维数据）、机器向量、头像/背景等二进制资产。
 - v2 另含 `memoryBundle`（正式记忆、完整版本、来源、确认记录及已确认/待重审关系）；上面保留的业务段只示意原有字段。v2 导入以 `memoryBundle` 为准，缺失时拒绝降级，不能丢弃历史后静默导入。
 
 ### POST /api/user/import/preview — 迁移预览（不落库）
 
-两种输入：自家导出包 JSON（自动识别 `version` + `product` 字段），或纯角色文本：
-
-```json
-{ "format": "persona-text", "roleName": "...", "roleSetting": "..." }
-```
+只接收自家导出包 JSON（自动识别 `version` + `product` 字段；v2 以 `memoryBundle` 为准）。外部人设文本（`persona-text`）随角色扮演取消不再接收，其它格式 400。
 
 **响应 200**
 
 ```json
 {
   "format": "cyber-sister-export",
-  "role": { "name": "...", "setting": "...", "ok": false, "error": "角色扮演不能设定为恋人或亲密关系——我是你姐妹，不是你对象" },
-  "persona": { "id": "toxic", "ok": true },
+  "persona": { "id": "gentle", "ok": true },
   "memoryCandidates": [ { "type": "semantic", "content": "...", "importance": 7, "tags": [] } ],
   "memoriesSkipped": 2,
-  "notes": ["对话/日记/手帐/日程等数据段 v1 不导入"]
+  "notes": ["对话、日记、安排、经期、阅读，以及手帐、日程、倒数日、旧提醒、自习等历史数据段不导入（v1 边界）。"]
 }
 ```
 
-- v1 导入对象仅三类：角色扮演（`roleName`/`roleSetting`）、人格 id、显式记忆候选；对话/日记/手帐/日程等数据段不导入，`notes` 如实说明
-- 角色命中恋人红线时 `role.ok:false` 并带原因；人格 id 非法时 `persona.ok:false`
+- 导入对象只有两类：人格 id、显式记忆候选（v2 含记忆关系）；其余数据段不导入，`notes` 如实说明
+- 人格 id 非法时 `persona.ok:false`
 - 云端模型同意状态**绝不导入**——须用户主动重新同意 `cloud-primary-v1`
 - 预览**绝不落库**；记忆候选单批最多 100 条
 
@@ -305,22 +290,21 @@ Authorization: Bearer <access_token>
 
 ```json
 {
-  "role": { "name": "...", "setting": "..." },
-  "persona": "toxic",
+  "persona": "gentle",
   "memories": [ { "type": "semantic", "content": "...", "importance": 7, "tags": [] } ]
 }
 ```
 
-- 角色经 `updateRolePlay`（长度 + 恋人红线双闸，400 透传）；人格经 `switchPersona`；记忆经 `createMemory` 既有校验
+- 人格经 `switchPersona`；记忆经 `createMemory` 既有校验
 - 与现有记忆做规范化去重（NFKC + trim + 小写），候选之间同样查重；重复/非法按 skipped 计数
 
 **响应 200**
 
 ```json
-{ "roleApplied": true, "personaApplied": true, "memoriesApplied": 8, "memoriesSkipped": 2 }
+{ "personaApplied": true, "memoriesApplied": 8, "memoriesSkipped": 2 }
 ```
 
-**错误**：三者全空时 400 `没有可导入的内容`。
+**错误**：两者全空时 400 `没有可导入的内容`。
 
 ---
 
@@ -332,7 +316,7 @@ Authorization: Bearer <access_token>
 
 ### POST /api/chat/conversations
 
-新建会话。
+新建会话。只有一种对话：新建恒为 `chat`；请求体传 `mode: "work"` 返回 400（旧的工作会话只保留历史值，网页版列表中隐藏）。
 
 ### GET /api/chat/conversations/:id
 
@@ -576,31 +560,34 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 `mood ∈ happy|neutral|sad|angry|anxious`（与聊天情绪同词表）。回应幂等：已存在直接复用不重复消耗；模型失败 503 `{code∈CLOUD_NOT_CONSENTED|LLM_UNAVAILABLE}`。回应生成：人格 + 心情 + 脱敏正文，同意门与聊天一致（云端唯一路径同 Spec §3.1）。
 
-## 六、手帐习惯 `/api/habits`（2026-09-04 起）
+## 六、安排 `/api/reminders`（2026-09-15 起替代日程、倒数日、提醒、手帐与自习）
+
+只在本地运行时开放（网页版 403 `LOCAL_CLIENT_REQUIRED`）。用户可见名为「安排」，模型与表名仍为 `ScheduledReminder`。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/habits` | `[{id, name, icon, checkedToday, streak, recentDays}]`（近 30 天打卡日） |
-| POST | `/api/habits` | 创建 `{name(1–20), icon}`；icon ∈ `droplet|moon|dumbbell|book|flower|pen`；活跃上限 12 |
-| PATCH | `/api/habits/:id` | 改名/换图标（归属校验） |
-| DELETE | `/api/habits/:id` | 归档（历史打卡保留） |
-| POST | `/api/habits/:id/checkin` | 切换当天打卡 → `{checked, day}` |
-| POST | `/api/habits/cheer` | 聚合鼓励 → `{cheer, source}`；无习惯 `{cheer:null}` |
+| GET | `/api/reminders/scheduled` | `{reminders}`，按 `nextFireAt` 升序 |
+| POST | `/api/reminders/scheduled` | 201 `{reminder}`。`{content(1–200), freq, time(HH:mm), date?, weekdays?, monthDay?, instruction?}`；`freq ∈ once|daily|weekly|monthly|yearly`，`once/yearly` 需 `date`（`yearly` 取月日，2 月 29 日在平年落到 28 日），`weekly` 需 `weekdays`（0–6，0 为周日），`monthly` 需 `monthDay`（1–31）；`instruction`（≤500）表示交给她做的事 |
+| PUT | `/api/reminders/scheduled/:id` | `{reminder}`。可改 `content / instruction / status(active|paused|done) / freq / time / date / weekdays / monthDay`；改期时重算 `nextFireAt`，已完成的安排改期后重新生效；非本人 404 |
+| DELETE | `/api/reminders/scheduled/:id` | `{ok:true}`；非本人 404 |
+| GET | `/api/reminders/due` | 前台轮询：幂等生成到点投递，返回 `{deliveries, deferredTaskCount, execution}`。有指令的任务云端执行尚未接通，保持待处理、不出现在 `deliveries`，只计入 `deferredTaskCount` |
+| POST | `/api/reminders/deliveries/:id/ack` | `{action: shown|dismissed}` → `{delivery}`；一次性安排确认后置为 `done`，循环安排推进到下一次 |
 
-连续天数（streak）：今天已打则从今天回数，否则从昨天回数。鼓励只把习惯名/连续天数/今日完成计数送入模型（不送任何正文内容），同意门同上；模型失败 503 同家族（`CLOUD_NOT_CONSENTED`/`LLM_UNAVAILABLE`）。
+旧数据迁移：`pnpm --filter cyber-sister-server db:migrate:plans -- --dry-run` 先看条数，去掉 `--dry-run` 才写入；按 `users.plans_migrated_at` 每个用户只迁一次，规则见 CHANGELOG 2026-09-15。
+
+~~`/api/habits`、`/api/study`~~：2026-09-15 下线（404），数据只随导出带出。
 
 ---
 
-## 七、工具箱 `/api/tools`
+## 七、经期与天气 `/api/tools`
+
+只在本地运行时开放。日程（`/todos`）、倒数日（`/countdowns`）与旧提醒开关（`/reminders`）已于 2026-09-15 下线（404）。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET/POST | `/api/tools/todos` | 日程列表 / 新增（`content` 必填；`dueDate` 可选 `yyyy-MM-dd`，`dueTime` 可选 `HH:mm` 且需先有日期） |
-| PUT/DELETE | `/api/tools/todos/:id` | 更新（content / dueDate / dueTime / isDone）/ 删除日程 |
-| GET/POST | `/api/tools/countdowns` | 倒数日列表 / 新增 |
-| DELETE | `/api/tools/countdowns/:id` | 删除倒数日 |
-| GET/POST | `/api/tools/period` | 经期记录读取 / 记录 |
-| GET/PUT | `/api/tools/reminders` | 提醒读取 / 更新 `/:id` |
+| GET/POST | `/api/tools/period` | 经期记录读取 / 记录（`startDate` 必填，`endDate` 可选，`cycleDays` 20–45，默认 28） |
+| GET | `/api/tools/period/summary?today=yyyy-MM-dd` | 服务端预测下一次日期与剩余天数 |
+| PUT/DELETE | `/api/tools/period/:id` | 修正 / 删除一条记录（归属校验，不能倒置日期范围） |
 | GET | `/api/tools/weather` | ⚠️ **内测 409 关闭**，无真实数据源 |
 
 ---
@@ -768,13 +755,13 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 来信      GET    /api/letters            (本周信自动幂等补)
           POST   /api/letters/generate   (幂等；沉默周 quiet)
           GET    /api/letters/:id
-工具箱    CRUD   /api/tools/{todos,countdowns,period,reminders}
+安排      CRUD   /api/reminders/scheduled   (本地运行时)
+          GET    /api/reminders/due       (到点投递，前台轮询)
+          POST   /api/reminders/deliveries/:id/ack
+经期      CRUD   /api/tools/period        (本地运行时；含 /summary)
 日记      CRUD   /api/diary/:day
           POST   /api/diary/:day/comment  (幂等 AI 回应)
-手帐      CRUD   /api/habits/:id
-          POST   /api/habits/:id/checkin
-          POST   /api/habits/cheer        (聚合数据鼓励)
-          GET    /api/tools/weather        (409 关闭)
+天气      GET    /api/tools/weather        (409 关闭)
 妆容      CRUD   /api/makeup-presets     (四参数 0-100；名字 1-20 字)
 衣柜      GET    /api/wardrobe           (列表)
           POST   /api/wardrobe           (multipart 上传；3D 未配置 503 不落数据)

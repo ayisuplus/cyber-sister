@@ -81,7 +81,7 @@ export default function PeriodPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
-      <Header title="大姨妈记录" showBack />
+      <Header title="经期" showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {actionError && !deleting && <p role="alert" className="text-sm text-danger">{actionError}</p>}

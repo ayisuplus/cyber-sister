@@ -3,12 +3,17 @@ import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
-const GROUPS = [
-  ['安排今天', ['schedule']],
-  ['记录生活', ['diary', 'reading', 'period']],
-  ['灵感装扮', ['makeup-room', 'wardrobe']],
-  ['关于我们', ['workspace', 'letters']],
+// 本地客户端的四个入口及其页签：每一处都要如实声明云端接口仍是模拟
+const LOCAL_ENTRIES = [
+  ['/tools/schedule', '安排'],
+  ['/tools/notes?tab=diary', '手记'],
+  ['/tools/notes?tab=reading', '手记'],
+  ['/tools/notes?tab=letters', '手记'],
+  ['/tools/period', '经期'],
+  ['/tools/style?tab=makeup', '装扮'],
+  ['/tools/style?tab=wardrobe', '装扮'],
 ]
+const CLOUD_NOTICE = '云端接口预览 · 尚未连接云服务。个人记录照常保存，模拟结果不入库。'
 const execution = { mode: 'mock', cloudConnected: false, persisted: false }
 const mockMedia = kind => ({ requestId: `e2e-${kind}`, source: 'cloud_mock', execution, result: kind === 'image'
   ? { kind, imageUrl: null, params: { smooth: 60, whiten: 20, slim: 10, eye: 10 }, message: '模拟校验已完成，尚未连接云端服务，未生成或保存图片。' }
@@ -19,7 +24,7 @@ const json = (route, status, data) => route.fulfill({ status, contentType: 'appl
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('cyber-sister-auth', JSON.stringify({ state: { token: 'work-cloud-e2e', user: { id: 'work-cloud-e2e', nickname: '内测用户', persona: 'gentle' }, isLoggedIn: true }, version: 0 }))
+    localStorage.setItem('cyber-sister-auth', JSON.stringify({ state: { token: 'local-features-e2e', user: { id: 'local-features-e2e', nickname: '内测用户', persona: 'gentle' }, isLoggedIn: true }, version: 0 }))
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     localStorage.setItem('amie-theme', 'dark')
   })
@@ -35,6 +40,8 @@ test.beforeEach(async ({ page }) => {
       '/api/tools/period/summary': { nextDate: null, daysUntil: null },
       '/api/diary': [], '/api/reading/books': [], '/api/makeup-presets': [], '/api/wardrobe': [],
       '/api/derived': { insights: [insight] }, '/api/derived/edges': { edges: [] }, '/api/letters': { letters: [letter] },
+      '/api/user/companion': { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 3, learning: { brevity: 0.5, samples: 2 } } },
+      '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat)$/.test(path)) return json(route, 404, {})
     if (method === 'GET' && /^\/api\/diary\/\d{4}-\d{2}-\d{2}$/.test(path)) return json(route, 404, { error: '没有当天日记' })
@@ -55,37 +62,24 @@ async function accessible(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
-async function workDesktop(page) {
-  await page.goto('/chat')
-  await page.getByRole('group', { name: '会话模式' }).getByRole('button', { name: '工作', exact: true }).click()
-  const desktop = page.getByRole('navigation', { name: '功能桌面' })
-  await expect(desktop).toBeVisible()
-  await expect(page.locator('.chat-paper')).toHaveClass(/animate-page-turn/)
-  await expect(page.locator('.chat-paper')).toHaveCSS('opacity', '1')
-  return desktop
-}
-
-test('work cloud: all ten task routes remain reachable and explain mock execution', async ({ page }) => {
-  for (const [group, routes] of GROUPS) {
-    for (const tool of routes) {
-      const desktop = await workDesktop(page)
-      await desktop.getByRole('button', { name: group, exact: true }).click()
-      await desktop.locator(`a[href="/tools/${tool}"]`).click()
-      await expect(page).toHaveURL(new RegExp(`/tools/${tool}$`))
-      await expect(page.getByText('云端接口预览 · 尚未连接云服务。个人记录照常保存，模拟结果不入库。')).toBeVisible()
-      await expect(page.getByRole('alert')).toHaveCount(0)
-    }
+test('local entries: every entry and tab is reachable and explains that cloud output is only a mock', async ({ page }) => {
+  for (const [path, title] of LOCAL_ENTRIES) {
+    await page.goto(path)
+    await expect(page).toHaveURL(path)
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+    await expect(page.getByText(CLOUD_NOTICE)).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
   }
 })
 
-test('work cloud: makeup uploads explicit parameters and wardrobe never offers a fake model', async ({ page }, testInfo) => {
+test('local entries: makeup uploads explicit parameters and wardrobe never offers a fake model', async ({ page }, testInfo) => {
   const writes = []
   const forbiddenInference = []
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/')) writes.push(request)
     if (/mediapipe|face_landmarker|\.wasm(?:\?|$)/.test(request.url())) forbiddenInference.push(request.url())
   })
-  await page.goto('/tools/makeup-room')
+  await page.goto('/tools/style?tab=makeup')
   await expect(page.getByRole('button', { name: '提交模拟预览' })).toBeDisabled()
   await page.locator('input[aria-label="选择照片"]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: PNG })
   await page.getByRole('slider', { name: '磨皮' }).fill('60')
@@ -102,7 +96,8 @@ test('work cloud: makeup uploads explicit parameters and wardrobe never offers a
   await accessible(page)
   await page.screenshot({ path: testInfo.outputPath('cloud-makeup.png'), fullPage: true })
 
-  await page.goto('/tools/wardrobe')
+  await page.getByRole('button', { name: '衣柜', exact: true }).click()
+  await expect(page).toHaveURL(/\/tools\/style\?tab=wardrobe$/)
   await page.locator('input[aria-label="选择单品照片"]').setInputFiles({ name: 'coat.png', mimeType: 'image/png', buffer: PNG })
   await page.getByLabel('单品名字').fill('风衣')
   await page.getByRole('button', { name: '提交模拟预览' }).click()
@@ -119,25 +114,23 @@ test('work cloud: makeup uploads explicit parameters and wardrobe never offers a
   await expect(page.getByRole('status', { name: '模拟预览结果' })).toHaveCount(0)
 })
 
-test('work cloud: workspace and letters keep mock output separate from saved history', async ({ page }, testInfo) => {
-  await page.goto('/tools/workspace')
+test('local entries: pending understandings and letters keep mock output separate from saved history', async ({ page }, testInfo) => {
+  await page.goto('/her?tab=pending')
   await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '让她现在整理一下' }).click()
-  const preview = page.getByRole('region', { name: '模拟理解预览' })
-  await expect(preview).toContainText('模拟理解示例')
-  await expect(preview.getByRole('button', { name: '这条算数' })).toHaveCount(0)
+  await page.getByRole('button', { name: '预览整理', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: '模拟理解示例' })).toBeVisible()
   await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '重建工作台', exact: true }).click()
-  await page.getByRole('button', { name: '确认重建', exact: true }).click()
+  await page.getByRole('button', { name: '预览重建', exact: true }).click()
+  // 预览请求进行中按钮是禁用态；等它们恢复可用后再审计，避免把禁用态的淡色当成对比度问题
+  await expect(page.getByRole('button', { name: '预览重建', exact: true })).toBeEnabled()
   await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
-  await expect(preview).toBeVisible()
   await accessible(page)
-  await page.screenshot({ path: testInfo.outputPath('cloud-workspace.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('cloud-pending.png'), fullPage: true })
   await page.reload()
   await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
-  await expect(preview).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: '模拟理解示例' })).toHaveCount(0)
 
-  await page.goto('/tools/letters')
+  await page.goto('/tools/notes?tab=letters')
   await expect(page.getByText('已有的来信内容', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '预览一封信' }).click()
   await expect(page.getByRole('region', { name: '模拟来信预览' })).toContainText('不会保存到你的信箱')
@@ -149,7 +142,7 @@ test('work cloud: workspace and letters keep mock output separate from saved his
   await expect(page.getByRole('region', { name: '模拟来信预览' })).toHaveCount(0)
 })
 
-test('work cloud: period record controls remain readable at 320px in night mode', async ({ page }, testInfo) => {
+test('local entries: period record controls remain readable at 320px in night mode', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 740 })
   await page.route('**/api/tools/period', route => json(route, 200, [{ id: 'period-e2e', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-09-05T00:00:00.000Z', cycleDays: 28 }]))
   await page.goto('/tools/period')

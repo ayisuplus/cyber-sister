@@ -228,7 +228,7 @@
 | 1 | Spec 称工具箱为"后置项"，但代码已实现待办/倒数日/经期/提醒 | Spec §1 vs `routes/tools.js` | ✅ 已裁定：纳入内测 |
 | 2 | `MembershipPage.jsx` 存在，但未在 `App.jsx` 接入路由 | Spec §1 | ✅ 已裁定：保持不路由 |
 | 3 | `PRD_Web版.md` 的人格与工具箱范围与 Spec 不一致 | `PRD_Web版.md` | ⚠️ 以 Spec 为准 |
-| 4 | 代码默认人格为 `toxic`，是否为产品意图未确认 | `routes/auth.js` | ⚠️ 待裁定 |
+| 4 | 代码默认人格为 `toxic`，是否为产品意图未确认 | `routes/auth.js` | ✅ 已裁定（2026-09-15）：默认 `gentle`（温柔） |
 | 5 | 多数 `architecture/` 文档为历史归档，易被误读 | `architecture/` | ✅ 已物理移入 `09-参考/历史归档/` 并在本索引标注 |
 | 6 | 虚拟试衣/化妆页面与生图接口 | `routes/virtualStudio.js` | ✅ 已关闭：2026-09-07 随云端切割整体下线 |
 | 7 | 仓库没有 GitHub Actions 工作流 | `.github/` | ⚠️ 本周期不新增 CI |
@@ -238,6 +238,7 @@
 | 11 | llmService 拆分、网关缓存 check-then-act 竞态、sendMessage TOCTOU、记忆检索逐消息重算等整改，因避让流式工作包 task-2 文件集而推迟 | `services/llmService.js`、`services/chatService.js` | 🛠 流式里程碑落地后执行 |
 | 12 | UI 规范 §2 色板仍为粉色、§3 圆角 24/14px，与 09-09 鼠尾草换肤后的令牌不一致 | `UI设计系统规范_V3.0.md` vs `packages/design-tokens/tokens.css` | ✅ 已裁定（2026-09-15）：以令牌为准，规范已回写 |
 | 13 | 聊天页头"在线"圆点与 UI 规范 §1"不使用虚假在线状态"冲突 | `components/chat/ChatHeader.jsx` | ✅ 已裁定（2026-09-15）：移除圆点 |
+| 14 | 人格、会话模式、工具与提醒各有多套平行机制，产品负责人认为"太花哨、太杂" | Spec §1/§3/§4.1/§6.1、UI 规范 §8 | ✅ 已裁定（2026-09-15）：功能收拢，见路线图 C7 |
 
 > 详见 [`01-产品/开发计划与路线图.md`](01-产品/开发计划与路线图.md) §1.3。
 > 发现新的文档问题，请用 `.github/ISSUE_TEMPLATE/docs-update.yml` 提交。

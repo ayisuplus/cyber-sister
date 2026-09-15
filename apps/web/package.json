@@ -11,8 +11,8 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src vite.config.js vitest.config.js playwright.config.js e2e",
-    "pree2e": "pnpm build",
+    "lint": "eslint src vite.config.js vitest.config.js playwright.config.js e2e scripts",
+    "pree2e": "node scripts/build-local.mjs",
     "e2e": "playwright test"
   },
   "dependencies": {

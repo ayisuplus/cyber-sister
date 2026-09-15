@@ -40,8 +40,21 @@ test.beforeEach(async ({ page }) => {
       ] },
       '/api/tools/period': [{ id: 'night-period-record', startDate: '2026-09-03', endDate: '2026-09-08', cycleDays: 28 }],
       '/api/tools/period/summary': { nextDate: '2026-10-01', daysUntil: 19, source: 'server_calculation' },
+      '/api/work/status': { capabilities: { backgroundTasks: false } },
+      '/api/work/tasks': { tasks: [] },
+      '/api/user/companion': { revision: 2, state: { protection: { mode: 'open' }, experienceCount: 6, learning: { brevity: 0.5, samples: 3 } } },
+      '/api/memories': { data: [{ id: 'night-memory', type: 'semantic', content: '睡前喜欢听雨声', importance: 6, tags: ['睡眠'], revision: 1, createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z' }], total: 1, page: 1, limit: 20 },
+      '/api/memories/index-jobs/latest': null,
+      '/api/derived': { insights: [] },
+      '/api/derived/edges': { edges: [] },
+      '/api/diary': [],
+      '/api/reading/books': [],
+      '/api/letters': { letters: [] },
+      '/api/makeup-presets': [],
+      '/api/wardrobe': [],
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat)$/.test(path)) return route.fulfill({ status: 404, body: '' })
+    if (route.request().method() === 'GET' && /^\/api\/diary\/\d{4}-\d{2}-\d{2}$/.test(path)) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"没有当天日记"}' })
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) {
       expect(route.request().method()).toBe('POST')
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ minutes: 0, shouldRemind: false }) })
@@ -88,7 +101,7 @@ async function inspectSurface(page, testInfo, name) {
 test('night mode: explicit choices survive reload and system changes only affect system mode', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/chat')
-  await expect(page.getByRole('group', { name: '会话模式' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Amie', exact: true })).toBeVisible()
   const settingsLink = page.getByRole('link', { name: '设置', exact: true })
   if (!await settingsLink.isVisible()) await page.getByRole('button', { name: '打开会话列表', exact: true }).click()
   await settingsLink.click()
@@ -120,21 +133,18 @@ test('night mode: explicit choices survive reload and system changes only affect
   expect(await page.evaluate(() => localStorage.getItem('amie-theme'))).toBe('system')
 })
 
-test('night mode: settings, chat bubbles, all work themes, schedule inputs and login remain readable', async ({ page }, testInfo) => {
+test('night mode: settings, chat, her, schedule, notes, style, period and login remain readable', async ({ page }, testInfo) => {
   await chooseNight(page)
   await inspectSurface(page, testInfo, 'night-settings')
 
   await page.goto('/chat')
   await expect(page.getByText(conversation.messages[1].content)).toBeVisible()
   await inspectSurface(page, testInfo, 'night-chat')
-  await page.getByRole('group', { name: '会话模式' }).getByRole('button', { name: '工作', exact: true }).click()
-  const desktop = page.getByRole('navigation', { name: '功能桌面' })
-  await expect(desktop).toBeVisible()
-  for (const [index, title] of ['安排今天', '记录生活', '灵感装扮', '关于我们'].entries()) {
-    await desktop.getByRole('button', { name: title, exact: true }).click()
-    await expect(desktop.getByRole('region', { name: title, exact: true })).toBeVisible()
-    await inspectSurface(page, testInfo, `night-work-${index + 1}`)
-  }
+
+  await page.goto('/her')
+  await expect(page.getByRole('heading', { name: '她的说话方式', exact: true })).toBeVisible()
+  await expect(page.getByText('睡前喜欢听雨声')).toBeVisible()
+  await inspectSurface(page, testInfo, 'night-her')
 
   await page.goto('/tools/schedule')
   await expect(page.getByText('睡前收好手机')).toBeVisible()
@@ -143,6 +153,11 @@ test('night mode: settings, chat bubbles, all work themes, schedule inputs and l
   await page.getByRole('button', { name: /新安排/ }).click()
   await expect(page.getByRole('textbox', { name: '要安排的事' })).toBeVisible()
   await inspectSurface(page, testInfo, 'night-schedule')
+  for (const [path, title, name] of [['/tools/notes?tab=diary', '手记', 'night-notes'], ['/tools/style?tab=makeup', '装扮', 'night-style']]) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+    await inspectSurface(page, testInfo, name)
+  }
   await page.goto('/tools/period')
   await expect(page.getByText('周期 28 天')).toBeVisible()
   await inspectSurface(page, testInfo, 'night-period')
@@ -154,19 +169,18 @@ test('night mode: settings, chat bubbles, all work themes, schedule inputs and l
   await inspectSurface(page, testInfo, 'night-login')
 })
 
-test('night mode: immersive work stays dark and accessible after rotation', async ({ page }, testInfo) => {
+test('night mode: the phone navigation drawer stays dark and accessible at 320px', async ({ page }, testInfo) => {
   await chooseNight(page)
-  await page.goto('/chat')
-  await page.getByRole('group', { name: '会话模式' }).getByRole('button', { name: '工作', exact: true }).click()
   await page.setViewportSize({ width: 320, height: 740 })
-  await expect(page.getByRole('navigation', { name: '功能桌面' })).toBeVisible()
-  await inspectSurface(page, testInfo, 'night-work-320')
-  await page.setViewportSize({ width: 844, height: 390 })
-  const dialog = page.getByRole('dialog', { name: '沉浸书桌' })
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByText('Amie · AI 陪伴')).toBeVisible()
-  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
-  await inspectSurface(page, testInfo, 'night-landscape')
-  await dialog.getByRole('button', { name: '关闭沉浸模式' }).click()
-  await expect(dialog).toHaveCount(0)
+  await page.goto('/chat')
+  await page.getByRole('button', { name: '打开会话列表', exact: true }).click()
+  const drawer = page.getByRole('dialog', { name: '会话列表抽屉', exact: true })
+  await expect(drawer).toBeVisible()
+  const nav = drawer.getByRole('navigation', { name: '页面导航' })
+  await expect(nav.getByRole('link')).toHaveCount(6)
+  await inspectSurface(page, testInfo, 'night-drawer-320')
+  await nav.getByRole('link', { name: '安排', exact: true }).click()
+  await expect(page).toHaveURL(/\/tools\/schedule$/)
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByText('睡前收好手机')).toBeVisible()
 })

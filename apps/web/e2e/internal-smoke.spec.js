@@ -331,7 +331,7 @@ test('diary: save an entry and get an AI comment', async ({ page }) => {
     if (request.method() === 'PUT') return json(route, 200, { ...entry, ...request.postDataJSON(), aiComment: null })
     return json(route, 200, { success: true })
   })
-  await page.goto('/tools/diary')
+  await page.goto('/tools/notes?tab=diary')
 
   await page.getByRole('radio', { name: /开心/ }).click()
   await page.getByRole('textbox').fill('今天去了新开的桂花展')
@@ -383,78 +383,44 @@ test('schedule: a one-off for tomorrow lands under upcoming, and handing it to h
   await expectNoSeriousAxeFindings(page)
 })
 
-test('work mode: segmented switch creates a work conversation, shows work badge and filters the list', async ({ page, isMobile }) => {
+test('one conversation: no mode switch, one input capsule, legacy work conversations listed alongside chats', async ({ page, isMobile }) => {
   await seedAuth(page)
-  await page.route('**/api/user/external-llm-consent', route => {
-    if (route.request().method() === 'GET') {
-      return json(route, 200, { accepted: true, version: 'cloud-primary-v3', updatedAt: null })
-    }
-    return json(route, 200, { accepted: true, version: 'cloud-primary-v3', updatedAt: '2026-09-05T00:00:00.000Z' })
-  })
-  const conversations = [{
-    id: 'c-chat',
-    mode: 'chat',
-    title: '聊天会话',
-    updatedAt: '2026-09-05T08:00:00.000Z',
-    messages: [],
-  }]
-  await page.route('**/api/chat/conversations/c-chat', route => json(route, 200, {
-    id: 'c-chat', mode: 'chat', title: '聊天会话', messages: [],
-  }))
+  await mockChatBootstrap(page, true)
+  const conversations = [
+    { id: 'c-chat', mode: 'chat', title: '聊天会话', updatedAt: '2026-09-05T08:00:00.000Z', messages: [] },
+    { id: 'c-work', mode: 'work', title: '以前的工作会话', updatedAt: '2026-09-04T08:00:00.000Z', messages: [] },
+  ]
+  const created = []
   await page.route('**/api/chat/conversations', route => {
     if (route.request().method() === 'GET') return json(route, 200, conversations)
-    const mode = route.request().postDataJSON()?.mode === 'work' ? 'work' : 'chat'
-    const created = {
-      id: mode === 'work' ? 'c-work' : 'c-new',
-      mode,
-      title: 'Amie',
-      updatedAt: '2026-09-05T09:00:00.000Z',
-      messages: [],
-    }
-    conversations.unshift(created)
-    return json(route, 201, created)
+    created.push(route.request().postDataJSON())
+    const conversation = { id: 'c-new', mode: 'chat', title: 'Amie', updatedAt: '2026-09-05T09:00:00.000Z', messages: [] }
+    conversations.unshift(conversation)
+    return json(route, 201, conversation)
   })
-  await page.route('**/api/chat/conversations/*/messages/stream', route => fulfillStream(route, [
-    { event: 'error', code: 'WORK_CLOUD_NOT_CONNECTED', error: '工作模式云端接口尚未接入' },
-  ]))
+  await page.route('**/api/chat/conversations/c-*', route => json(route, 200, { ...conversations.find(item => route.request().url().endsWith(item.id)), messages: [] }))
+  await page.route('**/api/work/status', route => json(route, 200, { capabilities: { backgroundTasks: false } }))
+  await page.route('**/api/work/tasks', route => json(route, 200, { tasks: [] }))
   await page.goto('/chat')
 
-  // 聊天模式：人格徽章在、列表只有聊天会话（桌面端）
-  const modeSwitch = page.getByLabel('会话模式')
-  await expect(page.getByText('包容·耐心·讲道理')).toBeVisible()
-  if (!isMobile) {
-    await expect(page.getByRole('button', { name: /^聊天会话/ })).toBeVisible()
-  }
+  await expect(page.getByRole('heading', { name: 'Amie', exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: '会话模式' })).toHaveCount(0)
+  await expect(page.getByText('工作模式', { exact: true })).toHaveCount(0)
+  const input = page.getByRole('textbox', { name: '聊天消息' })
+  await expect(input).toHaveAttribute('placeholder', '和姐妹说点什么...')
+  await expect(page.getByRole('button', { name: '语音输入', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '添加文件', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '添加照片', exact: true })).toBeVisible()
 
-  // 切到工作模式：徽章替换、占位符与空态切换（云端切割后不再有浏览器状态 chip）
-  await modeSwitch.getByRole('button', { name: '工作' }).click()
-  await expect(page.getByText('工作模式', { exact: true })).toBeVisible()
-  await expect(page.getByText('包容·耐心·讲道理')).toHaveCount(0)
-  await expect(page.getByText('浏览器已就绪')).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '工作助手云端尚未接通')
-  if (!isMobile) {
-    await expect(page.getByRole('button', { name: /^聊天会话/ })).toHaveCount(0)
-    await expect(page.getByText('工作云端尚未接通，可先预览功能')).toBeVisible()
-  }
-
-  // 创建 work 会话后，未连接的执行接口返回明确错误，草稿保留且不伪造工具结果。
-  await page.getByRole('textbox', { name: '聊天消息' }).fill('帮我整理今天的日程')
-  await page.getByRole('button', { name: '发送消息' }).click()
-  await expect(page.getByText('工作助手的云端接口尚未接通。可以先从功能桌面预览各项流程，输入已保留。')).toBeVisible()
-  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveValue('帮我整理今天的日程')
-  await expect(page.getByLabel(/已执行：已添加日程/)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '语音输入', exact: true })).toHaveCount(0)
-  expect(conversations.some(conversation => conversation.id === 'c-work' && conversation.mode === 'work')).toBe(true)
-  // 切回聊天：工作会话从列表消失，聊天会话仍在
-  await modeSwitch.getByRole('button', { name: '聊天' }).click()
-  await expect(page.getByText('包容·耐心·讲道理')).toBeVisible()
-  if (!isMobile) {
-    await expect(page.getByRole('button', { name: /^聊天会话/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /^Amie/ })).toHaveCount(0)
-  }
+  if (isMobile) await page.getByRole('button', { name: '打开会话列表', exact: true }).click()
+  await expect(page.getByRole('button', { name: /^聊天会话/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^以前的工作会话/ })).toBeVisible()
+  await page.getByRole('button', { name: /新建会话|新会话/ }).first().click()
+  await expect.poll(() => created.length).toBe(1)
+  expect(created[0]?.mode).toBeUndefined()
+  await expectNoSeriousAxeFindings(page)
 })
-
-test('appearance: upload avatar and chat background, both render on profile and chat', async ({ page }) => {
+test('appearance: upload avatar and chat background, both render in settings and chat', async ({ page }) => {
   await seedAuth(page)
   const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
   await page.route('**/api/user/assets/*', route => {
@@ -473,7 +439,7 @@ test('appearance: upload avatar and chat background, both render on profile and 
     title: 'Amie',
     messages: [{ id: 'u-1', role: 'user', content: '今天心情不错', createdAt: '2026-09-06T08:00:00.000Z' }],
   }))
-  await page.goto('/profile')
+  await page.goto('/settings')
 
   // 装扮区：上传头像 → 预览出现并写回用户资料
   await page.getByLabel('更换头像').setInputFiles({ name: 'a.png', mimeType: 'image/png', buffer: tinyPng })
@@ -527,7 +493,7 @@ test('reading: shelve a book, jot a note and preview an unsaved mock comment', a
     }
     return json(route, 200, { success: true })
   })
-  await page.goto('/tools/reading')
+  await page.goto('/tools/notes?tab=reading')
 
   await expect(page.getByText('书架还空着', { exact: true })).toBeVisible()
   await page.getByLabel('书名').fill('活着')
@@ -556,38 +522,37 @@ test('reading: shelve a book, jot a note and preview an unsaved mock comment', a
 // 2x2 有效 PNG：选照片/单品上传用（<img> 能触发 onLoad）
 const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 
-test('work mode: grouped desktop replaces the empty state and preserves mode switching and routes', async ({ page }) => {
+test('navigation: every entry lives in one list under the conversations, and old links land on the new entries', async ({ page, isMobile }) => {
   await seedAuth(page)
   await mockChatBootstrap(page, true)
+  await page.route('**/api/reminders/scheduled', route => json(route, 200, { reminders: [] }))
+  await page.route('**/api/reminders/due', route => json(route, 200, { deliveries: [], deferredTaskCount: 0 }))
   await page.goto('/chat')
 
-  const modeSwitch = page.getByLabel('会话模式')
-  await modeSwitch.getByRole('button', { name: '工作' }).click()
+  if (isMobile) await page.getByRole('button', { name: '打开会话列表', exact: true }).click()
+  const nav = page.getByRole('navigation', { name: '页面导航' }).last()
+  const expected = [['她', '/her'], ['安排', '/tools/schedule'], ['手记', '/tools/notes'], ['经期', '/tools/period'], ['装扮', '/tools/style'], ['设置', '/settings']]
+  await expect(nav.getByRole('link')).toHaveCount(expected.length)
+  for (const [name, href] of expected) {
+    await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href)
+  }
+  await nav.getByRole('link', { name: '安排', exact: true }).click()
+  await expect(page).toHaveURL(/\/tools\/schedule$/)
+  await expect(page.getByRole('heading', { name: '安排', exact: true })).toBeVisible()
 
-  // 空态直出工作主题，当前主题以外的入口收起。
-  const desktop = page.locator('nav[aria-label="功能桌面"]')
-  await expect(desktop).toBeVisible()
-  await expect(page.getByText('嗨，我是你的Amie')).toHaveCount(0)
-  await expect(desktop.getByRole('link', { name: /^安排/ })).toHaveAttribute('href', '/tools/schedule')
-  await desktop.getByRole('button', { name: '灵感装扮' }).click()
-  await expect(desktop.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
-  await expect(desktop.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
-  await desktop.getByRole('button', { name: '记录生活' }).click()
-  await expect(desktop.getByRole('link', { name: /日记/ })).toHaveAttribute('href', '/tools/diary')
-  await expect(desktop.getByRole('link', { name: /大姨妈记录/ })).toHaveAttribute('href', '/tools/period')
-
-  // 切回聊天模式：工作主题消失、聊天空态回来。
-  await modeSwitch.getByRole('button', { name: '聊天' }).click()
-  await expect(desktop).toHaveCount(0)
-  await expect(page.getByText('嗨，我是你的Amie')).toBeVisible()
-
-  // 卡片直达对应入口：旧路由收拢到「装扮」的衣柜页签
-  await modeSwitch.getByRole('button', { name: '工作' }).click()
-  await desktop.getByRole('button', { name: '灵感装扮' }).click()
-  await desktop.getByRole('link', { name: /3D 衣柜/ }).click()
-  await expect(page).toHaveURL(/\/tools\/style\?tab=wardrobe$/)
+  for (const [legacy, target] of [
+    ['/tools/handbook', /\/tools\/schedule$/],
+    ['/tools/study', /\/tools\/schedule$/],
+    ['/tools/planner?tab=reminders', /\/tools\/schedule$/],
+    ['/tools/diary', /\/tools\/notes\?tab=diary$/],
+    ['/tools/wardrobe', /\/tools\/style\?tab=wardrobe$/],
+    ['/tools/workspace', /\/her\?tab=pending$/],
+    ['/profile', /\/settings$/],
+  ]) {
+    await page.goto(legacy)
+    await expect(page).toHaveURL(target)
+  }
 })
-
 test('makeup room: save and re-apply parameter presets without local inference', async ({ page }) => {
   await seedAuth(page)
   await page.route('**/api/**', route => json(route, 404, { error: 'unmocked API request' }))
@@ -605,7 +570,7 @@ test('makeup room: save and re-apply parameter presets without local inference',
     presets.push(created)
     return json(route, 200, created)
   })
-  await page.goto('/tools/makeup-room')
+  await page.goto('/tools/style?tab=makeup')
 
   await page.locator('input[aria-label="选择照片"]').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: TINY_PNG })
 
@@ -642,7 +607,7 @@ test('wardrobe: cloud interface mock never creates a fake model', async ({ page 
     source: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false },
     result: { kind: 'model', modelUrl: null, name: '黑色风衣', message: '模拟校验已完成，尚未连接云端服务，未生成模型，也未添加到衣柜。' },
   }))
-  await page.goto('/tools/wardrobe')
+  await page.goto('/tools/style?tab=wardrobe')
 
   await page.locator('input[aria-label="选择单品照片"]').setInputFiles({ name: 'coat.png', mimeType: 'image/png', buffer: TINY_PNG })
   await page.getByLabel('单品名字').fill('黑色风衣')
@@ -689,87 +654,81 @@ test('chat photo: pick a photo, send it, and the persona review lands next to th
   await expect(page.getByAltText('发出的照片')).toBeVisible()
 })
 
-test('workspace: resolve a conflict insight and find it under the resolved tab', async ({ page }) => {
+test('her · pending: a conflict is settled in the user\'s own words and leaves the pending list', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/user/companion', route => json(route, 200, { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 1, learning: { brevity: 0.5, samples: 1 } } }))
   const conflict = {
     id: 'insight-e2e',
     kind: 'conflict',
     content: '她既想独居又想合住',
     confidence: 'high',
-    evidence: null,
+    sources: [{ quote: '最近总说想一个人住，又说想和朋友合租' }],
     status: 'active',
-    resolution: null,
+    revision: 1,
     createdAt: '2026-09-08T08:00:00.000Z',
   }
-  let resolved = null
+  let resolvedWith = null
   await page.route('**/api/derived**', route => {
     const request = route.request()
     const url = new URL(request.url())
     if (request.method() === 'GET' && url.pathname === '/api/derived') {
-      const status = url.searchParams.get('status') || 'active'
-      if (status === 'resolved') return json(route, 200, { insights: resolved ? [resolved] : [] })
-      return json(route, 200, { insights: resolved ? [] : [conflict] })
+      return json(route, 200, { insights: resolvedWith ? [{ ...conflict, status: 'resolved' }] : [conflict] })
     }
     if (request.method() === 'POST' && url.pathname === '/api/derived/insight-e2e/resolve') {
-      const payload = request.postDataJSON()
-      resolved = { ...conflict, status: 'resolved', resolution: payload.content }
-      return json(route, 200, {
-        memory: { id: 'memory-e2e', content: payload.content, origin: 'promoted', sourceRef: 'insight-e2e' },
-        insight: resolved,
-      })
+      resolvedWith = request.postDataJSON().content
+      return json(route, 200, { memory: { id: 'memory-e2e', content: resolvedWith, origin: 'promoted' }, insight: { ...conflict, status: 'resolved' } })
     }
     return json(route, 400, { error: 'unexpected derived request' })
   })
 
-  await page.goto('/tools/workspace')
+  await page.goto('/her?tab=pending')
   await expect(page.getByText('她既想独居又想合住')).toBeVisible()
-  await page.getByRole('button', { name: '厘清一下' }).click()
-  const draft = page.getByLabel('定稿文案')
+  await page.getByRole('button', { name: '编辑核对后记住' }).click()
+  const draft = page.getByLabel('核对后的记忆内容')
   await expect(draft).toHaveValue('她既想独居又想合住')
   await draft.fill('她想要的是独立书房')
-  await page.getByRole('button', { name: '保存' }).click()
-  await expect(page.getByText('已厘清并记入记忆')).toBeVisible()
-
-  await page.getByRole('button', { name: '已厘清' }).click()
-  const card = page.locator('article', { hasText: '她既想独居又想合住' })
-  await expect(card.getByText('她想要的是独立书房')).toBeVisible()
+  await page.getByRole('button', { name: '确认并记住' }).click()
+  await expect(page.getByRole('status').filter({ hasText: '已经记住' })).toBeVisible()
+  expect(resolvedWith).toBe('她想要的是独立书房')
+  await expect(page.getByText('暂时没有待确认的理解')).toBeVisible()
+  await expectNoSeriousAxeFindings(page)
 })
-
-test('workspace: confirm a derived relation edge under the edges tab', async ({ page }) => {
+test('her · relations: a derived relation is confirmed and stops asking for confirmation', async ({ page }) => {
   await seedAuth(page)
+  await page.route('**/api/user/companion', route => json(route, 200, { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 1, learning: { brevity: 0.5, samples: 1 } } }))
   const edge = {
     id: 'edge-e2e',
     relation: 'similar',
     confidence: 'high',
     status: 'derived',
+    revision: 1,
     evidence: ['两条都提到火锅'],
-    from: { id: 'm1', content: '喜欢火锅' },
-    to: { id: 'm2', content: '每周五吃火锅' },
+    from: { id: 'm1', content: '喜欢火锅', revision: 1 },
+    to: { id: 'm2', content: '每周五吃火锅', revision: 1 },
     createdAt: '2026-09-09T08:00:00.000Z',
   }
-  await page.route('**/api/derived**', route => {
+  let confirmed = false
+  await page.route('**/api/derived/edges**', route => {
     const request = route.request()
     const url = new URL(request.url())
     if (request.method() === 'GET' && url.pathname === '/api/derived/edges') {
-      return json(route, 200, { edges: [edge] })
+      return json(route, 200, { edges: [{ ...edge, status: confirmed ? 'canonical' : 'derived' }] })
     }
     if (request.method() === 'POST' && url.pathname === '/api/derived/edges/edge-e2e/promote') {
+      confirmed = true
       return json(route, 200, { edge: { ...edge, status: 'canonical' } })
     }
-    if (request.method() === 'GET' && url.pathname === '/api/derived') {
-      return json(route, 200, { insights: [] })
-    }
-    return json(route, 400, { error: 'unexpected derived request' })
+    return json(route, 400, { error: 'unexpected edge request' })
   })
 
-  await page.goto('/tools/workspace')
-  await page.getByRole('button', { name: '关系' }).click()
-  await expect(page.getByText('喜欢火锅 —相似→ 每周五吃火锅')).toBeVisible()
+  await page.goto('/her?tab=relations')
+  await expect(page.getByText('喜欢火锅', { exact: true })).toBeVisible()
+  await expect(page.getByText('每周五吃火锅', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '确认关系' }).click()
-  await expect(page.getByText('已定为关系')).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: '关系已确认' })).toBeVisible()
   await expect(page.getByRole('button', { name: '确认关系' })).toHaveCount(0)
+  await expect(page.getByText('相似 · 已确认', { exact: true })).toBeVisible()
 })
-
 test('chat openers: her care card shows reason and dismisses in place', async ({ page }) => {
   await seedAuth(page)
   await mockChatBootstrap(page, true)
@@ -819,7 +778,7 @@ test('letters: the weekly letter renders expanded from real week data', async ({
     return json(route, 400, { error: 'unexpected letters request' })
   })
 
-  await page.goto('/tools/letters')
+  await page.goto('/tools/notes?tab=letters')
   await expect(page.getByText('9月7日那周的信')).toBeVisible()
   await expect(page.getByText(/这周你们聊了 23 轮/)).toBeVisible()
   await expect(page.getByText('—— 你的姐妹')).toBeVisible()
