@@ -35,7 +35,7 @@ export const WORK_IMAGE_TOOLS = {
     description: '{"tool":"generate_image","args":{"workflow":"text-to-image|reference-edit","prompt":"完整生图或编辑要求，最多1200字","imageId":"仅编辑时必填，会话 PNG/JPG 文件 id","seed":20260915}} 使用 RunningHub 开源模型生图。文字生图为 1024 方图；编辑使用单张参考图。必须在后台任务中运行，用户确认提示词、所选图片和付费说明后才发送。每个任务只申请一次生图。返回图片文件才算生成完成；不支持视频、3D 或精确局部遮罩编辑。',
     run: async (userId, args, context) => {
       requireContext(context)
-      if (!context.requestMediaAction) throw new HttpError('生图需要逐次确认，请使用工作模式的后台执行提交此需求', 400)
+      if (!context.requestMediaAction) throw new HttpError('生图需要逐次确认，请开启「后台执行」提交此需求', 400)
       const { definition, payload, imageId } = prepareImageRequest(args)
       const image = imageId ? await currentArtifact(userId, imageId, context) : null
       if (image && !['png', 'jpg'].includes(image.format)) throw new HttpError('参考图必须是当前会话的 PNG/JPG 文件', 400)

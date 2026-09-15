@@ -85,7 +85,7 @@ export default function LoginPage() {
 
       <div className="relative z-10 -mt-8 flex-1 rounded-t-[32px] bg-surface-card px-8 pb-8 pt-8 overflow-y-auto">
         <form className="space-y-5" onSubmit={handleLogin}>
-          {BACKEND_PENDING && <p role="status" className="text-center text-sm text-text-secondary">聊天后端正在接入，登录暂未开放。工作模式将通过本地客户端提供。</p>}
+          {BACKEND_PENDING && <p role="status" className="text-center text-sm text-text-secondary">聊天后端正在接入，登录暂未开放。安排、手记等功能将通过本地客户端提供。</p>}
           <div className="group relative">
             <Smartphone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors group-focus-within:text-status-info" aria-hidden="true" />
             <input id="phone" aria-label="手机号" autoComplete="tel" type="tel" inputMode="numeric" value={phone} onChange={event => setPhone(digitsOnly(event.target.value).slice(0, 11))} placeholder="请输入 11 位手机号" maxLength={11} className="field-calm min-h-12 w-full rounded-2xl pl-12 pr-4 text-sm text-text-primary placeholder:text-text-muted" />

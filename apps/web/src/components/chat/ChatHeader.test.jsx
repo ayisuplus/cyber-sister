@@ -1,5 +1,5 @@
 import { MemoryRouter } from 'react-router-dom'
-import { fireEvent, render as renderComponent, screen } from '@testing-library/react'
+import { render as renderComponent, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -16,7 +16,6 @@ describe('ChatHeader', () => {
       conversations: [],
       currentConversationId: null,
       messages: [],
-      chatMode: 'chat',
     })
   })
 
@@ -50,38 +49,14 @@ describe('ChatHeader', () => {
     expect(avatar.style.display).toBe('none')
   })
 
-  it('renders the chat/work segmented switch with aria-pressed state', () => {
-    useAuthStore.setState({ user: null })
-
-    render(<ChatHeader />)
-
-    expect(screen.getByRole('button', { name: '聊天' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: '工作' })).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('clicking 工作 switches the store to work mode and shows the work badge', async () => {
+  it('只有一种对话：没有聊天/工作切换，也没有工作模式徽标', () => {
     useAuthStore.setState({ user: { id: 'u1', persona: 'gentle' } })
 
     render(<ChatHeader />)
-    fireEvent.click(screen.getByRole('button', { name: '工作' }))
 
-    expect(useChatStore.getState().chatMode).toBe('work')
-    expect(await screen.findByText('工作模式')).toBeInTheDocument()
-    expect(screen.queryByText('包容·耐心·讲道理')).not.toBeInTheDocument()
-    // 云端切割后内置浏览器已删除：工作模式不再渲染任何浏览器状态徽标
-    expect(screen.queryByText('浏览器已就绪')).not.toBeInTheDocument()
-    expect(screen.queryByText('浏览器未启用')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '会话模式' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '工作' })).not.toBeInTheDocument()
+    expect(screen.queryByText('工作模式')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '打开设置' })).toHaveAttribute('href', '/settings')
   })
-
-  it('工作模式切换后滑动指示器平移到「工作」一侧，且不再出现「打开功能桌面」按钮', () => {
-    useAuthStore.setState({ user: null })
-    useChatStore.setState({ chatMode: 'work' })
-
-    const { container } = render(<ChatHeader />)
-
-    const indicator = container.querySelector('[role="group"][aria-label="会话模式"] > span')
-    expect(indicator).toHaveClass('translate-x-full')
-    expect(screen.queryByRole('button', { name: '打开功能桌面' })).not.toBeInTheDocument()
-  })
-
 })

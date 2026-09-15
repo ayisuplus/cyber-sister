@@ -73,7 +73,7 @@ describe('工作文件输入与执行输出', () => {
 
   it('上传的 UTF-8/BOM 字节原样往返，只给模型目录和显式读取的内容', async () => {
     const bytes = Buffer.from('\ufeff项目,数量\r\nA,20\r\n')
-    const attachments = prepareWorkAttachments([{ originalname: '我的表.csv', buffer: bytes }], 'work')
+    const attachments = prepareWorkAttachments([{ originalname: '我的表.csv', buffer: bytes }])
     expect(artifactBuffer(attachments[0])).toEqual(bytes)
     const ctx = context()
     ctx.workspace.attachments = attachments
@@ -83,14 +83,19 @@ describe('工作文件输入与执行输出', () => {
     expect(db.createMany).not.toHaveBeenCalled()
   })
 
-  it('拒绝错误模式、路径、超量、非法编码和伪造文档类型', () => {
+  it('任何对话都能在本地附文件；网页版拒绝，另拒绝路径、超量、非法编码和伪造文档类型', () => {
     const upload = { originalname: 'input.txt', buffer: Buffer.from('data') }
-    expect(() => prepareWorkAttachments([upload], 'chat')).toThrow('工作模式')
-    expect(() => prepareWorkAttachments(Array(4).fill(upload), 'work')).toThrow('3')
-    expect(() => prepareWorkAttachments([{ ...upload, originalname: '../x.txt' }], 'work')).toThrow()
-    expect(() => prepareWorkAttachments([{ ...upload, originalname: 'fake.pdf' }], 'work')).toThrow('扩展名')
-    expect(() => prepareWorkAttachments([{ ...upload, buffer: Buffer.from([0xff]) }], 'work')).toThrow('UTF-8')
-    expect(() => prepareWorkAttachments([{ ...upload, buffer: Buffer.alloc(5 * 1024 * 1024 + 1) }], 'work')).toThrow('5 MB')
+    expect(prepareWorkAttachments([upload])).toHaveLength(1)
+    expect(prepareWorkAttachments()).toEqual([])
+    vi.stubEnv('APP_DISTRIBUTION', 'web')
+    expect(() => prepareWorkAttachments([upload])).toThrow('本地客户端')
+    expect(prepareWorkAttachments([])).toEqual([])
+    vi.unstubAllEnvs()
+    expect(() => prepareWorkAttachments(Array(4).fill(upload))).toThrow('3')
+    expect(() => prepareWorkAttachments([{ ...upload, originalname: '../x.txt' }])).toThrow()
+    expect(() => prepareWorkAttachments([{ ...upload, originalname: 'fake.pdf' }])).toThrow('扩展名')
+    expect(() => prepareWorkAttachments([{ ...upload, buffer: Buffer.from([0xff]) }])).toThrow('UTF-8')
+    expect(() => prepareWorkAttachments([{ ...upload, buffer: Buffer.alloc(5 * 1024 * 1024 + 1) }])).toThrow('5 MB')
   })
 
   it('代码只能读取当前会话拥有的文件，不把无关文件送入容器', async () => {
@@ -99,7 +104,7 @@ describe('工作文件输入与执行输出', () => {
     expect(db.findFirst).toHaveBeenCalledWith({ where: { userId: 'u2', id: 'foreign', conversationId: 'c1' } })
     expect(runtime.runWorkPython).not.toHaveBeenCalled()
     const ctx = context()
-    ctx.workspace.attachments = prepareWorkAttachments([{ originalname: 'allowed.csv', buffer: Buffer.from('a,b') }], 'work')
+    ctx.workspace.attachments = prepareWorkAttachments([{ originalname: 'allowed.csv', buffer: Buffer.from('a,b') }])
     runtime.runWorkPython.mockResolvedValue(run())
     await WORK_ARTIFACT_TOOLS.execute_python.run('u1', { code: 'print(1)' }, ctx)
     expect(runtime.runWorkPython).toHaveBeenCalledWith('u1', { code: 'print(1)', files: [] }, ctx)

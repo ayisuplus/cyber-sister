@@ -20,7 +20,6 @@ const formatTime = (iso) => {
 /** @param {{ onNavigate?: () => void }} [props] */
 export default function ConversationList({ onNavigate } = {}) {
   const conversations = useChatStore(state => state.conversations)
-  const chatMode = useChatStore(state => state.chatMode)
   const currentConversationId = useChatStore(state => state.currentConversationId)
   const setCurrentConversation = useChatStore(state => state.setCurrentConversation)
   const createConversation = useChatStore(state => state.createConversation)
@@ -72,7 +71,7 @@ export default function ConversationList({ onNavigate } = {}) {
     setPendingDelete(null)
   }
 
-  const visibleConversations = conversations.filter(c => !c.archivedAt && (c.mode || 'chat') === chatMode)
+  const visibleConversations = conversations.filter(c => !c.archivedAt)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -90,7 +89,7 @@ export default function ConversationList({ onNavigate } = {}) {
 
       <nav aria-label="会话列表" className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-2">
         {visibleConversations.length === 0 && (
-          <p className="px-3 py-8 text-center text-xs text-text-muted">{chatMode === 'work' ? '工作云端尚未接通，可先预览功能' : '还没有会话，从下方新建一个吧'}</p>
+          <p className="px-3 py-8 text-center text-xs text-text-muted">还没有会话，从下方新建一个吧</p>
         )}
         {visibleConversations.map((conversation) => {
           const active = conversation.id === currentConversationId

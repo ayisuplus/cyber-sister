@@ -23,7 +23,9 @@ export const SEMANTIC_MEMORY_MIN_SCORE = 0.35
 export const MAX_MODEL_MESSAGE_CHARS = 2000
 export const MAX_WORK_MESSAGE_CHARS = 16000
 const MAX_WORK_CONTEXT_CHARS = 64000
-const messageLimit = (scene) => scene === 'work' ? MAX_WORK_MESSAGE_CHARS : MAX_MODEL_MESSAGE_CHARS
+// agent：本地运行时的对话回合（带工具）。工具反馈与交付文件较长，用更大的单条与整体上下文预算。
+const messageLimit = (agent) => agent ? MAX_WORK_MESSAGE_CHARS : MAX_MODEL_MESSAGE_CHARS
+const MAX_AGENT_MESSAGES = 48
 export const MAX_MEMORY_CHARS = 240
 
 const VALID_ROLES = new Set(['user', 'assistant'])
@@ -238,15 +240,15 @@ export function buildDerivedContext() {
   return ''
 }
 
-export function buildModelMessages(currentText, history = [], promptInHistory = false, scene = 'chat') {
+export function buildModelMessages(currentText, history = [], promptInHistory = false, agent = false) {
   let recentHistory = history
     .filter((message) => VALID_ROLES.has(message?.role) && typeof message?.content === 'string')
-    .slice(-((scene === 'work' ? 48 : MAX_MODEL_MESSAGES) - (promptInHistory ? 0 : 1)))
-    .map((message) => ({ role: message.role, content: modelText(message.content, messageLimit(scene)) }))
+    .slice(-((agent ? MAX_AGENT_MESSAGES : MAX_MODEL_MESSAGES) - (promptInHistory ? 0 : 1)))
+    .map((message) => ({ role: message.role, content: modelText(message.content, messageLimit(agent)) }))
     .filter((message) => message.content)
 
-  const prompt = modelText(currentText, messageLimit(scene))
-  if (scene === 'work') {
+  const prompt = modelText(currentText, messageLimit(agent))
+  if (agent) {
     const anchor = promptInHistory ? recentHistory.findLastIndex((message) => message.role === 'user' && message.content === prompt) : -1
     let remaining = MAX_WORK_CONTEXT_CHARS - prompt.length
     recentHistory = recentHistory.map((message, index) => ({ message, index })).reverse()
@@ -305,14 +307,8 @@ const LOCAL_TEMPLATES = {
   },
 }
 
-const WORK_FALLBACK = '我这边工具暂时没跟上。请把任务再说具体一点，我直接按步骤来。'
-
-export function generateLocalTemplateResponse(text, persona = 'toxic', scene = 'chat') {
+export function generateLocalTemplateResponse(text, persona = 'toxic') {
   const emotion = detectEmotion(text)
-  if (scene === 'work') {
-    // 工作模式无人格模板：统一工作兜底文案，不检索 LOCAL_TEMPLATES
-    return { content: WORK_FALLBACK, emotion: 'neutral', source: 'local_template' }
-  }
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'toxic'
   return {
     content: LOCAL_TEMPLATES[safePersona][emotion] || LOCAL_TEMPLATES[safePersona].neutral,
@@ -330,12 +326,12 @@ const UNSAFE_OUTPUT_PATTERNS = [
   /(?:必须|听我的).{0,12}(?:分手|辞职|退学|断绝关系|停药)/i,
 ]
 
-export function filterModelOutput(content, currentText, persona, source = 'qwen', scene = 'chat') {
+export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false) {
   const normalized = redactSensitiveText(content).trim()
   if (!normalized || UNSAFE_OUTPUT_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return { ...generateLocalTemplateResponse(currentText, persona, scene), filtered: true }
+    return { ...generateLocalTemplateResponse(currentText, persona), filtered: true }
   }
-  return { content: normalized.slice(0, messageLimit(scene)), source, filtered: false }
+  return { content: normalized.slice(0, messageLimit(agent)), source, filtered: false }
 }
 
 export async function generateResponse(
@@ -344,18 +340,18 @@ export async function generateResponse(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [] } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [] } = {},
 ) {
   signal?.throwIfAborted()
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'toxic'
   const emotion = detectEmotion(text)
   const relevantMemories = memoriesSelected ? userMemories : retrieveRelevantMemories(text, userMemories, queryEmbedding)
   const memoryContext = buildMemoryContext(relevantMemories, memoryEdges)
-  const messages = buildModelMessages(text, history, promptInHistory, scene)
+  const messages = buildModelMessages(text, history, promptInHistory, agent)
   if (image) {
     // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL）；历史旧图不重送模型
-    const textPart = modelText(text, messageLimit(scene)) || '（用户发来一张照片，什么也没说）'
-    const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(scene))) : messages.length - 1
+    const textPart = modelText(text, messageLimit(agent)) || '（用户发来一张照片，什么也没说）'
+    const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(agent))) : messages.length - 1
     messages[imageIndex] = {
       role: 'user',
       content: [
@@ -401,7 +397,7 @@ export async function generateResponse(
   const replyTool = parseToolReply(result.content)
   const filtered = replyTool
     ? { content: JSON.stringify({ tool: replyTool.name, args: replyTool.args }), source: responseSource }
-    : filterModelOutput(result.content, text, safePersona, responseSource, scene)
+    : filterModelOutput(result.content, text, safePersona, responseSource, agent)
   return {
     content: filtered.content,
     emotion,
@@ -447,17 +443,17 @@ export async function* generateResponseStream(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [] } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [] } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'toxic'
   const emotion = detectEmotion(text)
   const relevantMemories = memoriesSelected ? userMemories : retrieveRelevantMemories(text, userMemories, queryEmbedding)
   const memoryContext = buildMemoryContext(relevantMemories, memoryEdges)
-  const messages = buildModelMessages(text, history, promptInHistory, scene)
+  const messages = buildModelMessages(text, history, promptInHistory, agent)
   if (image) {
     // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL）；历史旧图不重送模型
-    const textPart = modelText(text, messageLimit(scene)) || '（用户发来一张照片，什么也没说）'
-    const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(scene))) : messages.length - 1
+    const textPart = modelText(text, messageLimit(agent)) || '（用户发来一张照片，什么也没说）'
+    const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(agent))) : messages.length - 1
     messages[imageIndex] = {
       role: 'user',
       content: [
@@ -489,7 +485,7 @@ export async function* generateResponseStream(
   }
 
   const replaceWithTemplate = function* () {
-    const template = generateLocalTemplateResponse(text, safePersona, scene)
+    const template = generateLocalTemplateResponse(text, safePersona)
     yield { type: 'replace', content: template.content, source: template.source }
     yield { type: 'done', content: template.content, emotion, source: template.source }
   }
@@ -511,7 +507,7 @@ export async function* generateResponseStream(
       if (end === -1) return false
       if (isUnsafeAccumulation(fullText.slice(0, end))) return true
       const sentence = redactSensitiveText(fullText.slice(consumed, end))
-        .slice(0, messageLimit(scene) - displayedText.length)
+        .slice(0, messageLimit(agent) - displayedText.length)
       if (sentence) {
         displayedText += sentence
         yield { type: 'sentence', text: sentence }
@@ -601,7 +597,7 @@ export async function* generateResponseStream(
 
   const responseSource = 'qwen'
   // 尾段随流结束做最终整体过滤，覆盖空内容与跨句命中。
-  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, scene)
+  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, agent)
   if (filtered.filtered) {
     yield { type: 'replace', content: filtered.content, source: filtered.source }
     yield {
@@ -615,7 +611,7 @@ export async function* generateResponseStream(
     return
   }
   const tail = redactSensitiveText(fullText.slice(consumed))
-    .slice(0, messageLimit(scene) - displayedText.length)
+    .slice(0, messageLimit(agent) - displayedText.length)
   if (tail) {
     displayedText += tail
     yield { type: 'sentence', text: tail }

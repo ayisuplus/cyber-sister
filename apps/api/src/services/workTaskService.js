@@ -37,7 +37,6 @@ async function lockUser(tx, userId) {
 
 function assertWorkConversation(conversation) {
   if (!conversation) throw taskError('会话不存在', 404, 'CONVERSATION_NOT_FOUND')
-  if (conversation.mode !== 'work') throw taskError('请在工作模式提交后台任务', 400, 'WORK_MODE_REQUIRED')
   if (conversation.archivedAt) throw taskError('请先恢复已归档的对话', 409, 'CONVERSATION_ARCHIVED')
 }
 
@@ -46,7 +45,7 @@ export async function createWorkTask(userId, conversationId, { content = '', req
   if (typeof content !== 'string' || content.length > 10000 || typeof requestKey !== 'string' || !/^[\w-]{8,128}$/.test(requestKey)) {
     throw taskError('任务内容或提交标识不正确', 400, 'INVALID_WORK_TASK')
   }
-  const attachments = prepareWorkAttachments(files, 'work')
+  const attachments = prepareWorkAttachments(files)
   const text = content.trim()
   if (!text && !attachments.length) throw taskError('请输入任务或添加文件', 400, 'INVALID_WORK_TASK')
   // ID/时间由服务器产生，不纳入请求摘要；同一份上传重试必须命中同一任务。

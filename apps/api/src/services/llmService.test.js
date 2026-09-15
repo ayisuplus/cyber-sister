@@ -57,10 +57,10 @@ describe('工作代码协议回归', () => {
   it('原生工具调用只在网关成功结束后交给执行层，上游迟到错误会阻止执行', async () => {
     const call = { type: 'toolcall', name: 'execute_python', args: { code: 'print(42)' } }
     gatewayStream.mockImplementationOnce(async function* () { yield call; yield { type: 'error', reason: 'upstream_error' } })
-    const failed = await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { scene: 'work', allowExternal: true, authorizeExternal: authorized }))
+    const failed = await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { agent: true, allowExternal: true, authorizeExternal: authorized }))
     expect(failed.some((event) => event.type === 'toolcall')).toBe(false)
     gatewayStream.mockImplementationOnce(async function* () { yield call; yield { type: 'done', provider: 'qwen' } })
-    expect(await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { scene: 'work', allowExternal: true, authorizeExternal: authorized }))).toEqual([call])
+    expect(await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { agent: true, allowExternal: true, authorizeExternal: authorized }))).toEqual([call])
   })
   it('流式的长代码保持在工具通道，任何片段都不作为回复显示', async () => {
     const code = 'print("code block")\n'.repeat(400)
@@ -70,19 +70,19 @@ describe('工作代码协议回归', () => {
       yield { type: 'delta', text: reply.slice(4500) }
       yield { type: 'done', provider: 'qwen', model: 'dots-test' }
     })
-    const events = await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { scene: 'work', allowExternal: true, authorizeExternal: authorized }))
+    const events = await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { agent: true, allowExternal: true, authorizeExternal: authorized }))
     expect(events).toEqual([{ type: 'toolcall', name: 'execute_python', args: { code } }])
   })
   it('无效代码 JSON 在普通与流式接口都要求修正，不冒充已完成回复', async () => {
     const bad = '{"tool":"execute_python","args":{"code":"print("bad")"}}'
     gatewayComplete.mockResolvedValueOnce({ content: bad, provider: 'qwen' })
-    const response = await generateResponse('分析文件', 'rational', [], [], 'r1', { scene: 'work', allowExternal: true, authorizeExternal: authorized })
+    const response = await generateResponse('分析文件', 'rational', [], [], 'r1', { agent: true, allowExternal: true, authorizeExternal: authorized })
     expect(JSON.parse(response.content)).toEqual({ tool: '__malformed__', args: {} })
     gatewayStream.mockImplementationOnce(async function* () {
       yield { type: 'delta', text: bad }
       yield { type: 'done', provider: 'qwen' }
     })
-    expect(await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { scene: 'work', allowExternal: true, authorizeExternal: authorized })))
+    expect(await collectEvents(generateResponseStream('分析文件', 'rational', [], [], 'r1', { agent: true, allowExternal: true, authorizeExternal: authorized })))
       .toEqual([{ type: 'toolcall', name: '__malformed__', args: {} }])
   })
 })
@@ -107,20 +107,20 @@ describe('llmService 数据最小化', () => {
     withCloudEnv()
   })
 
-  it('工作输出保留长文与完整文件协议，聊天仍沿用短输出限制', async () => {
+  it('本地带工具的回合保留长文与完整文件协议，网页聊天仍沿用短输出限制', async () => {
     const content = '这是一段长文。'.repeat(450)
-    expect(filterModelOutput(content, '写报告', 'rational', 'qwen', 'work').content.length).toBe(content.length)
+    expect(filterModelOutput(content, '写报告', 'rational', 'qwen', true).content.length).toBe(content.length)
     expect(filterModelOutput(content, '聊天', 'rational').content.length).toBe(2000)
     const tool = JSON.stringify({ tool: 'create_artifact', args: { title: '报告', format: 'md', content } })
     gatewayComplete.mockResolvedValue({ content: tool, provider: 'qwen', model: 'test' })
-    const result = await generateResponse('写报告', 'rational', [], [], undefined, { scene: 'work', allowExternal: true, authorizeExternal: authorized })
+    const result = await generateResponse('写报告', 'rational', [], [], undefined, { agent: true, allowExternal: true, authorizeExternal: authorized })
     expect(JSON.parse(result.content).args.content).toBe(content)
   })
 
-  it('多步工作的上下文预算保留原任务与最近的工具结果', () => {
+  it('本地多步任务的上下文预算保留原任务与最近的工具结果', () => {
     const text = '将证据整理成报告'
     const history = [{ role: 'user', content: text }, ...Array.from({ length: 30 }, (_v, i) => ({ role: i % 2 ? 'user' : 'assistant', content: `${i}:` + 'x'.repeat(12000) }))]
-    const messages = buildModelMessages(text, history, true, 'work')
+    const messages = buildModelMessages(text, history, true, true)
     expect(messages[0]).toEqual({ role: 'user', content: text })
     expect(messages.at(-1).content).toBe(history.at(-1).content)
     expect(messages.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(64000)
@@ -323,10 +323,10 @@ describe('filterModelOutput 与本地安全模板', () => {
     expect(passed).toMatchObject({ filtered: false, source: 'qwen' })
   })
 
-  it('本地模板按人格与情绪取文案，工作场景用统一兜底', () => {
+  it('本地模板按人格与情绪取文案，只有一种对话，不再有工作兜底文案', () => {
     expect(generateLocalTemplateResponse('今天有点焦虑', 'toxic').source).toBe('local_template')
-    expect(generateLocalTemplateResponse('随便', 'toxic', 'work').content)
-      .toBe('我这边工具暂时没跟上。请把任务再说具体一点，我直接按步骤来。')
+    expect(generateLocalTemplateResponse('随便', 'gentle', 'work').content).toBe(generateLocalTemplateResponse('随便', 'gentle').content)
+    expect(generateLocalTemplateResponse('随便', 'gentle').content).not.toContain('工具暂时没跟上')
   })
 })
 
@@ -464,10 +464,11 @@ describe('generateResponseStream 分句安全流', () => {
     expect(events.at(-1).content).toBe(displayed)
   })
 
-  it('工作模式累计过滤使用工作模式模板', async () => {
+  it('本地带工具的回合累计过滤同样换成她的说话方式模板，模型场景仍是 chat', async () => {
     gatewayStream.mockReturnValue(streamOf([{ type: 'delta', text: '杀了他。' }]))
-    const events = await collectEvents(generateResponseStream('你好', 'gentle', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized, scene: 'work' }))
-    expect(events.at(-1).content).toBe(generateLocalTemplateResponse('你好', 'gentle', 'work').content)
+    const events = await collectEvents(generateResponseStream('你好', 'gentle', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized, agent: true }))
+    expect(events.at(-1).content).toBe(generateLocalTemplateResponse('你好', 'gentle').content)
+    expect(gatewayStream.mock.calls[0][0].scene).toBe('chat')
   })
 
   it('首句产出后上游失败只报 STREAM_FAILED', async () => {

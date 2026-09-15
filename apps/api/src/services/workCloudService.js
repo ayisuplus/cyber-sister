@@ -13,7 +13,7 @@ export function isWorkCloudConnected() {
 }
 
 export function assertWorkCloudConnected() {
-  throw Object.assign(new HttpError('工作模式云端接口尚未接入，当前仅提供模拟预览', 503), {
+  throw Object.assign(new HttpError('云端接口尚未接入，当前仅提供模拟预览', 503), {
     code: 'WORK_CLOUD_NOT_CONNECTED',
   })
 }

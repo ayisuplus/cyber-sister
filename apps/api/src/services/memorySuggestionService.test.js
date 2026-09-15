@@ -36,7 +36,7 @@ import { getMemorySuggestions } from './memorySuggestionService.js'
 const USER_ID = 'user-1'
 const MESSAGE_ID = 'msg-1'
 const REQUEST_ID = 'req-1'
-const USER_MESSAGE = { id: MESSAGE_ID, role: 'user', content: '我超喜欢吃火锅，每周五都去', conversation: { mode: 'chat' } }
+const USER_MESSAGE = { id: MESSAGE_ID, role: 'user', content: '我超喜欢吃火锅，每周五都去' }
 const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' }
 
 function modelOutput(items) {
@@ -68,7 +68,6 @@ describe('记忆建议：归属与输入校验（W3-1）', () => {
     })
     expect(mocks.messageFindFirst).toHaveBeenCalledWith({
       where: { id: MESSAGE_ID, conversation: { userId: USER_ID } },
-      include: { conversation: { select: { mode: true } } },
     })
     expect(mocks.gatewayComplete).not.toHaveBeenCalled()
   })
@@ -88,21 +87,8 @@ describe('记忆建议：归属与输入校验（W3-1）', () => {
     expect(mocks.messageFindFirst).not.toHaveBeenCalled()
   })
 
-  it('已同意云端也不能从历史 work 消息生成候选或读写记忆', async () => {
-    mocks.messageFindFirst.mockResolvedValue({ ...USER_MESSAGE, conversation: { mode: 'work' } })
-    await expect(getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)).rejects.toMatchObject({
-      statusCode: 503,
-      code: 'WORK_CLOUD_NOT_CONNECTED',
-    })
-    expect(mocks.userFindUnique).not.toHaveBeenCalled()
-    expect(mocks.getGateway).not.toHaveBeenCalled()
-    expect(mocks.gatewayComplete).not.toHaveBeenCalled()
-    expect(mocks.memoryFindMany).not.toHaveBeenCalled()
-    expect(mocks.memoryCreate).not.toHaveBeenCalled()
-  })
-
-  it('工作历史消息仍先执行危机排除，不触发模型', async () => {
-    mocks.messageFindFirst.mockResolvedValue({ ...USER_MESSAGE, content: '我不想活了', conversation: { mode: 'work' } })
+  it('危机消息先被排除，不触发模型也不写记忆', async () => {
+    mocks.messageFindFirst.mockResolvedValue({ ...USER_MESSAGE, content: '我不想活了' })
     await expect(getMemorySuggestions(USER_ID, MESSAGE_ID, REQUEST_ID)).resolves.toEqual({ candidates: [] })
     expect(mocks.getGateway).not.toHaveBeenCalled()
     expect(mocks.memoryCreate).not.toHaveBeenCalled()

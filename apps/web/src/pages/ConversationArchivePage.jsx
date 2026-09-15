@@ -130,7 +130,6 @@ export default function ConversationArchivePage() {
             {conversations.map(conversation => <article key={conversation.id} className="rounded-card border border-border-hairline bg-surface-card p-4 shadow-card">
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 break-words font-semibold text-text-primary">{conversation.title || '新会话'}</h3>
-                <span className="shrink-0 rounded-full bg-pastel-mist px-2 py-1 text-xs text-text-secondary">{conversation.mode === 'work' ? '工作' : '聊天'}</span>
               </div>
               <p className="mt-2 truncate text-sm text-text-muted">{conversation.messages?.[0]?.content || '暂无消息'}</p>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

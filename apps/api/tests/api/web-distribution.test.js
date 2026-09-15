@@ -25,15 +25,16 @@ describe('web distribution', () => {
       expect(response.status).toBe(403)
       expect(response.body.code).toBe('LOCAL_CLIENT_REQUIRED')
     }
+    // 只有一种对话：任何分发都不能再建工作会话
     const response = await request(app).post('/api/chat/conversations').set('Authorization', `Bearer ${token}`).send({ mode: 'work' })
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(400)
     expect(db.create).not.toHaveBeenCalled()
   })
 
   it('offers no tools even when individual feature flags are enabled', async () => {
     vi.stubEnv('APP_DISTRIBUTION', 'web')
     vi.stubEnv('WORK_NATIVE_TOOLS', 'true')
-    expect(buildNativeTools('work')).toEqual([])
-    expect(await executeToolCall('web-user', { name: 'create_artifact', args: {} }, 'work')).toMatchObject({ ok: false })
+    expect(buildNativeTools()).toEqual([])
+    expect(await executeToolCall('web-user', { name: 'create_artifact', args: {} })).toMatchObject({ ok: false, summary: '网页版不执行工具' })
   })
 })

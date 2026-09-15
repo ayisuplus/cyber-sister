@@ -44,7 +44,7 @@ export function useVoiceInput(onTranscript, enabled = true) {
     if (recorder && recorder.state !== 'inactive') recorder.stop()
   }, [])
 
-  // 取消、切换工作模式或卸载均废弃本次权限请求、录音、转换及转写结果。
+  // 取消、停用（enabled 为 false）或卸载均废弃本次权限请求、录音、转换及转写结果。
   const cancel = useCallback(() => {
     operationRef.current += 1
     requestRef.current?.abort()

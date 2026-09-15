@@ -16,12 +16,13 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.clearAllMocks() })
 
 describe('work browser tools', () => {
-  it('catalogs expose browser tools only in enabled work mode, with native parameter schemas', () => {
-    expect(buildNativeTools('work').filter(tool => tool.function.name.startsWith('browser_'))).toHaveLength(3)
-    expect(buildToolSystemPrompt('work')).toContain('最近控件编号')
-    expect(buildToolSystemPrompt('chat')).not.toContain('"tool":"browser_open"')
+  it('catalogs expose browser tools only when the browser is enabled, with native parameter schemas', () => {
+    expect(buildNativeTools().filter(tool => tool.function.name.startsWith('browser_'))).toHaveLength(3)
+    expect(buildToolSystemPrompt()).toContain('最近控件编号')
+    expect(buildToolSystemPrompt()).toContain('"tool":"browser_open"')
     vi.stubEnv('WORK_BROWSER_ENABLED', 'false')
-    expect(buildNativeTools('work').some(tool => tool.function.name.startsWith('browser_'))).toBe(false)
+    expect(buildNativeTools().some(tool => tool.function.name.startsWith('browser_'))).toBe(false)
+    expect(buildToolSystemPrompt()).not.toContain('"tool":"browser_open"')
   })
 
   it('an open page persists within one workspace and source metadata reflects actual returned URLs', async () => {
@@ -40,8 +41,8 @@ describe('work browser tools', () => {
   it('fresh snapshots are not deduplicated into stale observations', async () => {
     const run = vi.spyOn(WORK_BROWSER_TOOLS.browser_snapshot, 'run').mockResolvedValue({ summary: 'new state', result: snapshot })
     const cache = new Map()
-    await executeToolCallOnce('user-one', { name: 'browser_snapshot', args: {} }, cache, 'work')
-    await executeToolCallOnce('user-one', { name: 'browser_snapshot', args: {} }, cache, 'work')
+    await executeToolCallOnce('user-one', { name: 'browser_snapshot', args: {} }, cache)
+    await executeToolCallOnce('user-one', { name: 'browser_snapshot', args: {} }, cache)
     expect(run).toHaveBeenCalledTimes(2)
     expect(cache.size).toBe(0)
   })

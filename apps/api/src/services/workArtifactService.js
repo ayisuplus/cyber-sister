@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { TextDecoder } from 'node:util'
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
+import { isLocalWorkRuntime } from '../config/distribution.js'
 import { runWorkPython } from './workExecutionService.js'
 import { extractWorkDocument } from './workDocumentService.js'
 
@@ -47,9 +48,10 @@ function fileArtifact(name, buffer, origin) {
   return { id: randomUUID(), title: match[1].trim(), format, content, encoding, origin, sizeBytes: buffer.length }
 }
 
-export function prepareWorkAttachments(files = [], mode) {
+// 上传文档只在本地运行时可用（任意对话）；网页版只能聊天。
+export function prepareWorkAttachments(files = []) {
   if (!Array.isArray(files) || files.length > 3) throw new HttpError('每次最多上传 3 个文件', 400)
-  if (files.length && mode !== 'work') throw new HttpError('请在工作模式中上传文档', 400)
+  if (files.length && !isLocalWorkRuntime()) throw Object.assign(new HttpError('网页版不支持上传文档，请使用本地客户端', 403), { code: 'LOCAL_CLIENT_REQUIRED' })
   const artifacts = files.map((file) => fileArtifact(file.originalname, file.buffer, 'uploaded'))
   if (artifacts.reduce((sum, file) => sum + file.sizeBytes, 0) > MAX_TOTAL_BYTES) throw new HttpError('上传文件总量不能超过 12 MB', 400)
   return artifacts

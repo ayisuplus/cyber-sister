@@ -13,7 +13,6 @@ import MemorySuggestion from '../components/chat/MemorySuggestion'
 import CrisisModal from '../components/chat/CrisisModal'
 import AIDisclaimer from '../components/chat/AIDisclaimer'
 import UsageReminder from '../components/chat/UsageReminder'
-import WorkDesktop from '../components/work/WorkDesktop'
 import AmbientMedia from '../components/work/AmbientMedia'
 import Openers from '../components/chat/Openers'
 import { DoodleField, LeafSprig, Squiggle } from '../components/chat/Doodles'
@@ -36,7 +35,7 @@ const getSendErrorMessage = (requestError) => {
     return '云端模型暂时不可用。原输入已保留，请稍后重试。'
   }
   if (code === 'WORK_CLOUD_NOT_CONNECTED') {
-    return '工作助手的云端接口尚未接通。可以先从功能桌面预览各项流程，输入已保留。'
+    return '这项能力的云端接口还没接通。原输入已保留。'
   }
   return '消息发送失败，原输入已保留，请重试。'
 }
@@ -58,8 +57,9 @@ export default function ChatPage() {
   const [fallbackNoticeState, setFallbackNoticeState] = useState(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const messages = useChatStore(state => state.messages)
-  const chatMode = useChatStore(state => isLocalWorkClient() ? state.chatMode : 'chat')
-  const workTasks = useWorkTasks(chatMode === 'work')
+  // 只有一种对话：本地客户端才有后台任务面板与「后台执行」
+  const local = isLocalWorkClient()
+  const workTasks = useWorkTasks(local)
   const currentConversationId = useChatStore(state => state.currentConversationId)
   const isTyping = useChatStore(state => state.isTyping)
   const isSending = useChatStore(state => state.isSending)
@@ -72,8 +72,8 @@ export default function ChatPage() {
   const chatBgUrl = useAppearanceStore(s => s.chatBgUrl)
   const [greeting] = useState(() => greetingFor(new Date().getHours()))
 
-  // 翻页：会话/模式变化时旧页先翻出（220ms），再挂载新页以书脊为轴翻入
-  const conversationPageKey = `${chatMode}:${currentConversationId ?? 'empty'}`
+  // 翻页：会话变化时旧页先翻出（220ms），再挂载新页以书脊为轴翻入
+  const conversationPageKey = currentConversationId ?? 'empty'
   const [renderedPageKey, setRenderedPageKey] = useState(conversationPageKey)
   const [pageLeaving, setPageLeaving] = useState(false)
   useEffect(() => {
@@ -116,7 +116,7 @@ export default function ChatPage() {
   }, [checkUsageTime, endSession, startSession])
 
   useEffect(() => {
-    // 空态（欢迎插画/工作桌面）是顶对齐的整屏内容，不跟随滚到底部
+    // 空态（欢迎插画与开场）是顶对齐的整屏内容，不跟随滚到底部
     if (messages.length === 0 && !isTyping) return
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
@@ -156,7 +156,7 @@ export default function ChatPage() {
       {chatBgUrl && <div className="chat-bg-overlay" aria-hidden="true" />}
       <div className="relative flex min-w-0 flex-1 flex-col">
       {/* 枝叶只陪空白页；有消息后让出版面，只留晨雾，避免从气泡后面露出半截 */}
-      {chatMode === 'chat' && messages.length === 0 && <DoodleField />}
+      {messages.length === 0 && <DoodleField />}
       <ChatHeader onOpenDrawer={() => setDrawerOpen(true)} />
       {fallbackNoticeState !== null && (
         <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
@@ -167,8 +167,8 @@ export default function ChatPage() {
         key={renderedPageKey}
         className={`chat-paper relative z-10 flex-1 space-y-5 overflow-y-auto px-4 pb-6 pt-4 scrollbar-hide ${pageLeaving ? 'animate-page-leave' : 'animate-page-turn'}`}
       >
-        {chatMode === 'work' && <WorkTaskPanel tasks={workTasks.tasks} cancel={workTasks.cancel} retry={workTasks.retry} decide={workTasks.decide} />}
-        {messages.length === 0 && chatMode !== 'work' && (
+        {local && <WorkTaskPanel tasks={workTasks.tasks} cancel={workTasks.cancel} retry={workTasks.retry} decide={workTasks.decide} />}
+        {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10">
             {/* 依次浮现：问候 → 拱窗 → 标题 → 说明 → 话题，全程约 1s，不阻塞点击 */}
             <p className="animate-reveal-up mb-6 font-hand text-[15px] tracking-[0.2em] text-text-secondary">{greeting}</p>
@@ -202,15 +202,9 @@ export default function ChatPage() {
                 onSend={handleSend}
                 onDraft={(draft) => inputRef.current?.fillDraft(draft)}
                 draftLocked={draftLocked}
-                withCare={isLocalWorkClient()}
+                withCare={local}
               />
             </div>
-          </div>
-        )}
-
-        {messages.length === 0 && chatMode === 'work' && (
-          <div className="px-1 py-2">
-            <WorkDesktop />
           </div>
         )}
 
@@ -221,7 +215,7 @@ export default function ChatPage() {
             : <MessageBubble key={message.id} message={message} isLast={index === messages.length - 1} />
         ))}
 
-        {chatMode === 'chat' && suggestionUserMessage && (
+        {suggestionUserMessage && (
           // key 绑定回复 id：新回复/切换会话后建议状态随之重置，入口只跟随最新正常回复
           <MemorySuggestion key={lastMessage.id} userMessageId={suggestionUserMessage.id} />
         )}
@@ -231,7 +225,7 @@ export default function ChatPage() {
       </div>
 
       <div aria-live="polite" className="min-h-5 px-4 text-center text-xs text-danger">{error || workTasks.error}</div>
-      <InputBar ref={inputRef} onSend={handleSend} onBackgroundSend={chatMode === 'work' && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} onDraftChange={setDraftLocked} />
+      <InputBar ref={inputRef} onSend={handleSend} onBackgroundSend={local && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} onDraftChange={setDraftLocked} />
       <CrisisModal intervention={intervention} onClose={() => setIntervention(null)} />
       <AIDisclaimer />
       <UsageReminder />

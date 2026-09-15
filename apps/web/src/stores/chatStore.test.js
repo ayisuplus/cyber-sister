@@ -16,14 +16,17 @@ import { useChatStore } from './chatStore'
 
 afterEach(() => vi.unstubAllEnvs())
 
-it('web refuses work mode and discards a loaded work conversation', async () => {
+it('web hides legacy work conversations from the list and discards one loaded directly', async () => {
   vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
   useChatStore.getState().reset()
-  useChatStore.getState().setChatMode('work')
-  expect(useChatStore.getState().chatMode).toBe('chat')
+  expect(useChatStore.getState()).not.toHaveProperty('chatMode')
+  expect(useChatStore.getState()).not.toHaveProperty('setChatMode')
+  chatService.getConversations.mockResolvedValue([{ id: 'work-0', mode: 'work', messages: [] }])
+  await useChatStore.getState().loadConversations()
+  expect(useChatStore.getState().conversations).toEqual([])
   chatService.getConversation.mockResolvedValue({ id: 'work-1', mode: 'work', messages: [{ content: 'hidden' }] })
   await useChatStore.getState().setCurrentConversation('work-1')
-  expect(useChatStore.getState()).toMatchObject({ chatMode: 'chat', messages: [], currentConversationId: null })
+  expect(useChatStore.getState()).toMatchObject({ messages: [], currentConversationId: null })
 })
 
 const resetStore = () => useChatStore.setState({
@@ -32,7 +35,6 @@ const resetStore = () => useChatStore.setState({
   messages: [],
   isTyping: false,
   isSending: false,
-  chatMode: 'chat',
 })
 
 // 让 streamMessage 按脚本逐事件回调后 resolve
@@ -69,7 +71,7 @@ describe('chatStore lifecycle ownership', () => {
   })
 
   it('工作工具进度在空白回复中可见，终态后的迟到工具和内容不再污染回复', async () => {
-    useChatStore.setState({ chatMode: 'work', currentConversationId: 'c1', conversations: [{ id: 'c1', mode: 'work' }] })
+    useChatStore.setState({ currentConversationId: 'c1', conversations: [{ id: 'c1', mode: 'chat' }] })
     chatService.streamMessage.mockImplementation(async (_id, _text, { onEvent }) => {
       onEvent({ event: 'tool_progress', step: 0, tool: 'create_artifact', status: 'running' })
       expect(useChatStore.getState().messages.at(-1).progress[0].status).toBe('running')
@@ -454,77 +456,43 @@ describe('chatStore conversation management', () => {
   })
 })
 
-describe('chatStore 会话级模式', () => {
+describe('chatStore 只有一种对话', () => {
   beforeEach(resetStore)
 
-  it('切换模式时清掉不属于该模式的当前会话与消息', () => {
-    useChatStore.setState({
-      conversations: [{ id: 'c1', mode: 'chat' }, { id: 'w1', mode: 'work' }],
-      currentConversationId: 'c1',
-      messages: [{ id: 'm1', role: 'user', content: '聊天记录' }],
-    })
-
-    useChatStore.getState().setChatMode('work')
-
-    expect(useChatStore.getState()).toMatchObject({
-      chatMode: 'work',
-      currentConversationId: null,
-      messages: [],
-    })
-  })
-
-  it('当前会话本就属于目标模式时保留上下文', () => {
-    useChatStore.setState({
-      conversations: [{ id: 'w1', mode: 'work' }],
-      currentConversationId: 'w1',
-      messages: [{ id: 'm1', role: 'user', content: '保留' }],
-      chatMode: 'chat',
-    })
-
-    useChatStore.getState().setChatMode('work')
-
-    expect(useChatStore.getState().currentConversationId).toBe('w1')
-    expect(useChatStore.getState().messages).toHaveLength(1)
-  })
-
-  it('按当前模式创建会话', async () => {
-    chatService.createConversation.mockResolvedValue({ id: 'w2', mode: 'work' })
-    useChatStore.getState().setChatMode('work')
+  it('新建会话不再带模式', async () => {
+    chatService.createConversation.mockResolvedValue({ id: 'c2', mode: 'chat' })
 
     await useChatStore.getState().createConversation()
 
-    expect(chatService.createConversation).toHaveBeenCalledWith('work')
-    expect(useChatStore.getState().currentConversationId).toBe('w2')
+    expect(chatService.createConversation).toHaveBeenCalledWith()
+    expect(useChatStore.getState().currentConversationId).toBe('c2')
   })
 
-  it('选中会话时把会话自身的 mode 同步进 chatMode', async () => {
-    chatService.getConversation.mockResolvedValue({ id: 'w3', mode: 'work', messages: [] })
-
-    await useChatStore.getState().setCurrentConversation('w3')
-
-    expect(useChatStore.getState().chatMode).toBe('work')
-  })
-
-  it('loadConversations 只自动选中当前模式的会话', async () => {
+  it('本地客户端里旧的工作会话与聊天会话同列，自动选中最近一段', async () => {
     chatService.getConversations.mockResolvedValue([
       { id: 'w1', mode: 'work', messages: [] },
       { id: 'c1', mode: 'chat', messages: [] },
     ])
-    chatService.getConversation.mockResolvedValue({ id: 'c1', mode: 'chat', messages: [] })
+    chatService.getConversation.mockResolvedValue({ id: 'w1', mode: 'work', messages: [] })
 
     await useChatStore.getState().loadConversations()
 
-    expect(chatService.getConversation).toHaveBeenCalledWith('c1')
-    expect(useChatStore.getState().currentConversationId).toBe('c1')
+    expect(useChatStore.getState().conversations.map(c => c.id)).toEqual(['w1', 'c1'])
+    expect(chatService.getConversation).toHaveBeenCalledWith('w1')
+    expect(useChatStore.getState().currentConversationId).toBe('w1')
   })
 
-  it('loadConversations 在当前模式无会话时不选中任何会话', async () => {
-    chatService.getConversations.mockResolvedValue([{ id: 'w1', mode: 'work', messages: [] }])
+  it('归档当前会话后切到下一段未归档的会话，不看模式', async () => {
+    chatService.setArchived.mockResolvedValue({ success: true })
+    chatService.getConversation.mockResolvedValue({ id: 'w1', mode: 'work', messages: [] })
+    useChatStore.setState({
+      conversations: [{ id: 'c1', mode: 'chat' }, { id: 'w1', mode: 'work' }],
+      currentConversationId: 'c1',
+    })
 
-    await useChatStore.getState().loadConversations()
+    await useChatStore.getState().archiveConversation('c1')
 
-    expect(chatService.getConversation).not.toHaveBeenCalled()
-    expect(useChatStore.getState().currentConversationId).toBeNull()
+    expect(useChatStore.getState().currentConversationId).toBe('w1')
   })
 })
 

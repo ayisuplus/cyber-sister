@@ -130,22 +130,6 @@ export const useChatStore = create(
     messages: [],
     isTyping: false,
     isSending: false,
-    // 会话级模式归属：chat | work；会话列表按当前模式过滤，新建会话落在当前模式
-    chatMode: 'chat',
-    setChatMode: (mode) => {
-      if (mode === 'work' && !isLocalWorkClient()) return
-      if (!['chat', 'work'].includes(mode) || mode === get().chatMode) return
-      stopActiveStream()
-      viewVersion += 1
-      const current = get().conversations.find((c) => c.id === get().currentConversationId)
-      const belongs = current && (current.mode || 'chat') === mode
-      set({
-        chatMode: mode,
-        isTyping: false,
-        isSending: false,
-        ...(belongs ? {} : { currentConversationId: null, messages: [] }),
-      })
-    },
 
     loadConversations: async () => {
       const session = storeVersion
@@ -154,10 +138,11 @@ export const useChatStore = create(
       try {
         const conversations = await chatService.getConversations()
         if (session !== storeVersion || list !== listVersion) return
+        // 只有一种对话；旧的工作会话在网页版仍不显示（后端同样过滤）
         set({ conversations: isLocalWorkClient() ? conversations : conversations.filter(c => c.mode !== 'work') })
 
         if (view === viewVersion && conversations.length > 0 && !get().currentConversationId) {
-          const first = conversations.find((c) => !c.archivedAt && (c.mode || 'chat') === get().chatMode)
+          const first = get().conversations.find((c) => !c.archivedAt)
           if (!first) return
           await get().setCurrentConversation(first.id)
         }
@@ -172,7 +157,7 @@ export const useChatStore = create(
       const view = ++viewVersion
       listVersion += 1
       set({ isSending: false, isTyping: false })
-      const conversation = await chatService.createConversation(isLocalWorkClient() ? get().chatMode : 'chat')
+      const conversation = await chatService.createConversation()
       if (session !== storeVersion || view !== viewVersion) return null
       set((state) => ({
         conversations: [conversation, ...state.conversations],
@@ -193,10 +178,10 @@ export const useChatStore = create(
           // 响应回来时若已切换到其它会话，丢弃这条过期数据
           if (view !== viewVersion || get().currentConversationId !== id) return
           if (!isLocalWorkClient() && conversation.mode === 'work') {
-            set({ currentConversationId: null, messages: [], chatMode: 'chat' })
+            set({ currentConversationId: null, messages: [] })
             return
           }
-        set({ messages: conversation.messages || [], chatMode: conversation.mode || 'chat' })
+        set({ messages: conversation.messages || [] })
       } catch {
         // 保持该会话的空状态，不把其它会话消息展示为当前记录。
       }
@@ -243,7 +228,7 @@ export const useChatStore = create(
         if (!get().currentConversationId) {
           // 自动创建属于当前发送；公开的新建操作会取消流，因此在这里直接创建。
           listVersion += 1
-          const conversation = await chatService.createConversation(isLocalWorkClient() ? get().chatMode : 'chat')
+          const conversation = await chatService.createConversation()
           if (!isCurrentStream()) return { status: 'aborted' }
           set((state) => ({
             conversations: [conversation, ...state.conversations],
@@ -304,7 +289,7 @@ export const useChatStore = create(
         stopActiveStream()
         viewVersion += 1
         set({ currentConversationId: null, messages: [], isSending: false, isTyping: false })
-        const next = get().conversations.find((c) => !c.archivedAt && (c.mode || 'chat') === get().chatMode)
+        const next = get().conversations.find((c) => !c.archivedAt)
         if (next) await get().setCurrentConversation(next.id)
       }
     },
@@ -317,7 +302,7 @@ export const useChatStore = create(
 
       const deletingCurrent = get().currentConversationId === id
       const nextConversationId = deletingCurrent
-        ? get().conversations.find((conversation) => conversation.id !== id && (conversation.mode || 'chat') === get().chatMode)?.id || null
+        ? get().conversations.find((conversation) => conversation.id !== id && !conversation.archivedAt)?.id || null
         : get().currentConversationId
       set((state) => {
         const conversations = state.conversations.filter((c) => c.id !== id)
@@ -355,7 +340,6 @@ export const useChatStore = create(
         messages: [],
         isTyping: false,
         isSending: false,
-        chatMode: 'chat',
       })
     },
   })

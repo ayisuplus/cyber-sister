@@ -42,7 +42,6 @@ describe('ConversationList', () => {
       messages: [],
       isTyping: false,
       isSending: false,
-      chatMode: 'chat',
     })
   })
 
@@ -155,25 +154,24 @@ describe('ConversationList', () => {
       expect(useChatStore.getState().conversations.map(c => c.id)).toEqual(['c1'])
     })
   })
-  it('filters the list by current chat mode and shows the work empty state', () => {
+  it('只有一种对话：旧的工作会话与聊天会话排在同一个列表里，空列表只有一句提示', () => {
     useChatStore.setState({
       conversations: [
         { id: 'c1', mode: 'chat', title: '深夜倾诉', updatedAt: '2026-09-05T08:00:00.000Z', messages: [] },
         { id: 'w1', mode: 'work', title: '季度汇报', updatedAt: '2026-09-05T09:00:00.000Z', messages: [] },
       ],
-      chatMode: 'work',
       currentConversationId: null,
     })
 
     const { unmount } = render(<MemoryRouter><ConversationList /></MemoryRouter>)
 
     expect(screen.getByRole('button', { name: /^季度汇报/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^深夜倾诉/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /^深夜倾诉/ })).toBeInTheDocument()
     unmount()
 
     useChatStore.setState({ conversations: [] })
     render(<MemoryRouter><ConversationList /></MemoryRouter>)
-    expect(screen.getByText('工作云端尚未接通，可先预览功能')).toBeInTheDocument()
+    expect(screen.getByText('还没有会话，从下方新建一个吧')).toBeInTheDocument()
   })
 })
 
@@ -183,7 +181,6 @@ describe('AppSidebar', () => {
     useChatStore.setState({
       conversations: CONVERSATIONS,
       currentConversationId: 'c1',
-      chatMode: 'chat',
     })
     render(<MemoryRouter><AppSidebar /></MemoryRouter>)
 

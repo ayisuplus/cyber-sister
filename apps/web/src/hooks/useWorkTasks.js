@@ -72,7 +72,6 @@ export function useWorkTasks(enabled) {
     const session = getSessionVersion()
     try {
       const chat = useChatStore.getState()
-      if (chat.chatMode !== 'work') return false
       const conversationId = chat.currentConversationId || (await chat.createConversation())?.id
       if (!conversationId || current !== generation.current || session !== getSessionVersion()) return false
       const previous = pending.current

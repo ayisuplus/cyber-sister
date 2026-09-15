@@ -53,7 +53,8 @@ router.patch('/conversations/:id/archive', async (req, res) => {
 })
 
 const validateConversationCreate = validate([
-  { field: 'mode', validate: (v) => (v === undefined ? null : validateEnum(v, '模式', ['chat', 'work'])) },
+  // 只有一种对话；旧客户端显式传 chat 仍兼容，传 work 拒绝
+  { field: 'mode', validate: (v) => (v === undefined ? null : validateEnum(v, '模式', ['chat'])) },
 ])
 
 router.post('/conversations', validateConversationCreate, async (req, res) => {

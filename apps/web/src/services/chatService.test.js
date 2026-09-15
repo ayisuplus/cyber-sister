@@ -26,7 +26,7 @@ describe('chatService', () => {
 
     expect(api.get).toHaveBeenCalledWith('/chat/conversations', undefined)
     expect(list).toEqual([{ id: 'c1' }])
-    expect(api.post).toHaveBeenCalledWith('/chat/conversations', { mode: 'chat' })
+    expect(api.post).toHaveBeenCalledWith('/chat/conversations', {})
     expect(created).toEqual({ id: 'c2' })
   })
 

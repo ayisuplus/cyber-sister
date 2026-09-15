@@ -1,7 +1,7 @@
 import { createRef } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const svc = vi.hoisted(() => ({
   getAsrStatus: vi.fn(),
@@ -15,9 +15,8 @@ vi.mock('../../utils/voiceWav', () => ({ webmToWav16kMono: wav.webmToWav16kMono 
 import { asrService } from '../../services/asrService'
 import { webmToWav16kMono } from '../../utils/voiceWav'
 import InputBar from './InputBar'
-import { useChatStore } from '../../stores/chatStore'
 
-beforeEach(() => useChatStore.setState({ chatMode: 'chat' }))
+afterEach(() => vi.unstubAllEnvs())
 
 // jsdom 无 MediaRecorder/getUserMedia：按用例装假实现
 class FakeRecorder {
@@ -47,8 +46,7 @@ const stubMedia = ({ getUserMedia } = {}) => {
 }
 
 describe('InputBar', () => {
-  it('后台执行为工作模式的显式选择，普通发送仍走原聊天回路', async () => {
-    useChatStore.setState({ chatMode: 'work' })
+  it('后台执行是显式选择（聊天页在本地且已启用时才提供），普通发送仍走原对话回路', async () => {
     const onSend = vi.fn().mockResolvedValue(true)
     const onBackgroundSend = vi.fn().mockResolvedValue(true)
     render(<InputBar onSend={onSend} onBackgroundSend={onBackgroundSend} />)
@@ -62,8 +60,7 @@ describe('InputBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
     await waitFor(() => expect(onBackgroundSend).toHaveBeenCalledWith('后台任务', { image: null }))
   })
-  it('工作模式可仅发送附件，失败保留草稿，成功后清空', async () => {
-    useChatStore.setState({ chatMode: 'work' })
+  it('本地客户端可仅发送附件，失败保留草稿，成功后清空', async () => {
     const onSend = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     render(<InputBar onSend={onSend} disabled={false} />)
     const file = new File(['item,amount\nA,42'], '数据.csv', { type: 'text/csv' })
@@ -75,10 +72,13 @@ describe('InputBar', () => {
     await waitFor(() => expect(screen.queryByText('数据.csv')).not.toBeInTheDocument())
   })
 
-  it('超量附件不能覆盖已有草稿，聊天模式不暴露文档入口', () => {
+  it('网页版不暴露文档入口和后台执行；本地客户端超量附件不能覆盖已有草稿', () => {
+    vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
     const { rerender } = render(<InputBar onSend={vi.fn()} disabled={false} />)
     expect(screen.queryByLabelText('选择工作文件')).not.toBeInTheDocument()
-    act(() => useChatStore.setState({ chatMode: 'work' }))
+    expect(screen.queryByRole('checkbox', { name: /后台执行/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+    vi.stubEnv('VITE_APP_DISTRIBUTION', 'local')
     rerender(<InputBar onSend={vi.fn()} disabled={false} />)
     const file = new File(['a'], '保留.txt')
     fireEvent.change(screen.getByLabelText('选择工作文件'), { target: { files: [file] } })
@@ -250,86 +250,13 @@ describe('InputBar', () => {
     expect(asrService.transcribeAudio).not.toHaveBeenCalled()
   })
 
-  it('工作模式没有麦克风入口，也不探测或调用 ASR', () => {
-    stubMedia()
-    useChatStore.setState({ chatMode: 'work' })
+  it('只有一种对话：语音、照片与附件同在一个输入胶囊里，占位文案只有一句', () => {
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '交给 Amie：研究、写作、计划或整理成文件…')
-    expect(asrService.getAsrStatus).not.toHaveBeenCalled()
-    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
-    expect(asrService.transcribeAudio).not.toHaveBeenCalled()
-  })
-
-  it('录音时切到工作模式会停止麦克风并丢弃音频', async () => {
-    const stopTrack = vi.fn()
-    stubMedia({ getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) })
-    const user = userEvent.setup()
-    render(<InputBar onSend={vi.fn()} disabled={false} />)
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
-    await screen.findByRole('button', { name: '停止录音' })
-
-    act(() => useChatStore.setState({ chatMode: 'work' }))
-
-    expect(stopTrack).toHaveBeenCalled()
-    expect(FakeRecorder.instances[0].state).toBe('inactive')
-    expect(webmToWav16kMono).not.toHaveBeenCalled()
-    expect(asrService.transcribeAudio).not.toHaveBeenCalled()
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveValue('')
-  })
-
-  it('切换工作模式后迟到的麦克风权限不会开始录音', async () => {
-    let grantPermission
-    const stopTrack = vi.fn()
-    stubMedia({ getUserMedia: vi.fn().mockImplementation(() => new Promise(resolve => { grantPermission = resolve })) })
-    const user = userEvent.setup()
-    render(<InputBar onSend={vi.fn()} disabled={false} />)
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
-    act(() => useChatStore.setState({ chatMode: 'work' }))
-    await act(async () => grantPermission({ getTracks: () => [{ stop: stopTrack }] }))
-
-    expect(stopTrack).toHaveBeenCalledOnce()
-    expect(FakeRecorder.instances).toHaveLength(0)
-    expect(asrService.transcribeAudio).not.toHaveBeenCalled()
-  })
-
-  it('音频转换时切到工作模式，再切回也不上传旧音频', async () => {
-    let finishConversion
-    webmToWav16kMono.mockImplementationOnce(() => new Promise(resolve => { finishConversion = resolve }))
-    stubMedia()
-    const user = userEvent.setup()
-    render(<InputBar onSend={vi.fn()} disabled={false} />)
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
-    await user.click(await screen.findByRole('button', { name: '停止录音' }))
-    act(() => useChatStore.setState({ chatMode: 'work' }))
-    act(() => useChatStore.setState({ chatMode: 'chat' }))
-    await act(async () => finishConversion(new Blob(['wav'], { type: 'audio/wav' })))
-
-    expect(asrService.transcribeAudio).not.toHaveBeenCalled()
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveValue('')
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeEnabled()
-  })
-
-  it('转写期间切到工作模式会取消请求，迟到结果不回填', async () => {
-    let finishTranscription
-    webmToWav16kMono.mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }))
-    asrService.transcribeAudio.mockImplementationOnce(() => new Promise(resolve => { finishTranscription = resolve }))
-    stubMedia()
-    const user = userEvent.setup()
-    render(<InputBar onSend={vi.fn()} disabled={false} />)
-    await user.type(screen.getByRole('textbox', { name: '聊天消息' }), '已有文字')
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
-    await user.click(await screen.findByRole('button', { name: '停止录音' }))
-    await waitFor(() => expect(asrService.transcribeAudio).toHaveBeenCalledOnce())
-    const { signal } = asrService.transcribeAudio.mock.calls[0][1]
-    act(() => useChatStore.setState({ chatMode: 'work' }))
-    expect(signal.aborted).toBe(true)
-    act(() => useChatStore.setState({ chatMode: 'chat' }))
-    await act(async () => finishTranscription({ text: '旧录音结果' }))
-
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveValue('已有文字')
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加照片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加文件' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '和姐妹说点什么...')
   })
 })
     await new Promise((resolve) => { setTimeout(resolve, 0) })

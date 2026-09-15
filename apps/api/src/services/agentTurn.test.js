@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const execute = vi.hoisted(() => vi.fn())
+const runtime = vi.hoisted(() => ({ local: true }))
 vi.mock('./agentService.js', () => ({
-  WORK_MODE_PREAMBLE: 'work', buildToolSystemPrompt: () => 'tools', buildNativeTools: () => [], executeToolCallOnce: execute,
+  buildToolSystemPrompt: () => 'tools', buildNativeTools: () => [], executeToolCallOnce: execute,
 }))
+vi.mock('../config/distribution.js', () => ({ isLocalWorkRuntime: () => runtime.local }))
 import { createAgentTurn, runAgentLoop } from './agentTurn.js'
 
 async function* events(list) { yield* list }
@@ -12,22 +14,24 @@ const fallback = () => ({ content: 'fallback', source: 'local_template' })
 const call = { type: 'toolcall', name: 'add_task', args: { content: 'test' } }
 
 describe('统一 agent loop 的终态与协议', () => {
-  it('工作回合允许连续 12 次有效工具，发送进度且上下文绑定会话', async () => {
+  it('本地运行时一个回合最多连续 12 次有效工具，发送进度且上下文绑定会话；模型场景恒为 chat', async () => {
     execute.mockClear()
     execute.mockResolvedValue({ tool: 'calc_convert', ok: true, summary: 'result', feedback: 'result' })
-    const turn = createAgentTurn({ userId: 'u', conversationId: 'c', mode: 'work' })
+    const turn = createAgentTurn({ userId: 'u', conversationId: 'c' })
+    expect(turn).toMatchObject({ scene: 'chat', agent: true })
+    expect(turn.extraSystem.at(-1)).toEqual({ role: 'system', content: 'tools' })
     const generate = vi.fn(() => events([call]))
     const result = await collect(runAgentLoop({ turn, generate, fallback }))
     expect(generate).toHaveBeenCalledTimes(13)
     expect(execute).toHaveBeenCalledTimes(12)
-    expect(execute.mock.calls[0][4]).toMatchObject({ conversationId: 'c', workspace: { artifacts: [] } })
+    expect(execute.mock.calls[0][3]).toMatchObject({ conversationId: 'c', workspace: { artifacts: [] } })
     expect(result.filter((event) => event.type === 'tool_progress')).toHaveLength(24)
     expect(result.at(-1).toolRuns).toHaveLength(12)
   })
   it('连续两次失败触发收尾，停止无限重试', async () => {
     execute.mockClear()
     execute.mockResolvedValue({ tool: 'read_artifact', ok: false, summary: 'not found', feedback: 'failed' })
-    const turn = createAgentTurn({ userId: 'u', conversationId: 'c', mode: 'work' })
+    const turn = createAgentTurn({ userId: 'u', conversationId: 'c' })
     const result = await collect(runAgentLoop({ turn, generate: () => events([call]), fallback }))
     expect(execute).toHaveBeenCalledTimes(2)
     expect(result.at(-1).type).toBe('done')
@@ -35,25 +39,37 @@ describe('统一 agent loop 的终态与协议', () => {
   it('进度事件发出后取消，不再调用工具', async () => {
     execute.mockClear()
     const controller = new AbortController()
-    const turn = createAgentTurn({ userId: 'u', conversationId: 'c', mode: 'work', signal: controller.signal })
+    const turn = createAgentTurn({ userId: 'u', conversationId: 'c', signal: controller.signal })
     const stream = runAgentLoop({ turn, generate: () => events([call]), fallback, signal: controller.signal })
     expect((await stream.next()).value).toMatchObject({ type: 'tool_progress', status: 'running' })
     controller.abort()
     expect((await stream.next()).done).toBe(true)
     expect(execute).not.toHaveBeenCalled()
   })
-  it.each(['toolcall', 'done'])('%s 适配得到相同的串行工具反馈，第四轮强制收尾', async (type) => {
+  it.each(['toolcall', 'done'])('%s 适配得到相同的串行工具反馈，达到上限后强制收尾', async (type) => {
     execute.mockResolvedValue({ tool: 'add_task', ok: true, summary: 'saved', feedback: 'result' })
     const turn = createAgentTurn({ userId: 'one' })
     const generate = vi.fn(() => events([type === 'toolcall' ? call : { type, content: JSON.stringify({ tool: call.name, args: call.args }) }]))
     const result = await collect(runAgentLoop({ turn, generate, fallback }))
-    expect(generate).toHaveBeenCalledTimes(4)
-    expect(turn.toolRuns).toHaveLength(3)
+    expect(generate).toHaveBeenCalledTimes(13)
+    expect(turn.toolRuns).toHaveLength(12)
     expect(turn.history.slice(0, 2)).toEqual([
       { role: 'assistant', content: JSON.stringify({ tool: call.name, args: call.args }) }, { role: 'user', content: 'result' },
     ])
-    expect(result.map((item) => item.type)).toEqual(['replace', 'done'])
+    expect(result.filter((item) => item.type !== 'tool_progress').map((item) => item.type)).toEqual(['replace', 'done'])
     expect(result.at(-1).content).toBe('fallback')
+  })
+
+  it('网页版没有工具进度，也不按工作预算放大上下文', async () => {
+    runtime.local = false
+    try {
+      const turn = createAgentTurn({ userId: 'web' })
+      expect(turn).toMatchObject({ scene: 'chat', agent: false })
+      const result = await collect(runAgentLoop({ turn, generate: () => events([{ type: 'done', content: 'hi' }]), fallback }))
+      expect(result.map((item) => item.type)).toEqual(['done'])
+    } finally {
+      runtime.local = true
+    }
   })
 
   it('error 后面的工具与 done 均丢弃', async () => {
@@ -94,7 +110,7 @@ describe('统一 agent loop 的终态与协议', () => {
   })
 
   it('交付完成事件前等待浏览器关闭，保证消息事务发生在清理后', async () => {
-    const turn = createAgentTurn({ userId: 'one', mode: 'work' })
+    const turn = createAgentTurn({ userId: 'one' })
     let release
     turn.close = vi.fn(() => new Promise(resolve => { release = resolve }))
     const stream = runAgentLoop({ turn, generate: () => events([{ type: 'done', content: 'result' }]), fallback })

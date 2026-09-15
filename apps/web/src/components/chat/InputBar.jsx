@@ -2,8 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { ImagePlus, Mic, Send, Square, X, Paperclip } from 'lucide-react'
 import Spinner from '../ui/Spinner'
 import { useVoiceInput } from './useVoiceInput'
-import { useChatStore } from '../../stores/chatStore'
 import { prepareChatImage } from '../../features/chat/imageResize'
+import { isLocalWorkClient } from '../../features/distribution'
 
 // 自动增高，上限 120px，超出出滚动条
 const fitHeight = (el) => {
@@ -14,6 +14,7 @@ const fitHeight = (el) => {
 
 // ref.fillDraft(text)：开场区的敏感话题只填成草稿——输入框已有文字或图片时不覆盖，也从不自动发送。
 // onDraftChange(hasDraft)：把"是否已有草稿"告诉聊天页，开场区据此置灰草稿类话题。
+// 只有一种对话：附文件只在本地客户端出现；「后台执行」只在聊天页传入 onBackgroundSend（本地且已启用）时出现。
 /**
  * @typedef {{ onSend: (text: string, options?: object) => Promise<boolean> | boolean, onBackgroundSend?: (text: string, options?: object) => Promise<boolean> | boolean, disabled?: boolean, onDraftChange?: (hasDraft: boolean) => void }} InputBarProps
  * @typedef {{ fillDraft: (draft: string) => boolean }} InputBarHandle
@@ -28,10 +29,10 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
   const documentInputRef = useRef(null)
-  const chatMode = useChatStore(state => state.chatMode)
+  const canAttach = isLocalWorkClient()
   const voice = useVoiceInput((transcript) => {
     setText(prev => (prev ? `${prev} ${transcript}` : transcript))
-  }, chatMode === 'chat')
+  }, true)
 
   const hasDraft = Boolean(text.trim() || image)
   useEffect(() => { onDraftChange?.(hasDraft) }, [hasDraft, onDraftChange])
@@ -77,9 +78,9 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
   }
 
   const handleSend = async () => {
-    const workFiles = chatMode === 'work' ? files : []
+    const workFiles = canAttach ? files : []
     if ((text.trim() === '' && !image && !workFiles.length) || disabled) return
-    const send = chatMode === 'work' && background && onBackgroundSend ? onBackgroundSend : onSend
+    const send = background && onBackgroundSend ? onBackgroundSend : onSend
     const sent = await send(text.trim(), { image, ...(workFiles.length ? { files: workFiles } : {}) })
     if (sent) {
       setText('')
@@ -109,11 +110,11 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
   return (
     <div className="safe-area-bottom relative z-10">
       <div className="mx-auto w-full max-w-[880px] px-3 pb-3 pt-1 min-[641px]:px-5 min-[641px]:pb-5">
-        {chatMode === 'work' && onBackgroundSend && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
+        {onBackgroundSend && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
           <input type="checkbox" checked={background} disabled={disabled || Boolean(image)} onChange={(event) => setBackground(event.target.checked)} />
           后台执行 <span className="text-text-muted">关闭页面后继续，稍后查看结果</span>
         </label>}
-        {chatMode === 'work' && files.length > 0 && <ul aria-label="待发送文件" className="mb-2 space-y-1 px-1 text-xs text-text-secondary">
+        {canAttach && files.length > 0 && <ul aria-label="待发送文件" className="mb-2 space-y-1 px-1 text-xs text-text-secondary">
           {files.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center gap-1">
             <span className="min-w-0 flex-1 truncate">{file.name}</span>
             <button type="button" aria-label={`移除文件 ${file.name}`} disabled={disabled} className="flex h-11 w-11 items-center justify-center" onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}><X size={14} /></button>
@@ -144,12 +145,12 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder={chatMode === 'work' ? '交给 Amie：研究、写作、计划或整理成文件…' : '和姐妹说点什么...'}
+            placeholder="和姐妹说点什么..."
             disabled={disabled}
             className="min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3.5 py-2.5 text-[15px] leading-6 text-text-primary outline-none placeholder:text-text-muted"
           />
 
-          {chatMode === 'chat' && <button
+          <button
             type="button"
             aria-label={voice.state === 'recording' ? '停止录音' : '语音输入'}
             aria-pressed={voice.state === 'recording'}
@@ -158,9 +159,9 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             className={voice.state === 'recording' ? `${ghostButton} record-breath bg-pastel-blush text-danger hover:bg-pastel-blush` : ghostButton}
           >
             {voice.state === 'transcribing' ? <Spinner /> : voice.state === 'recording' ? <Square size={16} /> : <Mic size={18} />}
-          </button>}
+          </button>
 
-          {chatMode === 'work' && <>
+          {canAttach && <>
             <input ref={documentInputRef} type="file" multiple accept=".pdf,.xlsx,.docx,.pptx,.txt,.md,.csv,.json,.js,.py,.html,.png,.jpg" aria-label="选择工作文件" className="hidden" onChange={handleFilesPicked} />
             <button type="button" aria-label="添加文件" onClick={() => documentInputRef.current?.click()} disabled={disabled} className={ghostButton}><Paperclip size={18} /></button>
           </>}
@@ -176,7 +177,7 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             type="button"
             aria-label="添加照片"
             onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || (chatMode === 'work' && background && Boolean(onBackgroundSend))}
+            disabled={disabled || (background && Boolean(onBackgroundSend))}
             className={ghostButton}
           >
             <ImagePlus size={18} />
@@ -186,7 +187,7 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             type="button"
             aria-label="发送消息"
             onClick={handleSend}
-            disabled={disabled || (!text.trim() && !image && !(chatMode === 'work' && files.length))}
+            disabled={disabled || (!text.trim() && !image && !(canAttach && files.length))}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-action-primary text-text-inverse shadow-button transition-[background-color,box-shadow,opacity,transform] duration-300 ease-calm hover:bg-action-hover active:scale-95 disabled:opacity-40 disabled:shadow-none"
           >
             <Send size={17} className="-ml-0.5 mt-0.5" />

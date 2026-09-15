@@ -22,12 +22,14 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('Agent image tools', () => {
-  it('exposes real native schemas only in enabled work mode', () => {
-    expect(buildNativeTools('work').find(tool => tool.function.name === 'generate_image').function.parameters.required).toEqual(['workflow', 'prompt'])
-    expect(buildNativeTools('chat')).toEqual([])
+  it('exposes real native schemas only when RunningHub is enabled', () => {
+    expect(buildNativeTools().find(tool => tool.function.name === 'generate_image').function.parameters.required).toEqual(['workflow', 'prompt'])
+    vi.stubEnv('WORK_NATIVE_TOOLS', 'false')
+    expect(buildNativeTools()).toEqual([])
+    vi.stubEnv('WORK_NATIVE_TOOLS', 'true')
     vi.stubEnv('RUNNINGHUB_API_KEY', '')
-    expect(buildNativeTools('work').some(tool => tool.function.name === 'generate_image')).toBe(false)
-    expect(buildToolSystemPrompt('work')).toContain('尚未配置启用')
+    expect(buildNativeTools().some(tool => tool.function.name === 'generate_image')).toBe(false)
+    expect(buildToolSystemPrompt()).toContain('尚未配置启用')
   })
   it('requires background approval and saves the ID before any result query or file staging', async () => {
     await expect(WORK_IMAGE_TOOLS.generate_image.run('u1', args, { ...context, requestMediaAction: null })).rejects.toThrow('后台执行')

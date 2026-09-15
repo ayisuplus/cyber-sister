@@ -19,7 +19,7 @@ describe('work task lifecycle', () => {
     vi.clearAllMocks()
     workTaskService.status.mockResolvedValue({ capabilities: { backgroundTasks: true } })
     workTaskService.list.mockResolvedValue([])
-    useChatStore.setState({ chatMode: 'work', currentConversationId: 'c1', isSending: false, refreshConversation: vi.fn() })
+    useChatStore.setState({ currentConversationId: 'c1', isSending: false, refreshConversation: vi.fn() })
   })
 
   it('remount discovers persistent results and refreshes their conversation', async () => {

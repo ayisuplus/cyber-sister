@@ -1,15 +1,18 @@
-import { WORK_MODE_PREAMBLE, buildToolSystemPrompt, buildNativeTools, executeToolCallOnce } from './agentService.js'
+import { buildToolSystemPrompt, buildNativeTools, executeToolCallOnce } from './agentService.js'
 import { parseCompleteToolCall } from './toolProtocol.js'
 import { closeWorkBrowser } from './workBrowserTools.js'
+import { isLocalWorkRuntime } from '../config/distribution.js'
 
-const MAX_TOOL_ROUNDS = 3
-const MAX_WORK_TOOL_ROUNDS = 12
+const MAX_TOOL_ROUNDS = 12
 
-/** JSON 与 SSE 共用的单轮工具状态；实例不跨用户或请求共享。 */
-export function createAgentTurn({ userId, conversationId, mode = 'chat', history = [], systemMessages = [], signal, authorizeExternal, currentText, attachments = [], durable = null }) {
-  const scene = mode === 'work' ? 'work' : 'chat'
-  const tools = buildNativeTools(scene, durable?.allowedTools)
-  const prompt = buildToolSystemPrompt(scene, new Date(), tools.length > 0, durable?.allowedTools)
+/**
+ * JSON 与 SSE 共用的单轮工具状态；实例不跨用户或请求共享。
+ * 只有一种对话：模型场景恒为 chat（保留她的说话方式）；本地运行时才有工具、进度事件与更大的上下文预算（agent）。
+ */
+export function createAgentTurn({ userId, conversationId, history = [], systemMessages = [], signal, authorizeExternal, currentText, attachments = [], durable = null }) {
+  const agent = isLocalWorkRuntime()
+  const tools = buildNativeTools(durable?.allowedTools)
+  const prompt = buildToolSystemPrompt(new Date(), tools.length > 0, durable?.allowedTools)
   const saved = durable?.snapshot
   const executedCalls = new Map(saved?.executedCalls || [])
   let rounds = saved?.rounds || 0
@@ -20,17 +23,18 @@ export function createAgentTurn({ userId, conversationId, mode = 'chat', history
     executedCalls: await Promise.all([...executedCalls].map(async ([key, value]) => [key, await value])),
   })
   const turn = {
-    scene,
+    scene: 'chat',
+    agent,
     tools,
     history: [...(saved?.history || history)],
     extraSystem: [
       ...systemMessages.filter(Boolean),
-      { role: 'system', content: scene === 'work' ? `${WORK_MODE_PREAMBLE}\n${prompt}` : prompt },
+      { role: 'system', content: prompt },
     ],
     toolRuns: [...(saved?.toolRuns || [])],
     artifacts: workspace.artifacts,
     close: () => closeWorkBrowser(workspace),
-    get forcedFinal() { return rounds >= (scene === 'work' ? MAX_WORK_TOOL_ROUNDS : MAX_TOOL_ROUNDS) || stalledRounds >= 2 },
+    get forcedFinal() { return rounds >= MAX_TOOL_ROUNDS || stalledRounds >= 2 },
     get promptInHistory() { return rounds > 0 && currentText !== undefined },
     async execute(call, assistantText) {
       signal?.throwIfAborted()
@@ -39,7 +43,7 @@ export function createAgentTurn({ userId, conversationId, mode = 'chat', history
       signal?.throwIfAborted()
       const run = durable?.allowedTools && !durable.allowedTools.includes(call.name)
         ? { tool: call.name, ok: false, summary: '后台任务不执行记录修改', feedback: '此后台任务只允许研究、计算和生成文件。需要增删改用户记录时，请交还给用户在对话中操作，不得声称已执行。' }
-        : await executeToolCallOnce(userId, call, executedCalls, scene, { signal, authorizeExternal, conversationId, workspace, requestAction: durable?.requestAction, requestMediaAction: durable?.requestMediaAction })
+        : await executeToolCallOnce(userId, call, executedCalls, { signal, authorizeExternal, conversationId, workspace, requestAction: durable?.requestAction, requestMediaAction: durable?.requestMediaAction })
       signal?.throwIfAborted()
       rounds += 1
       stalledRounds = !run.ok || run.deduplicated ? stalledRounds + 1 : 0
@@ -94,12 +98,12 @@ async function* runLoop({ turn, generate, fallback, signal }) {
       return
     }
     const step = turn.toolRuns.length
-    if (turn.scene === 'work') yield { type: 'tool_progress', step, status: 'running', tool: call.name }
+    if (turn.agent) yield { type: 'tool_progress', step, status: 'running', tool: call.name }
     if (signal?.aborted) return
     // eslint-disable-next-line no-await-in-loop
     const result = await turn.execute(call, completion?.content ?? JSON.stringify({ tool: call.name, args: call.args }))
     if (signal?.aborted) return
-    if (turn.scene === 'work') yield { type: 'tool_progress', step, status: result.ok ? 'completed' : 'failed', ...result }
+    if (turn.agent) yield { type: 'tool_progress', step, status: result.ok ? 'completed' : 'failed', ...result }
   }
 }
 

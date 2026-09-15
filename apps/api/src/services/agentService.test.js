@@ -50,6 +50,7 @@ vi.mock('../utils/logger.js', () => ({
 vi.mock('./searchService.js', () => ({ searchWeb: search.searchWeb }))
 
 import {
+  buildNativeTools,
   buildToolSystemPrompt,
   executeToolCall,
   executeToolCallOnce,
@@ -66,7 +67,7 @@ const parseFeedback = (run) => JSON.parse(run.feedback.replace('工具执行结�
 describe('buildToolSystemPrompt', () => {
   it('lists every registered tool and the day anchor without leaking internals', () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
-    const prompt = buildToolSystemPrompt('chat', new Date(2026, 8, 4))
+    const prompt = buildToolSystemPrompt(new Date(2026, 8, 4))
     for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'record_period', 'period_status', 'add_diary', 'diary_status', 'log_reading', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
     }
@@ -78,6 +79,15 @@ describe('buildToolSystemPrompt', () => {
     expect(prompt).not.toContain('generate_image')
     expect(prompt).not.toContain('browser_open')
     expect(prompt).not.toContain('use_skill')
+  })
+
+  it('网页版没有工具目录，也不执行任何工具', async () => {
+    vi.stubEnv('APP_DISTRIBUTION', 'web')
+    expect(buildToolSystemPrompt()).toContain('当前是网页版，仅进行聊天')
+    expect(buildToolSystemPrompt()).not.toContain('"tool":')
+    const run = await executeToolCall('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } })
+    expect(run).toMatchObject({ ok: false, summary: '网页版不执行工具' })
+    expect(db.taskCreate).not.toHaveBeenCalled()
   })
 })
 
@@ -243,13 +253,6 @@ describe('executeToolCall', () => {
     expect(feedback.result).toMatchObject({ bookId: 'b1', title: '活着', currentPage: 30 })
   })
 
-  it('log_reading in work mode is rejected by the mode gate without side effects', async () => {
-    const run = await executeToolCall('u1', { name: 'log_reading', args: { book: '活着' } }, 'work')
-
-    expect(run.ok).toBe(false)
-    expect(run.summary).toBe('当前模式不支持该操作')
-    expect(db.bookCreate).not.toHaveBeenCalled()
-  })
 })
 
 describe('executeToolCallOnce（回路级去重）', () => {
@@ -395,18 +398,20 @@ describe('add_diary 按天去重签名', () => {
   })
 })
 
-describe('工作模式注册表与模式门', () => {
+describe('唯一工具目录', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('buildToolSystemPrompt work 目录含安排/计算/搜索，不含陪伴类与已删除的执行类工具', () => {
+  it('一份目录同时含陪伴、安排与办事工具，外加做事规则；不含已删除或未启用的执行类工具', () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
-    const prompt = buildToolSystemPrompt('work')
-    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'calc_convert', 'web_search']) {
+    const prompt = buildToolSystemPrompt()
+    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'add_diary', 'record_period', 'log_reading', 'calc_convert', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
     }
-    for (const name of ['add_diary', 'record_period', 'log_reading', ...RETIRED_TOOLS]) {
+    expect(prompt).toContain('用户交办任务')
+    expect(prompt).toContain('保持你的说话方式')
+    for (const name of RETIRED_TOOLS) {
       expect(prompt).not.toContain(`"tool":"${name}"`)
     }
     for (const name of ['browser_open', 'generate_image', 'bash_run', 'use_skill']) {
@@ -414,50 +419,50 @@ describe('工作模式注册表与模式门', () => {
     }
   })
 
-  it('工作模式调用聊天专属工具：模式门拒绝且不执行任何副作用', async () => {
-    const run = await executeToolCall('u1', { name: 'add_diary', args: { content: '今天很开心' } }, 'work')
+  it('记日记与计算在同一目录里都能执行，不再有模式门', async () => {
+    db.diaryUpsert.mockImplementation(async ({ create }) => ({ id: 'd1', day: create.day, mood: create.mood, content: create.content }))
+    expect((await executeToolCall('u1', { name: 'add_diary', args: { content: '今天很开心' } })).ok).toBe(true)
+    expect((await executeToolCall('u1', { name: 'calc_convert', args: { expression: '1+1' } })).summary).toBe('已算出 2')
+  })
 
-    expect(run.ok).toBe(false)
-    expect(run.summary).toBe('当前模式不支持该操作')
-    expect(run.feedback).toContain('此模式不可用')
-    expect(db.diaryUpsert).not.toHaveBeenCalled()
+  it('原生函数工具覆盖整份目录，每个都有参数结构', () => {
+    vi.stubEnv('WORK_NATIVE_TOOLS', 'true')
+    const tools = buildNativeTools()
+    for (const name of ['add_task', 'record_period', 'add_diary', 'log_reading', 'calc_convert']) {
+      expect(tools.find(tool => tool.function.name === name)?.function.parameters).toMatchObject({ type: 'object' })
+    }
+    expect(tools.every(tool => tool.function.parameters?.type === 'object')).toBe(true)
+    expect(buildNativeTools(['list_tasks']).map(tool => tool.function.name)).toEqual(['list_tasks'])
   })
 
   it('未配置搜索时不向模型虚报联网工具', () => {
     vi.stubEnv('SEARCH_ENABLED', 'false')
-    const prompt = buildToolSystemPrompt('work')
+    const prompt = buildToolSystemPrompt()
     expect(prompt).not.toContain('"tool":"web_search"')
     expect(prompt).toContain('联网搜索未启用')
   })
 
   it('原型属性不是可执行工具，取消的请求不再执行', async () => {
-    expect((await executeToolCall('u1', { name: 'constructor', args: {} }, 'work')).ok).toBe(false)
+    expect((await executeToolCall('u1', { name: 'constructor', args: {} })).ok).toBe(false)
     const controller = new AbortController()
     controller.abort()
-    await expect(executeToolCall('u1', { name: 'calc_convert', args: { expression: '1+1' } }, 'work', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
-  })
-
-  it('聊天模式调用工作专属工具同样被模式门拒绝', async () => {
-    const run = await executeToolCall('u1', { name: 'calc_convert', args: { expression: '1+1' } }, 'chat')
-
-    expect(run.ok).toBe(false)
-    expect(run.summary).toBe('当前模式不支持该操作')
+    await expect(executeToolCall('u1', { name: 'calc_convert', args: { expression: '1+1' } }, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('calc_convert 计算算式、换算单位，错误反馈给模型而不抛出', async () => {
-    const calc = await executeToolCall('u1', { name: 'calc_convert', args: { expression: '(3+5)*2' } }, 'work')
+    const calc = await executeToolCall('u1', { name: 'calc_convert', args: { expression: '(3+5)*2' } })
     expect(calc.ok).toBe(true)
     expect(calc.summary).toBe('已算出 16')
 
-    const conv = await executeToolCall('u1', { name: 'calc_convert', args: { value: 1, from: 'kg', to: 'jin' } }, 'work')
+    const conv = await executeToolCall('u1', { name: 'calc_convert', args: { value: 1, from: 'kg', to: 'jin' } })
     expect(conv.ok).toBe(true)
     expect(conv.feedback).toContain('"value":2')
 
-    const zero = await executeToolCall('u1', { name: 'calc_convert', args: { expression: '1/0' } }, 'work')
+    const zero = await executeToolCall('u1', { name: 'calc_convert', args: { expression: '1/0' } })
     expect(zero.ok).toBe(false)
     expect(zero.summary).toBe('算式无效')
 
-    const cross = await executeToolCall('u1', { name: 'calc_convert', args: { value: 1, from: 'kg', to: 'm' } }, 'work')
+    const cross = await executeToolCall('u1', { name: 'calc_convert', args: { value: 1, from: 'kg', to: 'm' } })
     expect(cross.ok).toBe(false)
     expect(cross.summary).toBe('不支持该单位换算')
   })
@@ -465,14 +470,14 @@ describe('工作模式注册表与模式门', () => {
 
   it('联网搜索上游 503 时如实失败而不抛出', async () => {
     search.searchWeb.mockRejectedValue(Object.assign(new Error('联网搜索未启用'), { statusCode: 503 }))
-    const run = await executeToolCall('u1', { name: 'web_search', args: { query: 'x' } }, 'work')
+    const run = await executeToolCall('u1', { name: 'web_search', args: { query: 'x' } })
     expect(run.ok).toBe(false)
     expect(run.summary).toBe('工具暂时不可用')
   })
 
   it('web_search 关键词为空时 400 原文透传给模型', async () => {
     search.searchWeb.mockRejectedValue(Object.assign(new Error('搜索关键词不能为空'), { statusCode: 400 }))
-    const run = await executeToolCall('u1', { name: 'web_search', args: { query: '  ' } }, 'work')
+    const run = await executeToolCall('u1', { name: 'web_search', args: { query: '  ' } })
     expect(run.ok).toBe(false)
     expect(run.feedback).toContain('搜索关键词不能为空')
   })

@@ -75,7 +75,6 @@ describe('ChatPage', () => {
       messages: [],
       isTyping: false,
       isSending: false,
-      chatMode: 'chat',
     })
     useComplianceStore.setState({
       showCrisisModal: false,
@@ -152,17 +151,13 @@ describe('ChatPage', () => {
     expect(screen.getByText('为什么看到这条：你在资料里填的生日')).toBeInTheDocument()
   })
 
-  it('工作模式空态渲染功能桌面，聊天模式仍是插画空态', async () => {
-    useChatStore.setState({ chatMode: 'work' })
+  it('只有一种对话：本地客户端的空态也是她的问候与开场，没有功能桌面和模式切换', async () => {
     renderPage()
 
-    expect(await screen.findByRole('navigation', { name: '功能桌面' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^安排/ })).toHaveAttribute('href', '/tools/schedule')
-    expect(screen.queryByRole('link', { name: /3D 衣柜/ })).not.toBeInTheDocument()
-    await userEvent.setup().click(screen.getByRole('button', { name: '灵感装扮' }))
-    expect(screen.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
-    expect(screen.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
-    expect(screen.queryByText('嗨，我是你的Amie')).not.toBeInTheDocument()
+    expect(await screen.findByText('嗨，我是你的Amie')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '功能桌面' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '会话模式' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '和姐妹说点什么...')
   })
 
   it('streams a topic shortcut reply: deltas appear progressively, then persisted messages take over', async () => {
@@ -289,7 +284,6 @@ describe('ChatPage 帮我记住入口', () => {
     useChatStore.setState({
       conversations: [],
       currentConversationId: 'c1',
-      chatMode: 'chat',
       messages: [],
       isTyping: false,
       isSending: false,
@@ -335,12 +329,12 @@ describe('ChatPage 帮我记住入口', () => {
     expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
   })
 
-  it('hides the entry for persisted work replies without calling the suggestions API', () => {
-    useChatStore.setState({ chatMode: 'work', messages: persistedPair })
+  it('旧的工作会话里的回复同样可以「帮我记住」', () => {
+    useChatStore.setState({ conversations: [{ id: 'c1', mode: 'work' }], messages: persistedPair })
     renderPage()
 
     expect(screen.getByText('推荐《流浪地球》')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /帮我记住/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /帮我记住/ })).toBeInTheDocument()
     expect(memoryService.getSuggestions).not.toHaveBeenCalled()
   })
 

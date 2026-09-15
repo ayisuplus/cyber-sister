@@ -103,8 +103,9 @@ export const chatService = {
     return response.data
   },
 
-  createConversation: async (mode = 'chat') => {
-    const response = await api.post('/chat/conversations', { mode })
+  // 只有一种对话
+  createConversation: async () => {
+    const response = await api.post('/chat/conversations', {})
     return response.data
   },
 
