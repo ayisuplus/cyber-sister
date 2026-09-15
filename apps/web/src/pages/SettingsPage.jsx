@@ -259,7 +259,7 @@ export default function SettingsPage() {
                 <Download size={16} className="text-status-info" aria-hidden="true" />
                 数据与迁移
               </h2>
-              <p className="mt-2 text-xs leading-relaxed text-text-secondary">你的数据归你。随时可以把说话方式、显式记忆、全部对话、日记、手帐、日程、倒数日、经期、提醒、阅读和自习导出为一个 JSON 文件带走——永久免费，不设会员门槛，不需要任何理由。</p>
+              <p className="mt-2 text-xs leading-relaxed text-text-secondary">你的数据归你。随时可以把说话方式、显式记忆、全部对话、日记、安排、经期、阅读，连同以前的日程、倒数日、手帐和自习记录，导出为一个 JSON 文件带走——永久免费，不设会员门槛，不需要任何理由。</p>
               <button type="button" disabled={exporting} onClick={handleExport} className="mt-3 min-h-11 w-full rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover focus:ring-2 focus:ring-status-info disabled:opacity-50">
                 {exporting ? '正在导出…' : '导出我的全部数据（JSON）'}
               </button>

@@ -1,8 +1,9 @@
 /**
  * 用户数据导出服务：GET /api/export 的执行体。
  *
- * 「你的记忆归你」的可携带实现：单 JSON 包，含人格/角色扮演/显式记忆/
- * 对话与消息/日记/手帐打卡/日程/倒数日/经期/提醒/阅读/自习/工作台派生理解/记忆关系边/每周来信/妆容预设/衣柜单品元数据，全部限当前用户。
+ * 「你的记忆归你」的可携带实现：单 JSON 包，含说话方式/显式记忆/对话与消息/日记/安排（含到点记录）/
+ * 经期/阅读/工作台派生理解/记忆关系边/每周来信/妆容预设/衣柜单品元数据，全部限当前用户。
+ * 已停用功能的历史照旧导出：角色扮演设定、日程、倒数日、旧提醒开关、手帐打卡、自习记录。
  * 不导出：refresh token（凭据，绝不外发）、危机日志（安全运维数据，非用户内容）、
  * 头像/背景等二进制资产（v1 边界，见用户手册）。
  * 日志只记 userId 与包内各节条目数，不记内容。
@@ -46,6 +47,7 @@ export async function buildUserExport(userId) {
     memoryEdges,
     letters,
     workTasks,
+    scheduledTasks,
   ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -170,6 +172,15 @@ export async function buildUserExport(userId) {
       select: { content: true, status: true, attachments: true, progress: true, errorCode: true, createdAt: true, completedAt: true,
         actions: { select: WORK_ACTION_FIELDS, orderBy: { createdAt: 'asc' } } },
     }),
+    prisma.scheduledReminder.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        content: true, instruction: true, freq: true, time: true, fireAt: true, weekdays: true, monthDay: true,
+        nextFireAt: true, status: true, createdAt: true, updatedAt: true,
+        deliveries: { orderBy: { fireAt: 'asc' }, select: { fireAt: true, status: true, result: true, createdAt: true } },
+      },
+    }),
   ])
 
   const bundle = {
@@ -234,6 +245,21 @@ export async function buildUserExport(userId) {
       createdAt: iso(p.createdAt),
     })),
     reminders: reminders.map((r) => ({ type: r.type, time: r.time, isActive: r.isActive })),
+    // 安排：调度字段原样导出（fireAt/nextFireAt 为绝对时刻），到点记录含她执行任务的产出
+    scheduledTasks: scheduledTasks.map((t) => ({
+      content: t.content,
+      instruction: t.instruction ?? null,
+      freq: t.freq,
+      time: t.time,
+      fireAt: iso(t.fireAt ?? null),
+      weekdays: t.weekdays ?? [],
+      monthDay: t.monthDay ?? null,
+      nextFireAt: iso(t.nextFireAt),
+      status: t.status,
+      createdAt: iso(t.createdAt),
+      updatedAt: iso(t.updatedAt),
+      deliveries: (t.deliveries || []).map((d) => ({ fireAt: iso(d.fireAt), status: d.status, result: d.result ?? null, createdAt: iso(d.createdAt) })),
+    })),
     diaryEntries: diaryEntries.map((d) => ({
       day: iso(d.day),
       mood: d.mood,
@@ -304,6 +330,7 @@ export async function buildUserExport(userId) {
     conversations: bundle.conversations.length,
     messages: bundle.conversations.reduce((sum, c) => sum + c.messages.length, 0),
     todos: bundle.todos.length,
+    scheduledTasks: bundle.scheduledTasks.length,
     diaryEntries: bundle.diaryEntries.length,
     habits: bundle.habits.length,
     books: bundle.books.length,

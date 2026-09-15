@@ -34,14 +34,10 @@ test.beforeEach(async ({ page }) => {
       '/api/reminders/due': { deliveries: [] },
       '/api/asr/status': { available: false },
       '/api/user/profile': { careEnabled: true },
-      '/api/tools/reminders': [
-        { id: 'night-water', type: 'water', isActive: true },
-        { id: 'night-sleep', type: 'sleep', isActive: false },
-        { id: 'night-period', type: 'period', isActive: false },
-      ],
-      '/api/tools/todos': [{ id: 'night-done', content: '已经读完一章', isDone: true, dueDate: '2026-09-12T00:00:00.000Z', dueTime: '20:30', createdAt: '2026-09-12T10:00:00.000Z' }],
-      '/api/tools/countdowns': [],
-      '/api/reminders/scheduled': { reminders: [{ id: 'night-paused', content: '睡前收好手机', freq: 'daily', time: '22:30', status: 'paused', nextFireAt: '2026-09-12T14:30:00.000Z' }] },
+      '/api/reminders/scheduled': { reminders: [
+        { id: 'night-paused', content: '睡前收好手机', freq: 'daily', time: '22:30', weekdays: [], status: 'paused', nextFireAt: '2026-09-12T14:30:00.000Z' },
+        { id: 'night-done', content: '已经读完一章', freq: 'once', time: '20:30', weekdays: [], status: 'done', nextFireAt: '2026-09-12T12:30:00.000Z' },
+      ] },
       '/api/tools/period': [{ id: 'night-period-record', startDate: '2026-09-03', endDate: '2026-09-08', cycleDays: 28 }],
       '/api/tools/period/summary': { nextDate: '2026-10-01', daysUntil: 19, source: 'server_calculation' },
     }
@@ -124,7 +120,7 @@ test('night mode: explicit choices survive reload and system changes only affect
   expect(await page.evaluate(() => localStorage.getItem('amie-theme'))).toBe('system')
 })
 
-test('night mode: settings, chat bubbles, all work themes, planner inputs and login remain readable', async ({ page }, testInfo) => {
+test('night mode: settings, chat bubbles, all work themes, schedule inputs and login remain readable', async ({ page }, testInfo) => {
   await chooseNight(page)
   await inspectSurface(page, testInfo, 'night-settings')
 
@@ -140,14 +136,13 @@ test('night mode: settings, chat bubbles, all work themes, planner inputs and lo
     await inspectSurface(page, testInfo, `night-work-${index + 1}`)
   }
 
-  await page.goto('/tools/planner')
-  await expect(page.getByText('已经读完一章')).toBeVisible()
-  await page.getByRole('button', { name: '添加日程', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: '日程内容' })).toBeVisible()
-  await inspectSurface(page, testInfo, 'night-planner')
-  await page.getByRole('group', { name: '日程与提醒页签' }).getByRole('button', { name: '提醒', exact: true }).click()
+  await page.goto('/tools/schedule')
   await expect(page.getByText('睡前收好手机')).toBeVisible()
-  await inspectSurface(page, testInfo, 'night-reminders')
+  await page.getByRole('button', { name: /已完成 · 1/ }).click()
+  await expect(page.getByText('已经读完一章')).toBeVisible()
+  await page.getByRole('button', { name: /新安排/ }).click()
+  await expect(page.getByRole('textbox', { name: '要安排的事' })).toBeVisible()
+  await inspectSurface(page, testInfo, 'night-schedule')
   await page.goto('/tools/period')
   await expect(page.getByText('周期 28 天')).toBeVisible()
   await inspectSurface(page, testInfo, 'night-period')

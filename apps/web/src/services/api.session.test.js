@@ -25,7 +25,7 @@ describe('api request identity at dispatch', () => {
       persistAccount('B')
     })
 
-    const pending = api.post('/tools/todos', { content: 'account A task' }, { adapter })
+    const pending = api.post('/reminders/scheduled', { content: 'account A task' }, { adapter })
 
     await expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
     expect(adapter).toHaveBeenCalledOnce()
@@ -41,7 +41,7 @@ describe('api request identity at dispatch', () => {
     persistAccount('B')
     const adapter = successfulAdapter()
 
-    await expect(api.post('/tools/todos', { content: 'account A task' }, {
+    await expect(api.post('/reminders/scheduled', { content: 'account A task' }, {
       adapter, _sessionVersion: session,
     })).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
     expect(adapter).not.toHaveBeenCalled()

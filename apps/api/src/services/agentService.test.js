@@ -4,69 +4,34 @@ afterEach(() => vi.unstubAllEnvs())
 const search = vi.hoisted(() => ({ searchWeb: vi.fn() }))
 
 const db = vi.hoisted(() => ({
-  todoFindMany: vi.fn(),
-  todoCreate: vi.fn(),
-  todoUpdate: vi.fn(),
-  todoFindFirst: vi.fn(),
-  todoDelete: vi.fn(),
-  countdownFindMany: vi.fn(),
-  countdownCreate: vi.fn(),
-  countdownFindFirst: vi.fn(),
-  countdownDelete: vi.fn(),
+  taskCreate: vi.fn(),
+  taskFindMany: vi.fn(),
+  taskFindFirst: vi.fn(),
+  taskUpdate: vi.fn(),
+  taskDelete: vi.fn(),
   periodFindMany: vi.fn(),
   periodCreate: vi.fn(),
-  reminderFindMany: vi.fn(),
-  reminderFindFirst: vi.fn(),
-  reminderUpdate: vi.fn(),
-  reminderUpsert: vi.fn(),
   diaryUpsert: vi.fn(),
   diaryFindUnique: vi.fn(),
-  habitFindMany: vi.fn(),
-  habitFindFirst: vi.fn(),
-  checkinFindUnique: vi.fn(),
-  checkinCreate: vi.fn(),
-  checkinDelete: vi.fn(),
   bookFindFirst: vi.fn(),
   bookCreate: vi.fn(),
   bookUpdate: vi.fn(),
   noteCreate: vi.fn(),
-  sessionCreate: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => ({
   default: {
-    todo: {
-      findMany: db.todoFindMany,
-      create: db.todoCreate,
-      update: db.todoUpdate,
-      findFirst: db.todoFindFirst,
-      delete: db.todoDelete,
-    },
-    countdown: {
-      findMany: db.countdownFindMany,
-      create: db.countdownCreate,
-      findFirst: db.countdownFindFirst,
-      delete: db.countdownDelete,
+    scheduledReminder: {
+      create: db.taskCreate,
+      findMany: db.taskFindMany,
+      findFirst: db.taskFindFirst,
+      update: db.taskUpdate,
+      delete: db.taskDelete,
     },
     periodRecord: { findMany: db.periodFindMany, create: db.periodCreate },
-    reminder: {
-      findMany: db.reminderFindMany,
-      findFirst: db.reminderFindFirst,
-      update: db.reminderUpdate,
-      upsert: db.reminderUpsert,
-    },
     diaryEntry: {
       upsert: db.diaryUpsert,
       findUnique: db.diaryFindUnique,
-    },
-    habit: {
-      findMany: db.habitFindMany,
-      findFirst: db.habitFindFirst,
-    },
-    habitCheckin: {
-      findUnique: db.checkinFindUnique,
-      create: db.checkinCreate,
-      delete: db.checkinDelete,
     },
     book: {
       findFirst: db.bookFindFirst,
@@ -75,9 +40,6 @@ vi.mock('../prisma/client.js', () => ({
     },
     readingNote: {
       create: db.noteCreate,
-    },
-    studySession: {
-      create: db.sessionCreate,
     },
   },
 }))
@@ -93,12 +55,23 @@ import {
   executeToolCallOnce,
 } from './agentService.js'
 
+// 日程、倒数日、两套提醒、手帐打卡与专注自习已由「安排」四件替代
+const RETIRED_TOOLS = [
+  'add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'add_countdown', 'list_countdowns', 'delete_countdown',
+  'list_reminders', 'set_reminder', 'add_scheduled_reminder', 'list_scheduled_reminders', 'delete_scheduled_reminder',
+  'check_habit', 'habit_status', 'log_study',
+]
+const parseFeedback = (run) => JSON.parse(run.feedback.replace('工具执行结果：', '').split('（')[0])
+
 describe('buildToolSystemPrompt', () => {
   it('lists every registered tool and the day anchor without leaking internals', () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
     const prompt = buildToolSystemPrompt('chat', new Date(2026, 8, 4))
-    for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'add_countdown', 'list_countdowns', 'delete_countdown', 'record_period', 'period_status', 'list_reminders', 'set_reminder', 'add_diary', 'diary_status', 'check_habit', 'habit_status', 'log_reading', 'log_study', 'web_search']) {
+    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'record_period', 'period_status', 'add_diary', 'diary_status', 'log_reading', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
+    }
+    for (const name of RETIRED_TOOLS) {
+      expect(prompt).not.toContain(`"tool":"${name}"`)
     }
     expect(prompt).toContain('今天是 2026-09-04')
     expect(prompt).not.toContain('memory')
@@ -113,68 +86,109 @@ describe('executeToolCall', () => {
     vi.clearAllMocks()
   })
 
-  it('creates a todo and returns a chip summary plus model feedback', async () => {
-    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+  it('add_task creates a one-time task and returns a chip summary plus model feedback', async () => {
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
 
-    const run = await executeToolCall('u1', { name: 'add_todo', args: { content: '  周六复诊  ', dueDate: '2026-09-06' } })
+    const run = await executeToolCall('u1', { name: 'add_task', args: { content: '  周六复诊  ', date: '2026-09-19', time: '09:30' } })
 
     expect(run.ok).toBe(true)
-    expect(run.summary).toBe('已添加日程「周六复诊」')
-    expect(db.todoCreate).toHaveBeenCalledWith({ data: { userId: 'u1', content: '周六复诊', dueDate: new Date('2026-09-06'), dueTime: null } })
-    const feedback = JSON.parse(run.feedback.replace('工具执行结果：', '').split('（')[0])
-    expect(feedback).toMatchObject({ tool: 'add_todo', ok: true, result: { id: 't1', content: '周六复诊', dueDate: '2026-09-06' } })
+    expect(run.summary).toBe('已安排「周六复诊」')
+    expect(db.taskCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
+      userId: 'u1', content: '周六复诊', freq: 'once', time: '09:30', instruction: null,
+      fireAt: new Date(2026, 8, 19, 9, 30), nextFireAt: new Date(2026, 8, 19, 9, 30),
+    }) })
+    expect(parseFeedback(run)).toMatchObject({ tool: 'add_task', ok: true, result: { id: 't1', freq: 'once' } })
   })
 
-  it('lists todos as compact JSON with ids for follow-up calls', async () => {
-    db.todoFindMany.mockResolvedValue([
-      { id: 't1', content: '复诊', dueDate: new Date('2026-09-06T00:00:00Z'), isDone: false },
-    ])
+  it('add_task expresses birthdays as yearly and habits as daily', async () => {
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
 
-    const run = await executeToolCall('u1', { name: 'list_todos', args: {} })
+    expect((await executeToolCall('u1', { name: 'add_task', args: { content: '妈妈生日', freq: 'yearly', date: '1970-10-01', time: '09:00' } })).ok).toBe(true)
+    expect(db.taskCreate).toHaveBeenLastCalledWith({ data: expect.objectContaining({ freq: 'yearly', fireAt: new Date(1970, 9, 1, 9, 0) }) })
+    expect(db.taskCreate.mock.lastCall[0].data.nextFireAt.getMonth()).toBe(9)
 
-    expect(run.ok).toBe(true)
-    const feedback = JSON.parse(run.feedback.replace('工具执行结果：', '').split('（')[0])
-    expect(feedback.result).toHaveLength(1)
-    expect(feedback.result[0]).toMatchObject({ id: 't1', isDone: false })
+    expect((await executeToolCall('u1', { name: 'add_task', args: { content: '打卡：喝水', freq: 'daily', time: '21:00' } })).ok).toBe(true)
+    expect(db.taskCreate).toHaveBeenLastCalledWith({ data: expect.objectContaining({ freq: 'daily', time: '21:00', fireAt: null }) })
   })
 
-  it('completes a todo through ownership-checked update', async () => {
-    db.todoFindFirst.mockResolvedValue({ id: 't1', userId: 'u1' })
-    db.todoUpdate.mockImplementation(async ({ data }) => ({ id: 't1', content: '复诊', ...data }))
+  it('list_tasks returns compact JSON with ids, status and days left for dated tasks', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 8, 15, 22, 0))
+      db.taskFindMany.mockResolvedValue([
+        { id: 't1', content: '复诊', freq: 'once', time: '09:00', weekdays: [], monthDay: null, nextFireAt: new Date(2026, 8, 19, 9), status: 'active', instruction: null },
+        { id: 't2', content: '打卡：喝水', freq: 'daily', time: '21:00', weekdays: [], monthDay: null, nextFireAt: new Date(2026, 8, 16, 21), status: 'paused', instruction: null },
+        { id: 't3', content: '晨间简报', freq: 'daily', time: '08:00', weekdays: [], monthDay: null, nextFireAt: new Date(2026, 8, 16, 8), status: 'active', instruction: '查天气' },
+      ])
 
-    const run = await executeToolCall('u1', { name: 'complete_todo', args: { id: 't1' } })
+      const run = await executeToolCall('u1', { name: 'list_tasks', args: {} })
 
-    expect(run.ok).toBe(true)
-    expect(db.todoUpdate).toHaveBeenCalledWith({ where: { id: 't1' }, data: { isDone: true } })
+      expect(run.summary).toBe('已查询3条安排')
+      const { result } = parseFeedback(run)
+      expect(result[0]).toMatchObject({ id: 't1', status: 'active', daysLeft: 4, isTask: false })
+      expect(result[1]).toMatchObject({ id: 't2', status: 'paused' })
+      expect(result[1]).not.toHaveProperty('daysLeft')
+      expect(result[2]).toMatchObject({ id: 't3', isTask: true })
+      expect(JSON.stringify(result)).not.toContain('查天气')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('update_task completes, pauses and reschedules through the ownership-checked service', async () => {
+    const current = { id: 't1', userId: 'u1', content: '复诊', freq: 'once', time: '09:00', fireAt: new Date(2026, 8, 19, 9), weekdays: [], monthDay: null, status: 'active' }
+    db.taskFindFirst.mockResolvedValue(current)
+    db.taskUpdate.mockImplementation(async ({ data }) => ({ ...current, ...data }))
+
+    const done = await executeToolCall('u1', { name: 'update_task', args: { id: 't1', status: 'done' } })
+    expect(done.summary).toBe('已完成「复诊」')
+    expect(db.taskUpdate).toHaveBeenLastCalledWith({ where: { id: 't1' }, data: { status: 'done' } })
+    expect(db.taskFindFirst).toHaveBeenCalledWith({ where: { id: 't1', userId: 'u1' } })
+
+    expect((await executeToolCall('u1', { name: 'update_task', args: { id: 't1', status: 'paused' } })).summary).toBe('已暂停「复诊」')
+
+    const moved = await executeToolCall('u1', { name: 'update_task', args: { id: 't1', time: '15:00' } })
+    expect(moved.summary).toBe('已改期「复诊」')
+    expect(db.taskUpdate).toHaveBeenLastCalledWith({ where: { id: 't1' }, data: expect.objectContaining({ time: '15:00', nextFireAt: new Date(2026, 8, 19, 15) }) })
+  })
+
+  it('update_task needs at least one change and never touches another user\'s task', async () => {
+    const empty = await executeToolCall('u1', { name: 'update_task', args: { id: 't1' } })
+    expect(empty.ok).toBe(false)
+    expect(empty.summary).toContain('至少一项')
+
+    db.taskFindFirst.mockResolvedValue(null)
+    const foreign = await executeToolCall('u1', { name: 'update_task', args: { id: 't9', status: 'done' } })
+    expect(foreign.ok).toBe(false)
+    expect(foreign.summary).toContain('不存在')
+    expect(db.taskUpdate).not.toHaveBeenCalled()
+  })
+
+  it('delete_task removes an owned task', async () => {
+    db.taskFindFirst.mockResolvedValue({ id: 't1', userId: 'u1' })
+    db.taskDelete.mockResolvedValue({ id: 't1' })
+
+    const run = await executeToolCall('u1', { name: 'delete_task', args: { id: 't1' } })
+
+    expect(run).toMatchObject({ ok: true, summary: '已删除安排' })
+    expect(db.taskDelete).toHaveBeenCalledWith({ where: { id: 't1' } })
   })
 
   it('reports validation failures to the model instead of throwing', async () => {
-    const run = await executeToolCall('u1', { name: 'add_todo', args: { content: '' } })
+    const run = await executeToolCall('u1', { name: 'add_task', args: { content: '', time: '09:00', date: '2026-09-19' } })
 
     expect(run.ok).toBe(false)
-    expect(run.summary).toContain('待办内容')
+    expect(run.summary).toContain('内容')
     expect(run.feedback).toContain('"ok":false')
-    expect(db.todoCreate).not.toHaveBeenCalled()
+    expect(db.taskCreate).not.toHaveBeenCalled()
   })
 
-  it('rejects an unknown reminder type with a 400-family reason', async () => {
-    const run = await executeToolCall('u1', { name: 'set_reminder', args: { type: 'lunch' } })
+  it.each(RETIRED_TOOLS)('retired tool %s is unknown, with no side effects', async (name) => {
+    const run = await executeToolCall('u1', { name, args: { content: '复诊', type: 'water', name: '喝水', minutes: 25 } })
 
     expect(run.ok).toBe(false)
-    expect(run.summary).toContain('water')
-    expect(db.reminderUpdate).not.toHaveBeenCalled()
-  })
-
-  it('enables a reminder by type through the materialized list', async () => {
-    db.reminderFindMany.mockResolvedValue([{ id: 'r1', userId: 'u1', type: 'water', time: '10:00', isActive: false }])
-    db.reminderFindFirst.mockResolvedValue({ id: 'r1', userId: 'u1' })
-    db.reminderUpdate.mockImplementation(async ({ data }) => ({ id: 'r1', type: 'water', time: '08:30', ...data }))
-
-    const run = await executeToolCall('u1', { name: 'set_reminder', args: { type: 'water', time: '08:30', isActive: true } })
-
-    expect(run.ok).toBe(true)
-    expect(run.summary).toBe('已开启喝水提醒（08:30）')
-    expect(db.reminderUpdate).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { time: '08:30', isActive: true } })
+    expect(run.feedback).toContain('未知工具')
+    expect(db.taskCreate).not.toHaveBeenCalled()
   })
 
   it('predicts the next period from the latest record in local calendar days', async () => {
@@ -195,9 +209,9 @@ describe('executeToolCall', () => {
   })
 
   it('masks unexpected infrastructure failures as a generic reason', async () => {
-    db.todoFindMany.mockRejectedValue(new Error('database gone'))
+    db.taskFindMany.mockRejectedValue(new Error('database gone'))
 
-    const run = await executeToolCall('u1', { name: 'list_todos', args: {} })
+    const run = await executeToolCall('u1', { name: 'list_tasks', args: {} })
 
     expect(run.ok).toBe(false)
     expect(run.summary).toBe('工具暂时不可用')
@@ -229,18 +243,6 @@ describe('executeToolCall', () => {
     expect(feedback.result).toMatchObject({ bookId: 'b1', title: '活着', currentPage: 30 })
   })
 
-  it('log_study records focused minutes', async () => {
-    db.sessionCreate.mockImplementation(async ({ data }) => ({ id: 's1', ...data }))
-
-    const run = await executeToolCall('u1', { name: 'log_study', args: { minutes: 25, subject: '数学' } })
-
-    expect(run.ok).toBe(true)
-    expect(run.summary).toBe('已记下 25 分钟自习')
-    expect(db.sessionCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: 'u1', plannedMinutes: 25, actualMinutes: 25, subject: '数学' }),
-    })
-  })
-
   it('log_reading in work mode is rejected by the mode gate without side effects', async () => {
     const run = await executeToolCall('u1', { name: 'log_reading', args: { book: '活着' } }, 'work')
 
@@ -256,22 +258,22 @@ describe('executeToolCallOnce（回路级去重）', () => {
   })
 
   it('executes an identical call only once and feeds back a dedupe notice', async () => {
-    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
     const executed = new Map()
 
-    const first = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
-    const second = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
+    const first = await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }, executed)
+    const second = await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }, executed)
 
     expect(first.ok).toBe(true)
-    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(db.taskCreate).toHaveBeenCalledTimes(1)
     expect(second).toMatchObject({ ok: true, deduplicated: true })
     expect(second.feedback).toContain('请勿重复调用')
   })
 
   it('replays a failed result without claiming success or repeating a possible partial write', async () => {
-    db.todoCreate.mockRejectedValue(new Error('database unavailable'))
+    db.taskCreate.mockRejectedValue(new Error('database unavailable'))
     const executed = new Map()
-    const call = { name: 'add_todo', args: { content: '复诊' } }
+    const call = { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }
 
     const first = await executeToolCallOnce('u1', call, executed)
     const second = await executeToolCallOnce('u1', call, executed)
@@ -280,14 +282,14 @@ describe('executeToolCallOnce（回路级去重）', () => {
     expect(second).toMatchObject({ ok: false, summary: first.summary, deduplicated: true })
     expect(second.feedback).toContain('"ok":false')
     expect(second.feedback).not.toContain('已成功执行')
-    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(db.taskCreate).toHaveBeenCalledTimes(1)
   })
 
   it('shares an in-flight execution without reporting success before it finishes', async () => {
     let release
-    db.todoCreate.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    db.taskCreate.mockImplementation(() => new Promise((resolve) => { release = resolve }))
     const executed = new Map()
-    const call = { name: 'add_todo', args: { content: '复诊' } }
+    const call = { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }
     const first = executeToolCallOnce('u1', call, executed)
     let duplicateSettled = false
     const second = executeToolCallOnce('u1', call, executed).then((result) => {
@@ -296,9 +298,9 @@ describe('executeToolCallOnce（回路级去重）', () => {
     })
     await Promise.resolve()
 
-    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(db.taskCreate).toHaveBeenCalledTimes(1)
     expect(duplicateSettled).toBe(false)
-    release({ id: 't1', content: '复诊', dueDate: null, dueTime: null })
+    release({ id: 't1', content: '复诊', freq: 'once', nextFireAt: new Date(2026, 8, 19, 9) })
     const [initial, duplicate] = await Promise.all([first, second])
     expect(initial.ok).toBe(true)
     expect(duplicate).toMatchObject({ ok: true, deduplicated: true })
@@ -306,39 +308,39 @@ describe('executeToolCallOnce（回路级去重）', () => {
   })
 
   it('allows corrected arguments after a validation failure', async () => {
-    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
     const executed = new Map()
-    const failed = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '' } }, executed)
-    const corrected = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
+    const failed = await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19' } }, executed)
+    const corrected = await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }, executed)
 
     expect(failed.ok).toBe(false)
     expect(corrected.ok).toBe(true)
-    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(db.taskCreate).toHaveBeenCalledTimes(1)
   })
 
   it('treats different args as distinct operations', async () => {
-    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
     const executed = new Map()
 
-    await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊' } }, executed)
-    const other = await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '喝水' } }, executed)
+    await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-19', time: '09:00' } }, executed)
+    const other = await executeToolCallOnce('u1', { name: 'add_task', args: { content: '喝水', freq: 'daily', time: '10:00' } }, executed)
 
     expect(other.ok).toBe(true)
-    expect(db.todoCreate).toHaveBeenCalledTimes(2)
+    expect(db.taskCreate).toHaveBeenCalledTimes(2)
   })
 
   it('does not repeat a side effect when the model reorders argument keys', async () => {
-    db.todoCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
+    db.taskCreate.mockImplementation(async ({ data }) => ({ id: 't1', ...data }))
     const executed = new Map()
-    await executeToolCallOnce('u1', { name: 'add_todo', args: { content: '复诊', dueDate: '2026-09-13', metadata: { a: 1, b: 2 } } }, executed)
-    const repeated = await executeToolCallOnce('u1', { name: 'add_todo', args: { metadata: { b: 2, a: 1 }, dueDate: '2026-09-13', content: '复诊' } }, executed)
+    await executeToolCallOnce('u1', { name: 'add_task', args: { content: '复诊', date: '2026-09-13', time: '09:00', metadata: { a: 1, b: 2 } } }, executed)
+    const repeated = await executeToolCallOnce('u1', { name: 'add_task', args: { metadata: { b: 2, a: 1 }, time: '09:00', date: '2026-09-13', content: '复诊' } }, executed)
 
     expect(repeated).toMatchObject({ ok: true, deduplicated: true })
-    expect(db.todoCreate).toHaveBeenCalledTimes(1)
+    expect(db.taskCreate).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('智能体日记与手帐工具', () => {
+describe('智能体日记工具', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -373,49 +375,6 @@ describe('智能体日记与手帐工具', () => {
     expect(unwritten.summary).toContain('还没写日记')
   })
 
-  it('check_habit sets today checked exactly once per day', async () => {
-    db.habitFindMany.mockResolvedValue([{ id: 'h1', name: '喝水', icon: 'droplet', checkins: [] }])
-    db.habitFindFirst.mockResolvedValue({ id: 'h1', userId: 'u1', name: '喝水' })
-    db.checkinFindUnique.mockResolvedValue(null)
-
-    const run = await executeToolCall('u1', { name: 'check_habit', args: { name: '喝水' } })
-
-    expect(run.ok).toBe(true)
-    expect(run.summary).toBe('已打卡「喝水」')
-    expect(db.checkinCreate).toHaveBeenCalledOnce()
-  })
-
-  it('check_habit is idempotent when today is already checked', async () => {
-    const todayStr = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())).toISOString().slice(0, 10)
-    db.habitFindMany.mockResolvedValue([{ id: 'h1', name: '喝水', icon: 'droplet', checkins: [{ day: new Date(`${todayStr}T00:00:00.000Z`) }] }])
-    db.habitFindFirst.mockResolvedValue({ id: 'h1', userId: 'u1', name: '喝水' })
-
-    const run = await executeToolCall('u1', { name: 'check_habit', args: { name: '喝水' } })
-
-    expect(run.summary).toBe('「喝水」今天已经打过卡了')
-    expect(db.checkinCreate).not.toHaveBeenCalled()
-  })
-
-  it('check_habit reports the available names for an unknown habit', async () => {
-    db.habitFindMany.mockResolvedValue([{ id: 'h1', name: '喝水', icon: 'droplet', checkins: [] }])
-
-    const run = await executeToolCall('u1', { name: 'check_habit', args: { name: '跑步' } })
-
-    expect(run.ok).toBe(false)
-    expect(run.summary).toContain('喝水')
-    expect(db.checkinCreate).not.toHaveBeenCalled()
-  })
-
-  it('habit_status returns compact names, streaks and today state', async () => {
-    const todayStr = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())).toISOString().slice(0, 10)
-    db.habitFindMany.mockResolvedValue([{ id: 'h1', name: '喝水', icon: 'droplet', checkins: [{ day: new Date(`${todayStr}T00:00:00.000Z`) }] }])
-
-    const run = await executeToolCall('u1', { name: 'habit_status', args: {} })
-
-    expect(run.ok).toBe(true)
-    const feedback = JSON.parse(run.feedback.replace('工具执行结果：', '').split('（')[0])
-    expect(feedback.result).toEqual([{ name: '喝水', streak: 1, checkedToday: true }])
-  })
 })
 
 describe('add_diary 按天去重签名', () => {
@@ -441,13 +400,13 @@ describe('工作模式注册表与模式门', () => {
     vi.clearAllMocks()
   })
 
-  it('buildToolSystemPrompt work 目录含日程/计算/搜索，不含陪伴类与已删除的执行类工具', () => {
+  it('buildToolSystemPrompt work 目录含安排/计算/搜索，不含陪伴类与已删除的执行类工具', () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
     const prompt = buildToolSystemPrompt('work')
-    for (const name of ['add_todo', 'list_todos', 'complete_todo', 'delete_todo', 'calc_convert', 'web_search']) {
+    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'calc_convert', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
     }
-    for (const name of ['add_diary', 'add_countdown', 'record_period', 'set_reminder', 'check_habit', 'log_reading', 'log_study']) {
+    for (const name of ['add_diary', 'record_period', 'log_reading', ...RETIRED_TOOLS]) {
       expect(prompt).not.toContain(`"tool":"${name}"`)
     }
     for (const name of ['browser_open', 'generate_image', 'bash_run', 'use_skill']) {

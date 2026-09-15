@@ -344,80 +344,44 @@ test('diary: save an entry and get an AI comment', async ({ page }) => {
   await expectNoSeriousAxeFindings(page)
 })
 
-test('handbook: create a habit, check in and ask for a cheer', async ({ page }) => {
+test('schedule: a one-off for tomorrow lands under upcoming, and handing it to her stays honest', async ({ page }) => {
   await seedAuth(page)
-  let habits = []
-  await page.route('**/api/habits**', route => {
+  const tasks = []
+  await page.route('**/api/reminders/due', route => json(route, 200, { deliveries: [], deferredTaskCount: 0 }))
+  await page.route('**/api/reminders/scheduled', route => {
     const request = route.request()
-    const url = new URL(request.url())
-    if (url.pathname.endsWith('/cheer')) {
-      return json(route, 200, { cheer: '第一天就打上卡了，好的开始。', source: 'qwen' })
-    }
-    if (url.pathname.endsWith('/checkin')) {
-      habits = [{ ...habits[0], checkedToday: true, streak: 1, recentDays: ['2026-09-04'] }]
-      return json(route, 200, { checked: true, day: '2026-09-04' })
-    }
-    if (request.method() === 'GET') return json(route, 200, habits)
-    if (request.method() === 'POST') {
-      habits = [{ id: 'h-e2e', ...request.postDataJSON(), checkedToday: false, streak: 0, recentDays: [] }]
-      return json(route, 200, habits[0])
-    }
-    return json(route, 200, { success: true })
+    if (request.method() === 'GET') return json(route, 200, { reminders: tasks })
+    const body = request.postDataJSON()
+    const next = body.date ? new Date(`${body.date}T${body.time}`) : new Date(Date.now() + 60 * 60 * 1000)
+    const created = { id: `task-${tasks.length + 1}`, weekdays: [], monthDay: null, instruction: null, status: 'active', ...body, nextFireAt: next.toISOString() }
+    tasks.push(created)
+    return json(route, 201, { reminder: created })
   })
-  await page.goto('/tools/handbook')
+  await page.goto('/tools/schedule')
 
-  await expect(page.getByText('还没有习惯，先加一个吧')).toBeVisible()
-  await page.getByLabel('习惯名称').fill('喝水')
-  await page.getByRole('radio', { name: '喝水' }).check()
-  await page.getByRole('button', { name: '添加' }).click()
-  await expect(page.getByText('喝水')).toBeVisible()
+  await expect(page.getByText('还没有安排')).toBeVisible()
+  await page.getByRole('button', { name: /新安排/ }).click()
+  await page.getByLabel('要安排的事').fill('给妈妈打电话')
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+  const day = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+  await page.getByLabel('日期').fill(day)
+  await page.getByLabel('时间').fill('18:30')
+  await page.getByRole('button', { name: '保存安排' }).click()
 
-  await page.getByRole('button', { name: '打卡 喝水' }).click()
-  await expect(page.getByText(/连续 1 天/)).toBeVisible()
+  const upcoming = page.getByRole('region', { name: '接下来' })
+  await expect(upcoming.getByText('给妈妈打电话')).toBeVisible()
+  await expect(upcoming.getByText('明天')).toBeVisible()
 
-  await page.getByRole('button', { name: '姐妹说两句' }).click()
-  await expect(page.getByText('第一天就打上卡了，好的开始。')).toBeVisible()
+  await page.getByRole('button', { name: /新安排/ }).click()
+  await page.getByRole('button', { name: '交给她去做' }).click()
+  await page.getByRole('button', { name: '每天' }).click()
+  await page.getByLabel('这件事叫什么').fill('晨间简报')
+  await page.getByLabel('时间').fill('08:00')
+  await page.getByLabel('要她做什么').fill('看看今天的安排，提醒我最要紧的一件')
+  await page.getByRole('button', { name: '保存安排' }).click()
+  await expect(page.getByRole('region', { name: '重复' }).getByText('云端执行未接通 · 到点暂不执行')).toBeVisible()
   await expectNoSeriousAxeFindings(page)
 })
-
-test('schedule: adding an item with today’s date lands in the today group', async ({ page }) => {
-  await seedAuth(page)
-  const todos = []
-  await page.route('**/api/tools/todos', route => {
-    const request = route.request()
-    if (request.method() === 'GET') return json(route, 200, todos)
-    if (request.method() === 'POST') {
-      const body = request.postDataJSON()
-      const created = {
-        id: 'todo-e2e',
-        ...body,
-        dueDate: body.dueDate ? `${body.dueDate}T00:00:00.000Z` : null,
-        dueTime: body.dueTime || null,
-        isDone: false,
-        createdAt: new Date().toISOString(),
-      }
-      todos.push(created)
-      return json(route, 200, created)
-    }
-    return json(route, 200, { success: true })
-  })
-  await page.goto('/tools/todo')
-
-  await expect(page.getByText('暂无日程')).toBeVisible()
-  await page.getByRole('button', { name: /添加日程/ }).click()
-  await page.getByLabel('日程内容').fill('给妈妈打电话')
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  await page.getByLabel('日期（可选）').fill(today)
-  await page.getByLabel('时间（可选）').fill('18:30')
-  await page.getByRole('button', { name: '添加' }).click()
-
-  await expect(page.getByRole('heading', { name: /今天 ·/ })).toBeVisible()
-  await expect(page.getByText('给妈妈打电话')).toBeVisible()
-  await expect(page.getByText('18:30')).toBeVisible()
-  await expectNoSeriousAxeFindings(page)
-})
-
 
 test('work mode: segmented switch creates a work conversation, shows work badge and filters the list', async ({ page, isMobile }) => {
   await seedAuth(page)
@@ -589,95 +553,6 @@ test('reading: shelve a book, jot a note and preview an unsaved mock comment', a
   await expectNoSeriousAxeFindings(page)
 })
 
-test('study: run a pomodoro, finish early and record it', async ({ page }) => {
-  await seedAuth(page)
-  await page.route('**/api/**', route => json(route, 404, { error: 'UNMOCKED_ENDPOINT' }))
-  await mockChatBootstrap(page, true)
-  let sessions = []
-  let sessionsPost = null
-  let active = null
-  const previewComment = '【模拟自习回应】这是一条未连接云端的接口示例。'
-  const activeResponse = () => active ? { ...active, serverNow: new Date().toISOString() } : null
-  await page.route('**/api/study/**', route => {
-    const request = route.request()
-    const url = new URL(request.url())
-    if (url.pathname === '/api/study/active') {
-      if (request.method() === 'GET') return json(route, 200, activeResponse())
-      const body = request.postDataJSON()
-      active = {
-        id: 'run-e2e', status: 'running', subject: body.subject ?? null, plannedMinutes: body.plannedMinutes,
-        startedAt: new Date().toISOString(), finishedAt: null, actualMinutes: null, savedSession: null,
-        execution: { mode: 'mock', storage: 'memory', persisted: false, expiresAt: new Date(Date.now() + 86400000).toISOString() },
-      }
-      return json(route, 200, activeResponse())
-    }
-    if (url.pathname === '/api/study/active/run-e2e/finish' && request.method() === 'POST') {
-      if (active.status === 'running') {
-        active.finishedAt = new Date().toISOString()
-        active.actualMinutes = Math.min(active.plannedMinutes, Math.max(1, Math.ceil((Date.now() - new Date(active.startedAt).getTime()) / 60000)))
-        active.status = 'finished'
-      }
-      return json(route, 200, activeResponse())
-    }
-    if (url.pathname === '/api/study/active/run-e2e' && request.method() === 'DELETE') {
-      active = null
-      return json(route, 200, { cancelled: true })
-    }
-    if (url.pathname === '/api/study/sessions/se-e2e/comment') {
-      return json(route, 200, { aiComment: previewComment, source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
-    }
-    if (url.pathname.endsWith('/summary')) {
-      const todayMinutes = sessions.reduce((sum, s) => sum + s.actualMinutes, 0)
-      return json(route, 200, { todayMinutes, weekMinutes: todayMinutes, streak: todayMinutes > 0 ? 1 : 0, totalSessions: sessions.length })
-    }
-    if (url.pathname.endsWith('/sessions')) {
-      if (request.method() === 'GET') return json(route, 200, sessions)
-      sessionsPost = request.postDataJSON()
-      expect(sessionsPost).toEqual({ runId: 'run-e2e', note: '背完一章' })
-      expect(active.status).toBe('finished')
-      sessions = [{
-        id: 'se-e2e', subject: active.subject, plannedMinutes: active.plannedMinutes,
-        actualMinutes: active.actualMinutes, startedAt: active.startedAt, note: sessionsPost.note,
-        aiComment: null, aiCommentSource: null, createdAt: new Date().toISOString(),
-      }]
-      active.savedSession = sessions[0]
-      active.status = 'saved'
-      return json(route, 200, sessions[0])
-    }
-    return json(route, 404, { error: 'UNMOCKED_STUDY_ENDPOINT' })
-  })
-  await page.goto('/tools/study')
-
-  await expect(page.getByText(/今天 0 分钟 · 本周 0 分钟 · 连续 0 天/)).toBeVisible()
-  await page.getByRole('button', { name: '25 分钟' }).click()
-  await page.getByRole('button', { name: '开始自习' }).click()
-  await expect(page.getByText('25:00')).toBeVisible()
-  await expect(page.getByText('我在旁边安静看书呢，你专心学')).toBeVisible()
-  await page.reload()
-  await expect(page.getByRole('button', { name: '提前完成' })).toBeVisible()
-  expect(active.status).toBe('running')
-
-  await page.getByRole('button', { name: '提前完成' }).click()
-  await page.getByLabel('一句话收获').fill('背完一章')
-  await page.getByRole('button', { name: '记下这次' }).click()
-
-  await expect.poll(() => sessionsPost?.runId).toBe('run-e2e')
-  expect(sessionsPost).not.toHaveProperty('actualMinutes')
-  await expect(page.getByText(/今天 1 分钟/)).toBeVisible()
-  await page.getByRole('button', { name: '让姐妹看看' }).click()
-  await expect(page.getByText(previewComment)).toBeVisible()
-  await expect(page.getByText('模拟结果 · 未连接云端')).toBeVisible()
-  await expect(page.getByText('这是模拟回应，未连接云端，也未保存到自习记录。')).toBeVisible()
-  expect(sessions[0]).toMatchObject({ actualMinutes: 1, aiComment: null, aiCommentSource: null })
-  await expect(page.locator('section').filter({ hasText: '最近的自习' }).getByText(previewComment)).toHaveCount(0)
-  await page.reload()
-  await expect(page.getByRole('button', { name: '让姐妹看看' })).toBeVisible()
-  await expect(page.getByText(previewComment)).toHaveCount(0)
-  await page.getByRole('button', { name: '再来一轮' }).click()
-  await expect(page.getByRole('button', { name: '开始自习' })).toBeVisible()
-  await expectNoSeriousAxeFindings(page)
-})
-
 // 2x2 有效 PNG：选照片/单品上传用（<img> 能触发 onLoad）
 const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 
@@ -693,7 +568,7 @@ test('work mode: grouped desktop replaces the empty state and preserves mode swi
   const desktop = page.locator('nav[aria-label="功能桌面"]')
   await expect(desktop).toBeVisible()
   await expect(page.getByText('嗨，我是你的Amie')).toHaveCount(0)
-  await expect(desktop.getByRole('link', { name: /日程与提醒/ })).toHaveAttribute('href', '/tools/planner')
+  await expect(desktop.getByRole('link', { name: /^安排/ })).toHaveAttribute('href', '/tools/schedule')
   await desktop.getByRole('button', { name: '灵感装扮' }).click()
   await expect(desktop.getByRole('link', { name: /化妆间/ })).toHaveAttribute('href', '/tools/makeup-room')
   await expect(desktop.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')
@@ -899,12 +774,12 @@ test('chat openers: her care card shows reason and dismisses in place', async ({
   await seedAuth(page)
   await mockChatBootstrap(page, true)
   const card = {
-    key: 'countdown:c1:2026-09-09',
-    kind: 'countdown',
+    key: 'task-soon:t1:2026-09-09',
+    kind: 'task-soon',
     title: '「面试」还有 1 天',
     body: '时间刚刚好，今天顺手推进一点。',
-    reason: '你在倒数日里记的日子',
-    action: { to: '/tools/countdown', label: '看看倒数日' },
+    reason: '你在安排里记的日子',
+    action: { to: '/tools/schedule', label: '看看安排' },
   }
   let dismissedKey = null
   await page.route('**/api/care/touchpoints**', route => {
@@ -921,11 +796,11 @@ test('chat openers: her care card shows reason and dismisses in place', async ({
   await page.goto('/chat')
   await expect(page.getByRole('region', { name: '她来想你' })).toBeVisible()
   await expect(page.getByText('「面试」还有 1 天')).toBeVisible()
-  await expect(page.getByText('为什么看到这条：你在倒数日里记的日子')).toBeVisible()
+  await expect(page.getByText('为什么看到这条：你在安排里记的日子')).toBeVisible()
 
   await page.getByRole('button', { name: '今天不再提醒这条' }).click()
   await expect(page.getByText('「面试」还有 1 天')).toHaveCount(0)
-  expect(dismissedKey).toBe('countdown:c1:2026-09-09')
+  expect(dismissedKey).toBe('task-soon:t1:2026-09-09')
 })
 
 test('letters: the weekly letter renders expanded from real week data', async ({ page }) => {

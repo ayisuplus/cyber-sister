@@ -5,8 +5,6 @@
 import prisma from '../prisma/client.js'
 import { findOwned } from '../utils/dbHelpers.js'
 import { WORK_CLOUD_EXECUTION } from './workCloudService.js'
-import { listHabitsWithStatus } from './habitService.js'
-import { getSummary as getStudySummary } from './studyService.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_QUOTED_ITEMS = 3
@@ -14,6 +12,9 @@ const MAX_QUOTED_EDGES = 2
 const RELATION_LABELS = { similar: '相似', related: '相关', contradicts: '冲突' }
 const MOOD_LABELS = { happy: '开心', neutral: '平静', sad: '难过', angry: '生气', anxious: '焦虑' }
 const HEAVY_MOODS = ['sad', 'angry', 'anxious']
+const UPCOMING_DAYS = 14
+
+const localDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
 /** 本地周（周一起）的起始日，按 UTC 零点表示（同日记/经期存储契约）。 */
 export function localWeekStartUtc(now = new Date()) {
@@ -24,8 +25,9 @@ export function localWeekStartUtc(now = new Date()) {
 
 const quoteList = (items) => items.map((item) => `「${item}」`).join('')
 
-/** 收集本周数据快照（导出供测试与生成复用）。 */
-export async function collectWeekStats(userId, weekStartUtc) {
+/** 收集本周数据快照（导出供测试与生成复用）：聊天与记忆、日记心情、读书笔记、做完的安排。 */
+export async function collectWeekStats(userId, weekStartUtc, now = new Date()) {
+  const doneThisWeek = { userId, status: 'done', updatedAt: { gte: weekStartUtc } }
   const [
     messageCount,
     newMemories,
@@ -33,12 +35,11 @@ export async function collectWeekStats(userId, weekStartUtc) {
     promotedCount,
     canonicalEdges,
     edgeCount,
-    habits,
-    study,
-    studySessionCount,
     diaryEntries,
-    checkinCount,
-    upcomingCountdown,
+    readingNoteCount,
+    doneTasks,
+    doneTaskCount,
+    upcomingTask,
   ] = await Promise.all([
     prisma.message.count({ where: { conversation: { userId }, role: 'user', createdAt: { gte: weekStartUtc } } }),
     prisma.memory.findMany({
@@ -58,15 +59,23 @@ export async function collectWeekStats(userId, weekStartUtc) {
       select: { fromMemoryId: true, toMemoryId: true, relation: true },
     }),
     prisma.memoryEdge.count({ where: { userId, status: 'canonical', updatedAt: { gte: weekStartUtc } } }),
-    listHabitsWithStatus(userId),
-    getStudySummary(userId),
-    prisma.studySession.count({ where: { userId, createdAt: { gte: weekStartUtc } } }),
     prisma.diaryEntry.findMany({ where: { userId, day: { gte: weekStartUtc } }, select: { mood: true } }),
-    prisma.habitCheckin.count({ where: { userId, day: { gte: weekStartUtc } } }),
-    prisma.countdown.findFirst({
-      where: { userId, targetDate: { gte: new Date(), lte: new Date(Date.now() + 14 * DAY_MS) } },
-      orderBy: { targetDate: 'asc' },
-      select: { title: true, targetDate: true },
+    prisma.readingNote.count({ where: { userId, createdAt: { gte: weekStartUtc } } }),
+    prisma.scheduledReminder.findMany({
+      where: doneThisWeek,
+      orderBy: { updatedAt: 'desc' },
+      take: MAX_QUOTED_ITEMS,
+      select: { content: true },
+    }),
+    prisma.scheduledReminder.count({ where: doneThisWeek }),
+    // 往前看：两周内最近的一个日子（交给她执行的任务不算）
+    prisma.scheduledReminder.findFirst({
+      where: {
+        userId, status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
+        nextFireAt: { gte: now, lte: new Date(now.getTime() + UPCOMING_DAYS * DAY_MS) },
+      },
+      orderBy: { nextFireAt: 'asc' },
+      select: { content: true, nextFireAt: true },
     }),
   ])
 
@@ -95,14 +104,12 @@ export async function collectWeekStats(userId, weekStartUtc) {
     promotedCount,
     edgeCount,
     edges,
-    bestHabit: habits.reduce((best, habit) => (habit.streak > (best?.streak ?? 0) ? habit : best), null),
-    todayHabitsDone: habits.filter((habit) => habit.checkedToday).length,
-    weekMinutes: study.weekMinutes,
-    studySessionCount,
     moodCounts,
     diaryDays: diaryEntries.length,
-    checkinCount,
-    upcomingCountdown,
+    readingNoteCount,
+    doneTaskCount,
+    doneTaskContents: doneTasks.map((task) => task.content),
+    upcomingTask,
   }
 }
 
@@ -110,9 +117,9 @@ export async function collectWeekStats(userId, weekStartUtc) {
 export function isQuietWeek(stats) {
   return stats.messageCount === 0
     && stats.memoryCount === 0
-    && stats.checkinCount === 0
-    && stats.studySessionCount === 0
     && stats.diaryDays === 0
+    && stats.readingNoteCount === 0
+    && stats.doneTaskCount === 0
 }
 
 /** 纯函数组信：只写有数据支撑的段落。 */
@@ -126,7 +133,7 @@ export function composeLetter({ nickname, stats, now = new Date() }) {
     chatAndMemory.push(`新记下了 ${stats.memoryCount} 件事：${quoted}${stats.memoryCount > MAX_QUOTED_ITEMS ? '，等等' : ''}`)
   }
   if (stats.promotedCount > 0) {
-    chatAndMemory.push(`工作台里有 ${stats.promotedCount} 条理解被你定了下来`)
+    chatAndMemory.push(`待确认里有 ${stats.promotedCount} 条理解被你定了下来`)
   }
   if (stats.edgeCount > 0 && stats.edges.length > 0) {
     const pairs = stats.edges
@@ -137,11 +144,12 @@ export function composeLetter({ nickname, stats, now = new Date() }) {
   paragraphs.push(chatAndMemory.join('；') + '。')
 
   const life = []
-  if (stats.bestHabit?.streak > 0) {
-    life.push(`打卡最好的是「${stats.bestHabit.name}」，连续 ${stats.bestHabit.streak} 天`)
+  if (stats.doneTaskCount > 0) {
+    const quoted = quoteList(stats.doneTaskContents)
+    life.push(`这周做完了 ${stats.doneTaskCount} 件安排：${quoted}${stats.doneTaskCount > MAX_QUOTED_ITEMS ? '，等等' : ''}`)
   }
-  if (stats.weekMinutes > 0) {
-    life.push(`自习一共 ${stats.weekMinutes} 分钟`)
+  if (stats.readingNoteCount > 0) {
+    life.push(`读书记了 ${stats.readingNoteCount} 条笔记`)
   }
   if (life.length > 0) paragraphs.push(life.join('；') + '。')
 
@@ -156,9 +164,9 @@ export function composeLetter({ nickname, stats, now = new Date() }) {
     paragraphs.push(moodLine + '。')
   }
 
-  if (stats.upcomingCountdown) {
-    const days = Math.max(0, Math.round((stats.upcomingCountdown.targetDate - now) / DAY_MS))
-    paragraphs.push(`往前看：「${stats.upcomingCountdown.title}」${days === 0 ? '就是今天' : `还有 ${days} 天`}，稳稳推进就好。`)
+  if (stats.upcomingTask) {
+    const days = Math.max(0, Math.round((localDay(new Date(stats.upcomingTask.nextFireAt)) - localDay(now)) / DAY_MS))
+    paragraphs.push(`往前看：「${stats.upcomingTask.content}」${days === 0 ? '就是今天' : `还有 ${days} 天`}，稳稳推进就好。`)
   }
 
   paragraphs.push('—— 你的姐妹')

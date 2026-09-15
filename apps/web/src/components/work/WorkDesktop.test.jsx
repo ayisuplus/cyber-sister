@@ -32,7 +32,7 @@ describe('WorkDesktop', () => {
     const picker = screen.getByRole('group', { name: '选择工作主题' })
     expect(within(picker).getAllByRole('button')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '安排今天' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getAllByRole('link')).toHaveLength(3)
+    expect(screen.getAllByRole('link')).toHaveLength(1)
     expect(screen.queryByRole('link', { name: /化妆间/ })).not.toBeInTheDocument()
   })
 
@@ -55,7 +55,7 @@ describe('WorkDesktop', () => {
     ]
     expect(routes.sort()).toEqual(availableRoutes.sort())
     expect(new Set(routes).size).toBe(routes.length)
-    expect(screen.queryByRole('link', { name: /日程与提醒/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^安排/ })).not.toBeInTheDocument()
   })
 
   it('键盘可选择主题并直接进入对应链接', async () => {

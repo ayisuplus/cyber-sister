@@ -1,5 +1,5 @@
 /**
- * 自定义定时提醒服务
+ * 定时任务服务（用户可见名「安排」）：日程、倒数日、提醒、习惯与自习都由它表达。
  * 「nextFireAt 落库 + 惰性投递」：创建/编辑时预计算下次触发时刻；
  * 到点由前端轮询 /api/reminders/due 触发幂等投递（同 letters 的读取时生成模式）。
  * 无后台 worker、无推送通道。
@@ -11,7 +11,13 @@ const MAX_CONTENT_LENGTH = 200
 const MAX_INSTRUCTION_LENGTH = 500
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-const FREQS = ['once', 'daily', 'weekly', 'monthly']
+const FREQS = ['once', 'daily', 'weekly', 'monthly', 'yearly']
+// 带锚点日期的频率：once 在该日触发一次，yearly 每年同月同日触发（生日、纪念日）
+const DATED_FREQS = ['once', 'yearly']
+const STATUSES = ['active', 'paused', 'done']
+
+const toLocalDateString = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 // ============ 校验 ============
 
@@ -101,6 +107,16 @@ export function computeNextFire({ freq, time, fireAt, weekdays = [], monthDay = 
       if (candidate > after) return candidate
     }
   }
+  if (freq === 'yearly') {
+    // 锚点取 fireAt 的月日；2 月 29 日在平年夹紧到 28 日
+    const anchor = fireAt instanceof Date ? fireAt : new Date(fireAt)
+    for (let offset = 0; offset <= 1; offset++) {
+      const year = after.getFullYear() + offset
+      const day = Math.min(anchor.getDate(), daysInMonth(year, anchor.getMonth()))
+      const candidate = localAt(new Date(year, anchor.getMonth(), day), time)
+      if (candidate > after) return candidate
+    }
+  }
   throw new HttpError(`不支持的提醒频率：${freq}`, 400)
 }
 
@@ -112,7 +128,7 @@ function buildFields(args) {
 
   const fields = { content: validateContent(args.content), freq, weekdays: [], monthDay: null, fireAt: null, time: null, instruction: validateInstruction(args.instruction) }
 
-  if (freq === 'once') {
+  if (DATED_FREQS.includes(freq)) {
     const time = validateTime(args.time)
     const date = validateDate(args.date)
     const [y, mo, d] = date.split('-').map(Number)
@@ -127,6 +143,9 @@ function buildFields(args) {
   fields.nextFireAt = computeNextFire(fields)
   return fields
 }
+
+// 校验并组装一条安排的调度字段（含 nextFireAt）；迁移脚本复用，保证与接口同一套规则
+export const buildTaskFields = buildFields
 
 export function createScheduledReminder(userId, args) {
   const fields = buildFields(args)
@@ -146,7 +165,8 @@ export async function updateScheduledReminder(id, userId, args) {
   if (args.content !== undefined) updateData.content = validateContent(args.content)
   if (args.instruction !== undefined) updateData.instruction = validateInstruction(args.instruction)
   if (args.status !== undefined) {
-    if (!['active', 'paused'].includes(args.status)) throw new HttpError('状态只能是 active 或 paused', 400)
+    // done：手动完成（一次性安排提前做完，或不再需要的循环安排）
+    if (!STATUSES.includes(args.status)) throw new HttpError('状态只能是 active、paused 或 done', 400)
     updateData.status = args.status
   }
   // 时间相关字段任一变化则整体重建并重算 nextFireAt
@@ -157,14 +177,16 @@ export async function updateScheduledReminder(id, userId, args) {
       content: current.content,
       freq: args.freq ?? current.freq,
       time: args.time ?? current.time,
-      date: args.date,
+      // 只改时间时沿用原日期，不要求重传
+      date: args.date ?? (current.fireAt ? toLocalDateString(new Date(current.fireAt)) : undefined),
       weekdays: args.weekdays ?? current.weekdays,
       monthDay: args.monthDay ?? current.monthDay,
     })
     delete fields.content
     delete fields.instruction
     Object.assign(updateData, fields)
-    if (current.status === 'done') updateData.status = 'active'
+    // 改期让已完成的安排重新生效；同时显式传了状态则以显式状态为准
+    if (current.status === 'done' && args.status === undefined) updateData.status = 'active'
   }
   return prisma.scheduledReminder.update({ where: { id }, data: updateData })
 }

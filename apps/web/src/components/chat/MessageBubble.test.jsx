@@ -69,16 +69,16 @@ describe('MessageBubble tool run chips', () => {
           role: 'assistant',
           content: '已帮你处理好',
           toolRuns: [
-            { tool: 'add_todo', ok: true, summary: '已添加待办「周六复诊」' },
-            { tool: 'set_reminder', ok: false, summary: '提醒时间格式无法识别' },
+            { tool: 'add_task', ok: true, summary: '已安排「周六复诊」' },
+            { tool: 'update_task', ok: false, summary: '提醒时间格式无法识别' },
           ],
         }}
         isLast={false}
       />,
     )
 
-    const okChip = screen.getByLabelText('已执行：已添加待办「周六复诊」')
-    expect(okChip).toHaveTextContent('✓已添加待办「周六复诊」')
+    const okChip = screen.getByLabelText('已执行：已安排「周六复诊」')
+    expect(okChip).toHaveTextContent('✓已安排「周六复诊」')
     expect(okChip.className).toContain('bg-pastel-sprout')
 
     const failChip = screen.getByLabelText('执行失败：提醒时间格式无法识别')
@@ -102,12 +102,12 @@ describe('MessageBubble tool run chips', () => {
   it('never renders chips on user messages', () => {
     render(
       <MessageBubble
-        message={{ role: 'user', content: '我的消息', toolRuns: [{ tool: 'add_todo', ok: true, summary: '已添加待办' }] }}
+        message={{ role: 'user', content: '我的消息', toolRuns: [{ tool: 'add_task', ok: true, summary: '已安排' }] }}
         isLast={false}
       />,
     )
 
-    expect(screen.queryByLabelText('已执行：已添加待办')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('已执行：已安排')).not.toBeInTheDocument()
   })
 })
 

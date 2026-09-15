@@ -5,9 +5,7 @@ export const WORK_CLOUD_EXECUTION = Object.freeze({ mode: 'mock', cloudConnected
 
 const COMMENT_PREVIEWS = Object.freeze({
   diary: '【模拟回应】今天先把感受写下来，给自己留一点整理心情的空间。这是接口示例，尚未由云端生成。',
-  habit: '【模拟鼓励】从一个小习惯开始，按自己的节奏继续。这是接口示例，尚未分析你的打卡记录。',
   reading: '【模拟读书回应】可以记下最触动你的一句话，留待下次接着想。这是接口示例，尚未由云端阅读你的笔记。',
-  study: '【模拟自习回应】结束这一轮后休息一下，再安排下一步。这是接口示例，尚未由云端分析你的自习。',
 })
 
 export function isWorkCloudConnected() {

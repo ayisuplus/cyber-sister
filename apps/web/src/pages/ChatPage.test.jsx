@@ -157,7 +157,7 @@ describe('ChatPage', () => {
     renderPage()
 
     expect(await screen.findByRole('navigation', { name: '功能桌面' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /日程与提醒/ })).toHaveAttribute('href', '/tools/planner')
+    expect(screen.getByRole('link', { name: /^安排/ })).toHaveAttribute('href', '/tools/schedule')
     expect(screen.queryByRole('link', { name: /3D 衣柜/ })).not.toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: '灵感装扮' }))
     expect(screen.getByRole('link', { name: /3D 衣柜/ })).toHaveAttribute('href', '/tools/wardrobe')

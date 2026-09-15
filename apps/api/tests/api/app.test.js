@@ -41,7 +41,7 @@ describe('应用级行为', () => {
     expect(weather.status).toBe(409)
     expect(weather.body).toEqual({ error: '该功能未在内测中开放', code: 'FEATURE_NOT_AVAILABLE' })
     // 工具箱其余路由不再被 409 拦截（未认证请求应走到鉴权 401 而非功能关闭）。
-    const unauthenticated = await request(app).get('/api/tools/todos')
+    const unauthenticated = await request(app).get('/api/tools/period')
     expect(unauthenticated.status).toBe(401)
   })
 

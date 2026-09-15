@@ -14,9 +14,7 @@ import chatRoutes from './routes/chat.js'
 import userRoutes from './routes/user.js'
 import toolsRoutes from './routes/tools.js'
 import diaryRoutes from './routes/diary.js'
-import habitsRoutes from './routes/habits.js'
 import readingRoutes from './routes/reading.js'
-import studyRoutes from './routes/study.js'
 import memoriesRoutes from './routes/memories.js'
 import complianceRoutes from './routes/compliance.js'
 import llmRoutes from './routes/llm.js'
@@ -146,24 +144,22 @@ app.use('/api/llm', authMiddleware, llmUserLimiter, llmRoutes)
 app.use('/api/memories/index-jobs', authMiddleware, memoryProgressLimiter)
 app.use('/api/work/tasks', authMiddleware, memoryProgressLimiter)
 app.use('/api/work', authMiddleware, localWorkOnly)
-app.use(['/api/tools', '/api/diary', '/api/habits', '/api/reading', '/api/study', '/api/derived', '/api/makeup-presets', '/api/wardrobe', '/api/letters', '/api/reminders', '/api/care'], authMiddleware, localWorkOnly)
+app.use(['/api/tools', '/api/diary', '/api/reading', '/api/derived', '/api/makeup-presets', '/api/wardrobe', '/api/letters', '/api/reminders', '/api/care'], authMiddleware, localWorkOnly)
 app.use('/api', limiter)
 
 app.use('/api/auth', authRoutes)
 app.use('/api/chat', authMiddleware, chatRoutes)
 app.use('/api/user', authMiddleware, userRoutes)
 if (APP_ENV === 'internal') {
-  // 经期/倒数日/待办/提醒在内测开放；天气路由是硬编码假数据，保持关闭。
+  // 经期在内测开放；天气路由是硬编码假数据，保持关闭。
   app.use('/api/tools/weather', authMiddleware, (_req, res) => {
     res.status(409).json({ error: '该功能未在内测中开放', code: 'FEATURE_NOT_AVAILABLE' })
   })
 }
 app.use('/api/tools', authMiddleware, toolsRoutes)
 app.use('/api/diary', authMiddleware, diaryRoutes)
-app.use('/api/habits', authMiddleware, habitsRoutes)
 app.use('/api/memories', authMiddleware, memoriesRoutes)
 app.use('/api/reading', authMiddleware, readingRoutes)
-app.use('/api/study', authMiddleware, studyRoutes)
 app.use('/api/compliance', authMiddleware, complianceRoutes)
 app.use('/api/work', authMiddleware, workRoutes)
 app.use('/api/work/media', authMiddleware, workMediaRoutes)

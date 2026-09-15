@@ -15,107 +15,9 @@ const normalizePeriodRecord = (record) => ({
   endDay: toLocalCalendarDay(record?.endDate),
 })
 
+// 生活工具：经期记录，与「安排」（日程、倒数日、提醒、每天的小习惯合成的定时任务）及其到点投递
 export const useToolsStore = create(
-  (set, get) => ({
-    // 待办
-    todos: [],
-
-    loadTodos: async () => {
-      const session = getSessionVersion()
-      try {
-        const todos = await toolsService.getTodos()
-        assertSessionVersion(session)
-        set({ todos })
-      } catch (error) {
-        console.error('加载待办列表失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    addTodo: async (content, dueDate, dueTime) => {
-      const session = getSessionVersion()
-      try {
-        const todo = await toolsService.createTodo(content, dueDate, dueTime)
-        assertSessionVersion(session)
-        set((state) => ({ todos: [todo, ...state.todos] }))
-        return todo
-      } catch (error) {
-        console.error('创建日程失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    toggleTodo: async (id) => {
-      const session = getSessionVersion()
-      try {
-        const todo = get().todos.find((t) => t.id === id)
-        if (!todo) return
-
-        const updated = await toolsService.updateTodo(id, { isDone: !todo.isDone })
-        assertSessionVersion(session)
-        set((state) => ({
-          todos: state.todos.map((t) => (t.id === id ? updated : t)),
-        }))
-      } catch (error) {
-        console.error('更新待办失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    deleteTodo: async (id) => {
-      const session = getSessionVersion()
-      try {
-        await toolsService.deleteTodo(id)
-        assertSessionVersion(session)
-        set((state) => ({ todos: state.todos.filter((t) => t.id !== id) }))
-      } catch (error) {
-        console.error('删除待办失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    // 倒数日
-    countdowns: [],
-
-    loadCountdowns: async () => {
-      const session = getSessionVersion()
-      try {
-        const countdowns = await toolsService.getCountdowns()
-        assertSessionVersion(session)
-        set({ countdowns })
-      } catch (error) {
-        console.error('加载倒数日列表失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    addCountdown: async (title, targetDate) => {
-      const session = getSessionVersion()
-      try {
-        const cd = await toolsService.createCountdown(title, targetDate)
-        assertSessionVersion(session)
-        set((state) => ({ countdowns: [cd, ...state.countdowns] }))
-        return cd
-      } catch (error) {
-        console.error('创建倒数日失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    deleteCountdown: async (id) => {
-      const session = getSessionVersion()
-      try {
-        await toolsService.deleteCountdown(id)
-        assertSessionVersion(session)
-        set((state) => ({
-          countdowns: state.countdowns.filter((c) => c.id !== id),
-        }))
-      } catch (error) {
-        console.error('删除倒数日失败:', summarizeError(error))
-        throw error
-      }
-    },
-
+  (set) => ({
     // 大姨妈记录
     periodRecords: [],
 
@@ -161,43 +63,7 @@ export const useToolsStore = create(
       set((state) => ({ periodRecords: state.periodRecords.filter(item => item.id !== id) }))
     },
 
-    // 提醒设置
-    reminders: [],
-
-    loadReminders: async () => {
-      const session = getSessionVersion()
-      try {
-        const reminders = await toolsService.getReminders()
-        assertSessionVersion(session)
-        set({ reminders })
-      } catch (error) {
-        console.error('加载提醒列表失败:', summarizeError(error))
-      }
-    },
-
-    toggleReminder: async (id) => {
-      const session = getSessionVersion()
-      try {
-        const reminder = get().reminders.find((r) => r.id === id)
-        if (!reminder) return
-
-        const updated = await toolsService.updateReminder(id, {
-          isActive: !reminder.isActive,
-        })
-        assertSessionVersion(session)
-        set((state) => ({
-          reminders: state.reminders.map((r) => (r.id === id ? updated : r)),
-        }))
-      } catch (error) {
-        console.error('更新提醒失败:', summarizeError(error))
-        throw error
-      }
-    },
-
-    // 天气
-    weather: null,
-
-    // 自定义定时提醒
+    // 安排（定时任务）
     scheduledReminders: [],
     dueDeliveries: [],
 
@@ -208,7 +74,7 @@ export const useToolsStore = create(
         assertSessionVersion(session)
         set({ scheduledReminders })
       } catch (error) {
-        console.error('加载自定义提醒失败:', summarizeError(error))
+        console.error('加载安排失败:', summarizeError(error))
         throw error
       }
     },
@@ -264,26 +130,11 @@ export const useToolsStore = create(
         console.error('确认提醒投递失败:', summarizeError(error))
       }
     },
-
-    loadWeather: async () => {
-      const session = getSessionVersion()
-      try {
-        const weather = await toolsService.getWeather()
-        assertSessionVersion(session)
-        set({ weather })
-      } catch (error) {
-        console.error('加载天气失败:', summarizeError(error))
-      }
-    },
   })
 )
 
 onSessionReset(() => useToolsStore.setState({
-  todos: [],
-  countdowns: [],
   periodRecords: [],
-  reminders: [],
   scheduledReminders: [],
   dueDeliveries: [],
-  weather: null,
 }))

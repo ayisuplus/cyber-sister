@@ -1,6 +1,6 @@
 // 过渡期：仅供工作模式功能桌面（WorkDesktop）使用，随工作模式一并删除。
 // 页面导航的唯一来源已是 features/registry.js。
-import { BookHeart, BookOpen, CalendarHeart, Camera, GraduationCap, Lightbulb, ListTodo, Mail, NotebookPen, Shirt, Sparkles, WandSparkles } from 'lucide-react'
+import { BookHeart, BookOpen, CalendarClock, CalendarHeart, Camera, Lightbulb, Mail, Shirt, Sparkles, WandSparkles } from 'lucide-react'
 
 export const CAPABILITY_ICONS = {
   sparkles: Sparkles,
@@ -16,10 +16,10 @@ export const TOOLBOX_SECTIONS = [
     items: [
       {
         id: 'planner',
-        title: '日程与提醒',
-        description: '日程、倒数日和提醒，都在这一处。',
-        to: '/tools/planner',
-        icon: ListTodo,
+        title: '安排',
+        description: '日程、倒数日、提醒和每天的小习惯，都在这一处。',
+        to: '/tools/schedule',
+        icon: CalendarClock,
         tone: 'bg-pastel-sprout text-status-local',
       },
       {
@@ -45,28 +45,12 @@ export const TOOLBOX_SECTIONS = [
         tone: 'bg-pastel-blush text-action-primary',
       },
       {
-        id: 'handbook',
-        title: '手帐打卡',
-        description: '小习惯每天打卡，看看能坚持多久。',
-        to: '/tools/handbook',
-        icon: NotebookPen,
-        tone: 'bg-pastel-apricot text-action-primary',
-      },
-      {
         id: 'reading',
         title: '一起读书',
         description: '在读的书和感想，姐妹会陪你聊。',
         to: '/tools/reading',
         icon: BookOpen,
         tone: 'bg-pastel-mist text-status-info',
-      },
-      {
-        id: 'study',
-        title: '专注自习',
-        description: '定个番茄钟，姐妹安静陪你学。',
-        to: '/tools/study',
-        icon: GraduationCap,
-        tone: 'bg-pastel-sprout text-status-local',
       },
     ],
   },

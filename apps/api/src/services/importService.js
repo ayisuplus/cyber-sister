@@ -102,7 +102,7 @@ export async function previewImport(userId, payload) {
       memoryCandidates: candidates,
       memoriesSkipped: skipped,
       notes: [
-        '对话、日记、手帐、日程、倒数日、经期、提醒、阅读、自习等数据段不导入（v1 边界）。',
+        '对话、日记、安排、经期、阅读，以及手帐、日程、倒数日、旧提醒、自习等历史数据段不导入（v1 边界）。',
         '云端模型同意状态不会导入：需要你主动重新同意。',
       ],
     }

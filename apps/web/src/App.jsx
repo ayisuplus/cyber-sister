@@ -13,9 +13,7 @@ const MembershipPage = lazy(() => import('./pages/MembershipPage'))
 const StylePage = lazy(() => import('./pages/StylePage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const PeriodPage = lazy(() => import('./pages/PeriodPage'))
-const PlannerPage = lazy(() => import('./pages/PlannerPage'))
-const HandbookPage = lazy(() => import('./pages/HandbookPage'))
-const StudyPage = lazy(() => import('./pages/StudyPage'))
+const SchedulePage = lazy(() => import('./pages/SchedulePage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ConversationArchivePage = lazy(() => import('./pages/ConversationArchivePage'))
 
@@ -53,22 +51,20 @@ export default function App() {
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/profile/membership" element={<ProtectedRoute><MembershipPage /></ProtectedRoute>} />
           {/* 本地客户端功能统一在 /tools/ 下：安排、手记、经期、装扮 */}
-          <Route path="/tools/schedule" element={<ProtectedRoute><PlannerPage /></ProtectedRoute>} />
+          <Route path="/tools/schedule" element={<ProtectedRoute><SchedulePage /></ProtectedRoute>} />
           <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
           <Route path="/tools/period" element={<ProtectedRoute><PeriodPage /></ProtectedRoute>} />
           <Route path="/tools/style" element={<ProtectedRoute><StylePage /></ProtectedRoute>} />
-          <Route path="/tools/handbook" element={<ProtectedRoute><HandbookPage /></ProtectedRoute>} />
-          <Route path="/tools/study" element={<ProtectedRoute><StudyPage /></ProtectedRoute>} />
           {/* 旧路径（含后端关怀卡 action.to 与外部深链）一律收拢到新入口 */}
           <Route path="/memories" element={<Moved to="/her" />} />
           <Route path="/profile" element={<Moved to="/settings" />} />
           <Route path="/profile/memories" element={<Moved to="/her" />} />
           <Route path="/tools" element={<Navigate to="/chat" replace />} />
           <Route path="/tools/workspace" element={<Moved to="/her" tab="pending" />} />
-          <Route path="/tools/planner" element={<Moved to="/tools/schedule" />} />
-          <Route path="/tools/todo" element={<Moved to="/tools/schedule" tab="todo" />} />
-          <Route path="/tools/countdown" element={<Moved to="/tools/schedule" tab="countdown" />} />
-          <Route path="/tools/reminders" element={<Moved to="/tools/schedule" tab="reminders" />} />
+          {/* 日程、倒数日、提醒、手帐打卡、专注自习都已并入「安排」 */}
+          {['planner', 'todo', 'countdown', 'reminders', 'handbook', 'study'].map(old => (
+            <Route key={old} path={`/tools/${old}`} element={<Navigate to="/tools/schedule" replace />} />
+          ))}
           <Route path="/tools/diary" element={<Moved to="/tools/notes" tab="diary" />} />
           <Route path="/tools/reading" element={<Moved to="/tools/notes" tab="reading" />} />
           <Route path="/tools/letters" element={<Moved to="/tools/notes" tab="letters" />} />

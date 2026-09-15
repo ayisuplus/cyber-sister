@@ -51,11 +51,11 @@ describe('LandscapeDesk', () => {
     expect(container).not.toContainElement(dialog)
     expect(screen.getByRole('heading', { name: '坐进她的书桌' })).toBeInTheDocument()
     expect(within(dialog).getByText('Amie · AI 陪伴')).toBeInTheDocument()
-    expect(within(dialog).getAllByRole('link')).toHaveLength(3)
+    expect(within(dialog).getAllByRole('link')).toHaveLength(1)
     fireEvent.click(within(dialog).getByRole('button', { name: '灵感装扮' }))
     expect(within(dialog).getAllByRole('link')).toHaveLength(2)
     expect(within(dialog).getByRole('link', { name: '化妆间' })).toHaveAttribute('href', '/tools/makeup-room')
-    expect(within(dialog).queryByRole('link', { name: '日程与提醒' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('link', { name: '安排' })).not.toBeInTheDocument()
   })
 
   it('打开时聚焦关闭按钮，Tab 不越过弹层，Esc 恢复原焦点', async () => {
@@ -70,7 +70,7 @@ describe('LandscapeDesk', () => {
     const firstButton = screen.getByRole('button', { name: '暂停动效' })
     firstButton.focus()
     await user.tab({ shift: true })
-    expect(screen.getByRole('link', { name: '手帐打卡' })).toHaveFocus()
+    expect(screen.getByRole('link', { name: '安排' })).toHaveFocus()
     await user.tab()
     expect(firstButton).toHaveFocus()
     await user.keyboard('{Escape}')
@@ -98,7 +98,7 @@ describe('LandscapeDesk', () => {
   it('选择链接即关闭沉浸层', () => {
     mockLandscapePhone()
     renderDesk()
-    fireEvent.click(screen.getByRole('link', { name: '日程与提醒' }))
+    fireEvent.click(screen.getByRole('link', { name: '安排' }))
     expect(screen.queryByRole('dialog', { name: '沉浸书桌' })).not.toBeInTheDocument()
   })
 

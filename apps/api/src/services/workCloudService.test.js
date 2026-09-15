@@ -13,7 +13,7 @@ describe('work cloud mock contract', () => {
     vi.stubGlobal('fetch', fetchSpy)
     expect(isWorkCloudConnected()).toBe(false)
     expect(() => assertWorkCloudConnected()).toThrow(expect.objectContaining({ code: 'WORK_CLOUD_NOT_CONNECTED', statusCode: 503 }))
-    for (const kind of ['diary', 'habit', 'reading', 'study']) {
+    for (const kind of ['diary', 'reading']) {
       const result = await generateWorkComment(kind, { content: 'private input', allowExternal: true })
       expect(result).toMatchObject({ source: 'cloud_mock', execution: { mode: 'mock', cloudConnected: false, persisted: false } })
       expect(result.content).toContain('模拟')
@@ -22,7 +22,8 @@ describe('work cloud mock contract', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it.each(['__proto__', 'constructor', 'chat', 'unknown'])('rejects non-work operation %s', async (kind) => {
+  // habit、study 随手帐打卡与专注自习下线
+  it.each(['__proto__', 'constructor', 'chat', 'unknown', 'habit', 'study'])('rejects non-work operation %s', async (kind) => {
     await expect(generateWorkComment(kind)).rejects.toMatchObject({ statusCode: 400 })
   })
 

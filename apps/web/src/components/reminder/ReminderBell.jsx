@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom'
 import { Bell, X } from 'lucide-react'
 import { useToolsStore } from '../../stores/toolsStore'
 
-const FREQ_LABELS = { once: '一次性', daily: '每天', weekly: '每周', monthly: '每月' }
+const FREQ_LABELS = { once: '一次', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' }
 
 function describeDelivery(delivery) {
   const r = delivery.reminder ?? {}
   const when = new Date(delivery.fireAt)
   const hhmm = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
-  const who = r.instruction ? 'Amie 完成的任务' : '你设置的提醒'
+  const who = r.instruction ? '她替你做的事' : '你的安排'
   return `${who}：${FREQ_LABELS[r.freq] ?? ''} ${r.time ?? hhmm}`
 }
 
@@ -79,8 +79,8 @@ export default function ReminderBell() {
         <div className="absolute right-0 top-11 z-50 w-80 rounded-3xl border border-border-hairline bg-surface-card p-3 shadow-lg">
           <div className="flex items-center justify-between px-1 pb-2">
             <h2 className="text-xs font-semibold text-text-muted">到点提醒</h2>
-            <Link to="/tools/planner?tab=reminders" onClick={() => setOpen(false)} className="text-xs text-action-primary hover:underline">
-              管理提醒
+            <Link to="/tools/schedule" onClick={() => setOpen(false)} className="text-xs text-action-primary hover:underline">
+              管理安排
             </Link>
           </div>
           {pending === 0 ? (

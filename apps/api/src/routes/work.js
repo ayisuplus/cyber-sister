@@ -32,9 +32,7 @@ router.get('/status', async (req, res) => {
     codeRuntime: code,
     recordStorage: 'api',
     features: [
-      { id: 'planner', api: '/api/tools/todos', generation: 'not_connected' },
-      { id: 'study', api: '/api/study', generation: 'mock' },
-      { id: 'handbook', api: '/api/habits', generation: 'mock' },
+      { id: 'schedule', api: '/api/reminders/scheduled', generation: 'agent' },
       { id: 'diary', api: '/api/diary', generation: 'mock' },
       { id: 'reading', api: '/api/reading', generation: 'mock' },
       { id: 'period', api: '/api/tools/period', generation: 'server_calculation' },

@@ -1,16 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, CalendarHeart, CloudRain, Flame, Gift, Heart, ListTodo, Sparkles, X } from 'lucide-react'
+import { CalendarClock, CalendarHeart, CloudRain, Gift, Heart, Sparkles, X } from 'lucide-react'
 import { careService } from '../../services/careService'
 
 const KIND_META = {
   birthday: { icon: Gift, tone: 'bg-pastel-blush text-action-primary' },
   period: { icon: Heart, tone: 'bg-pastel-blush text-danger' },
-  countdown: { icon: CalendarHeart, tone: 'bg-pastel-apricot text-status-warning' },
-  'todo-overdue': { icon: ListTodo, tone: 'bg-pastel-mist text-status-info' },
-  'todo-today': { icon: ListTodo, tone: 'bg-pastel-mist text-status-info' },
-  habit: { icon: Flame, tone: 'bg-pastel-sprout text-status-local' },
-  study: { icon: BookOpen, tone: 'bg-pastel-mist text-status-info' },
+  'task-today': { icon: CalendarClock, tone: 'bg-pastel-mist text-status-info' },
+  'task-soon': { icon: CalendarHeart, tone: 'bg-pastel-apricot text-status-warning' },
   mood: { icon: CloudRain, tone: 'bg-pastel-mist text-status-info' },
 }
 

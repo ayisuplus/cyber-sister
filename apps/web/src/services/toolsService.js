@@ -1,43 +1,7 @@
 import api from './api'
 
+// /api/tools 现只承载经期记录；日程、倒数日与提醒已由「安排」（reminderService）替代
 export const toolsService = {
-  // 待办
-  getTodos: async () => {
-    const response = await api.get('/tools/todos')
-    return response.data
-  },
-
-  createTodo: async (content, dueDate, dueTime) => {
-    const response = await api.post('/tools/todos', { content, dueDate, dueTime })
-    return response.data
-  },
-
-  updateTodo: async (id, data) => {
-    const response = await api.put(`/tools/todos/${id}`, data)
-    return response.data
-  },
-
-  deleteTodo: async (id) => {
-    const response = await api.delete(`/tools/todos/${id}`)
-    return response.data
-  },
-
-  // 倒数日
-  getCountdowns: async () => {
-    const response = await api.get('/tools/countdowns')
-    return response.data
-  },
-
-  createCountdown: async (title, targetDate) => {
-    const response = await api.post('/tools/countdowns', { title, targetDate })
-    return response.data
-  },
-
-  deleteCountdown: async (id) => {
-    const response = await api.delete(`/tools/countdowns/${id}`)
-    return response.data
-  },
-
   // 大姨妈
   getPeriodRecords: async () => {
     const response = await api.get('/tools/period')
@@ -52,21 +16,4 @@ export const toolsService = {
   getPeriodSummary: async (today) => (await api.get('/tools/period/summary', { params: { today } })).data,
   updatePeriodRecord: async (id, data) => (await api.put(`/tools/period/${id}`, data)).data,
   deletePeriodRecord: async (id) => (await api.delete(`/tools/period/${id}`)).data,
-
-  // 提醒
-  getReminders: async () => {
-    const response = await api.get('/tools/reminders')
-    return response.data
-  },
-
-  updateReminder: async (id, data) => {
-    const response = await api.put(`/tools/reminders/${id}`, data)
-    return response.data
-  },
-
-  // 天气
-  getWeather: async () => {
-    const response = await api.get('/tools/weather')
-    return response.data
-  },
 }

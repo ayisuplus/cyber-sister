@@ -4,7 +4,7 @@ import AxeBuilder from '@axe-core/playwright'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 const GROUPS = [
-  ['安排今天', ['planner', 'study', 'handbook']],
+  ['安排今天', ['schedule']],
   ['记录生活', ['diary', 'reading', 'period']],
   ['灵感装扮', ['makeup-room', 'wardrobe']],
   ['关于我们', ['workspace', 'letters']],
@@ -31,10 +31,9 @@ test.beforeEach(async ({ page }) => {
       '/api/chat/conversations': [], '/api/llm/status': { externalFallback: { configured: false, consent: true } },
       '/api/care/touchpoints': { touchpoints: [] }, '/api/reminders/due': { deliveries: [] }, '/api/asr/status': { available: false },
       '/api/user/profile': { careEnabled: false }, '/api/user/external-llm-consent': { accepted: true },
-      '/api/tools/todos': [], '/api/tools/countdowns': [], '/api/tools/reminders': [], '/api/tools/period': [],
+      '/api/reminders/scheduled': { reminders: [] }, '/api/tools/period': [],
       '/api/tools/period/summary': { nextDate: null, daysUntil: null },
-      '/api/study/summary': { todayMinutes: 0, weekMinutes: 0, totalSessions: 0 }, '/api/study/sessions': [], '/api/study/active': null,
-      '/api/habits': [], '/api/diary': [], '/api/reading/books': [], '/api/makeup-presets': [], '/api/wardrobe': [],
+      '/api/diary': [], '/api/reading/books': [], '/api/makeup-presets': [], '/api/wardrobe': [],
       '/api/derived': { insights: [insight] }, '/api/derived/edges': { edges: [] }, '/api/letters': { letters: [letter] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat)$/.test(path)) return json(route, 404, {})

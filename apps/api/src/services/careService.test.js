@@ -2,28 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
-  todoFindMany: vi.fn(),
-  countdownFindMany: vi.fn(),
+  taskFindMany: vi.fn(),
   periodFindFirst: vi.fn(),
   diaryFindFirst: vi.fn(),
   dismissalFindMany: vi.fn(),
   dismissalUpsert: vi.fn(),
-  listHabitsWithStatus: vi.fn(),
-  getStudySummary: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => ({
   default: {
     user: { findUnique: mocks.userFindUnique },
-    todo: { findMany: mocks.todoFindMany },
-    countdown: { findMany: mocks.countdownFindMany },
+    scheduledReminder: { findMany: mocks.taskFindMany },
     periodRecord: { findFirst: mocks.periodFindFirst },
     diaryEntry: { findFirst: mocks.diaryFindFirst },
     careDismissal: { findMany: mocks.dismissalFindMany, upsert: mocks.dismissalUpsert },
   },
 }))
-vi.mock('./habitService.js', () => ({ listHabitsWithStatus: mocks.listHabitsWithStatus }))
-vi.mock('./studyService.js', () => ({ getSummary: mocks.getStudySummary }))
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -35,14 +29,13 @@ const USER_ID = 'user-1'
 const NOW = new Date(2026, 8, 9, 12, 0, 0)
 const TODAY_UTC = new Date('2026-09-09T00:00:00.000Z')
 const utcDay = (dayStr) => new Date(`${dayStr}T00:00:00.000Z`)
+// 安排的 nextFireAt 是绝对时刻：2026 年 9 月 day 日本地 hour:minute
+const at = (day, hour, minute = 0) => new Date(2026, 8, day, hour, minute)
 
 const EMPTY_SNAPSHOT = {
   user: {},
-  todos: [],
-  countdowns: [],
+  tasks: [],
   latestPeriod: null,
-  habits: [],
-  study: { streak: 0, todayMinutes: 0 },
   yesterdayDiary: null,
   todayUtc: TODAY_UTC,
   now: NOW,
@@ -53,14 +46,11 @@ const build = (overrides) => buildTouchpoints({ ...EMPTY_SNAPSHOT, ...overrides 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.userFindUnique.mockResolvedValue({ birthDate: null, careEnabled: true })
-  mocks.todoFindMany.mockResolvedValue([])
-  mocks.countdownFindMany.mockResolvedValue([])
+  mocks.taskFindMany.mockResolvedValue([])
   mocks.periodFindFirst.mockResolvedValue(null)
   mocks.diaryFindFirst.mockResolvedValue(null)
   mocks.dismissalFindMany.mockResolvedValue([])
   mocks.dismissalUpsert.mockResolvedValue({})
-  mocks.listHabitsWithStatus.mockResolvedValue([])
-  mocks.getStudySummary.mockResolvedValue({ streak: 0, todayMinutes: 0, weekMinutes: 0, totalSessions: 0 })
 })
 
 describe('buildTouchpoints 规则引擎', () => {
@@ -94,48 +84,36 @@ describe('buildTouchpoints 规则引擎', () => {
     expect(overdue).toEqual([])
   })
 
-  it('倒数日 0~3 天触发并按天数排序', () => {
+  it('今天的安排聚成一条，只有一件时直呼其名', () => {
+    const one = build({ tasks: [{ id: 't1', content: '复诊', nextFireAt: at(9, 15) }] })
+    expect(one).toHaveLength(1)
+    expect(one[0]).toMatchObject({ kind: 'task-today', key: 'task-today:all:2026-09-09', title: '今天：「复诊」' })
+    expect(one[0].action).toEqual({ to: '/tools/schedule', label: '看看安排' })
+
+    const two = build({ tasks: [
+      { id: 't1', content: '复诊', nextFireAt: at(9, 8) },
+      { id: 't2', content: '还书', nextFireAt: at(9, 20) },
+    ] })
+    expect(two[0]).toMatchObject({ kind: 'task-today', title: '今天有 2 件安排' })
+    expect(two[0].body).toContain('复诊')
+  })
+
+  it('心情卡片跳到手记里的日记', () => {
+    expect(build({ yesterdayDiary: { mood: 'sad' } })[0].action).toEqual({ to: '/tools/notes?tab=diary', label: '写写今天' })
+  })
+
+  it('1~3 天内的安排各一条「还有 N 天」，按天数排序，4 天与已过去的不触发', () => {
     const cards = build({
-      countdowns: [
-        { id: 'c3', title: '出成绩', targetDate: utcDay('2026-09-11') },
-        { id: 'c1', title: '面试', targetDate: utcDay('2026-09-09') },
-        { id: 'c2', title: '旅行', targetDate: utcDay('2026-09-12') },
-        { id: 'c4', title: '考研', targetDate: utcDay('2026-12-20') },
+      tasks: [
+        { id: 't1', content: '面试', nextFireAt: at(10, 9) },
+        { id: 't3', content: '出成绩', nextFireAt: at(11, 23, 30) },
+        { id: 't2', content: '旅行', nextFireAt: at(12, 7) },
+        { id: 't4', content: '考研', nextFireAt: at(13, 9) },
+        { id: 't0', content: '昨天的事', nextFireAt: at(8, 9) },
       ],
     })
-    expect(cards.map((card) => card.title)).toEqual(['就是今天：「面试」', '「出成绩」还有 2 天', '「旅行」还有 3 天'])
-  })
-
-  it('逾期日程取最久一条，今天到期聚合计数', () => {
-    const cards = build({
-      todos: [
-        { id: 't2', content: '交房租', dueDate: utcDay('2026-09-05') },
-        { id: 't1', content: '复诊', dueDate: utcDay('2026-09-01') },
-        { id: 't3', content: '还书', dueDate: utcDay('2026-09-09') },
-      ],
-    })
-    expect(cards.map((card) => card.kind)).toEqual(['todo-overdue', 'todo-today'])
-    expect(cards[0]).toMatchObject({ key: 'todo-overdue:t1:2026-09-09', title: '有件事拖了 8 天' })
-    expect(cards[0].body).toContain('复诊')
-    expect(cards[1]).toMatchObject({ title: '今天有 1 件事到期' })
-    expect(cards[1].body).toContain('还书')
-  })
-
-  it('手帐连续 3 天且今天未打卡触发，已打卡或连续不足不触发', () => {
-    const risk = build({ habits: [{ id: 'h1', name: '喝水', streak: 12, checkedToday: false }] })
-    expect(risk[0]).toMatchObject({ kind: 'habit', title: '「喝水」今天还没打卡' })
-    expect(risk[0].body).toContain('12 天')
-
-    expect(build({ habits: [{ id: 'h1', name: '喝水', streak: 12, checkedToday: true }] })).toEqual([])
-    expect(build({ habits: [{ id: 'h1', name: '喝水', streak: 2, checkedToday: false }] })).toEqual([])
-  })
-
-  it('自习连续 3 天且今天 0 分钟触发', () => {
-    const risk = build({ study: { streak: 5, todayMinutes: 0 } })
-    expect(risk[0]).toMatchObject({ kind: 'study', title: '自习今天还没开始' })
-
-    expect(build({ study: { streak: 5, todayMinutes: 25 } })).toEqual([])
-    expect(build({ study: { streak: 2, todayMinutes: 0 } })).toEqual([])
+    expect(cards.map((card) => card.title)).toEqual(['「面试」还有 1 天', '「出成绩」还有 2 天', '「旅行」还有 3 天'])
+    expect(cards[0]).toMatchObject({ kind: 'task-soon', key: 'task-soon:t1:2026-09-09' })
   })
 
   it('昨天心情沉重触发，开心与中性不触发', () => {
@@ -146,22 +124,17 @@ describe('buildTouchpoints 规则引擎', () => {
     expect(build({ yesterdayDiary: { mood: 'neutral' } })).toEqual([])
   })
 
-  it('综合优先级：生日 > 经期 > 倒数日 > 逾期 > 今日到期 > 手帐 > 自习 > 心情', () => {
+  it('综合优先级：生日 > 经期 > 今天的安排 > 快到的日子 > 心情', () => {
     const cards = build({
       user: { birthDate: new Date('1999-09-09T00:00:00.000Z') },
       latestPeriod: { id: 'p1', startDate: utcDay('2026-08-12'), cycleDays: 28 },
-      countdowns: [{ id: 'c1', title: '面试', targetDate: utcDay('2026-09-09') }],
-      todos: [
-        { id: 't1', content: '复诊', dueDate: utcDay('2026-09-01') },
-        { id: 't2', content: '还书', dueDate: utcDay('2026-09-09') },
+      tasks: [
+        { id: 't1', content: '还书', nextFireAt: at(9, 18) },
+        { id: 't2', content: '面试', nextFireAt: at(11, 9) },
       ],
-      habits: [{ id: 'h1', name: '喝水', streak: 12, checkedToday: false }],
-      study: { streak: 5, todayMinutes: 0 },
       yesterdayDiary: { mood: 'sad' },
     })
-    expect(cards.map((card) => card.kind)).toEqual([
-      'birthday', 'period', 'countdown', 'todo-overdue', 'todo-today', 'habit', 'study', 'mood',
-    ])
+    expect(cards.map((card) => card.kind)).toEqual(['birthday', 'period', 'task-today', 'task-soon', 'mood'])
   })
 })
 
@@ -176,8 +149,19 @@ describe('listTouchpoints', () => {
     mocks.userFindUnique.mockResolvedValue({ birthDate: null, careEnabled: false })
 
     expect(await listTouchpoints(USER_ID)).toEqual([])
-    expect(mocks.todoFindMany).not.toHaveBeenCalled()
-    expect(mocks.countdownFindMany).not.toHaveBeenCalled()
+    expect(mocks.taskFindMany).not.toHaveBeenCalled()
+  })
+
+  it('只查进行中、带日子、无指令的安排，窗口为本地今天起 4 个日历日', async () => {
+    await listTouchpoints(USER_ID)
+    expect(mocks.taskFindMany).toHaveBeenCalledWith({
+      where: {
+        userId: USER_ID, status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
+        nextFireAt: { gte: new Date(2026, 8, 9), lt: new Date(2026, 8, 13) },
+      },
+      orderBy: { nextFireAt: 'asc' },
+      select: { id: true, content: true, nextFireAt: true },
+    })
   })
 
   it('用户不存在时为空', async () => {
@@ -186,7 +170,7 @@ describe('listTouchpoints', () => {
   })
 
   it('已忽略的键被过滤，结果剥离 priority', async () => {
-    mocks.countdownFindMany.mockResolvedValue([{ id: 'c1', title: '面试', targetDate: utcDay('2026-09-10') }])
+    mocks.taskFindMany.mockResolvedValue([{ id: 't1', content: '面试', nextFireAt: at(10, 9) }])
     const [card] = await listTouchpoints(USER_ID)
     expect(card.key).toBeDefined()
     expect(card.priority).toBeUndefined()
@@ -196,17 +180,17 @@ describe('listTouchpoints', () => {
   })
 
   it('最多返回 3 条按优先级截取', async () => {
-    mocks.countdownFindMany.mockResolvedValue([
-      { id: 'c1', title: '甲', targetDate: utcDay('2026-09-09') },
-      { id: 'c2', title: '乙', targetDate: utcDay('2026-09-10') },
-      { id: 'c3', title: '丙', targetDate: utcDay('2026-09-11') },
-      { id: 'c4', title: '丁', targetDate: utcDay('2026-09-12') },
+    mocks.taskFindMany.mockResolvedValue([
+      { id: 't1', content: '甲', nextFireAt: at(9, 18) },
+      { id: 't2', content: '乙', nextFireAt: at(10, 9) },
+      { id: 't3', content: '丙', nextFireAt: at(11, 9) },
+      { id: 't4', content: '丁', nextFireAt: at(12, 9) },
     ])
-    mocks.todoFindMany.mockResolvedValue([{ id: 't1', content: '复诊', dueDate: utcDay('2026-09-01') }])
+    mocks.diaryFindFirst.mockResolvedValue({ mood: 'sad' })
 
     const cards = await listTouchpoints(USER_ID)
     expect(cards).toHaveLength(3)
-    expect(cards.map((card) => card.kind)).toEqual(['countdown', 'countdown', 'countdown'])
+    expect(cards.map((card) => card.kind)).toEqual(['task-today', 'task-soon', 'task-soon'])
   })
 })
 
@@ -219,10 +203,10 @@ describe('dismissTouchpoint', () => {
   })
 
   it('合法键按 用户+键 幂等 upsert', async () => {
-    expect(await dismissTouchpoint(USER_ID, ' countdown:c1:2026-09-09 ')).toEqual({ dismissed: true })
+    expect(await dismissTouchpoint(USER_ID, ' task-soon:t1:2026-09-09 ')).toEqual({ dismissed: true })
     expect(mocks.dismissalUpsert).toHaveBeenCalledWith({
-      where: { userId_key: { userId: USER_ID, key: 'countdown:c1:2026-09-09' } },
-      create: { userId: USER_ID, key: 'countdown:c1:2026-09-09' },
+      where: { userId_key: { userId: USER_ID, key: 'task-soon:t1:2026-09-09' } },
+      create: { userId: USER_ID, key: 'task-soon:t1:2026-09-09' },
       update: {},
     })
   })

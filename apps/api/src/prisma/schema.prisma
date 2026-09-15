@@ -27,6 +27,7 @@ model User {
   memoryEpoch                 Int       @default(0) @map("memory_epoch")
   companionState              Json?     @map("companion_state")
   companionRevision           Int       @default(0) @map("companion_revision")
+  plansMigratedAt             DateTime? @map("plans_migrated_at") // 日程/倒数日/习惯/旧提醒已迁为安排的时间（迁移幂等标记）
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -264,6 +265,7 @@ model Letter {
   @@unique([userId, weekStart])
   @@map("letters")
 }
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model Todo {
   id        String    @id @default(uuid())
   userId    String    @map("user_id")
@@ -280,6 +282,7 @@ model Todo {
   @@map("todos")
 }
 
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model Countdown {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
@@ -307,6 +310,7 @@ model PeriodRecord {
   @@map("period_records")
 }
 
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model Reminder {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
@@ -372,6 +376,7 @@ model DiaryEntry {
   @@map("diary_entries")
 }
 
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model Habit {
   id         String    @id @default(uuid())
   userId     String    @map("user_id")
@@ -387,6 +392,7 @@ model Habit {
   @@map("habits")
 }
 
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model HabitCheckin {
   id        String   @id @default(uuid())
   habitId   String   @map("habit_id")
@@ -438,6 +444,7 @@ model ReadingNote {
   @@map("reading_notes")
 }
 
+/// 已停用（2026-09 功能收拢）：由「安排」（ScheduledReminder）替代，只读保留供导出与迁移，不再写入。
 model StudySession {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
@@ -565,15 +572,16 @@ model WardrobeItem {
   @@map("wardrobe_items")
 }
 
+/// 「安排」：日程、倒数日、提醒、每日打卡与交给她做的定时任务共用这一种模型。
 model ScheduledReminder {
   id         String    @id @default(uuid())
   userId     String    @map("user_id")
   content    String
   // 有指令 = 定时任务：到点跑 agent 回路执行并把产出写进投递；无指令 = 纯提醒
   instruction String?  @db.Text
-  freq       String    @default("once") // once | daily | weekly | monthly
-  time       String? // 'HH:mm' 本地时间（循环类用）
-  fireAt     DateTime? @map("fire_at") // 一次性：具体触发时刻（UTC）
+  freq       String    @default("once") // once | daily | weekly | monthly | yearly
+  time       String? // 'HH:mm' 本地时间
+  fireAt     DateTime? @map("fire_at") // 一次性：具体触发时刻（UTC）；每年：锚点，取其月日
   weekdays   Int[] // 每周：0-6（getDay 约定），否则空数组
   monthDay   Int?     @map("month_day") // 每月：1-31
   nextFireAt DateTime @map("next_fire_at") // 预计算下次触发（UTC），支撑无 worker 轮询

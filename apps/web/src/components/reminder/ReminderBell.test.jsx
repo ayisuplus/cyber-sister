@@ -41,7 +41,7 @@ describe('ReminderBell（到点通知）', () => {
     renderBell()
     fireEvent.click(await screen.findByRole('button', { name: /1 条待处理/ }))
     expect(await screen.findByText(/你这周写了 3 篇日记/)).toBeInTheDocument()
-    expect(screen.getByText(/Amie 完成的任务/)).toBeInTheDocument()
+    expect(screen.getByText(/她替你做的事/)).toBeInTheDocument()
   })
 
   it('有待处理投递时显示角标，打开后可「知道了」', async () => {
@@ -57,9 +57,9 @@ describe('ReminderBell（到点通知）', () => {
     expect(reminderService.ack).toHaveBeenCalledWith('d1', 'shown')
   })
 
-  it('「管理提醒」入口指向合并后的日程与提醒页', async () => {
+  it('「管理安排」入口指向安排页', async () => {
     renderBell()
     fireEvent.click(screen.getByRole('button', { name: '提醒' }))
-    expect(await screen.findByRole('link', { name: '管理提醒' })).toHaveAttribute('href', '/tools/planner?tab=reminders')
+    expect(await screen.findByRole('link', { name: '管理安排' })).toHaveAttribute('href', '/tools/schedule')
   })
 })

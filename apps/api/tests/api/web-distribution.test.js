@@ -20,7 +20,7 @@ describe('web distribution', () => {
   it('rejects work routes and conversation creation despite forged client headers', async () => {
     vi.stubEnv('APP_DISTRIBUTION', 'web')
     const token = generateToken({ userId: 'web-user' })
-    for (const url of ['/api/work/tasks', '/api/work/media', '/api/tools/todos']) {
+    for (const url of ['/api/work/tasks', '/api/work/media', '/api/tools/period', '/api/reminders/scheduled']) {
       const response = await request(app).get(url).set('Authorization', `Bearer ${token}`).set('X-App-Distribution', 'local')
       expect(response.status).toBe(403)
       expect(response.body.code).toBe('LOCAL_CLIENT_REQUIRED')

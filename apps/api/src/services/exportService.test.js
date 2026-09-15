@@ -18,6 +18,7 @@ const db = vi.hoisted(() => ({
   edgeFindMany: vi.fn(),
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
+  scheduledTaskFindMany: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -42,6 +43,7 @@ vi.mock('../prisma/client.js', () => {
     memoryEdge: { findMany: db.edgeFindMany },
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
+    scheduledReminder: { findMany: db.scheduledTaskFindMany },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -71,6 +73,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
+      'scheduledTaskFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -97,7 +100,7 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([])
   })
 
-  it('全部 17 张表按当前用户过滤查询', async () => {
+  it('全部 18 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
@@ -105,6 +108,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
+      'scheduledTaskFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: { userId: 'user-1' },
@@ -250,6 +254,31 @@ describe('exportService.buildUserExport', () => {
       toolRuns: [{ tool: 'add_todo', ok: true, summary: '已添加' }],
       hasImage: false,
     })
+  })
+
+  it('安排连同到点记录导出，旧日程与倒数日作为历史照旧导出', async () => {
+    db.scheduledTaskFindMany.mockResolvedValue([{
+      content: '妈妈生日', instruction: null, freq: 'yearly', time: '09:00',
+      fireAt: new Date('2026-10-01T01:00:00.000Z'), weekdays: [], monthDay: null,
+      nextFireAt: new Date('2026-10-01T01:00:00.000Z'), status: 'active',
+      createdAt: new Date('2026-09-15T00:00:00.000Z'), updatedAt: new Date('2026-09-15T00:00:00.000Z'),
+      deliveries: [{ fireAt: new Date('2025-10-01T01:00:00.000Z'), status: 'shown', result: null, createdAt: new Date('2025-10-01T01:00:05.000Z') }],
+    }])
+    db.todoFindMany.mockResolvedValue([{ content: '交房租', dueDate: null, dueTime: null, isDone: true, createdAt: new Date('2026-09-01T00:00:00.000Z') }])
+
+    const bundle = await buildUserExport('user-1')
+
+    expect(bundle.scheduledTasks).toEqual([{
+      content: '妈妈生日', instruction: null, freq: 'yearly', time: '09:00',
+      fireAt: '2026-10-01T01:00:00.000Z', weekdays: [], monthDay: null,
+      nextFireAt: '2026-10-01T01:00:00.000Z', status: 'active',
+      createdAt: '2026-09-15T00:00:00.000Z', updatedAt: '2026-09-15T00:00:00.000Z',
+      deliveries: [{ fireAt: '2025-10-01T01:00:00.000Z', status: 'shown', result: null, createdAt: '2025-10-01T01:00:05.000Z' }],
+    }])
+    expect(bundle.todos).toEqual([{ content: '交房租', dueDate: null, dueTime: null, isDone: true, createdAt: '2026-09-01T00:00:00.000Z' }])
+    const select = db.scheduledTaskFindMany.mock.calls[0][0].select
+    expect(select).not.toHaveProperty('id')
+    expect(select).not.toHaveProperty('userId')
   })
 
   it('手帐打卡与阅读按嵌套结构导出', async () => {

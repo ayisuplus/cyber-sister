@@ -487,11 +487,11 @@ describe('generateResponseStream 分句安全流', () => {
 
   it('工具调用完整成功后才产出 toolcall', async () => {
     gatewayStream.mockReturnValue(streamOf([
-      { type: 'delta', text: '{"tool":"add_todo","args":{"content":"x"}}' },
+      { type: 'delta', text: '{"tool":"add_task","args":{"content":"x"}}' },
       { type: 'done', provider: 'qwen', model: 'm', scope: 'external' },
     ]))
     const events = await collectEvents(generateResponseStream('帮我记个待办', 'toxic', [], [], 'req-1', { allowExternal: true, authorizeExternal: authorized }))
-    expect(events[0]).toMatchObject({ type: 'toolcall', name: 'add_todo' })
+    expect(events[0]).toMatchObject({ type: 'toolcall', name: 'add_task' })
   })
 
   it('完整工具对象后仍有解释文本时按普通回复处理，不执行示例', async () => {
@@ -516,15 +516,15 @@ describe('generateResponseStream 分句安全流', () => {
   })
 
   it.each([
-    '```json\n{"tool":"add_todo","args":{"content":"x"}}\n```',
-    '<dots_function_call>{"tool":"add_todo","args":{"content":"x"}}</dots_function_call>',
+    '```json\n{"tool":"add_task","args":{"content":"x"}}\n```',
+    '<dots_function_call>{"tool":"add_task","args":{"content":"x"}}</dots_function_call>',
   ])('完整包装工具 %s 在流式中复用整段校验', async (content) => {
     gatewayStream.mockReturnValue(streamOf([
       { type: 'delta', text: content },
       { type: 'done', provider: 'qwen', model: 'm', scope: 'external' },
     ]))
     const events = await collectEvents(generateResponseStream('synthetic', 'gentle', [], [], 'req', { allowExternal: true, authorizeExternal: authorized }))
-    expect(events).toEqual([{ type: 'toolcall', name: 'add_todo', args: { content: 'x' } }])
+    expect(events).toEqual([{ type: 'toolcall', name: 'add_task', args: { content: 'x' } }])
   })
 })
 

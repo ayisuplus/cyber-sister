@@ -7,17 +7,16 @@ const mocks = vi.hoisted(() => ({
   derivedCount: vi.fn(),
   edgeFindMany: vi.fn(),
   edgeCount: vi.fn(),
-  sessionCount: vi.fn(),
   diaryFindMany: vi.fn(),
-  checkinCount: vi.fn(),
-  countdownFindFirst: vi.fn(),
+  readingNoteCount: vi.fn(),
+  taskFindMany: vi.fn(),
+  taskCount: vi.fn(),
+  taskFindFirst: vi.fn(),
   letterFindUnique: vi.fn(),
   letterCreate: vi.fn(),
   letterFindMany: vi.fn(),
   letterFindFirst: vi.fn(),
   userFindUnique: vi.fn(),
-  listHabitsWithStatus: vi.fn(),
-  getStudySummary: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => ({
@@ -26,21 +25,19 @@ vi.mock('../prisma/client.js', () => ({
     memory: { findMany: mocks.memoryFindMany, count: mocks.memoryCount },
     derivedInsight: { count: mocks.derivedCount },
     memoryEdge: { findMany: mocks.edgeFindMany, count: mocks.edgeCount },
-    studySession: { count: mocks.sessionCount },
     diaryEntry: { findMany: mocks.diaryFindMany },
-    habitCheckin: { count: mocks.checkinCount },
-    countdown: { findFirst: mocks.countdownFindFirst },
+    readingNote: { count: mocks.readingNoteCount },
+    scheduledReminder: { findMany: mocks.taskFindMany, count: mocks.taskCount, findFirst: mocks.taskFindFirst },
     letter: { findUnique: mocks.letterFindUnique, findFirst: mocks.letterFindFirst, create: mocks.letterCreate, findMany: mocks.letterFindMany },
     user: { findUnique: mocks.userFindUnique },
   },
 }))
-vi.mock('./habitService.js', () => ({ listHabitsWithStatus: mocks.listHabitsWithStatus }))
-vi.mock('./studyService.js', () => ({ getSummary: mocks.getStudySummary }))
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
 import {
+  collectWeekStats,
   composeLetter,
   generateWeeklyLetter,
   getLetter,
@@ -60,14 +57,12 @@ const FULL_STATS = {
   promotedCount: 2,
   edgeCount: 1,
   edges: [{ from: '喜欢火锅', to: '每周五吃火锅', relation: 'similar' }],
-  bestHabit: { name: '喝水', streak: 12 },
-  todayHabitsDone: 1,
-  weekMinutes: 85,
-  studySessionCount: 3,
   moodCounts: { happy: 3, sad: 1 },
   diaryDays: 4,
-  checkinCount: 9,
-  upcomingCountdown: { title: '英语面试', targetDate: new Date(2026, 8, 13) },
+  readingNoteCount: 5,
+  doneTaskCount: 4,
+  doneTaskContents: ['复诊', '交房租', '寄快递'],
+  upcomingTask: { content: '英语面试', nextFireAt: new Date(2026, 8, 13, 9, 0) },
 }
 
 beforeEach(() => {
@@ -78,17 +73,16 @@ beforeEach(() => {
   mocks.derivedCount.mockResolvedValue(0)
   mocks.edgeFindMany.mockResolvedValue([])
   mocks.edgeCount.mockResolvedValue(0)
-  mocks.sessionCount.mockResolvedValue(0)
   mocks.diaryFindMany.mockResolvedValue([])
-  mocks.checkinCount.mockResolvedValue(0)
-  mocks.countdownFindFirst.mockResolvedValue(null)
+  mocks.readingNoteCount.mockResolvedValue(0)
+  mocks.taskFindMany.mockResolvedValue([])
+  mocks.taskCount.mockResolvedValue(0)
+  mocks.taskFindFirst.mockResolvedValue(null)
   mocks.letterFindUnique.mockResolvedValue(null)
   mocks.letterFindFirst.mockResolvedValue(null)
   mocks.letterCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'letter-1', ...data, createdAt: NOW }))
   mocks.letterFindMany.mockResolvedValue([])
   mocks.userFindUnique.mockResolvedValue({ nickname: '小赛' })
-  mocks.listHabitsWithStatus.mockResolvedValue([])
-  mocks.getStudySummary.mockResolvedValue({ streak: 0, todayMinutes: 0, weekMinutes: 0, totalSessions: 0 })
 })
 
 describe('localWeekStartUtc', () => {
@@ -107,10 +101,10 @@ describe('composeLetter', () => {
     expect(content).toContain('小赛，见信好。')
     expect(content).toContain('这周你们聊了 23 轮')
     expect(content).toContain('新记下了 4 件事：「喜欢火锅」「准备英语面试」「周五聚餐」，等等')
-    expect(content).toContain('工作台里有 2 条理解被你定了下来')
+    expect(content).toContain('待确认里有 2 条理解被你定了下来')
     expect(content).toContain('你还确认了 1 条关系：「喜欢火锅」—相似→「每周五吃火锅」')
-    expect(content).toContain('打卡最好的是「喝水」，连续 12 天')
-    expect(content).toContain('自习一共 85 分钟')
+    expect(content).toContain('这周做完了 4 件安排：「复诊」「交房租」「寄快递」，等等')
+    expect(content).toContain('读书记了 5 条笔记')
     expect(content).toContain('心情上：开心 3 天、难过 1 天')
     expect(content).toContain('不太好的时候，想说的时候我都在')
     expect(content).toContain('「英语面试」还有 4 天')
@@ -120,7 +114,7 @@ describe('composeLetter', () => {
   it('只有聊天轮数时其余段落整段缺席', () => {
     const content = composeLetter({
       nickname: null,
-      stats: { ...FULL_STATS, memoryCount: 0, memoryContents: [], promotedCount: 0, edgeCount: 0, edges: [], bestHabit: null, weekMinutes: 0, moodCounts: {}, diaryDays: 0, upcomingCountdown: null },
+      stats: { ...FULL_STATS, memoryCount: 0, memoryContents: [], promotedCount: 0, edgeCount: 0, edges: [], moodCounts: {}, diaryDays: 0, readingNoteCount: 0, doneTaskCount: 0, doneTaskContents: [], upcomingTask: null },
       now: NOW,
     })
 
@@ -141,11 +135,38 @@ describe('composeLetter', () => {
 
 describe('isQuietWeek', () => {
   it('任一活动即非沉默周', () => {
-    const quiet = { messageCount: 0, memoryCount: 0, checkinCount: 0, studySessionCount: 0, diaryDays: 0 }
+    const quiet = { messageCount: 0, memoryCount: 0, diaryDays: 0, readingNoteCount: 0, doneTaskCount: 0 }
     expect(isQuietWeek(quiet)).toBe(true)
     expect(isQuietWeek({ ...quiet, messageCount: 1 })).toBe(false)
-    expect(isQuietWeek({ ...quiet, checkinCount: 1 })).toBe(false)
     expect(isQuietWeek({ ...quiet, diaryDays: 1 })).toBe(false)
+    expect(isQuietWeek({ ...quiet, readingNoteCount: 1 })).toBe(false)
+    expect(isQuietWeek({ ...quiet, doneTaskCount: 1 })).toBe(false)
+  })
+})
+
+describe('collectWeekStats', () => {
+  it('生活素材来自日记、读书笔记和本周做完的安排；往前看只取两周内带日子的安排', async () => {
+    mocks.diaryFindMany.mockResolvedValue([{ mood: 'happy' }, { mood: 'happy' }, { mood: 'sad' }])
+    mocks.readingNoteCount.mockResolvedValue(2)
+    mocks.taskFindMany.mockResolvedValue([{ content: '复诊' }])
+    mocks.taskCount.mockResolvedValue(1)
+    mocks.taskFindFirst.mockResolvedValue({ content: '英语面试', nextFireAt: new Date(2026, 8, 13, 9) })
+
+    const stats = await collectWeekStats(USER_ID, WEEK_START, NOW)
+
+    expect(stats).toMatchObject({
+      moodCounts: { happy: 2, sad: 1 }, diaryDays: 3, readingNoteCount: 2,
+      doneTaskCount: 1, doneTaskContents: ['复诊'], upcomingTask: { content: '英语面试' },
+    })
+    const doneThisWeek = { userId: USER_ID, status: 'done', updatedAt: { gte: WEEK_START } }
+    expect(mocks.taskCount).toHaveBeenCalledWith({ where: doneThisWeek })
+    expect(mocks.taskFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: doneThisWeek, take: 3 }))
+    expect(mocks.taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        userId: USER_ID, status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
+        nextFireAt: { gte: NOW, lte: new Date(NOW.getTime() + 14 * 24 * 60 * 60 * 1000) },
+      },
+    }))
   })
 })
 

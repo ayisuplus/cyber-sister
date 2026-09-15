@@ -9,7 +9,7 @@ import { createAgentTurn, runAgentLoop } from './agentTurn.js'
 async function* events(list) { yield* list }
 async function collect(stream) { const result = []; for await (const item of stream) result.push(item); return result }
 const fallback = () => ({ content: 'fallback', source: 'local_template' })
-const call = { type: 'toolcall', name: 'add_todo', args: { content: 'test' } }
+const call = { type: 'toolcall', name: 'add_task', args: { content: 'test' } }
 
 describe('统一 agent loop 的终态与协议', () => {
   it('工作回合允许连续 12 次有效工具，发送进度且上下文绑定会话', async () => {
@@ -43,7 +43,7 @@ describe('统一 agent loop 的终态与协议', () => {
     expect(execute).not.toHaveBeenCalled()
   })
   it.each(['toolcall', 'done'])('%s 适配得到相同的串行工具反馈，第四轮强制收尾', async (type) => {
-    execute.mockResolvedValue({ tool: 'add_todo', ok: true, summary: 'saved', feedback: 'result' })
+    execute.mockResolvedValue({ tool: 'add_task', ok: true, summary: 'saved', feedback: 'result' })
     const turn = createAgentTurn({ userId: 'one' })
     const generate = vi.fn(() => events([type === 'toolcall' ? call : { type, content: JSON.stringify({ tool: call.name, args: call.args }) }]))
     const result = await collect(runAgentLoop({ turn, generate, fallback }))

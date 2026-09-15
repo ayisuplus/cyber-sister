@@ -96,6 +96,19 @@ describe('computeNextFire', () => {
     expect(computeNextFire({ freq: 'weekly', time: '12:00', weekdays: [4] }, exactly))
       .toEqual(local(2026, 9, 17, 12, 0))
   })
+
+  it('yearly：锚点月日今年未过取今年，已过取明年', () => {
+    const birthday = local(1998, 10, 3, 9, 0)
+    expect(computeNextFire({ freq: 'yearly', time: '09:00', fireAt: birthday }, after)).toEqual(local(2026, 10, 3, 9, 0))
+    const anniversary = local(2020, 5, 20, 9, 0)
+    expect(computeNextFire({ freq: 'yearly', time: '09:00', fireAt: anniversary }, after)).toEqual(local(2027, 5, 20, 9, 0))
+  })
+
+  it('yearly：2 月 29 日在平年夹紧到 28 日，闰年回到 29 日', () => {
+    const leapDay = local(2024, 2, 29, 8, 0)
+    expect(computeNextFire({ freq: 'yearly', time: '08:00', fireAt: leapDay }, local(2026, 1, 1))).toEqual(local(2026, 2, 28, 8, 0))
+    expect(computeNextFire({ freq: 'yearly', time: '08:00', fireAt: leapDay }, local(2028, 1, 1))).toEqual(local(2028, 2, 29, 8, 0))
+  })
 })
 
 describe('createScheduledReminder 校验', () => {
@@ -123,6 +136,16 @@ describe('createScheduledReminder 校验', () => {
       .toThrowError(expect.objectContaining({ statusCode: 400 }))
     expect(() => createScheduledReminder('u1', { content: 'x', freq: 'daily', time: '25:00' }))
       .toThrowError(expect.objectContaining({ statusCode: 400 }))
+  })
+
+  it('yearly：与 once 一样需要日期，锚点存进 fireAt，下次触发取下一个周年', async () => {
+    mocks.srCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'r2', ...data }))
+    expect(() => createScheduledReminder('u1', { content: '妈妈生日', freq: 'yearly', time: '09:00' }))
+      .toThrowError(expect.objectContaining({ statusCode: 400 }))
+    const r = await createScheduledReminder('u1', { content: '妈妈生日', freq: 'yearly', date: '1970-03-08', time: '09:00' })
+    expect(r.fireAt).toEqual(local(1970, 3, 8, 9, 0))
+    expect(r.nextFireAt.getFullYear()).toBeGreaterThanOrEqual(new Date().getFullYear())
+    expect([r.nextFireAt.getMonth(), r.nextFireAt.getDate()]).toEqual([2, 8])
   })
 })
 
@@ -236,6 +259,27 @@ describe('update/delete', () => {
     mocks.srDelete.mockResolvedValue({})
     await deleteScheduledReminder('r1', 'u1')
     expect(mocks.srDelete).toHaveBeenCalled()
+  })
+
+  it('可以手动标记完成；未知状态报 400', async () => {
+    mocks.srFindFirst.mockResolvedValue({ id: 'r1', userId: 'u1', status: 'active' })
+    mocks.srUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'r1', ...data }))
+    await expect(updateScheduledReminder('r1', 'u1', { status: 'done' })).resolves.toMatchObject({ status: 'done' })
+    await expect(updateScheduledReminder('r1', 'u1', { status: 'archived' })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('一次性安排只改时间时沿用原来的日期', async () => {
+    const current = {
+      id: 'r1', userId: 'u1', content: '体检', freq: 'once', time: '09:00',
+      fireAt: local(2030, 5, 6, 9, 0), weekdays: [], monthDay: null, status: 'active',
+    }
+    mocks.srFindFirst.mockResolvedValue(current)
+    mocks.srUpdate.mockImplementation(({ data }) => Promise.resolve({ ...current, ...data }))
+
+    const r = await updateScheduledReminder('r1', 'u1', { time: '15:30' })
+
+    expect(r.fireAt).toEqual(local(2030, 5, 6, 15, 30))
+    expect(r.nextFireAt).toEqual(local(2030, 5, 6, 15, 30))
   })
 })
 

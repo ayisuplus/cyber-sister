@@ -10,12 +10,12 @@ describe('classifyToolPrefix', () => {
   })
   it('stays pending while the JSON object is incomplete', () => {
     expect(classifyToolPrefix('  {"tool":"add_t')).toBe('pending')
-    expect(classifyToolPrefix('{"tool":"add_todo","args":{"content":"还没写完')).toBe('pending')
+    expect(classifyToolPrefix('{"tool":"add_task","args":{"content":"还没写完')).toBe('pending')
   })
 
   it('parses a complete registered tool call with string-aware brace balancing', () => {
-    const text = '{"tool":"add_todo","args":{"content":"带}括号的}待办"}}'
-    expect(classifyToolPrefix(text)).toEqual({ name: 'add_todo', args: { content: '带}括号的}待办' } })
+    const text = '{"tool":"add_task","args":{"content":"带}括号的}待办"}}'
+    expect(classifyToolPrefix(text)).toEqual({ name: 'add_task', args: { content: '带}括号的}待办' } })
   })
 
   it('intercepts bare or malformed tool-shaped JSON instead of leaking it', () => {
@@ -103,7 +103,7 @@ describe('parseCompleteToolCall', () => {
 
   it('returns null for natural language, malformed JSON and trailing garbage', () => {
     expect(parseCompleteToolCall('好的，已帮你记下')).toBeNull()
-    expect(parseCompleteToolCall('{"tool":"add_todo",')).toBeNull()
+    expect(parseCompleteToolCall('{"tool":"add_task",')).toBeNull()
     expect(parseCompleteToolCall('{"tool":"delete_todo","args":{"id":"example"}} 这是示例，不要执行')).toBeNull()
     expect(parseCompleteToolCall('{"tool":"list_todos"}{"tool":"delete_todo"}')).toBeNull()
     expect(parseCompleteToolCall(123)).toBeNull()

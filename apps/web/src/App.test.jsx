@@ -14,9 +14,7 @@ vi.mock('./pages/MembershipPage', () => ({ default: () => <h1>会员页</h1> }))
 vi.mock('./pages/NotesPage', () => ({ default: () => <h1>手记页</h1> }))
 vi.mock('./pages/StylePage', () => ({ default: () => <h1>装扮页</h1> }))
 vi.mock('./pages/PeriodPage', () => ({ default: () => <h1>经期记录页</h1> }))
-vi.mock('./pages/PlannerPage', () => ({ default: () => <h1>日程与提醒页</h1> }))
-vi.mock('./pages/HandbookPage', () => ({ default: () => <h1>手帐打卡页</h1> }))
-vi.mock('./pages/StudyPage', () => ({ default: () => <h1>自习页</h1> }))
+vi.mock('./pages/SchedulePage', () => ({ default: () => <h1>安排页</h1> }))
 vi.mock('./pages/SettingsPage', () => ({ default: () => <h1>设置页</h1> }))
 
 import App from './App'
@@ -25,7 +23,7 @@ const signIn = () => useAuthStore.setState({ token: 'token', user: { id: 'u1' },
 
 afterEach(() => vi.unstubAllEnvs())
 
-it.each(['/tools', '/tools/notes', '/tools/diary', '/profile/membership'])('web redirects %s to chat', async (url) => {
+it.each(['/tools', '/tools/notes', '/tools/schedule', '/tools/diary', '/tools/study', '/profile/membership'])('web redirects %s to chat', async (url) => {
   vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
   window.history.replaceState({}, '', url)
   signIn()
@@ -74,12 +72,10 @@ describe('root routing', () => {
 
   it.each([
     ['/her', '她页'],
-    ['/tools/schedule', '日程与提醒页'],
+    ['/tools/schedule', '安排页'],
     ['/tools/notes', '手记页'],
     ['/tools/period', '经期记录页'],
     ['/tools/style', '装扮页'],
-    ['/tools/handbook', '手帐打卡页'],
-    ['/tools/study', '自习页'],
     ['/settings', '设置页'],
   ])('protects and exposes the entry route %s', async (path, heading) => {
     signIn()
@@ -89,10 +85,12 @@ describe('root routing', () => {
   })
 
   it.each([
-    ['/tools/planner', '/tools/schedule', '', '日程与提醒页'],
-    ['/tools/todo', '/tools/schedule', '?tab=todo', '日程与提醒页'],
-    ['/tools/countdown', '/tools/schedule', '?tab=countdown', '日程与提醒页'],
-    ['/tools/reminders', '/tools/schedule', '?tab=reminders', '日程与提醒页'],
+    ['/tools/planner?tab=reminders', '/tools/schedule', '', '安排页'],
+    ['/tools/todo', '/tools/schedule', '', '安排页'],
+    ['/tools/countdown', '/tools/schedule', '', '安排页'],
+    ['/tools/reminders', '/tools/schedule', '', '安排页'],
+    ['/tools/handbook', '/tools/schedule', '', '安排页'],
+    ['/tools/study', '/tools/schedule', '', '安排页'],
     ['/tools/diary', '/tools/notes', '?tab=diary', '手记页'],
     ['/tools/reading', '/tools/notes', '?tab=reading', '手记页'],
     ['/tools/letters', '/tools/notes', '?tab=letters', '手记页'],

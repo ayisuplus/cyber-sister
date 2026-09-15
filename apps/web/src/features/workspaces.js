@@ -17,10 +17,10 @@ export const WORKSPACE_GROUPS = [
   {
     id: 'focus',
     title: '安排今天',
-    description: '先安排，再专注，把小习惯慢慢养起来。',
+    description: '日程、倒数日和小习惯，到点我提醒你。',
     icon: CalendarDays,
     illustration: '/design-assets/work-focus.svg',
-    itemIds: ['planner', 'study', 'handbook'],
+    itemIds: ['planner'],
   },
   {
     id: 'journal',
