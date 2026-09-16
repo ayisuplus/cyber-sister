@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
+# 本地整栈预览用：镜像内编译前端。服务器部署用 deploy/web.Dockerfile（只装 CI 产物）。
 # Build context must be the repository root.
-FROM node:20.19-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@11.5.1 --activate

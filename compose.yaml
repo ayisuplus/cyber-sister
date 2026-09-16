@@ -44,11 +44,10 @@ services:
       - database
     healthcheck:
       disable: true
+    # 直接用 node 入口：迁移容器只接 internal 网络，运行时不能依赖 corepack 联网拉 pnpm
     command:
-      - pnpm
-      - --filter
-      - cyber-sister-server
-      - db:migrate:deploy
+      - node
+      - src/prisma/migrateDeploy.js
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +60,9 @@ services:
     <<: *api-env
     environment:
       DATABASE_HOST: postgres
+      # 容器内监听全部接口：api 不发布任何宿主机端口，只有同网络的 edge 能访问它；
+      # 对外暴露仍由 edge 的端口发布（BIND_ADDRESS，见下）单点控制。
+      API_LISTEN_ADDRESS: 0.0.0.0
       DATABASE_PASSWORD_FILE: /run/secrets/database_password
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
@@ -80,11 +82,13 @@ services:
       migration:
         condition: service_completed_successfully
 
+  # 前端由 CI 构建（产物 web-dist），这里只把 dist 装进 nginx；
+  # 需要在镜像内编译时（本地整栈预览）改用 apps/web/Dockerfile。
   web:
     image: ${WEB_IMAGE_REPOSITORY:-cyber-sister-web}:${IMAGE_TAG:?set immutable IMAGE_TAG in the private env file}
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: deploy/web.Dockerfile
     restart: unless-stopped
     networks:
       - app

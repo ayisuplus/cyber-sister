@@ -1,3 +1,7 @@
+# ⚠️ 已被取代（2026-09-16）：全栈同机部署改用 compose.yaml + deploy/compose.server.yaml，
+# 前端也落在这台服务器（edge nginx 同源发页面并反代 /api），不再是"仅聊天 API"的形态。
+# 本文件与 deploy/chat.Dockerfile 暂时保留，因为它们是 09-15 唯一真正上过线的栈；
+# 首次全栈部署验收通过后删除。新部署不要再用这里的 amie-chat-api 镜像名。
 name: amie-chat
 
 x-api: &api

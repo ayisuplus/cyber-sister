@@ -204,6 +204,20 @@ describe('validateRuntimeConfig 内测环境校验', () => {
       .toThrow(/BIND_ADDRESS 必须是具体的 VPN 或可信私网 IPv4 地址/)
   })
 
+  it('API_LISTEN_ADDRESS 与 BIND_ADDRESS 分工：容器内可监听 0.0.0.0，非法值仍拒绝', () => {
+    // 容器化部署：api 不发布宿主机端口，容器内监听 0.0.0.0 不等于对外暴露
+    expect(() => validateRuntimeConfig(internalEnv({ BIND_ADDRESS: '10.0.0.5', API_LISTEN_ADDRESS: '0.0.0.0' })))
+      .not.toThrow()
+    expect(() => validateRuntimeConfig(internalEnv({ API_LISTEN_ADDRESS: 'not-an-ip' })))
+      .toThrow(/API_LISTEN_ADDRESS 必须是 IPv4 地址/)
+    // 宿主机暴露地址的限制不受影响
+    expect(() => validateRuntimeConfig(internalEnv({ BIND_ADDRESS: '0.0.0.0', API_LISTEN_ADDRESS: '0.0.0.0' })))
+      .toThrow(/BIND_ADDRESS 必须是具体的 VPN 或可信私网 IPv4 地址/)
+    // 本地工作运行时不能借监听地址绕开回环
+    expect(() => validateRuntimeConfig(internalEnv({ APP_DISTRIBUTION: 'local', API_LISTEN_ADDRESS: '0.0.0.0' })))
+      .toThrow(/本地工作运行时必须绑定 127.0.0.1/)
+  })
+
   it('IMAGE_TAG 不允许 latest、占位符或缺失', () => {
     expect(() => validateRuntimeConfig(internalEnv({ IMAGE_TAG: 'latest' })))
       .toThrow(/IMAGE_TAG 必须是唯一且不可变的发布标签/)

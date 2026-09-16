@@ -1,0 +1,59 @@
+name: Deploy
+
+# 在部署主机自己的 self-hosted runner 上执行：CI（云端）通过后接力。
+# 首次接入时建议先只用 workflow_dispatch 手动触发，验收通过再让它跟着 master 自动跑。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '取哪一次 CI 运行的 web-dist 产物（留空表示最近一次 master 成功运行）'
+        required: false
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # 迁移做到一半不能被打断
+
+permissions:
+  contents: read
+  actions: read # 下载另一次工作流运行的产物
+
+jobs:
+  deploy:
+    name: 备份 → 构建 → 迁移 → 健康检查
+    # workflow_run 会在 CI 失败时也触发，这里只认成功的那次
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      RUNTIME_ENV_FILE: /opt/amie/runtime.env
+      STATE_DIR: /opt/amie
+    steps:
+      - name: 检出 CI 验证过的那个提交
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: 取回 CI 构建的前端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id || github.event.workflow_run.id }}
+
+      - name: 发布
+        run: |
+          chmod +x deploy/scripts/*.sh
+          IMAGE_TAG="sha-$(git rev-parse --short=8 HEAD)" deploy/scripts/release.sh
+
+      - name: 失败时留档（不含密钥内容）
+        if: failure()
+        run: |
+          docker compose -f compose.yaml -f deploy/compose.server.yaml \
+            --env-file "$RUNTIME_ENV_FILE" ps || true
+          docker compose -f compose.yaml -f deploy/compose.server.yaml \
+            --env-file "$RUNTIME_ENV_FILE" logs --tail 120 api migration || true

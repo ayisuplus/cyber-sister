@@ -1,5 +1,7 @@
 name: CI
 
+# 检查全部跑在 GitHub 云端机器上：部署主机只有 2 核 2G，跑单测和 e2e 会和线上服务抢资源。
+# 部署由 deploy.yml 在服务器的 self-hosted runner 上接力（触发条件是本工作流在 master 上成功）。
 on:
   push:
     branches: [master]
@@ -11,16 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   PNPM_VERSION: '11.5.1'
 
 jobs:
   web:
     name: Web (lint / typecheck / test / build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,19 +30,21 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-        working-directory: .
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm --filter cyber-sister-client lint
+      - run: pnpm --filter cyber-sister-client typecheck
+      # 覆盖率阈值在 vitest 配置里（web 80/80/80/80），跑 coverage 才会生效
+      - run: pnpm --filter cyber-sister-client test:coverage
+      - run: pnpm --filter cyber-sister-client build
+      # 部署用的就是这份产物：服务器不编译前端，只把 dist 装进 nginx 镜像
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
           path: apps/web/dist
           retention-days: 7
+          if-no-files-found: error
 
   api:
-    name: API (lint / test with Postgres)
+    name: API (lint / test，含真实 PostgreSQL 集成套件)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -59,9 +60,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    defaults:
-      run:
-        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -72,16 +70,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-        working-directory: .
-      - run: pnpm lint
-      # 测试库的 schema 与生产同源：migrate deploy 只应用已提交的迁移文件
-      - run: pnpm exec prisma migrate deploy
+      - run: pnpm --filter cyber-sister-server lint
+      # 迁移契约：测试库与生产同源，migrate deploy 只应用已提交的迁移文件
+      - name: Prisma migrate deploy (迁移契约)
+        working-directory: apps/api
+        run: pnpm exec prisma migrate deploy
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/cyber_sister_test
-      - run: pnpm test
+      # TEST_DATABASE_URL 指向维护库：5 个集成套件会各自 CREATE DATABASE、跑迁移与 seed、用完删库。
+      # 不设这个变量它们会静默 skip——这正是此前"起了数据库却没验证集成"的原因。
+      - name: Unit + integration tests
+        # 覆盖率阈值取 2026-09-16 实测地板（见 apps/api/vitest.config.js 注释）
+        run: pnpm --filter cyber-sister-server test:coverage
+        env:
+          TEST_DATABASE_URL: postgresql://test:test@localhost:5432/postgres
 
   packages:
-    name: Packages (llm-gateway / design-tokens)
+    name: Packages (llm-gateway)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,3 +100,30 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter "./packages/*" --if-present run lint
       - run: pnpm -r --filter "./packages/*" --if-present run test
+
+  e2e:
+    name: E2E (Playwright, 桌面 + 手机)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --filter cyber-sister-client exec playwright install --with-deps chromium
+      # pree2e 会用 scripts/build-local.mjs 出本地分发构建（/tools/* 入口只在本地客户端存在）
+      - name: Run e2e
+        run: pnpm --filter cyber-sister-client e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-artifacts
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7

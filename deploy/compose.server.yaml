@@ -1,0 +1,61 @@
+# 小机器覆盖层（2 核 2G 的部署主机）：只调资源、日志与加固，不改服务拓扑。
+# 用法（与基线叠加，顺序不能反）：
+#   docker compose -f compose.yaml -f deploy/compose.server.yaml --env-file "$RUNTIME_ENV_FILE" up -d
+# 内存预算：api 768m + postgres 384m + 两个 nginx 各 64m ≈ 1.3G，留给系统与构建约 700M（另备 2G swap）。
+services:
+  postgres:
+    # 默认 shared_buffers 会按宿主机内存推算，对 2G 机器偏大
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - max_connections=30
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  migration:
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  api:
+    environment:
+      NODE_OPTIONS: --max-old-space-size=512
+    mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  web:
+    mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  edge:
+    mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

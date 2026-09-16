@@ -2,6 +2,11 @@
 
 本文面向全新 Linux 主机上的白名单内测部署。所有外部调用、证书、凭据和受控二进制均由运维在构建或运行时注入，不进入 Git。
 
+> **与自动流水线的关系（2026-09-16）**：日常发布由 `.github/workflows/deploy.yml` 在主机自建 runner 上调用 `deploy/scripts/release.sh` 完成，它把本文第 3 节的构建、迁移、启动，第 4 节的启动验收，以及第 5 节的**备份**做成了自动步骤（备份失败即中止，不会进入迁移）。本文仍是唯一的口径来源：
+> - 首次部署、换机、排障时按本文手工执行；
+> - **数据回滚始终是人工动作**——脚本只回镜像（`deploy/scripts/rollback.sh`），数据库恢复按第 5 节由人确认后执行；
+> - 自动发布使用的 compose 命令是 `-f compose.yaml -f deploy/compose.server.yaml`（后者是 2 核 2G 主机的资源与日志覆盖层），手工操作时也应带上同样的两个 `-f`，否则资源限制不生效。
+
 ## 1. 前置条件
 
 - Docker Engine 与支持 `service_completed_successfully` 的 Docker Compose v2。
@@ -67,7 +72,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" images -q api web | sort -u | xarg
 如需预置白名单用户，可在迁移完成后幂等执行：
 
 ```bash
-docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api pnpm --filter cyber-sister-server db:seed
+docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api node prisma/seed.js
 ```
 
 不得用 `prisma db push` 替代迁移。首次基线之后，每次数据库迁移都必须是增量迁移。

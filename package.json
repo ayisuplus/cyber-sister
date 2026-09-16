@@ -12,9 +12,6 @@
     "lint": "pnpm -r --if-present lint"
   },
   "engines": {
-    "node": ">=20.10"
-  },
-  "devDependencies": {
-    "wrangler": "^4.129.1"
+    "node": ">=24"
   }
 }

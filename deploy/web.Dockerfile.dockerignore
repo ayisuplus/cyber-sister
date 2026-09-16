@@ -1,0 +1,25 @@
+# deploy/web.Dockerfile 专属的构建上下文规则（BuildKit 会优先用 <Dockerfile>.dockerignore）。
+# 与根 .dockerignore 一致，唯一区别：放行 apps/web/dist——这个镜像要装的就是 CI 构建好的前端产物。
+.git
+.coordination
+**/node_modules
+**/dist
+!apps/web/dist
+**/coverage
+**/.vite
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.crt
+**/*.cer
+**/*.p12
+**/*.pfx
+**/dev.db
+tools/mediacrawler
+apps/api/data
+tools/data-pipeline/data
+**/__pycache__
+**/*.pyc

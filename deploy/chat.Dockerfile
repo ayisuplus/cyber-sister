@@ -1,3 +1,5 @@
+# ⚠️ 已被取代（2026-09-16）：改用 apps/api/Dockerfile（node:24-alpine）配合 compose.yaml。
+# 保留至首次全栈部署验收通过，届时与 deploy/compose.chat.yaml 一并删除。
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /workspace

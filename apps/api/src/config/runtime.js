@@ -62,6 +62,10 @@ export function validateRuntimeConfig(env = process.env) {
   const errors = []
   if (env.APP_DISTRIBUTION && !['web', 'local'].includes(env.APP_DISTRIBUTION)) errors.push('APP_DISTRIBUTION 必须为 web 或 local')
   if (env.APP_DISTRIBUTION === 'local' && env.BIND_ADDRESS !== '127.0.0.1') errors.push('本地工作运行时必须绑定 127.0.0.1')
+  // 本地运行时不允许用监听地址绕开回环限制
+  if (env.APP_DISTRIBUTION === 'local' && env.API_LISTEN_ADDRESS && env.API_LISTEN_ADDRESS !== '127.0.0.1') {
+    errors.push('本地工作运行时必须绑定 127.0.0.1')
+  }
 
   if (appEnv === 'internal' && nodeEnv !== 'test') {
     for (const name of [
@@ -122,6 +126,13 @@ export function validateRuntimeConfig(env = process.env) {
     }
     if (isIP(env.BIND_ADDRESS || '') !== 4 || env.BIND_ADDRESS === '0.0.0.0') {
       errors.push('BIND_ADDRESS 必须是具体的 VPN 或可信私网 IPv4 地址')
+    }
+    // BIND_ADDRESS 是「宿主机上对外暴露的地址」（compose 用它发布 edge 的端口）；
+    // API_LISTEN_ADDRESS 是「进程自己监听的地址」。容器化部署时 API 不发布任何宿主机端口，
+    // 只有同一 compose 网络里的 nginx 能访问它，因此容器内监听 0.0.0.0 不等于对外暴露。
+    // 不设时沿用 BIND_ADDRESS，行为与以前一致。
+    if (env.API_LISTEN_ADDRESS && isIP(env.API_LISTEN_ADDRESS) !== 4) {
+      errors.push('API_LISTEN_ADDRESS 必须是 IPv4 地址')
     }
     if (!env.IMAGE_TAG || isPlaceholder(env.IMAGE_TAG) || env.IMAGE_TAG === 'latest') {
       errors.push('IMAGE_TAG 必须是唯一且不可变的发布标签，不能使用 latest 或占位符')

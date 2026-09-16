@@ -227,7 +227,9 @@ if (!isTestEnv) {
   }
   // 内测环境 BIND_ADDRESS 已经 validateRuntimeConfig 强制校验为具体私网 IPv4；
   // 开发环境未设置时保持 Node 默认绑定行为。
-  const bindAddress = process.env.BIND_ADDRESS
+  // 容器化部署里进程的监听地址与宿主机暴露地址是两件事：API 不发布宿主机端口，
+  // 由 API_LISTEN_ADDRESS 指定容器内监听地址（compose 中为 0.0.0.0），未设置时沿用 BIND_ADDRESS。
+  const bindAddress = process.env.API_LISTEN_ADDRESS || process.env.BIND_ADDRESS
   server = bindAddress
     ? app.listen(Number(PORT), bindAddress, () => {
         logger.info(`Amie API 服务运行在 ${bindAddress}:${PORT}`, { environment: APP_ENV })

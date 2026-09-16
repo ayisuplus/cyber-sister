@@ -231,7 +231,7 @@
 | 4 | 代码默认人格为 `toxic`，是否为产品意图未确认 | `routes/auth.js` | ✅ 已裁定（2026-09-15）：默认 `gentle`（温柔） |
 | 5 | 多数 `architecture/` 文档为历史归档，易被误读 | `architecture/` | ✅ 已物理移入 `09-参考/历史归档/` 并在本索引标注 |
 | 6 | 虚拟试衣/化妆页面与生图接口 | `routes/virtualStudio.js` | ✅ 已关闭：2026-09-07 随云端切割整体下线 |
-| 7 | 仓库没有 GitHub Actions 工作流 | `.github/` | ⚠️ 本周期不新增 CI |
+| 7 | 仓库没有 GitHub Actions 工作流 | `.github/` | ✅ 已解决（2026-09-09 建流水线，09-16 治理为「云端 CI + 服务器 runner 部署」，见 [`04-开发/CI-CD流水线.md`](04-开发/CI-CD流水线.md)） |
 | 8 | `packages/llm-gateway` 尚无直接测试 | `packages/llm-gateway/` | 🛠 流式工作包补齐 |
 | 9 | 原始语料与 `dev.db` 曾被 Git 跟踪 | 数据治理 | ✅ 已迁出当前树；未改写历史 |
 | 10 | personas 文档文首自述"产品负责人已批准"，与本索引 ⚠️ 参考档位不匹配 | `personas/年轻女性心理与经典话题提示词设计_V1.0.md` | ⚠️ 待产品负责人裁定 |
