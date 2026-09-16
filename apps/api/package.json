@@ -11,6 +11,7 @@
     "start": "node src/bootstrap.js",
     "pretest": "pnpm db:generate",
     "test": "vitest run",
+    "pretest:coverage": "pnpm db:generate",
     "test:coverage": "vitest run --coverage",
     "pretest:postgres": "pnpm db:generate",
     "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js",
