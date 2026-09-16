@@ -143,11 +143,13 @@ withDatabase('companion state on isolated PostgreSQL', () => {
     expect(stored).toMatchObject({ content: files[0].buffer.toString(), encoding: 'utf8', messageId: result.userMessage.id })
     expect(await db.memory.count()).toBe(0)
   })
-  it('上传文件在 SSE 错误、取消或错误模式下不落库', async () => {
+  it('上传文件在网页版分发、SSE 错误与取消下都不落库', async () => {
     const files = [{ originalname: '附件.csv', buffer: Buffer.from('a,42') }]
-    await expect(sendMessage(conversation.id, user.id, '读取', undefined, { files })).rejects.toMatchObject({ statusCode: 400 })
+    // 2026-09 起附件不再看会话模式，只看是否本地运行时：网页版一律拒绝
+    vi.stubEnv('APP_DISTRIBUTION', 'web')
+    await expect(sendMessage(conversation.id, user.id, '读取', undefined, { files })).rejects.toMatchObject({ statusCode: 403, code: 'LOCAL_CLIENT_REQUIRED' })
+    vi.unstubAllEnvs()
     expect(generateResponse).not.toHaveBeenCalled()
-    await db.conversation.update({ where: { id: conversation.id }, data: { mode: 'work' } })
     generateResponseStream.mockImplementationOnce(async function* () { yield { type: 'error', reason: 'SYNTHETIC_FAILURE' } })
     for await (const _event of sendMessageStream(conversation.id, user.id, '读取', undefined, { files })) { /* Consume terminal failure. */ }
     expect(await db.workArtifact.count()).toBe(0)
