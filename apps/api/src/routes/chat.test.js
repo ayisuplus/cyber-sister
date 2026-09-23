@@ -5,7 +5,8 @@ import request from 'supertest'
 
 const service = vi.hoisted(() => ({
   listConversations: vi.fn(),
-  createConversation: vi.fn(),
+  getThread: vi.fn(),
+  clearThread: vi.fn(),
   getConversation: vi.fn(),
   sendMessage: vi.fn(),
   sendMessageStream: vi.fn(),
@@ -22,6 +23,10 @@ const imageStore = vi.hoisted(() => ({
 }))
 
 vi.mock('../services/chatService.js', () => service)
+const nudges = vi.hoisted(() => ({ listNudges: vi.fn(), ackNudge: vi.fn() }))
+vi.mock('../services/nudgeService.js', () => nudges)
+const openers = vi.hoisted(() => ({ listOpeners: vi.fn() }))
+vi.mock('../services/openerService.js', () => openers)
 vi.mock('../prisma/client.js', () => ({
   default: { message: { findFirst: db.messageFindFirst } },
 }))
@@ -32,6 +37,7 @@ vi.mock('../utils/logger.js', () => ({
 }))
 
 import chatRoutes from './chat.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const app = express()
 app.use(express.json())
@@ -168,16 +174,20 @@ describe('chat route 响应合同', () => {
     expect(service.getConversation).toHaveBeenCalledWith('c1', 'user-1', { page: 3, limit: 25 })
   })
 
-  it('新建会话成功与失败路径', async () => {
-    service.createConversation.mockResolvedValue({ id: 'c1', title: 'Amie' })
-    const ok = await request(app).post('/conversations').send({ title: '倾诉' })
-    expect(ok.status).toBe(200)
-    expect(service.createConversation).toHaveBeenCalledWith('user-1', { title: '倾诉' })
+  it('只有一段对话：取对话与清空记录只作用于当前用户，不能再新建会话', async () => {
+    service.getThread.mockResolvedValue({ id: 'thread-1', messages: [] })
+    const thread = await request(app).get('/thread?page=2&limit=30')
+    expect(thread.status).toBe(200)
+    expect(service.getThread).toHaveBeenCalledWith('user-1', { page: 2, limit: 30 })
 
-    service.createConversation.mockRejectedValue(new Error('db down'))
-    const fail = await request(app).post('/conversations').send({})
-    expect(fail.status).toBe(500)
-    expect(fail.body).toEqual({ error: '新建会话失败' })
+    service.clearThread.mockResolvedValue({ success: true, conversationId: 'thread-1' })
+    const cleared = await request(app).delete('/thread/messages')
+    expect(cleared.body).toEqual({ success: true, conversationId: 'thread-1' })
+    expect(service.clearThread).toHaveBeenCalledWith('user-1')
+
+    service.getThread.mockRejectedValue(new Error('db down'))
+    expect((await request(app).get('/thread')).body).toEqual({ error: '获取对话失败' })
+    expect((await request(app).post('/conversations').send({})).status).toBe(404)
   })
 
   it('会话详情 404 透传，未知错误兜底', async () => {
@@ -262,7 +272,7 @@ describe('chat stream route SSE 合同', () => {
     expect(parseSseFrames(response.text)).toEqual([
       { event: 'delta', text: '第一句。' },
       { event: 'delta', text: '第二句！' },
-      { event: 'done', ...savedTurn },
+      { event: 'done', ...savedTurn, offerMemory: false },
     ])
     expect(service.sendMessageStream).toHaveBeenCalledOnce()
     const [id, userId, content, requestId, options] = service.sendMessageStream.mock.calls[0]
@@ -282,7 +292,7 @@ describe('chat stream route SSE 合同', () => {
 
     const frames = parseSseFrames(response.text)
     expect(frames[0]).toEqual({ event: 'replace', content: '本地安全模板全文' })
-    expect(frames[1]).toEqual({ event: 'done', ...savedTurn })
+    expect(frames[1]).toEqual({ event: 'done', ...savedTurn, offerMemory: false })
   })
 
   it('危机输入编码为 blocked 事件，结构与 JSON 端点一致', async () => {
@@ -385,7 +395,7 @@ describe('chat stream route SSE 合同', () => {
       const response = await pending
 
       expect(response.text).toContain(': ping\n\n')
-      expect(parseSseFrames(response.text).at(-1)).toEqual({ event: 'done', ...savedTurn })
+      expect(parseSseFrames(response.text).at(-1)).toEqual({ event: 'done', ...savedTurn, offerMemory: false })
     } finally {
       vi.useRealTimers()
     }
@@ -551,5 +561,108 @@ describe('chat 图片消息路由', () => {
     const noImage = await request(app).get('/images/msg-y')
     expect(noImage.status).toBe(404)
     expect(imageStore.readChatImage).not.toHaveBeenCalled()
+  })
+})
+
+describe('她主动说的话', () => {
+  it('打开对话时取她想说的，「知道了」按 id 交回；失败透传', async () => {
+    nudges.listNudges.mockResolvedValue([{ id: 'reminder:d1', kind: 'reminder', content: '喝水' }])
+    const listed = await request(app).get('/nudges')
+    expect(listed.body).toEqual({ nudges: [{ id: 'reminder:d1', kind: 'reminder', content: '喝水' }] })
+    expect(nudges.listNudges).toHaveBeenCalledWith('user-1')
+
+    nudges.ackNudge.mockResolvedValue({ success: true })
+    const acked = await request(app).post(`/nudges/${encodeURIComponent('care:birthday:profile:2026-09-20')}/ack`).send({ action: 'dismissed' })
+    expect(acked.body).toEqual({ success: true })
+    expect(nudges.ackNudge).toHaveBeenCalledWith('user-1', 'care:birthday:profile:2026-09-20', 'dismissed')
+
+    nudges.ackNudge.mockRejectedValue(Object.assign(new Error('这条不存在'), { statusCode: 404 }))
+    expect((await request(app).post('/nudges/nope/ack').send({})).status).toBe(404)
+  })
+})
+
+describe('空对话那一屏的开场话题', () => {
+  beforeEach(() => { openers.listOpeners.mockReset() })
+
+  it('登录后可用，只读地取她自己线索里的候选', async () => {
+    openers.listOpeners.mockResolvedValue([
+      { id: 'followup:f1', label: '惦记的：周三答辩', text: '答辩怎么样了？', why: '你之前说过这件事' },
+      { id: 'note:n1', label: '上次记的那句', text: '上次我记下的那句我还想着：有点累', draft: true, why: '你最近写下的一行' },
+    ])
+
+    const response = await request(app).get('/openers')
+
+    expect(response.status).toBe(200)
+    expect(response.body).toEqual({ openers: [
+      { id: 'followup:f1', label: '惦记的：周三答辩', text: '答辩怎么样了？', why: '你之前说过这件事' },
+      { id: 'note:n1', label: '上次记的那句', text: '上次我记下的那句我还想着：有点累', draft: true, why: '你最近写下的一行' },
+    ] })
+    expect(openers.listOpeners).toHaveBeenCalledWith('user-1')
+  })
+
+  it('未登录 401，不去读她的线索', async () => {
+    const guarded = express()
+    guarded.use(express.json())
+    guarded.use('/api/chat', authMiddleware, chatRoutes)
+
+    const response = await request(guarded).get('/api/chat/openers')
+
+    expect(response.status).toBe(401)
+    expect(openers.listOpeners).not.toHaveBeenCalled()
+  })
+
+  it('出错按该文件的风格回中文错误', async () => {
+    openers.listOpeners.mockRejectedValue(Object.assign(new Error('这条线索不存在'), { statusCode: 404 }))
+
+    const notFound = await request(app).get('/openers')
+
+    expect(notFound.status).toBe(404)
+    expect(notFound.body).toEqual({ error: '这条线索不存在' })
+  })
+
+  it('出错不泄露内部信息', async () => {
+    openers.listOpeners.mockRejectedValue(new Error('private database address'))
+
+    const failure = await request(app).get('/openers')
+
+    expect(failure.status).toBe(500)
+    expect(failure.body).toEqual({ error: '获取开场话题失败' })
+  })
+})
+
+describe('伴读问答带的书本上下文', () => {
+  it('只把 bookId 与原文交给 service，其余字段不透传', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([{ type: 'done', ...savedTurn }]))
+
+    await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '她为什么不肯走？', reading: { bookId: 'b1', passage: '有庆躺在那里', 偷渡: '别的' } })
+
+    expect(service.sendMessageStream.mock.calls.at(-1)[4].reading).toEqual({ bookId: 'b1', passage: '有庆躺在那里' })
+  })
+
+  it('没有书 id 或形状不对就当作普通一轮', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([{ type: 'done', ...savedTurn }]))
+
+    await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好', reading: { passage: '没有书 id' } })
+    expect(service.sendMessageStream.mock.calls.at(-1)[4].reading).toBeNull()
+
+    service.sendMessageStream.mockReturnValue(streamOf([{ type: 'done', ...savedTurn }]))
+    await request(app)
+      .post('/conversations/conversation-1/messages/stream')
+      .send({ content: '你好', reading: '一串字' })
+    expect(service.sendMessageStream.mock.calls.at(-1)[4].reading).toBeNull()
+  })
+})
+
+describe('「帮我记住」的标记随 done 帧下发', () => {
+  it('service 说要打开确认卡时，done 帧带 offerMemory: true', async () => {
+    service.sendMessageStream.mockReturnValue(streamOf([{ type: 'done', ...savedTurn, offerMemory: true }]))
+
+    const response = await request(app).post('/conversations/conversation-1/messages/stream').send({ content: '帮我记住我对芒果过敏' })
+
+    expect(parseSseFrames(response.text).at(-1)).toMatchObject({ event: 'done', offerMemory: true })
   })
 })

@@ -33,14 +33,13 @@ describe('应用级行为', () => {
     expect(response.body).toEqual({ error: '接口不存在' })
   })
 
-  it('内测环境的天气假数据路由保持未开放 409，其余工具箱路由已挂载', async () => {
+  it('天气假数据路由已删除，工具箱路由仍经鉴权', async () => {
     const token = generateToken({ userId: 'user-1' })
     const weather = await request(app)
       .get('/api/tools/weather')
       .set('Authorization', `Bearer ${token}`)
-    expect(weather.status).toBe(409)
-    expect(weather.body).toEqual({ error: '该功能未在内测中开放', code: 'FEATURE_NOT_AVAILABLE' })
-    // 工具箱其余路由不再被 409 拦截（未认证请求应走到鉴权 401 而非功能关闭）。
+    expect(weather.status).not.toBe(200)
+    // 未认证请求走到鉴权 401。
     const unauthenticated = await request(app).get('/api/tools/period')
     expect(unauthenticated.status).toBe(401)
   })

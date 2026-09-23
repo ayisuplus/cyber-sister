@@ -19,17 +19,17 @@ describe('work task lifecycle', () => {
     vi.clearAllMocks()
     workTaskService.status.mockResolvedValue({ capabilities: { backgroundTasks: true } })
     workTaskService.list.mockResolvedValue([])
-    useChatStore.setState({ currentConversationId: 'c1', isSending: false, refreshConversation: vi.fn() })
+    useChatStore.setState({ currentConversationId: 'c1', isSending: false, refreshThread: vi.fn() })
   })
 
-  it('remount discovers persistent results and refreshes their conversation', async () => {
+  it('remount discovers persistent results and refreshes the conversation', async () => {
     workTaskService.list.mockResolvedValue([{ ...task, status: 'completed' }])
     const first = renderHook(() => useWorkTasks(true))
     await waitFor(() => expect(first.result.current.tasks).toHaveLength(1))
     first.unmount()
     const second = renderHook(() => useWorkTasks(true))
     await waitFor(() => expect(second.result.current.tasks[0].status).toBe('completed'))
-    expect(useChatStore.getState().refreshConversation).toHaveBeenCalledWith('c1')
+    expect(useChatStore.getState().refreshThread).toHaveBeenCalled()
     expect(workTaskService.cancel).not.toHaveBeenCalled()
   })
 

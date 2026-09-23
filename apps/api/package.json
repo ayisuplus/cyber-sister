@@ -14,7 +14,7 @@
     "pretest:coverage": "pnpm db:generate",
     "test:coverage": "vitest run --coverage",
     "pretest:postgres": "pnpm db:generate",
-    "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js",
+    "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js tests/integration/thread-postgres.test.js tests/integration/bridge-postgres.test.js",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@cyber-sister/llm-gateway": "workspace:*",
+    "schedule-logic": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "0.6.0",
     "@prisma/client": "^5.18.0",

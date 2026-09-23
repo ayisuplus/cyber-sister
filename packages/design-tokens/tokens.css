@@ -87,9 +87,26 @@
   --cs-grain-opacity: 0.05;
   --cs-focus-halo: 0 0 0 6px color-mix(in srgb, var(--cs-focus-info) 14%, transparent);
 
-  /* 系统字体栈，零下载（V3.0 §3）。展示衬线刻意不含 SimSun：Windows 上小字号发虚。 */
+  /* 展示衬线用系统字体栈，零下载（V3.0 §3），刻意不含 SimSun：Windows 上小字号发虚。 */
   --cs-font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'Microsoft YaHei', serif;
-  --cs-font-hand: 'Kaiti SC', 'STKaiti', 'KaiTi', 'STKaitiSC-Regular', cursive;
+  /* 信纸上的手写字（2026-09-22）：霞鹜文楷·屏幕版 GB，自托管、按字切块，只加载用到的字；没到之前先用系统楷体 */
+  --cs-font-hand: 'LXGW WenKai Screen', 'Kaiti SC', 'STKaiti', 'KaiTi', serif;
+  --cs-font-print: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+
+  /* ---- 信纸（2026-09-22）：纸、横格、页边线与三种墨色；两种墨色在纸上都 ≥ 9:1，铅笔灰 ≥ 5.5:1 ---- */
+  --cs-paper: #FFFDF7;
+  --cs-paper-line: #E6E8DA;
+  --cs-paper-margin: #EDDCD3;
+  --cs-paper-shadow: 0 1px 2px rgba(56, 66, 46, 0.06), 0 12px 32px -14px rgba(56, 66, 46, 0.22);
+  --cs-ink-her: #2F3629;       /* 墨黑，纸上 12.3:1 */
+  --cs-ink-you: #2D4560;       /* 藏青，纸上 9.7:1 */
+  --cs-ink-pencil: #62675A;    /* 铅笔灰，纸上 5.7:1 */
+
+  /* ---- 本子（2026-09-22）：左封皮的纸板色、两道缝线与布纹 ----
+   * 封皮比纸深一点，是同一族的暖纸板；封面上正文 8.5:1、次级与辅助 5.2:1，过 AA */
+  --cs-cover: #EDE6D6;
+  --cs-cover-stitch: #D5CBB4;
+  --cs-cover-weave: rgba(56, 66, 46, 0.035);
 }
 
 /* 夜间：深墨绿表面与柔和鼠尾草色，保留植物手账的层次。 */
@@ -141,4 +158,18 @@
   --cs-glow-2: rgba(128, 110, 72, 0.14);
   --cs-glow-3: rgba(70, 118, 114, 0.20);
   --cs-grain-opacity: 0.07;
+
+  /* 夜里的信纸：深暖灰的纸、米白的字，横格更淡 */
+  --cs-paper: #1F2521;
+  --cs-paper-line: #2E3630;
+  --cs-paper-margin: #3B3230;
+  --cs-paper-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 12px 32px -14px rgba(0, 0, 0, 0.5);
+  --cs-ink-her: #ECE7DC;       /* 米白，纸上 12.7:1 */
+  --cs-ink-you: #B9CDE3;       /* 月光蓝，纸上 9.6:1 */
+  --cs-ink-pencil: #A5AA9D;    /* 纸上 6.6:1 */
+
+  /* 夜里的本子：封皮比纸更深，像放在灯下的一本；封面上正文 14.6:1、次级与辅助 8.3:1 */
+  --cs-cover: #171C18;
+  --cs-cover-stitch: #2C342D;
+  --cs-cover-weave: rgba(255, 255, 255, 0.03);
 }

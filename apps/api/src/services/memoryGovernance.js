@@ -27,24 +27,33 @@ export async function ownedMemory(tx, userId, id) {
   return memory
 }
 
+// 六类来源的查找与正文口径：message/memory 是原有两类，手记/读书/日历/收藏是生活痕迹（trace）
+const SOURCE_SPECS = {
+  message:      { find: (tx, userId, id) => tx.message.findFirst({ where: { id, role: 'user', conversation: { userId } } }), text: (r) => r.content },
+  memory:       { find: (tx, userId, id) => tx.memory.findFirst({ where: { id, userId } }), text: (r) => r.content, revisioned: true },
+  diary:        { find: (tx, userId, id) => tx.diaryEntry.findFirst({ where: { id, userId } }), text: (r) => r.content ?? '' },
+  reading_note: { find: (tx, userId, id) => tx.readingNote.findFirst({ where: { id, userId } }), text: (r) => [r.quote, r.content].filter(Boolean).join('\n') },
+  task:         { find: (tx, userId, id) => tx.scheduledReminder.findFirst({ where: { id, userId } }), text: (r) => r.content ?? '' },
+  collection:   { find: (tx, userId, id) => tx.collectionItem.findFirst({ where: { id, userId } }), text: (r) => [r.name, r.note].filter(Boolean).join('\n') },
+}
+
 export async function validateSources(tx, userId, sources) {
   if (!Array.isArray(sources) || sources.length > 20) throw new HttpError('来源格式不正确', 400)
   const result = []
   for (const source of sources) {
-    if (!source || !['message', 'memory'].includes(source.type) || typeof source.id !== 'string'
+    const spec = source ? SOURCE_SPECS[source.type] : null
+    if (!spec || typeof source.id !== 'string'
       || typeof source.quote !== 'string' || !source.quote.trim() || source.quote.length > 2000) {
       throw new HttpError('来源必须包含对象和有效引用片段', 400)
     }
     // eslint-disable-next-line no-await-in-loop
-    const record = await (source.type === 'memory'
-      ? tx.memory.findFirst({ where: { id: source.id, userId } })
-      : tx.message.findFirst({ where: { id: source.id, role: 'user', conversation: { userId } } }))
+    const record = await spec.find(tx, userId, source.id)
     if (!record) throw conflict('来源已不可用，请重新核对内容')
-    if (source.type === 'memory' && (source.revision !== record.revision
+    if (spec.revisioned && (source.revision !== record.revision
       || (record.expiresAt && new Date(record.expiresAt) <= new Date()))) throw conflict('来源记忆已变化，请重新核对')
-    if (!record.content.includes(source.quote)) throw conflict('引用片段与来源不一致')
+    if (!spec.text(record).includes(source.quote)) throw conflict('引用片段与来源不一致')
     result.push({ type: source.type, id: record.id, quote: source.quote,
-      ...(source.type === 'memory' ? { revision: record.revision } : {}), status: 'verified' })
+      ...(spec.revisioned ? { revision: record.revision } : {}), status: 'verified' })
   }
   return result
 }

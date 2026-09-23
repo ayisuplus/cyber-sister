@@ -14,8 +14,7 @@ const normalizePeriodRecord = (record) => ({
   startDay: toLocalCalendarDay(record?.startDate),
   endDay: toLocalCalendarDay(record?.endDate),
 })
-
-// 生活工具：经期记录，与「安排」（日程、倒数日、提醒、每天的小习惯合成的定时任务）及其到点投递
+// 生活工具：经期记录，与「安排」（日程、倒数日、提醒、每天的小习惯合成的定时任务）
 export const useToolsStore = create(
   (set) => ({
     // 大姨妈记录
@@ -63,9 +62,8 @@ export const useToolsStore = create(
       set((state) => ({ periodRecords: state.periodRecords.filter(item => item.id !== id) }))
     },
 
-    // 安排（定时任务）
+    // 安排（定时任务）。到点的提醒由她在对话里说，这里只管增删改查。
     scheduledReminders: [],
-    dueDeliveries: [],
 
     loadScheduledReminders: async () => {
       const session = getSessionVersion()
@@ -105,36 +103,10 @@ export const useToolsStore = create(
         scheduledReminders: state.scheduledReminders.filter((r) => r.id !== id),
       }))
     },
-
-    // 到点投递：前台轮询拉取；ack 后从待办列表移除
-    pollDueDeliveries: async () => {
-      const session = getSessionVersion()
-      try {
-        const deliveries = await reminderService.listDue()
-        assertSessionVersion(session)
-        set({ dueDeliveries: deliveries })
-        return deliveries
-      } catch (error) {
-        console.error('拉取到期提醒失败:', summarizeError(error))
-        return []
-      }
-    },
-
-    ackDelivery: async (deliveryId, action) => {
-      const session = getSessionVersion()
-      try {
-        await reminderService.ack(deliveryId, action)
-        assertSessionVersion(session)
-        set((state) => ({ dueDeliveries: state.dueDeliveries.filter((d) => d.id !== deliveryId) }))
-      } catch (error) {
-        console.error('确认提醒投递失败:', summarizeError(error))
-      }
-    },
   })
 )
 
 onSessionReset(() => useToolsStore.setState({
   periodRecords: [],
   scheduledReminders: [],
-  dueDeliveries: [],
 }))

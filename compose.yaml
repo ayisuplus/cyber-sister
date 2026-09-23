@@ -69,6 +69,8 @@ services:
       INTERNAL_TEST_CODE_FILE: /run/secrets/internal_test_code
       INTERNAL_TEST_PHONES_FILE: /run/secrets/internal_test_phones
       INSTANCE_ADMIN_PHONES_FILE: /run/secrets/instance_admin_phones
+      # 实例管理员在设置页配的模型供应商密钥，用它加解密（只读、64 位十六进制）
+      MODEL_CONFIG_KEY_FILE: /run/secrets/model_config_key
     secrets:
       - database_password
       - jwt_secret
@@ -76,6 +78,10 @@ services:
       - internal_test_code
       - internal_test_phones
       - instance_admin_phones
+      - model_config_key
+    volumes:
+      # 头像、背景与聊天图片：写在容器可写层时，每次重建容器都会丢
+      - api-data:/workspace/apps/api/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +131,7 @@ networks:
 
 volumes:
   postgres-data:
+  api-data:
 
 secrets:
   postgres_password:
@@ -141,3 +148,5 @@ secrets:
     file: ${INTERNAL_TEST_PHONES_FILE:?set INTERNAL_TEST_PHONES_FILE in the private env file}
   instance_admin_phones:
     file: ${INSTANCE_ADMIN_PHONES_FILE:?set INSTANCE_ADMIN_PHONES_FILE in the private env file}
+  model_config_key:
+    file: ${MODEL_CONFIG_KEY_FILE:?set MODEL_CONFIG_KEY_FILE in the private env file}

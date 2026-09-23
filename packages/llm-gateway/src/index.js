@@ -42,6 +42,7 @@
  * - 日志只记 requestId/scene/provider/model/attempt/latencyMs/result，绝不记录消息内容与密钥。
  */
 import { getPersonaSystemPrompt } from './personas.js'
+import { safeProviderFetch } from './safeFetch.js'
 
 /* global AbortSignal, TextDecoder */
 // 推理模型（dots 等）多轮工具回路下单轮可能超过 90s，留足余量
@@ -64,6 +65,8 @@ function parseProviderConfig(env, name) {
     scenes: String(env[`GATEWAY_${key}_SCENES`] || '')
       .split(',').map((s) => s.trim()).filter(Boolean),
     priority: Number.parseInt(env[`GATEWAY_${key}_PRIORITY`] || '99', 10) || 99,
+    safeNetwork: env[`GATEWAY_${key}_SAFE_NETWORK`] === 'true',
+    allowLoopback: env[`GATEWAY_${key}_ALLOW_LOOPBACK`] === 'true',
   }
 }
 
@@ -87,13 +90,14 @@ async function callOpenAiCompatible(provider, payload, timeoutMs, signal) {
   if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
   // OpenAI 兼容约定：baseUrl 已含 /v1（与 llama.cpp、DashScope、OpenAI SDK 一致）
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+  const response = await (provider.safeNetwork ? safeProviderFetch : fetch)(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  })
+  }, provider.safeNetwork ? { allowLoopback: provider.allowLoopback } : undefined)
   if (!response.ok) {
+    await response.body?.cancel?.().catch(() => {})
     const error = new Error(`provider http ${response.status}`)
     error.status = response.status
     throw error
@@ -150,13 +154,14 @@ async function* streamOpenAiCompatible(provider, payload, timeoutMs, signal) {
   const headers = { 'content-type': 'application/json' }
   if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+  const response = await (provider.safeNetwork ? safeProviderFetch : fetch)(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  })
+  }, provider.safeNetwork ? { allowLoopback: provider.allowLoopback } : undefined)
   if (!response.ok) {
+    await response.body?.cancel?.().catch(() => {})
     const error = new Error(`provider http ${response.status}`)
     error.status = response.status
     throw error

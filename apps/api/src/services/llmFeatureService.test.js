@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   isCloudProviderConfigured: vi.fn(() => true),
+  activeChatProviders: vi.fn(() => []),
 }))
 
 vi.mock('../prisma/client.js', () => ({
@@ -10,6 +11,7 @@ vi.mock('../prisma/client.js', () => ({
 }))
 vi.mock('./llmService.js', () => ({
   isCloudProviderConfigured: mocks.isCloudProviderConfigured,
+  activeChatProviders: mocks.activeChatProviders,
 }))
 
 import { getLlmStatus } from './llmFeatureService.js'
@@ -19,6 +21,7 @@ import { getLlmStatus } from './llmFeatureService.js'
 describe('云端模型状态', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.activeChatProviders.mockReturnValue([])
     mocks.userFindUnique.mockResolvedValue({
       externalLlmConsent: null,
       externalLlmConsentVersion: null,
@@ -32,7 +35,8 @@ describe('云端模型状态', () => {
       embedding: { configured: false, model: null, mode: 'keyword', available: null },
       workGeneration: expect.objectContaining({ mode: 'mock', cloudConnected: false }),
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, primary: true, consent: null, version: 'cloud-primary-v3' },
+      isInstanceAdmin: false,
+      externalFallback: { configured: true, primary: true, consent: null, version: 'cloud-primary-v4', providers: [] },
     })
     expect(JSON.stringify(result)).not.toContain('baseUrl')
   })
@@ -40,7 +44,7 @@ describe('云端模型状态', () => {
   it('已同意的用户返回 consent=true', async () => {
     mocks.userFindUnique.mockResolvedValue({
       externalLlmConsent: true,
-      externalLlmConsentVersion: 'cloud-primary-v3',
+      externalLlmConsentVersion: 'cloud-primary-v4',
     })
     const result = await getLlmStatus('user-1')
     expect(result.externalFallback.consent).toBe(true)
@@ -50,5 +54,19 @@ describe('云端模型状态', () => {
     mocks.isCloudProviderConfigured.mockReturnValue(false)
     const result = await getLlmStatus('user-1')
     expect(result.externalFallback.configured).toBe(false)
+  })
+
+  it('管理员多一个 true 标记和供应商显示名：界面据此决定卡片是否出现', async () => {
+    mocks.userFindUnique.mockResolvedValue({ phone: '13800138000' })
+    mocks.activeChatProviders.mockReturnValue([{ name: '甲家', model: 'jia-chat' }])
+    const result = await getLlmStatus('admin-1')
+    expect(result.isInstanceAdmin).toBe(true)
+    expect(result.externalFallback.providers).toEqual([{ name: '甲家', model: 'jia-chat' }])
+    expect(JSON.stringify(result)).not.toContain('api.jia.example')
+  })
+
+  it('不在管理员名单里的人拿到 false', async () => {
+    mocks.userFindUnique.mockResolvedValue({ phone: '13900139000' })
+    expect((await getLlmStatus('tester')).isInstanceAdmin).toBe(false)
   })
 })

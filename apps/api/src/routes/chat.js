@@ -1,9 +1,13 @@
 import { Router } from 'express'
-import { validateRequired, validateLength, validateEnum, validate } from '../utils/validate.js'
+import { randomUUID } from 'node:crypto'
+import { validateRequired, validateLength, validate } from '../utils/validate.js'
 import { workMessageUpload } from '../utils/workMessageUpload.js'
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import * as chatService from '../services/chatService.js'
+import { runConfirmedTool } from '../services/agentService.js'
+import * as nudgeService from '../services/nudgeService.js'
+import * as openerService from '../services/openerService.js'
 import { readChatImage } from '../services/chatImageService.js'
 import logger from '../utils/logger.js'
 
@@ -52,18 +56,55 @@ router.patch('/conversations/:id/archive', async (req, res) => {
   }
 })
 
-const validateConversationCreate = validate([
-  // 只有一种对话；旧客户端显式传 chat 仍兼容，传 work 拒绝
-  { field: 'mode', validate: (v) => (v === undefined ? null : validateEnum(v, '模式', ['chat'])) },
-])
-
-router.post('/conversations', validateConversationCreate, async (req, res) => {
+// 她主动说的话（到点提醒、她来想你、每周的信）只有对话这一个出口；没有推送通道，打开时拉取。
+router.get('/nudges', async (req, res) => {
   try {
-    const conversation = await chatService.createConversation(req.user.userId, req.body)
-    res.json(conversation)
+    res.json({ nudges: await nudgeService.listNudges(req.user.userId) })
   } catch (error) {
-    logger.error('新建会话失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '新建会话失败' })
+    logger.error('获取她想说的话失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取她想说的话失败' })
+  }
+})
+
+router.post('/nudges/:id/ack', async (req, res) => {
+  try {
+    res.json(await nudgeService.ackNudge(req.user.userId, req.params.id, req.body?.action))
+  } catch (error) {
+    logger.error('确认她说的话失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '确认失败' })
+  }
+})
+
+// 空白对话那一屏的开场话题：从她自己的线索里来（她惦记的事、你在读的书、最近的手记）。
+// 只读、不发模型、不落库；取不到就让前端留着本机静态池。
+router.get('/openers', async (req, res) => {
+  try {
+    res.json({ openers: await openerService.listOpeners(req.user.userId) })
+  } catch (error) {
+    logger.error('获取开场话题失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取开场话题失败' })
+  }
+})
+
+// 只有一段对话：第一次打开时把旧的多个会话合成一段
+router.get('/thread', async (req, res) => {
+  try {
+    res.json(await chatService.getThread(req.user.userId, {
+      page: Number.parseInt(req.query.page, 10),
+      limit: Number.parseInt(req.query.limit, 10),
+    }))
+  } catch (error) {
+    logger.error('获取对话失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '获取对话失败' })
+  }
+})
+
+router.delete('/thread/messages', async (req, res) => {
+  try {
+    res.json(await chatService.clearThread(req.user.userId))
+  } catch (error) {
+    logger.error('清空聊天记录失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '清空聊天记录失败' })
   }
 })
 
@@ -119,6 +160,16 @@ router.post('/conversations/:id/messages', validateMessageContent, async (req, r
   }
 })
 
+// 伴读问答：书在用户自己的浏览器里，这里只收书的 id 和她此刻看到的那一段原文（服务端再截断）。
+// multipart 轮（发图/传文件）不带伴读上下文，只认 JSON 对象。
+const readingContext = (reading) => {
+  if (!reading || typeof reading !== 'object' || typeof reading.bookId !== 'string' || !reading.bookId) return null
+  return {
+    bookId: reading.bookId,
+    passage: typeof reading.passage === 'string' ? reading.passage : '',
+  }
+}
+
 const STREAM_HEARTBEAT_MS = 15000
 
 // 事件编码：data: {"event": <类型>, ...payload}\n\n（类型在 JSON 的 event 字段中，
@@ -168,6 +219,7 @@ router.post('/conversations/:id/messages/stream', workMessageUpload, async (req,
         signal: controller.signal,
         image: req.file ? { buffer: req.file.buffer, mime: req.file.mimetype } : null,
         files: req.workFiles || [],
+        reading: readingContext(req.body.reading),
       },
     )) {
       if (controller.signal.aborted) break
@@ -187,6 +239,8 @@ router.post('/conversations/:id/messages/stream', workMessageUpload, async (req,
             userMessage: item.userMessage,
             aiMessage: item.aiMessage,
             source: item.source,
+            // 她想让你记住一件事：回复下面自动打开「帮我记住」确认卡
+            offerMemory: item.offerMemory === true,
           })
           break
         case 'blocked':
@@ -215,6 +269,103 @@ router.post('/conversations/:id/messages/stream', workMessageUpload, async (req,
     clearInterval(heartbeat)
     res.off('close', handleClientClose)
     if (!res.writableEnded && !res.destroyed) res.end()
+  }
+})
+
+// 聊天内确认卡：改/删用户已写下的内容先落一条待确认提案（toolRuns 里的 pending 条目），
+// 点头才执行（复用工具自己的 run，不建第二执行通道）；「不用」只把提案标记成没做。
+// index 就是该消息 toolRuns 数组里的下标；pending 已清的提案不允许重复处理（同来信 decide 的 409 口径）。
+async function loadPendingToolRun(req) {
+  const message = await prisma.message.findFirst({
+    where: { id: req.params.messageId, conversation: { userId: req.user.userId } },
+    select: { id: true, toolRuns: true },
+  })
+  // 非本人消息一律「不存在」
+  if (!message) throw new HttpError('消息不存在', 404)
+  const toolRuns = Array.isArray(message.toolRuns) ? [...message.toolRuns] : []
+  const index = Number(req.params.index)
+  if (!Number.isInteger(index) || index < 0 || index >= toolRuns.length) throw new HttpError('这个动作已经不在了', 404)
+  const entry = toolRuns[index]
+  if (entry?.pending !== true || entry.processing) throw new HttpError('这个动作已经处理过了', 409)
+  return { message, toolRuns, index, entry }
+}
+
+const MAX_TOOL_RUN_CAS_ATTEMPTS = 32
+
+// JSON 数组按原值比较并更新：抢同一个动作只能成功一次；不同下标并发时重读再合并。
+async function changeToolRun(req, replace) {
+  for (let attempt = 0; attempt < MAX_TOOL_RUN_CAS_ATTEMPTS; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const { message, toolRuns, index, entry } = await loadPendingToolRun(req)
+    toolRuns[index] = replace(entry)
+    // eslint-disable-next-line no-await-in-loop
+    const changed = await prisma.message.updateMany({
+      where: { id: message.id, toolRuns: { equals: message.toolRuns } },
+      data: { toolRuns },
+    })
+    if (changed.count === 1) return { entry, index }
+  }
+  throw new HttpError('这个动作正在更新，请重试', 409)
+}
+
+async function finishToolRun(req, claimId, toolRun) {
+  for (let attempt = 0; attempt < MAX_TOOL_RUN_CAS_ATTEMPTS; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const message = await prisma.message.findFirst({
+      where: { id: req.params.messageId, conversation: { userId: req.user.userId } },
+      select: { id: true, toolRuns: true },
+    })
+    const index = Number(req.params.index)
+    const toolRuns = Array.isArray(message?.toolRuns) ? [...message.toolRuns] : []
+    if (toolRuns[index]?.claimId !== claimId) throw new HttpError('这个动作已经处理过了', 409)
+    toolRuns[index] = toolRun
+    // eslint-disable-next-line no-await-in-loop
+    const changed = await prisma.message.updateMany({
+      where: { id: message.id, toolRuns: { equals: message.toolRuns } },
+      data: { toolRuns },
+    })
+    if (changed.count === 1) return
+  }
+  throw new HttpError('保存动作结果失败', 500)
+}
+
+router.post('/messages/:messageId/tool-runs/:index/confirm', async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const claimId = randomUUID()
+    const { entry } = await changeToolRun(req, (pending) => ({ ...pending, pending: false, processing: true, claimId, ok: false, summary: '正在确认，结果待核对' }))
+    let toolRun
+    let result = null
+    let already = false
+    try {
+      const run = await runConfirmedTool(userId, entry.tool, entry.args || {})
+      result = run.result ?? null
+      toolRun = { tool: entry.tool, ok: run.ok !== false, summary: run.summary }
+    } catch (error) {
+      // 执行对象已经被别处删掉/不存在：照样清掉提案，如实说「已经不在了」（同来信 delete_memory 的 already 语义）
+      if (error?.statusCode === 404) {
+        already = true
+        toolRun = { tool: entry.tool, ok: true, summary: '已经不在了' }
+      } else {
+        toolRun = { tool: entry.tool, ok: false, summary: error?.statusCode ? error.message : '操作失败' }
+      }
+    }
+    await finishToolRun(req, claimId, toolRun)
+    res.json({ ...(already ? { already: true } : {}), toolRun, ...(result !== null ? { result } : {}) })
+  } catch (error) {
+    logger.error('确认聊天动作失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '操作失败' })
+  }
+})
+
+router.post('/messages/:messageId/tool-runs/:index/dismiss', async (req, res) => {
+  try {
+    const { entry } = await changeToolRun(req, (pending) => ({ tool: pending.tool, ok: true, dismissed: true, summary: '你没让做' }))
+    const toolRun = { tool: entry.tool, ok: true, dismissed: true, summary: '你没让做' }
+    res.json({ toolRun })
+  } catch (error) {
+    logger.error('取消聊天动作失败', { error: error.message, userId: req.user.userId })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '操作失败' })
   }
 })
 

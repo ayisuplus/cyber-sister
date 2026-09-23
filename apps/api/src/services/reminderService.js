@@ -6,6 +6,8 @@
  */
 import prisma from '../prisma/client.js'
 import { findOwned, deleteOwned, HttpError } from '../utils/dbHelpers.js'
+import { toLocalDayString as toLocalDateString } from '../utils/dayHelpers.js'
+import { occursOn } from 'schedule-logic'
 
 const MAX_CONTENT_LENGTH = 200
 const MAX_INSTRUCTION_LENGTH = 500
@@ -15,9 +17,6 @@ const FREQS = ['once', 'daily', 'weekly', 'monthly', 'yearly']
 // 带锚点日期的频率：once 在该日触发一次，yearly 每年同月同日触发（生日、纪念日）
 const DATED_FREQS = ['once', 'yearly']
 const STATUSES = ['active', 'paused', 'done']
-
-const toLocalDateString = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 // ============ 校验 ============
 
@@ -159,6 +158,30 @@ export function listScheduledReminders(userId) {
   })
 }
 
+/**
+ * 某个本地日历日会发生的事（day_review 用）：调度判定复用 packages/schedule-logic 的 occursOn，
+ * 与日历页同一份判定，不另写一套。occursOn 只认 active，暂停与已完成的自然不命中。
+ */
+export async function listScheduledRemindersOn(userId, day) {
+  const rows = await listScheduledReminders(userId)
+  return rows.filter((row) => occursOn(row, day))
+}
+
+// 聊天每次只取一页；默认活动安排，避免旧的已完成记录挡住当前安排。
+export async function queryScheduledReminders(userId, { status = 'active', offset = 0 } = {}) {
+  if (![...STATUSES, 'all'].includes(status)) throw new HttpError('状态只能是 active、paused、done 或 all', 400)
+  if (!Number.isInteger(offset) || offset < 0 || offset > 2147483647) throw new HttpError('offset 必须是有效的非负整数', 400)
+  const pageSize = 20
+  const rows = await prisma.scheduledReminder.findMany({
+    where: { userId, ...(status === 'all' ? {} : { status }) },
+    orderBy: [{ nextFireAt: 'asc' }, { id: 'asc' }],
+    skip: offset,
+    take: pageSize + 1,
+  })
+  const hasMore = rows.length > pageSize
+  return { items: rows.slice(0, pageSize), status, hasMore, nextOffset: hasMore ? offset + pageSize : null }
+}
+
 export async function updateScheduledReminder(id, userId, args) {
   await findOwned('scheduledReminder', id, userId, '提醒')
   const updateData = {}
@@ -201,6 +224,17 @@ export function deleteScheduledReminder(id, userId) {
  * 拉到点未投递的提醒：对每条 active 且 nextFireAt <= now 的提醒幂等 upsert 投递实例，
  * 返回 pending 投递（含提醒内容）。不推进 nextFireAt——由 ack 驱动。
  */
+/** 今天已经到点的提醒（点没点「知道了」都算）。只读：不建投递，给她自己的上下文用。 */
+export function listTodaysDeliveries(userId, now = new Date()) {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return prisma.reminderDelivery.findMany({
+    where: { reminder: { userId }, fireAt: { gte: startOfToday, lte: now } },
+    include: { reminder: { select: { content: true } } },
+    orderBy: { fireAt: 'asc' },
+    take: 5,
+  })
+}
+
 export async function listDueReminders(userId, now = new Date()) {
   const due = await prisma.scheduledReminder.findMany({
     where: { userId, status: 'active', nextFireAt: { lte: now } },
@@ -214,7 +248,11 @@ export async function listDueReminders(userId, now = new Date()) {
     })
   ))
   return prisma.reminderDelivery.findMany({
-    where: { status: 'pending', reminder: { userId } },
+    where: {
+      status: 'pending', reminder: { userId },
+      // 已结束的安排不再提示，包含结束前已创建/晚到的投递；完成任务的既有产出仍可读取。
+      OR: [{ reminder: { status: { not: 'done' } } }, { result: { not: null } }],
+    },
     include: { reminder: { select: { id: true, content: true, freq: true, time: true, instruction: true } } },
     orderBy: { fireAt: 'asc' },
   })

@@ -49,7 +49,7 @@ withDatabase('durable work tasks on isolated PostgreSQL', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No live network in tests')))
     generateResponseStream.mockReset().mockImplementation(async function* () { yield done })
     await db.user.deleteMany()
-    user = await db.user.create({ data: { phone: '19900000011', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' } })
+    user = await db.user.create({ data: { phone: '19900000011', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' } })
     conversation = await db.conversation.create({ data: { userId: user.id, mode: 'work' } })
   })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs() })

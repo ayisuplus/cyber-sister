@@ -1,25 +1,13 @@
-import { differenceInCalendarDays, format } from 'date-fns'
+import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { FREQ_OPTIONS, WEEKDAY_LABELS, DATED_FREQS, daysLeft, occursOn } from 'schedule-logic'
 
-// 「安排」：日程、倒数日、提醒、每天的小习惯共用一种定时任务（后端 ScheduledReminder）。
+// 「日历」里的事：日程、倒数日、提醒、每天的小习惯共用一种定时任务（后端 ScheduledReminder）。
 // 带日子的（一次、每年）按「今天 / 接下来」排，例行的（每天、每周、每月）归「重复」。
 
-export const FREQ_OPTIONS = [
-  { value: 'once', label: '一次' },
-  { value: 'daily', label: '每天' },
-  { value: 'weekly', label: '每周' },
-  { value: 'monthly', label: '每月' },
-  { value: 'yearly', label: '每年' },
-]
-
-export const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
-
-export const DATED_FREQS = ['once', 'yearly']
+export { FREQ_OPTIONS, WEEKDAY_LABELS, DATED_FREQS, daysLeft, occursOn }
 
 const byNextFire = (a, b) => new Date(a.nextFireAt).getTime() - new Date(b.nextFireAt).getTime()
-
-/** 离下一次还有几个本地日历日；已到点未确认的为负数。 */
-export const daysLeft = (task, now = new Date()) => differenceInCalendarDays(new Date(task.nextFireAt), now)
 
 /** @param {any[]} tasks */
 export function groupTasks(tasks, now = new Date()) {

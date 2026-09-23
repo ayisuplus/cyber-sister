@@ -15,6 +15,7 @@ const db = vi.hoisted(() => ({
   derivedFindMany: vi.fn(),
   makeupPresetFindMany: vi.fn(),
   wardrobeItemFindMany: vi.fn(),
+  collectionFindMany: vi.fn(),
   edgeFindMany: vi.fn(),
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('../prisma/client.js', () => {
     derivedInsight: { findMany: db.derivedFindMany },
     makeupPreset: { findMany: db.makeupPresetFindMany },
     wardrobeItem: { findMany: db.wardrobeItemFindMany },
+    collectionItem: { findMany: db.collectionFindMany },
     memoryEdge: { findMany: db.edgeFindMany },
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
@@ -66,13 +68,15 @@ describe('exportService.buildUserExport', () => {
       birthDate: null,
       externalLlmConsent: true,
       externalLlmConsentVersion: 'cloud-primary-v3',
+      periodConsentAt: new Date('2026-09-01T00:00:00.000Z'),
+      periodToneAt: null,
       createdAt: new Date('2026-08-01T00:00:00.000Z'),
     })
     for (const key of [
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
       'scheduledTaskFindMany',
     ]) {
       db[key].mockResolvedValue([])
@@ -85,7 +89,7 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.version).toBe(EXPORT_VERSION)
     expect(bundle.product).toBe('Amie cyber-sister')
     expect(typeof bundle.exportedAt).toBe('string')
-    expect(bundle.user).toMatchObject({ nickname: '小赛', persona: 'toxic', roleName: '同桌的你' })
+    expect(bundle.user).toMatchObject({ nickname: '小赛', persona: 'toxic', roleName: '同桌的你', periodConsentAt: '2026-09-01T00:00:00.000Z', periodToneAt: null })
     expect(JSON.stringify(bundle.user)).not.toContain('phone')
     expect(JSON.stringify(bundle.user)).not.toContain('password')
     expect(JSON.stringify(bundle)).not.toContain('refreshToken')
@@ -107,7 +111,7 @@ describe('exportService.buildUserExport', () => {
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
       'scheduledTaskFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
@@ -149,13 +153,28 @@ describe('exportService.buildUserExport', () => {
     expect(JSON.stringify(bundle.wardrobeItems)).not.toContain('sourceExt')
   })
 
+  it('装扮里的收藏随包导出：文字与链接都在，照片只记有没有', async () => {
+    db.collectionFindMany.mockResolvedValue([
+      { shelf: 'makeup', category: '唇妆', name: '雾面唇釉', note: '色号 03', status: 'want', link: 'https://m.tb.cn/h.abc', imageExt: null, createdAt: new Date('2026-09-21T00:00:00.000Z'), updatedAt: new Date('2026-09-21T01:00:00.000Z') },
+      { shelf: 'wardrobe', category: null, name: '白衬衫', note: null, status: 'have', link: null, imageExt: '.jpg', createdAt: new Date('2026-09-21T02:00:00.000Z'), updatedAt: new Date('2026-09-21T02:00:00.000Z') },
+    ])
+
+    const bundle = await buildUserExport('user-1')
+
+    expect(bundle.collection).toEqual([
+      { shelf: 'makeup', category: '唇妆', name: '雾面唇釉', note: '色号 03', status: 'want', link: 'https://m.tb.cn/h.abc', hasPhoto: false, createdAt: '2026-09-21T00:00:00.000Z', updatedAt: '2026-09-21T01:00:00.000Z' },
+      { shelf: 'wardrobe', category: null, name: '白衬衫', note: null, status: 'have', link: null, hasPhoto: true, createdAt: '2026-09-21T02:00:00.000Z', updatedAt: '2026-09-21T02:00:00.000Z' },
+    ])
+    expect(JSON.stringify(bundle.collection)).not.toContain('imageExt')
+  })
+
   it('关系边按内容引用导出（含草稿状态），来信随包导出', async () => {
     db.edgeFindMany.mockResolvedValue([
       { relation: 'similar', confidence: 'high', status: 'canonical', createdAt: new Date('2026-09-09T00:00:00.000Z'), fromMemory: { content: '喜欢火锅' }, toMemory: { content: '每周五吃火锅' } },
       { relation: 'related', confidence: 'low', status: 'derived', createdAt: new Date('2026-09-09T01:00:00.000Z'), fromMemory: { content: '甲' }, toMemory: { content: '乙' } },
     ])
     db.letterFindMany.mockResolvedValue([
-      { weekStart: new Date('2026-09-07T00:00:00.000Z'), content: '信的内容', createdAt: new Date('2026-09-09T08:00:00.000Z') },
+      { periodStart: new Date('2026-09-07T00:00:00.000Z'), freqDays: 7, content: '信的内容', createdAt: new Date('2026-09-09T08:00:00.000Z') },
     ])
 
     const bundle = await buildUserExport('user-1')
@@ -165,21 +184,21 @@ describe('exportService.buildUserExport', () => {
       { from: '甲', to: '乙', relation: 'related', confidence: 'low', status: 'derived', createdAt: '2026-09-09T01:00:00.000Z' },
     ])
     expect(bundle.letters).toEqual([
-      { weekStart: '2026-09-07T00:00:00.000Z', content: '信的内容', createdAt: '2026-09-09T08:00:00.000Z' },
+      { periodStart: '2026-09-07T00:00:00.000Z', freqDays: 7, content: '信的内容', createdAt: '2026-09-09T08:00:00.000Z' },
     ])
   })
 
   it('记忆 tags 由 JSON 字符串还原为数组，日期序列化为 ISO 字符串', async () => {
     db.memoryFindMany.mockResolvedValue([
-      { type: 'semantic', content: '喜欢火锅', importance: 8, tags: '["饮食","周末"]', origin: 'promoted', createdAt: new Date('2026-09-01T00:00:00.000Z') },
+      { type: 'semantic', content: '喜欢火锅', importance: 8, tags: '["饮食","周末"]', origin: 'promoted', pinned: true, createdAt: new Date('2026-09-01T00:00:00.000Z') },
       { type: 'episodic', content: '无标签', importance: 5, tags: null, origin: 'manual', createdAt: new Date('2026-09-02T00:00:00.000Z') },
     ])
 
     const bundle = await buildUserExport('user-1')
 
     expect(bundle.memories).toEqual([
-      { type: 'semantic', content: '喜欢火锅', importance: 8, tags: ['饮食', '周末'], origin: 'promoted', createdAt: '2026-09-01T00:00:00.000Z' },
-      { type: 'episodic', content: '无标签', importance: 5, tags: [], origin: 'manual', createdAt: '2026-09-02T00:00:00.000Z' },
+      { type: 'semantic', content: '喜欢火锅', importance: 8, tags: ['饮食', '周末'], origin: 'promoted', pinned: true, createdAt: '2026-09-01T00:00:00.000Z' },
+      { type: 'episodic', content: '无标签', importance: 5, tags: [], origin: 'manual', pinned: false, createdAt: '2026-09-02T00:00:00.000Z' },
     ])
   })
 

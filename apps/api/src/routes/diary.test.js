@@ -7,7 +7,6 @@ const service = vi.hoisted(() => ({
   getEntry: vi.fn(),
   upsertEntry: vi.fn(),
   deleteEntry: vi.fn(),
-  generateComment: vi.fn(),
 }))
 
 vi.mock('../services/diaryService.js', () => service)
@@ -59,16 +58,4 @@ describe('日记路由', () => {
     expect(missing.status).toBe(404)
   })
 
-  it('生成日记回应返回结果，模型失败透传 503 与 code', async () => {
-    service.generateComment.mockResolvedValue({ aiComment: '我在', source: 'qwen', reused: false })
-    const ok = await request(app).post('/2026-09-04/comment')
-    expect(ok.status).toBe(200)
-    expect(ok.body.aiComment).toBe('我在')
-    expect(service.generateComment).toHaveBeenCalledWith('user-1', '2026-09-04', 'req-test')
-
-    service.generateComment.mockRejectedValue(Object.assign(new Error('本地模型暂时不可用，请稍后重试'), { statusCode: 503, code: 'LOCAL_LLM_UNAVAILABLE' }))
-    const unavailable = await request(app).post('/2026-09-04/comment')
-    expect(unavailable.status).toBe(503)
-    expect(unavailable.body).toEqual({ error: '本地模型暂时不可用，请稍后重试', code: 'LOCAL_LLM_UNAVAILABLE' })
-  })
 })

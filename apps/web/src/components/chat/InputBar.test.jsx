@@ -256,7 +256,7 @@ describe('InputBar', () => {
     expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '添加照片' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '添加文件' })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '和姐妹说点什么...')
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '写下想说的…')
   })
 })
     await new Promise((resolve) => { setTimeout(resolve, 0) })

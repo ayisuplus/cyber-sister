@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const db = vi.hoisted(() => ({ findUnique: vi.fn(), update: vi.fn(), query: vi.fn() }))
+const db = vi.hoisted(() => ({ findUnique: vi.fn(), update: vi.fn(), query: vi.fn(), diaryFindMany: vi.fn(), periodFindFirst: vi.fn() }))
 vi.mock('../prisma/client.js', () => {
   const tx = { user: { findUnique: db.findUnique, update: db.update }, $queryRaw: db.query }
-  return { default: { ...tx, $transaction: (operation) => operation(tx) } }
+  return { default: { ...tx, diaryEntry: { findMany: db.diaryFindMany }, periodRecord: { findFirst: db.periodFindFirst }, $transaction: (operation) => operation(tx) } }
 })
+vi.mock('../utils/logger.js', () => ({ default: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() } }))
 import { createCompanionState } from './companionState.js'
-import { prepareCompanionTurn, commitCompanionTurn, getCompanionState, recoverCompanionState } from './companionService.js'
+import { cyclePhaseOn, loadCompanionInputs, prepareCompanionTurn, commitCompanionTurn, getCompanionState, recoverCompanionState } from './companionService.js'
+
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
+// 北京时间 2026-09-21 15:00
+const AFTERNOON = Date.UTC(2026, 8, 21, 7)
 
 let row
 let tx
@@ -30,11 +36,82 @@ describe('角色经历持久化接口', () => {
     }
   })
 
-  it('只读取所需背景，注意力最多保留两个相关记忆，准备阶段零写入', () => {
+  it('相关记忆全部交给她，注意力只挑出最多两个值得主动提起的，准备阶段零写入', () => {
     const prepared = prepareCompanionTurn('one', row, '简短一点', Array.from({ length: 5 }, (_, id) => ({ id: `m${id}`, content: 'text' })))
-    expect(prepared.memories.map((item) => item.id)).toEqual(['m0', 'm1'])
+    expect(prepared.memories.map((item) => item.id)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4'])
+    expect(prepared.memories.filter((item) => item.foreground).map((item) => item.id)).toEqual(['m0', 'm1'])
     expect(prepared.observation.brevity).toBe(1)
     expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('长短要求不再只认整句：直接说的算，转述和否定的不算', () => {
+    for (const text of ['太长了', '你说得太长了', '说重点', '长话短说吧', '别说那么多', '不用太详细', '能简短一点吗']) {
+      expect(prepareCompanionTurn('one', row, text).observation.brevity).toBe(1)
+    }
+    for (const text of ['详细点', '展开说说', '具体一点呢', '可以说得详细些吗']) {
+      expect(prepareCompanionTurn('one', row, text).observation.brevity).toBe(0)
+    }
+    for (const text of ['不要简短一点', '这条路太长了', '她说简短一点就好']) {
+      expect(prepareCompanionTurn('one', row, text).observation).not.toHaveProperty('brevity')
+    }
+  })
+
+  it('道谢放宽到常见说法；冒犯只认冲着她说的重话，带笑的互怼和骂自己都不算', () => {
+    for (const text of ['谢谢你呀', '有你真好', '聊完好多了']) expect(prepareCompanionTurn('one', row, text).observation.positive).toBe(1)
+    for (const text of ['你真蠢', '闭嘴', '滚！', '你有病吧']) expect(prepareCompanionTurn('one', row, text).observation).toMatchObject({ threat: 0.8, violation: 0.8 })
+    for (const text of ['你真蠢哈哈哈', '我真蠢', '我是个废物', '他对我说：你真蠢', '在床上打滚', '你别傻了']) {
+      expect(prepareCompanionTurn('one', row, text).observation).not.toHaveProperty('violation')
+    }
+  })
+
+  it('隔半小时以上回来算一次一致的互动，第一次说话不算', () => {
+    const talked = { ...row, companionState: { ...createCompanionState(AFTERNOON - 2 * HOUR), experienceCount: 3 } }
+    expect(prepareCompanionTurn('one', talked, '嗨', [], { now: AFTERNOON }).observation.consistency).toBe(1)
+    expect(prepareCompanionTurn('one', talked, '嗨', [], { now: AFTERNOON - 2 * HOUR + 60_000 }).observation).not.toHaveProperty('consistency')
+    const fresh = { ...row, companionState: createCompanionState(AFTERNOON - 2 * HOUR) }
+    expect(prepareCompanionTurn('one', fresh, '嗨', [], { now: AFTERNOON }).observation).not.toHaveProperty('consistency')
+  })
+
+  it('此刻的情况只进这一轮的分寸：北京时间深夜、久别、心情、经期；原话不进提示', () => {
+    const lastWeek = { ...row, companionState: { ...createCompanionState(AFTERNOON - 5 * DAY), experienceCount: 3 } }
+    const night = AFTERNOON + 8 * HOUR // 北京时间 23:00
+    const prompt = (user, text, options) => prepareCompanionTurn('one', user, text, [], options).systemMessage.content
+    expect(prompt(row, '嗨', { now: night })).toContain('很晚')
+    expect(prompt(row, '嗨', { now: AFTERNOON })).not.toContain('很晚')
+    expect(prompt(lastWeek, '嗨', { now: AFTERNOON })).toContain('不追问')
+    expect(prompt(row, '今天好难过', { now: AFTERNOON })).toContain('先陪着')
+    expect(prompt(row, '嗨', { now: AFTERNOON, inputs: { recentLowMood: true } })).toContain('先陪着')
+    expect(prompt(row, '嗨', { now: AFTERNOON, inputs: { cyclePhase: 'period' } })).toContain('不要提起经期')
+    expect(prompt(row, '嗨', { now: AFTERNOON, inputs: { cyclePhase: 'late' } })).not.toContain('经期')
+    const state = prepareCompanionTurn('one', row, '今天好难过', [], { now: AFTERNOON }).observation
+    expect(JSON.stringify(state)).not.toContain('难过')
+  })
+
+  it('经期只按记录的日子算：没填结束日按 5 天，最多 10 天', () => {
+    const start = new Date(Date.UTC(2026, 8, 18))
+    const today = Date.UTC(2026, 8, 21)
+    expect(cyclePhaseOn({ startDate: start, endDate: null }, today)).toBe('period')
+    expect(cyclePhaseOn({ startDate: start, endDate: null }, Date.UTC(2026, 8, 23))).toBeNull()
+    expect(cyclePhaseOn({ startDate: start, endDate: new Date(Date.UTC(2026, 8, 19)) }, today)).toBeNull()
+    expect(cyclePhaseOn({ startDate: start, endDate: new Date(Date.UTC(2026, 9, 30)) }, Date.UTC(2026, 8, 28))).toBeNull()
+    expect(cyclePhaseOn({ startDate: start, endDate: new Date(Date.UTC(2026, 9, 30)) }, Date.UTC(2026, 8, 27))).toBe('period')
+    expect(cyclePhaseOn(null, today)).toBeNull()
+  })
+
+  it('两个经期同意缺一个就不读经期；日记或经期取不到只是少一项输入', async () => {
+    const now = new Date(AFTERNOON)
+    db.diaryFindMany.mockResolvedValue([{ mood: 'happy' }, { mood: 'sad' }])
+    db.periodFindFirst.mockResolvedValue({ startDate: new Date(Date.UTC(2026, 8, 20)), endDate: null })
+    expect(await loadCompanionInputs('one', { periodConsentAt: new Date(), periodToneAt: null }, now)).toEqual({ recentLowMood: true, cyclePhase: null })
+    expect(await loadCompanionInputs('one', { periodConsentAt: null, periodToneAt: new Date() }, now)).toEqual({ recentLowMood: true, cyclePhase: null })
+    expect(db.periodFindFirst).not.toHaveBeenCalled()
+    expect(db.diaryFindMany).toHaveBeenCalledWith({ where: { userId: 'one', day: { gte: new Date(Date.UTC(2026, 8, 20)) } }, select: { mood: true } })
+
+    const both = { periodConsentAt: new Date(), periodToneAt: new Date() }
+    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: true, cyclePhase: 'period' })
+    db.diaryFindMany.mockRejectedValueOnce(new Error('down'))
+    db.periodFindFirst.mockRejectedValueOnce(new Error('down'))
+    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: false, cyclePhase: null })
   })
 
   it('锁后重读最新状态，两个基于同一旧版本的完成也不会丢失经历', async () => {

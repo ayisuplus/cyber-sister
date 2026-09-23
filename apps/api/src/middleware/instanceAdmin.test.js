@@ -5,7 +5,7 @@ vi.mock('../prisma/client.js', () => ({
   default: { user: { findUnique } },
 }))
 
-import { instanceAdminMiddleware } from './instanceAdmin.js'
+import { instanceAdminMiddleware, isInstanceAdmin } from './instanceAdmin.js'
 
 function response() {
   return {
@@ -34,5 +34,21 @@ describe('安装实例管理员权限', () => {
     await instanceAdminMiddleware({ user: { userId: 'tester' } }, res, next)
     expect(res.statusCode).toBe(403)
     expect(res.body.code).toBe('INSTANCE_ADMIN_REQUIRED')
+  })
+
+  it('状态接口用的同一个判断：管理员名单和白名单都要命中', async () => {
+    findUnique.mockResolvedValue({ phone: '13800138000' })
+    expect(await isInstanceAdmin('admin')).toBe(true)
+
+    findUnique.mockResolvedValue({ phone: '13900139000' })
+    expect(await isInstanceAdmin('tester')).toBe(false)
+
+    findUnique.mockResolvedValue(null)
+    expect(await isInstanceAdmin('ghost')).toBe(false)
+
+    process.env.INSTANCE_ADMIN_PHONES = '13800138000'
+    delete process.env.INTERNAL_TEST_PHONES
+    findUnique.mockResolvedValue({ phone: '13800138000' })
+    expect(await isInstanceAdmin('admin')).toBe(false)
   })
 })

@@ -11,5 +11,14 @@ export const SENSITIVE_LOCATION_PATTERNS = [
 export const SENSITIVE_MEDICAL_PATTERNS = [
   /(?:诊断|确诊|病历|处方|服药|剂量|毫克|复诊|挂号)/,
   /(?:抑郁症|焦虑症|精神分裂|双相情感障碍|强迫症)/,
+  // 经期与医疗同口径：PeriodRecord 有同意门，痕迹/候选文本里的经期内容同样不外送、不进素材
+  /(?:月经|痛经|经期|经前|大姨妈|卫生巾|卫生棉条|月经杯|停经|闭经)/,
   /\b\d+(?:\.\d+)?\s*mg\b/i,
 ]
+
+/** 敏感排除的唯一口径：命中联系方式/证件号占位符、精确位置或医疗内容即丢弃（宁可放弃，也不外送或记住）。 */
+export function isSensitiveContent(content) {
+  return REDACTION_PLACEHOLDER_PATTERN.test(content)
+    || SENSITIVE_LOCATION_PATTERNS.some((pattern) => pattern.test(content))
+    || SENSITIVE_MEDICAL_PATTERNS.some((pattern) => pattern.test(content))
+}

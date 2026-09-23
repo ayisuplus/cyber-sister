@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OPENER_POOL, pickOpeners } from './openers'
+import { OPENER_POOL, mergeOpeners, pickOpeners } from './openers'
 
 describe('pickOpeners', () => {
   it('offers two casual topics plus one body and one emotion topic', () => {
@@ -24,5 +24,23 @@ describe('pickOpeners', () => {
     expect(night).toEqual(morning)
     expect(nextDay[2]).not.toEqual(morning[2])
     expect(nextDay[3]).not.toEqual(morning[3])
+  })
+})
+
+describe('mergeOpeners', () => {
+  const candidate = (id, text = '她自己的线索') => ({ id, label: id, text, why: '你之前说过这件事' })
+
+  it('puts her own clues first and fills up to four with the local pool', () => {
+    const openers = mergeOpeners([candidate('followup:f1'), candidate('book:b1')], pickOpeners(new Date(2026, 8, 15, 20)))
+
+    expect(openers).toHaveLength(4)
+    expect(openers.slice(0, 2).map(topic => topic.id)).toEqual(['followup:f1', 'book:b1'])
+    expect(openers[2].label).toBe('今天心情不好')
+  })
+
+  it('drops repeats and empty topics so a slot never goes to a button with nothing on it', () => {
+    const openers = mergeOpeners([candidate('followup:f1'), candidate('followup:f1'), candidate('book:b1', '   ')], [])
+
+    expect(openers.map(topic => topic.id)).toEqual(['followup:f1'])
   })
 })

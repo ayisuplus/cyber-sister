@@ -8,8 +8,6 @@ const service = vi.hoisted(() => ({
   switchPersona: vi.fn(),
   getExternalLlmConsent: vi.fn(),
   updateExternalLlmConsent: vi.fn(),
-  getMembership: vi.fn(),
-  subscribeMembership: vi.fn(),
   PERSONAS: ['toxic', 'gentle', 'rational', 'energetic', 'sister', 'cool'],
 }))
 
@@ -147,29 +145,6 @@ describe('外部模型同意路由', () => {
     const bad = await request(app).put('/external-llm-consent').send({ accepted: 'yes' })
     expect(bad.status).toBe(400)
     expect(bad.body).toEqual({ error: 'accepted必须是布尔值', code: 'INVALID_CONSENT' })
-  })
-})
-
-describe('会员路由', () => {
-  it('查询会员状态', async () => {
-    service.getMembership.mockResolvedValue({ isVip: false, vipExpireAt: null })
-    const ok = await request(app).get('/membership')
-    expect(ok.status).toBe(200)
-    expect(ok.body.isVip).toBe(false)
-
-    service.getMembership.mockRejectedValue(new Error('db down'))
-    const fail = await request(app).get('/membership')
-    expect(fail.status).toBe(500)
-    expect(fail.body).toEqual({ error: '获取会员状态失败' })
-  })
-
-  it('订阅返回未开放 409 与稳定 code', async () => {
-    service.subscribeMembership.mockImplementation(() => {
-      throw httpError('会员功能暂未开放', 409, 'FEATURE_NOT_AVAILABLE')
-    })
-    const response = await request(app).post('/membership/subscribe')
-    expect(response.status).toBe(409)
-    expect(response.body).toEqual({ error: '会员功能暂未开放', code: 'FEATURE_NOT_AVAILABLE' })
   })
 })
 

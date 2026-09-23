@@ -5,8 +5,6 @@ const MAX_MEMORY_PAGES = 50
 export const memoryService = {
   listPage: async (params = {}) => (await api.get('/memories', { params: { page: 1, limit: 20, ...params } })).data,
   get: async (id) => (await api.get(`/memories/${id}`)).data,
-  revisions: async (id) => (await api.get(`/memories/${id}/revisions`)).data.revisions,
-  restore: async (id, payload) => (await api.post(`/memories/${id}/restore`, payload)).data,
   latestIndexJob: async () => (await api.get('/memories/index-jobs/latest')).data,
   indexJob: async (id) => (await api.get(`/memories/index-jobs/${id}`)).data,
   createIndexJob: async (mode) => (await api.post('/memories/index-jobs', { mode })).data,
@@ -45,8 +43,7 @@ export const memoryService = {
   remove: async (id) => {
     await api.delete(`/memories/${id}`)
   },
-  clear: async () => {
-    await api.delete('/memories')
-  },
+  // 放在心上 / 拿下来：每次聊天她都记着；不改内容、不产生新版本
+  setPinned: async (id, pinned) => (await api.put(`/memories/${id}/pin`, { pinned })).data,
   rebuildEmbeddings: async () => (await api.post('/memories/embeddings/rebuild')).data,
 }

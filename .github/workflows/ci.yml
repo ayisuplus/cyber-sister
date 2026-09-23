@@ -86,7 +86,7 @@ jobs:
           TEST_DATABASE_URL: postgresql://test:test@localhost:5432/postgres
 
   packages:
-    name: Packages (llm-gateway)
+    name: Packages (llm-gateway / 本机助手)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +100,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter "./packages/*" --if-present run lint
       - run: pnpm -r --filter "./packages/*" --if-present run test
+      - run: pnpm --filter amie-bridge test
+      - run: pnpm test:deploy
 
   e2e:
     name: E2E (Playwright, 桌面 + 手机)
@@ -116,9 +118,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm --filter cyber-sister-client exec playwright install --with-deps chromium
-      # pree2e 会用 scripts/build-local.mjs 出本地分发构建（/tools/* 入口只在本地客户端存在）
+      # pree2e 用 scripts/build-local.mjs 出带本机能力界面（附文件、后台执行）的构建，覆盖面最全
       - name: Run e2e
         run: pnpm --filter cyber-sister-client e2e
+      # 真正上线的是 Web 构建：记忆与四个生活入口必须在它上面同样可用
+      - name: Build Web version and verify memory and life entries
+        run: |
+          pnpm --filter cyber-sister-client build
+          pnpm --filter cyber-sister-client exec playwright test --grep "shared memory|life entries" --output test-results-web
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -126,4 +133,5 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            apps/web/test-results-web
           retention-days: 7

@@ -23,7 +23,6 @@ describe('authStore logout', () => {
   beforeEach(() => {
     useAuthStore.setState(loggedInState)
     useChatStore.setState({
-      conversations: [{ id: 'private-conversation' }],
       currentConversationId: 'private-conversation',
       messages: [{ id: 'private-message', content: '账号 A 的消息' }],
     })
@@ -44,7 +43,6 @@ describe('authStore logout', () => {
 
     expect(useAuthStore.getState()).toMatchObject({ token: null, user: null, isLoggedIn: false })
     expect(useChatStore.getState()).toMatchObject({
-      conversations: [],
       currentConversationId: null,
       messages: [],
     })

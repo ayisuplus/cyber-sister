@@ -10,11 +10,11 @@ vi.mock('./services/chatService', () => ({ chatService: { getConversations: vi.f
 vi.mock('./pages/LoginPage', () => ({ default: () => <h1>登录页</h1> }))
 vi.mock('./pages/ChatPage', () => ({ default: () => <h1>聊天页</h1> }))
 vi.mock('./pages/HerPage', () => ({ default: () => <h1>她页</h1> }))
-vi.mock('./pages/MembershipPage', () => ({ default: () => <h1>会员页</h1> }))
 vi.mock('./pages/NotesPage', () => ({ default: () => <h1>手记页</h1> }))
+vi.mock('./pages/ReadingPage', () => ({ default: () => <h1>书架页</h1> }))
+vi.mock('./pages/ReaderPage', () => ({ default: () => <h1>阅读页</h1> }))
 vi.mock('./pages/StylePage', () => ({ default: () => <h1>装扮页</h1> }))
-vi.mock('./pages/PeriodPage', () => ({ default: () => <h1>经期记录页</h1> }))
-vi.mock('./pages/SchedulePage', () => ({ default: () => <h1>安排页</h1> }))
+vi.mock('./pages/CalendarPage', () => ({ default: () => <h1>日历页</h1> }))
 vi.mock('./pages/SettingsPage', () => ({ default: () => <h1>设置页</h1> }))
 
 import App from './App'
@@ -23,21 +23,28 @@ const signIn = () => useAuthStore.setState({ token: 'token', user: { id: 'u1' },
 
 afterEach(() => vi.unstubAllEnvs())
 
-it.each(['/tools', '/tools/notes', '/tools/schedule', '/tools/diary', '/tools/study', '/profile/membership'])('web redirects %s to chat', async (url) => {
+it.each([
+  ['/tools/calendar', '日历页'],
+  ['/tools/notes', '手记页'],
+  ['/tools/reading', '书架页'],
+  ['/tools/reading/b1', '阅读页'],
+  ['/tools/style', '装扮页'],
+  ['/her', '她页'],
+])('the one Web version opens %s', async (url, heading) => {
   vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
   window.history.replaceState({}, '', url)
   signIn()
   render(<App />)
-  expect(await screen.findByRole('heading', { name: '聊天页' })).toBeInTheDocument()
-  expect(window.location.pathname).toBe('/chat')
+  expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+  expect(window.location.pathname).toBe(url)
 })
 
-it('web still reaches her page and settings', async () => {
-  vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
-  window.history.replaceState({}, '', '/her')
+it('sends the retired membership link back to chat', async () => {
+  window.history.replaceState({}, '', '/profile/membership')
   signIn()
   render(<App />)
-  expect(await screen.findByRole('heading', { name: '她页' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '聊天页' })).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/chat')
 })
 
 describe('root routing', () => {
@@ -57,13 +64,6 @@ describe('root routing', () => {
     expect(await screen.findByRole('heading', { name: '聊天页' })).toBeInTheDocument()
   })
 
-  it('protects and exposes the membership route', async () => {
-    window.history.replaceState({}, '', '/profile/membership')
-    signIn()
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: '会员页' })).toBeInTheDocument()
-  })
-
   it('redirects signed-out visitors away from protected routes', async () => {
     window.history.replaceState({}, '', '/settings')
     render(<App />)
@@ -72,9 +72,9 @@ describe('root routing', () => {
 
   it.each([
     ['/her', '她页'],
-    ['/tools/schedule', '安排页'],
+    ['/tools/calendar', '日历页'],
     ['/tools/notes', '手记页'],
-    ['/tools/period', '经期记录页'],
+    ['/tools/reading', '书架页'],
     ['/tools/style', '装扮页'],
     ['/settings', '设置页'],
   ])('protects and exposes the entry route %s', async (path, heading) => {
@@ -85,18 +85,19 @@ describe('root routing', () => {
   })
 
   it.each([
-    ['/tools/planner?tab=reminders', '/tools/schedule', '', '安排页'],
-    ['/tools/todo', '/tools/schedule', '', '安排页'],
-    ['/tools/countdown', '/tools/schedule', '', '安排页'],
-    ['/tools/reminders', '/tools/schedule', '', '安排页'],
-    ['/tools/handbook', '/tools/schedule', '', '安排页'],
-    ['/tools/study', '/tools/schedule', '', '安排页'],
-    ['/tools/diary', '/tools/notes', '?tab=diary', '手记页'],
-    ['/tools/reading', '/tools/notes', '?tab=reading', '手记页'],
-    ['/tools/letters', '/tools/notes', '?tab=letters', '手记页'],
+    ['/tools/planner?tab=reminders', '/tools/calendar', '', '日历页'],
+    ['/tools/todo', '/tools/calendar', '', '日历页'],
+    ['/tools/countdown', '/tools/calendar', '', '日历页'],
+    ['/tools/reminders', '/tools/calendar', '', '日历页'],
+    ['/tools/handbook', '/tools/calendar', '', '日历页'],
+    ['/tools/study', '/tools/calendar', '', '日历页'],
+    ['/tools/schedule', '/tools/calendar', '', '日历页'],
+    ['/tools/period', '/tools/calendar', '', '日历页'],
+    ['/tools/diary', '/tools/notes', '', '手记页'],
+    ['/tools/letters', '/her', '', '她页'],
     ['/tools/makeup-room', '/tools/style', '?tab=makeup', '装扮页'],
     ['/tools/wardrobe', '/tools/style', '?tab=wardrobe', '装扮页'],
-    ['/tools/workspace', '/her', '?tab=pending', '她页'],
+    ['/tools/workspace', '/her', '', '她页'],
     ['/memories?tab=relations', '/her', '?tab=relations', '她页'],
     ['/profile/memories', '/her', '', '她页'],
     ['/profile', '/settings', '', '设置页'],
@@ -110,8 +111,8 @@ describe('root routing', () => {
     expect(window.location.search).toBe(search)
   })
 
-  it('redirects signed-out visitors away from the local entry routes', async () => {
-    window.history.replaceState({}, '', '/tools/period')
+  it('redirects signed-out visitors away from the life entry routes', async () => {
+    window.history.replaceState({}, '', '/tools/calendar')
     render(<App />)
     expect(await screen.findByRole('heading', { name: '登录页' })).toBeInTheDocument()
   })

@@ -22,6 +22,7 @@ describe('CloudFallbackNotice', () => {
     expect(screen.getByText('这个姐妹住在云端')).toBeInTheDocument()
     expect(screen.getByText(/聊天由经批准的云端模型提供/)).toBeInTheDocument()
     expect(screen.getByText(/手机号、邮箱、证件号会被替换/)).toBeInTheDocument()
+    expect(screen.getByText(/信件草稿、相关记忆和近况统计/)).toBeInTheDocument()
     expect(screen.getByText(/不同意暂时无法聊天/)).toBeInTheDocument()
     expect(screen.getByText(/「设置 → 聊天模型」里改主意/)).toBeInTheDocument()
   })
@@ -32,7 +33,7 @@ describe('CloudFallbackNotice', () => {
     consentService.update.mockResolvedValue({ accepted: true })
     render(<CloudFallbackNotice onClose={onClose} />)
 
-    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
+    await user.click(screen.getByRole('button', { name: '同意云端处理' }))
 
     expect(consentService.update).toHaveBeenCalledWith(true)
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -57,13 +58,13 @@ describe('CloudFallbackNotice', () => {
     consentService.update.mockRejectedValueOnce(new Error('network down'))
     render(<CloudFallbackNotice onClose={onClose} />)
 
-    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
+    await user.click(screen.getByRole('button', { name: '同意云端处理' }))
 
     expect(await screen.findByText('设置没有保存成功，请重试。')).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
 
     consentService.update.mockResolvedValueOnce({ accepted: true })
-    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
+    await user.click(screen.getByRole('button', { name: '同意云端处理' }))
 
     expect(consentService.update).toHaveBeenCalledTimes(2)
     expect(onClose).toHaveBeenCalledTimes(1)

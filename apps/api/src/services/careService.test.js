@@ -22,7 +22,12 @@ vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { buildTouchpoints, dismissTouchpoint, listTouchpoints } from './careService.js'
+import { buildTouchpoints, dismissTouchpoint, listTodaysCare } from './careService.js'
+
+// 对话末尾还会出现的那几张：今天的前 3 张里没点过「知道了」的
+const listTouchpoints = async (userId) => (await listTodaysCare(userId))
+  .filter((card) => !card.dismissed)
+  .map(({ dismissed: _dismissed, ...card }) => card)
 
 const USER_ID = 'user-1'
 // 固定基准：本地 2026-09-09（周三）中午；todayUtc 与存储契约一致为 UTC 零点
@@ -84,17 +89,38 @@ describe('buildTouchpoints 规则引擎', () => {
     expect(overdue).toEqual([])
   })
 
+  it('过了预计的日子还没记：晚 1 到 7 天说一句，不悄悄消失，也不天天追着问', () => {
+    // 预计 9 月 8 日，今天 9 月 9 日：晚 1 天
+    const late1 = build({ latestPeriod: { id: 'p1', startDate: utcDay('2026-08-11'), cycleDays: 28 } })
+    expect(late1[0]).toMatchObject({ kind: 'period-late', key: 'period-late:p1:2026-09-09', title: '比预计晚了 1 天' })
+    expect(late1[0].body).toContain('晚几天很常见')
+    expect(late1[0].reason).toContain('还没有新的记录')
+    // 预计 9 月 2 日：晚 7 天；预计 9 月 1 日：晚 8 天，不再说
+    expect(build({ latestPeriod: { id: 'p1', startDate: utcDay('2026-08-05'), cycleDays: 28 } })[0].title).toBe('比预计晚了 7 天')
+    expect(build({ latestPeriod: { id: 'p1', startDate: utcDay('2026-08-04'), cycleDays: 28 } })).toEqual([])
+  })
+
+  it('用她当前的说话方式写；不认识的说话方式按温柔', () => {
+    const mood = (persona) => build({ user: { persona }, yesterdayDiary: { mood: 'sad' } })[0].body
+    const bodies = ['gentle', 'toxic', 'cool'].map(mood)
+    expect(new Set(bodies).size).toBe(3)
+    expect(mood('toxic')).toContain('谁惹你了')
+    expect(mood('rational')).toBe(mood('gentle'))
+    const late = (persona) => build({ user: { persona }, latestPeriod: { id: 'p1', startDate: utcDay('2026-08-11'), cycleDays: 28 } })[0].body
+    expect(new Set(['gentle', 'toxic', 'cool'].map(late)).size).toBe(3)
+  })
+
   it('今天的安排聚成一条，只有一件时直呼其名', () => {
     const one = build({ tasks: [{ id: 't1', content: '复诊', nextFireAt: at(9, 15) }] })
     expect(one).toHaveLength(1)
     expect(one[0]).toMatchObject({ kind: 'task-today', key: 'task-today:all:2026-09-09', title: '今天：「复诊」' })
-    expect(one[0].action).toEqual({ to: '/tools/schedule', label: '看看安排' })
+    expect(one[0].action).toEqual({ to: '/tools/calendar', label: '看看日历' })
 
     const two = build({ tasks: [
       { id: 't1', content: '复诊', nextFireAt: at(9, 8) },
       { id: 't2', content: '还书', nextFireAt: at(9, 20) },
     ] })
-    expect(two[0]).toMatchObject({ kind: 'task-today', title: '今天有 2 件安排' })
+    expect(two[0]).toMatchObject({ kind: 'task-today', title: '今天有 2 件事' })
     expect(two[0].body).toContain('复诊')
   })
 
@@ -138,11 +164,35 @@ describe('buildTouchpoints 规则引擎', () => {
   })
 })
 
-describe('listTouchpoints', () => {
+describe('listTodaysCare', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
     return () => vi.useRealTimers()
+  })
+
+  it('撤回经期记录同意后不再读经期，也就没有经期卡片', async () => {
+    mocks.periodFindFirst.mockResolvedValue({ id: 'p1', startDate: utcDay('2026-08-12'), cycleDays: 28 })
+    mocks.userFindUnique.mockResolvedValue({ birthDate: null, careEnabled: true, periodConsentAt: null })
+    expect(await listTouchpoints(USER_ID)).toEqual([])
+    expect(mocks.periodFindFirst).not.toHaveBeenCalled()
+
+    mocks.userFindUnique.mockResolvedValue({ birthDate: null, careEnabled: true, periodConsentAt: new Date('2026-09-01T00:00:00.000Z') })
+    expect((await listTouchpoints(USER_ID)).map((card) => card.kind)).toEqual(['period'])
+  })
+
+  it('点掉一张不会让第 4 张补上来：一天至多三张', async () => {
+    mocks.taskFindMany.mockResolvedValue([
+      { id: 't1', content: '甲', nextFireAt: at(9, 18) },
+      { id: 't2', content: '乙', nextFireAt: at(10, 9) },
+      { id: 't3', content: '丙', nextFireAt: at(11, 9) },
+      { id: 't4', content: '丁', nextFireAt: at(12, 9) },
+    ])
+    const [first] = await listTouchpoints(USER_ID)
+    mocks.dismissalFindMany.mockResolvedValue([{ key: first.key }])
+    const rest = await listTouchpoints(USER_ID)
+    expect(rest).toHaveLength(2)
+    expect(rest.map((card) => card.title)).not.toContain('「丁」还有 3 天')
   })
 
   it('总开关关闭时为空，且不再查询任何数据', async () => {
@@ -177,6 +227,8 @@ describe('listTouchpoints', () => {
 
     mocks.dismissalFindMany.mockResolvedValue([{ key: card.key }])
     expect(await listTouchpoints(USER_ID)).toEqual([])
+    // 点过的仍算她今天说过，只是标上 dismissed
+    expect(await listTodaysCare(USER_ID)).toEqual([{ ...card, dismissed: true }])
   })
 
   it('最多返回 3 条按优先级截取', async () => {

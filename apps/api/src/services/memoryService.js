@@ -99,6 +99,7 @@ export async function createMemory(userId, {
   origin = 'manual',
   sourceRef = null,
   sources = [],
+  expiresAt = null,
 }, { projectEmbedding = true, tx = null, portableId, memoryId, action = 'create', trustedSources = false, deduplicate = false } = {}) {
   // 即使命中去重，输入仍须经过相同校验，不能用已有内容绕过类型和来源约束。
   type = validateType(type)
@@ -145,6 +146,8 @@ export async function createMemory(userId, {
       sourceRef: validateSourceRef(sourceRef),
       sources: references,
       ...(portableId ? { portableId } : {}),
+      // 有效期只由服务端设（如做梦的「近期小结」），过期后检索与聊天都不再用它
+      ...(expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime()) ? { expiresAt } : {}),
     },
     })
     await recordRevision(database, memory, action)
@@ -158,11 +161,10 @@ export async function createMemory(userId, {
   return formatMemory(memory)
 }
 
-export async function listMemories(userId, { type, q = '', page = 1, limit = 20 } = {}) {
+export async function listMemories(userId, { type, page = 1, limit = 20 } = {}) {
   const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1
   const normalizedLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20
   const where = { userId }
-  if (typeof q === 'string' && q.trim()) where.content = { contains: q.trim().slice(0, 200), mode: 'insensitive' }
 
   if (type !== undefined && type !== '') {
     where.type = validateType(type)
@@ -170,7 +172,8 @@ export async function listMemories(userId, { type, q = '', page = 1, limit = 20 
   const [memories, total] = await Promise.all([
     prisma.memory.findMany({
       where,
-      orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }],
+      // 放在心上的排在最前
+      orderBy: [{ pinned: 'desc' }, { importance: 'desc' }, { createdAt: 'desc' }],
       skip: (normalizedPage - 1) * normalizedLimit,
       take: normalizedLimit,
     }),
@@ -189,32 +192,42 @@ export async function updateMemory(userId, memoryId, updates) {
   return changeMemory(userId, memoryId, updates)
 }
 
-async function changeMemory(userId, memoryId, updates, restoreRevision = null) {
+export const MAX_PINNED_MEMORIES = 5
+
+/**
+ * 「放在心上」：每轮都带给她，不靠聊到才想起。
+ * 这不是改内容：不升版本、不写修订记录（「她是怎么记住的」只记内容的变化）。
+ * 上限在持有用户行锁的事务里判断，两次并发的放上去不会一起挤过第 5 条。
+ */
+export async function setMemoryPinned(userId, memoryId, pinned) {
+  if (typeof pinned !== 'boolean') throw new HttpError('pinned 必须是布尔值', 400)
+  const memory = await withMemoryTransaction(userId, async (tx) => {
+    const current = await ownedMemory(tx, userId, memoryId)
+    if (current.pinned === pinned) return current
+    if (pinned) {
+      const count = await tx.memory.count({ where: { userId, pinned: true } })
+      if (count >= MAX_PINNED_MEMORIES) throw new HttpError(`最多放 ${MAX_PINNED_MEMORIES} 件在心上，先拿下一件再放`, 400)
+    }
+    return tx.memory.update({ where: { id: current.id }, data: { pinned } })
+  })
+  return formatMemory(memory)
+}
+
+async function changeMemory(userId, memoryId, updates) {
   const memory = await withMemoryTransaction(userId, async (tx) => {
     const current = await ownedMemory(tx, userId, memoryId)
     assertRevision(current, updates.expectedRevision)
     await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
-    let input = updates
-    if (restoreRevision !== null) {
-      const previous = await tx.memoryRevision.findUnique({ where: { memoryId_revision: { memoryId, revision: restoreRevision } } })
-      if (!previous) throw new HttpError('历史版本不存在', 404)
-      input = { ...previous, tags: parseJson(previous.tags, []) }
-    }
   const updateData = {}
-  if (input.type !== undefined) updateData.type = validateType(input.type)
-  if (input.content !== undefined) {
-    updateData.content = validateContent(input.content)
+  if (updates.type !== undefined) updateData.type = validateType(updates.type)
+  if (updates.content !== undefined) {
+    updateData.content = validateContent(updates.content)
     // 内容与投影一起失效，重建失败时走关键词检索，不能继续使用旧内容的向量。
     updateData.embedding = []
     updateData.embeddingModel = null
   }
-  if (input.importance !== undefined) updateData.importance = validateImportance(input.importance)
-  if (input.tags !== undefined) updateData.tags = JSON.stringify(validateTags(input.tags))
-  if (restoreRevision !== null) {
-    updateData.expiresAt = input.expiresAt
-    updateData.origin = input.origin
-    updateData.sources = input.sources
-  }
+  if (updates.importance !== undefined) updateData.importance = validateImportance(updates.importance)
+  if (updates.tags !== undefined) updateData.tags = JSON.stringify(validateTags(updates.tags))
 
   if (Object.keys(updateData).length === 0) {
     throw new HttpError('没有可更新的记忆字段', 400)
@@ -229,10 +242,10 @@ async function changeMemory(userId, memoryId, updates, restoreRevision = null) {
       await tx.memoryEdge.updateMany({ where: { userId, fromMemoryId: memoryId, fromRevision: current.revision }, data: { fromRevision: updated.revision } })
       await tx.memoryEdge.updateMany({ where: { userId, toMemoryId: memoryId, toRevision: current.revision }, data: { toRevision: updated.revision } })
     }
-    await recordRevision(tx, updated, restoreRevision ? 'restore' : 'edit', restoreRevision)
+    await recordRevision(tx, updated, 'edit')
     return updated
   })
-  if (updates.content !== undefined || updates.type !== undefined || restoreRevision !== null) {
+  if (updates.content !== undefined || updates.type !== undefined) {
     // 内容变更后投影失效：fire-and-forget 重建向量，失败仅本轮无向量
     void embedMemory(memory)
   }
@@ -243,17 +256,6 @@ async function changeMemory(userId, memoryId, updates, restoreRevision = null) {
 export async function getMemory(userId, memoryId) {
   const memory = await ownedMemory(prisma, userId, memoryId)
   return formatMemory(memory)
-}
-
-export async function listRevisions(userId, memoryId) {
-  await ownedMemory(prisma, userId, memoryId)
-  const revisions = await prisma.memoryRevision.findMany({ where: { memoryId }, orderBy: { revision: 'desc' } })
-  return revisions.map((item) => ({ ...item, tags: parseJson(item.tags, []) }))
-}
-
-export async function restoreMemory(userId, memoryId, { revision, expectedRevision } = {}) {
-  if (!Number.isInteger(revision) || revision < 1) throw new HttpError('历史版本号不正确', 400)
-  return changeMemory(userId, memoryId, { expectedRevision }, revision)
 }
 
 async function eraseMemories(tx, userId, ids) {
@@ -286,13 +288,4 @@ export async function deleteMemory(userId, memoryId) {
     await eraseMemories(tx, userId, [memoryId])
   })
   logger.info('删除记忆', { memoryId, userId })
-}
-
-export async function clearAllMemories(userId) {
-  const result = await withMemoryTransaction(userId, async (tx) => {
-    const memories = await tx.memory.findMany({ where: { userId }, select: { id: true } })
-    return eraseMemories(tx, userId, memories.map((memory) => memory.id))
-  })
-  logger.info('清空所有记忆', { userId, count: result.count })
-  return result.count
 }

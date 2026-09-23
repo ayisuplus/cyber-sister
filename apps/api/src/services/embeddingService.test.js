@@ -19,7 +19,7 @@ import { embedMemory, embedQuery, embedText, embeddingModelName, rebuildEmbeddin
 import logger from '../utils/logger.js'
 
 const USER_ID = 'user-1'
-const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' }
+const CONSENTED = { externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' }
 const memory = { id: 'm1', userId: USER_ID, revision: 1, content: 'synthetic memory' }
 const identity = { provider: 'https://example.invalid/v1', model: 'synthetic-embed', dimensions: 2, ruleVersion: 1 }
 const response = (vector) => ({ ok: true, json: async () => ({ data: [{ embedding: vector }] }) })

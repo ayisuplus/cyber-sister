@@ -54,10 +54,9 @@ router.post('/embeddings/rebuild', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const { type, q, page, limit } = req.query
+    const { type, page, limit } = req.query
     const result = await memoryService.listMemories(req.user.userId, {
       type,
-      q,
       page: Number.parseInt(page, 10),
       limit: Number.parseInt(limit, 10),
     })
@@ -88,14 +87,6 @@ router.get('/:id', async (req, res) => {
   try { res.json(await memoryService.getMemory(req.user.userId, req.params.id)) }
   catch (error) { sendError(res, error, '读取记忆失败') }
 })
-router.get('/:id/revisions', async (req, res) => {
-  try { res.json({ revisions: await memoryService.listRevisions(req.user.userId, req.params.id) }) }
-  catch (error) { sendError(res, error, '读取记忆版本失败') }
-})
-router.post('/:id/restore', async (req, res) => {
-  try { res.json(await memoryService.restoreMemory(req.user.userId, req.params.id, req.body)) }
-  catch (error) { sendError(res, error, '恢复记忆失败') }
-})
 
 router.put('/:id', async (req, res) => {
   try {
@@ -107,6 +98,16 @@ router.put('/:id', async (req, res) => {
   }
 })
 
+// 放在心上 / 拿下来：不改内容、不产生新版本
+router.put('/:id/pin', async (req, res) => {
+  try {
+    res.json(await memoryService.setMemoryPinned(req.user.userId, req.params.id, req.body?.pinned))
+  } catch (error) {
+    logger.error('放在心上失败', { errorCode: error.code || error.name, userId: req.user.userId })
+    sendError(res, error, '没放上去，请重试')
+  }
+})
+
 router.delete('/:id', async (req, res) => {
   try {
     await memoryService.deleteMemory(req.user.userId, req.params.id)
@@ -114,16 +115,6 @@ router.delete('/:id', async (req, res) => {
   } catch (error) {
     logger.error('删除记忆失败', { errorCode: error.code || error.name, userId: req.user.userId })
     sendError(res, error, '删除记忆失败')
-  }
-})
-
-router.delete('/', async (req, res) => {
-  try {
-    const deleted = await memoryService.clearAllMemories(req.user.userId)
-    res.json({ success: true, deleted })
-  } catch (error) {
-    logger.error('清空记忆失败', { errorCode: error.code || error.name, userId: req.user.userId })
-    sendError(res, error, '清空记忆失败')
   }
 })
 

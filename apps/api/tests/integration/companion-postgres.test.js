@@ -14,7 +14,6 @@ vi.mock('../../src/services/llmService.js', async (original) => ({
   generateCompanionNote: vi.fn(() => Promise.resolve({ content: '' })),
 }))
 vi.mock('../../src/services/embeddingService.js', () => ({ embedQuery: () => Promise.resolve(null) }))
-vi.mock('../../src/services/derivedService.js', () => ({ maybeAutoAnalyze: () => Promise.resolve({ created: 0 }) }))
 import { prepareCompanionTurn, commitCompanionTurn, getCompanionState, recoverCompanionState } from '../../src/services/companionService.js'
 import { sendMessage, sendMessageStream } from '../../src/services/chatService.js'
 import { generateResponse, generateResponseStream } from '../../src/services/llmService.js'
@@ -47,7 +46,7 @@ withDatabase('companion state on isolated PostgreSQL', () => {
     generateResponseStream.mockReset().mockImplementation(async function* () { yield { type: 'done', content: '完成了。', emotion: 'neutral', source: 'test_model' } })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No live cloud in tests')))
     await db.user.deleteMany()
-    user = await db.user.create({ data: { phone: '19900000001', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' } })
+    user = await db.user.create({ data: { phone: '19900000001', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' } })
     conversation = await db.conversation.create({ data: { userId: user.id } })
   })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })

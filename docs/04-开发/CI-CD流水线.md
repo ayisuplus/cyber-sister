@@ -20,8 +20,8 @@
 push / PR ──→ CI（GitHub 云端 ubuntu-latest）
               ├─ web      lint → typecheck → test:coverage → build → 产物 web-dist
               ├─ api      lint → prisma migrate deploy → test:coverage（含 5 个真实 PostgreSQL 集成套件）
-              ├─ packages llm-gateway 的 node --test
-              └─ e2e      playwright（desktop + mobile chromium，58 个用例）
+              ├─ packages llm-gateway 的 node --test + test:deploy
+              └─ e2e      playwright（desktop + mobile chromium；本地全量 + Web 记忆回归）
                               │ master 上全绿
                               ▼
             Deploy（服务器自建 runner，workflow_run 接力）
@@ -37,8 +37,8 @@ push / PR ──→ CI（GitHub 云端 ubuntu-latest）
 |---|---|---|
 | web | lint → typecheck → test:coverage → build | 产物 `web-dist` 留存 7 天，**部署用的就是这份** |
 | api | lint → `prisma migrate deploy` → test:coverage | Postgres 16 service 容器；`TEST_DATABASE_URL` 指向维护库，5 个集成套件真跑 |
-| packages | `pnpm -r --filter "./packages/*" --if-present run test` | llm-gateway 的 `node --test` |
-| e2e | `playwright install --with-deps chromium` → `pnpm e2e` | `pree2e` 出本地分发构建；失败上传 report 与 trace |
+| packages | 包测试 → `pnpm test:deploy` | 网关测试；实际发布脚本配合隔离假命令，8 种成功/失败场景 |
+| e2e | `playwright install --with-deps chromium` → `pnpm e2e` → Web 构建与记忆回归 | `pree2e` 出本地分发构建；另在 Web 构建运行 `shared memory` 用例；失败上传 report 与 trace |
 
 `concurrency: ci-<ref>` + `cancel-in-progress`，同分支新 push 取消旧 run。
 
@@ -48,7 +48,7 @@ push / PR ──→ CI（GitHub 云端 ubuntu-latest）
 
 工作流本身很薄，真正的逻辑在仓库里的脚本，可单独执行、可本地演练：
 
-- `deploy/scripts/release.sh`：预检（密钥路径可读、compose 校验、磁盘余量、`IMAGE_TAG` 合法且非 `latest`）→ **备份数据库并校验** → 构建 `api`/`web` → `up -d`（compose 里 `migration` 一次性服务先跑 `db:migrate:deploy`，成功后 api 才起）→ 健康检查 → 写 `releases/<tag>.txt` 与 `current-tag`/`previous-tag`。任一步失败自动调用回滚。
+- `deploy/scripts/release.sh`：预检（密钥路径可读、compose 校验、磁盘余量、`IMAGE_TAG` 合法且非 `latest`）→ **备份数据库并校验** → 构建 `api`/`web` → `up -d`（compose 里 `migration` 一次性服务先跑 `db:migrate:deploy`，成功后 api 才起）→ 健康检查 → 写 `releases/<tag>.txt` 与 `current-tag`/`previous-tag`。预检失败直接停止；读取旧标签并注册 EXIT trap 后的失败自动尝试回滚，有旧标签才可回滚，回滚失败需人工处理。
 - `deploy/scripts/rollback.sh`：用 `previous-tag`（或指定标签）以 `--no-build` 重新拉起，再做一次健康检查。
 - `deploy/scripts/common.sh`：compose 调用、运行配置读取、健康检查、模型状态播报。**只读取路径与域名，任何时候不打印密钥内容。**
 
@@ -63,6 +63,8 @@ push / PR ──→ CI（GitHub 云端 ubuntu-latest）
 3. **`BIND_ADDRESS` 一个变量承担了两个含义**：它既是 compose 发布 edge 端口的宿主机地址，又被 API 当成进程监听地址；容器内只听 127.0.0.1 时 nginx 反代必然 502，而校验又禁止 0.0.0.0。现在拆成两个：`BIND_ADDRESS`（宿主机暴露，规则不变）与 `API_LISTEN_ADDRESS`（容器内监听，compose 设为 0.0.0.0）。API 不发布任何宿主机端口，对外暴露仍由 edge 单点控制；本地客户端分发下两者都强制 127.0.0.1。
 
 演练还确认：备份 → 迁移 → 健康检查 → 记录的顺序成立，坏版本会被自动回滚到上一个标签，且数据库不会被自动回滚。
+
+2026-09-18 审查更正：上段是历史演练记录，不能覆盖所有失败分支；后续发现显式 `fail` 会绕过旧 ERR trap。本轮改用 EXIT trap，8 项隔离测试覆盖健康失败、构建/启动失败、空/损坏备份、首次发布、回滚失败与成功路径，保留原失败退出码。未重新演练真实 Docker 部署及数据库恢复。本地可用 `pnpm test:deploy`；Windows 设置 `BASH_BINARY` 指向 Git Bash。浏览器测试可设置 `E2E_DIST_DIR` 指向临时构建目录，默认仍为 `apps/web/dist`。
 
 ## 3. 需要配置的密钥与变量
 

@@ -25,7 +25,7 @@ describe('work 路由', () => {
     const response = await request(app).get('/status')
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ browser: { enabled: false, running: false, headed: false }, execution: { mode: 'agent', cloudConnected: false, persisted: true }, domainGeneration: { mode: 'mock', cloudConnected: false, persisted: false }, recordStorage: 'api' })
-    expect(response.body.features.map(feature => feature.id)).toEqual(['schedule', 'diary', 'reading', 'period', 'makeup-room', 'wardrobe', 'workspace', 'letters'])
+    expect(response.body.features.map(feature => feature.id)).toEqual(['schedule', 'diary', 'reading', 'period', 'collection', 'letters'])
   })
   it('模型已配置只改变工作对话状态，不把领域模拟或多模态任务标为已接通', async () => {
     configured.mockReturnValue(true)

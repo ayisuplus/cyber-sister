@@ -7,8 +7,8 @@ const service = vi.hoisted(() => ({
   listMemories: vi.fn(),
   updateMemory: vi.fn(),
   deleteMemory: vi.fn(),
-  clearAllMemories: vi.fn(),
-  getMemory: vi.fn(), listRevisions: vi.fn(), restoreMemory: vi.fn(),
+  getMemory: vi.fn(),
+  setMemoryPinned: vi.fn(),
 }))
 
 const suggestionService = vi.hoisted(() => ({
@@ -118,18 +118,6 @@ describe('记忆路由', () => {
     expect(fail.status).toBe(500)
     expect(fail.body).toEqual({ error: '删除记忆失败' })
   })
-
-  it('清空记忆返回删除数量', async () => {
-    service.clearAllMemories.mockResolvedValue(5)
-    const ok = await request(app).delete('/')
-    expect(ok.status).toBe(200)
-    expect(ok.body).toEqual({ success: true, deleted: 5 })
-
-    service.clearAllMemories.mockRejectedValue(new Error('db down'))
-    const fail = await request(app).delete('/')
-    expect(fail.status).toBe(500)
-    expect(fail.body).toEqual({ error: '清空记忆失败' })
-  })
 })
 
 describe('语义索引重建路由（M2）', () => {
@@ -211,5 +199,19 @@ describe('记忆建议路由（W3）', () => {
     const res = await request(app).post('/suggestions').send({ messageId: 'msg-1' })
     expect(res.status).toBe(500)
     expect(res.body).toEqual({ error: '生成记忆建议失败' })
+  })
+})
+
+describe('放在心上接口', () => {
+  it('PUT /:id/pin 只把 pinned 交给 service，错误透传', async () => {
+    service.setMemoryPinned.mockResolvedValue({ id: 'm1', pinned: true })
+    const ok = await request(app).put('/m1/pin').send({ pinned: true, content: '顺手改内容' })
+    expect(ok.status).toBe(200)
+    expect(service.setMemoryPinned).toHaveBeenCalledWith('user-1', 'm1', true)
+
+    service.setMemoryPinned.mockRejectedValue(Object.assign(new Error('最多放 5 件在心上，先拿下一件再放'), { statusCode: 400 }))
+    const full = await request(app).put('/m2/pin').send({ pinned: true })
+    expect(full.status).toBe(400)
+    expect(full.body.error).toBe('最多放 5 件在心上，先拿下一件再放')
   })
 })

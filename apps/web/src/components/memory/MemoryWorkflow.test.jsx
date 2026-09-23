@@ -1,140 +1,166 @@
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-vi.mock('../../services/memoryService', () => ({
-  memoryService: Object.fromEntries(['listPage', 'get', 'revisions', 'restore', 'latestIndexJob', 'indexJob', 'createIndexJob', 'cancelIndexJob'].map((name) => [name, vi.fn()])),
-}))
-vi.mock('../../services/derivedService', () => ({
-  derivedService: Object.fromEntries(['list', 'listEdges', 'promote', 'resolve', 'dismiss', 'promoteEdge', 'dismissEdge', 'clear', 'analyze', 'rebuild'].map((name) => [name, vi.fn()])),
-}))
-// 「她」页面里的节奏面板有独立测试；这里只看记忆的确认边界
-vi.mock('../chat/CompanionStatePanel', () => ({ default: () => null }))
-import { memoryService } from '../../services/memoryService'
-import { derivedService } from '../../services/derivedService'
-import HerPage from '../../pages/HerPage'
-import MemoryDetailPanel from './MemoryDetailPanel'
-import MemoryIndexPanel from './MemoryIndexPanel'
 
-const draft = { id: 'draft1', revision: 1, kind: 'pattern', status: 'active', content: '常在周末爬山', sources: [{ type: 'memory', id: 'm1', revision: 1, quote: '周末爬山' }] }
-const renderHub = (tab = 'pending') => render(<MemoryRouter initialEntries={['/her?tab=' + tab]}><HerPage /></MemoryRouter>)
+vi.mock('../../services/memoryService', () => ({
+  memoryService: Object.fromEntries(['listPage', 'create', 'update', 'remove', 'setPinned'].map((name) => [name, vi.fn()])),
+}))
+vi.mock('../../services/letterService', () => ({
+  letterService: Object.fromEntries(['generate', 'list', 'get', 'read', 'decide'].map((name) => [name, vi.fn()])),
+}))
+vi.mock('../../services/userService', () => ({ profileService: { get: vi.fn(), update: vi.fn() } }))
+// 「她」页面里的说话方式与节奏面板各有测试；这里只看来信建议与最小记忆列表
+vi.mock('../chat/CompanionStatePanel', () => ({ default: () => null }))
+vi.mock('../services/authService', () => ({ authService: { updatePersona: vi.fn() } }))
+
+import { memoryService } from '../../services/memoryService'
+import { letterService } from '../../services/letterService'
+import { profileService } from '../../services/userService'
+import { useAuthStore } from '../../stores/authStore'
+import HerPage from '../../pages/HerPage'
+
+const EDIT_SUGGESTION = {
+  kind: 'edit_memory', title: '把这条改准确', memoryId: 'm1', memoryRevision: 2,
+  quote: '喜欢桂花味', suggestText: '喜欢桂花味的拿铁', chatText: '就按你信里说的改吧', decided: null,
+}
+const REMOVE_SUGGESTION = { ...EDIT_SUGGESTION, kind: 'delete_memory', title: '忘掉这条', suggestText: '', chatText: null }
+const PLAN_SUGGESTION = {
+  kind: 'plan', title: '把复诊安排上', memoryId: null, memoryRevision: null, quote: null,
+  suggestText: '去复诊', instruction: null, planDate: null, chatText: '帮我把复诊安排上', decided: null,
+}
+
+const LETTER = {
+  id: 'l1', periodStart: '2026-09-09T00:00:00.000Z',
+  content: '见信好。\n\n最近做完了不少事。',
+  suggestions: [EDIT_SUGGESTION, PLAN_SUGGESTION, REMOVE_SUGGESTION],
+}
+
+// 「带去对话」的落点：把路由状态里的草稿亮出来，好断言交接通道
+function ChatProbe() {
+  const location = useLocation()
+  return <p>草稿：{location.state?.compose ?? '（空）'}</p>
+}
+
+const renderPage = () => render(
+  <MemoryRouter initialEntries={['/her']}>
+    <Routes>
+      <Route path="/her" element={<HerPage />} />
+      <Route path="/chat" element={<ChatProbe />} />
+    </Routes>
+  </MemoryRouter>,
+)
+
 beforeEach(() => {
   vi.resetAllMocks()
+  useAuthStore.setState({ token: 't', isLoggedIn: true, user: { id: 'u1', persona: 'gentle' } })
+  profileService.get.mockResolvedValue({ letterFreqDays: 3 })
+  profileService.update.mockImplementation(async (payload) => payload)
+  letterService.generate.mockResolvedValue({ letter: LETTER, created: false, reason: 'not_due' })
+  letterService.list.mockResolvedValue([LETTER])
+  letterService.read.mockResolvedValue({ success: true })
+  letterService.decide.mockImplementation(async (id, index, { decision }) => ({
+    letter: {
+      ...LETTER,
+      suggestions: LETTER.suggestions.map((item, i) => (i === index ? { ...item, decided: decision === 'accept' ? 'accepted' : 'dismissed' } : item)),
+    },
+  }))
   memoryService.listPage.mockResolvedValue({ data: [], total: 0 })
-  memoryService.latestIndexJob.mockResolvedValue(null)
-  derivedService.list.mockResolvedValue({ insights: [draft] })
-  derivedService.listEdges.mockResolvedValue({ edges: [] })
 })
 
-describe('memory hub confirmation boundary', () => {
-  it('pending content remains outside the saved tab until the user confirms', async () => {
-    const user = userEvent.setup(); renderHub()
-    expect(await screen.findByText(draft.content)).toBeInTheDocument()
-    expect(derivedService.promote).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: '已记住', exact: true }))
-    expect(await screen.findByText('还没有记忆')).toBeInTheDocument()
-    expect(screen.queryByText(draft.content)).not.toBeInTheDocument()
-  })
-  it('confirmation binds the expected draft revision and preserves verified provenance', async () => {
-    const user = userEvent.setup(); renderHub()
-    await user.click(await screen.findByRole('button', { name: '确认这条理解' }))
-    expect(derivedService.promote).toHaveBeenCalledWith('draft1', { expectedRevision: 1, type: 'semantic', content: undefined, asManual: false })
-  })
-  it('an old draft without evidence requires explicit manual review', async () => {
-    derivedService.list.mockResolvedValue({ insights: [{ ...draft, sources: [], status: 'needs_review', revision: 3 }] })
-    const user = userEvent.setup(); renderHub()
-    await screen.findByText(draft.content)
-    expect(screen.queryByRole('button', { name: '确认这条理解' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '编辑核对后记住' }))
-    await user.clear(screen.getByLabelText('核对后的记忆内容'))
-    await user.type(screen.getByLabelText('核对后的记忆内容'), '这是我核对后的内容')
-    await user.click(screen.getByRole('button', { name: '确认并记住' }))
-    expect(derivedService.promote).toHaveBeenCalledWith('draft1', expect.objectContaining({ expectedRevision: 3, asManual: true, content: '这是我核对后的内容' }))
-  })
-  it('a stale confirmation preserves user text and reports the server conflict', async () => {
-    derivedService.promote.mockRejectedValue({ response: { status: 409, data: { error: '依据已变化，请重新核对' } } })
-    const user = userEvent.setup(); renderHub()
-    await user.click(await screen.findByRole('button', { name: '编辑核对后记住' }))
-    await user.type(screen.getByLabelText('核对后的记忆内容'), '（我的补充）')
-    await user.click(screen.getByRole('button', { name: '确认并记住' }))
-    expect(await screen.findByText('依据已变化，请重新核对')).toBeInTheDocument()
-    expect(screen.getByLabelText('核对后的记忆内容')).toHaveValue(draft.content + '（我的补充）')
-  })
-  it('mock analysis only displays the returned preview', async () => {
-    derivedService.analyze.mockResolvedValue({ created: 0, preview: { content: '模拟整理示例，没有读取私人记录' } })
-    const user = userEvent.setup(); renderHub()
-    await user.click(screen.getByRole('button', { name: '预览整理' }))
-    expect(await screen.findByText(/模拟整理示例/)).toBeInTheDocument()
-    expect(derivedService.promote).not.toHaveBeenCalled()
-    expect(derivedService.clear).not.toHaveBeenCalled()
-  })
-  it('relation review sends both current endpoint versions and the relationship version', async () => {
-    derivedService.listEdges.mockResolvedValue({ edges: [{
-      id: 'edge1', status: 'needs_review', relation: 'contradicts', revision: 4, fromRevision: 1, toRevision: 1,
-      from: { id: 'm1', content: '旧偏好已更改', revision: 2 }, to: { id: 'm2', content: '另一条记忆', revision: 1 }, decisions: [],
-      evidence: [{ type: 'memory', status: 'missing', quote: '外部缺失的依据' }],
-    }] })
-    const user = userEvent.setup(); renderHub('relations')
-    expect(await screen.findByText(/依据版本：v1 \/ v1；当前版本：v2 \/ v1/)).toBeInTheDocument()
-    expect(derivedService.promoteEdge).not.toHaveBeenCalled()
-    await user.click(screen.getByText('查看关系依据与确认记录'))
-    expect(screen.getByText('来源已缺失：外部缺失的依据')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '重新确认关系' }))
-    expect(derivedService.promoteEdge).toHaveBeenCalledWith('edge1', { expectedRevision: 4, expectedFromRevision: 2, expectedToRevision: 1 })
-  })
-})
+describe('来信建议的三个一键动作', () => {
+  it('她页显示最新来信的正文与每条建议的三个动作，并记下读过', async () => {
+    renderPage()
 
-describe('revision recovery and index tasks', () => {
-  it('a late initial status response cannot replace a newly created task', async () => {
-    let finishInitial
-    memoryService.latestIndexJob.mockImplementationOnce(() => new Promise((resolve) => { finishInitial = resolve }))
-    memoryService.createIndexJob.mockResolvedValue({ id: 'new-job', status: 'queued', processed: 0, total: 1, embedded: 0, skipped: 0, failed: 0 })
-    const user = userEvent.setup(); render(<MemoryIndexPanel />)
-    await user.click(screen.getByText('记忆检索维护'))
-    await user.click(screen.getByRole('button', { name: '全部重新生成' }))
-    expect(await screen.findByText(/等待处理 · 已处理 0\/1/)).toBeInTheDocument()
-    finishInitial(null)
-    await waitFor(() => expect(screen.getByRole('button', { name: '取消任务' })).toBeEnabled())
-    expect(screen.getByText(/等待处理 · 已处理 0\/1/)).toBeInTheDocument()
+    expect(await screen.findByText('见信好。')).toBeInTheDocument()
+    expect(screen.getByText('最近做完了不少事。')).toBeInTheDocument()
+    for (const title of ['把这条改准确', '把复诊安排上', '忘掉这条']) {
+      const section = screen.getByRole('region', { name: title })
+      for (const action of ['同意采纳', '带去对话', '不用']) {
+        expect(within(section).getByRole('button', { name: action })).toBeInTheDocument()
+      }
+    }
+    expect(letterService.read).toHaveBeenCalledWith('l1')
   })
-  it('compares versions and restores only after confirmation with the current expected revision', async () => {
-    const current = { id: 'm1', revision: 2, content: '现在的内容', importance: 5, tags: [], sources: [] }
-    memoryService.get.mockResolvedValue(current)
-    memoryService.revisions.mockResolvedValue([
-      { ...current, action: 'edit', confirmedAt: '2026-09-13T00:00:00Z' },
-      { ...current, revision: 1, content: '过去的内容', action: 'create', confirmedAt: '2026-09-12T00:00:00Z' },
-    ])
-    memoryService.restore.mockResolvedValue({ ...current, revision: 3 })
-    const onRestored = vi.fn(), user = userEvent.setup()
-    render(<MemoryDetailPanel id="m1" onClose={vi.fn()} onRestored={onRestored} />)
-    await user.selectOptions(await screen.findByLabelText('查看历史版本'), '1')
-    expect(screen.getByText('过去的内容')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '恢复这个版本' }))
-    expect(memoryService.restore).not.toHaveBeenCalled()
-    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '确认恢复' }))
-    expect(memoryService.restore).toHaveBeenCalledWith('m1', { revision: 1, expectedRevision: 2 })
-    await waitFor(() => expect(onRestored).toHaveBeenCalledOnce())
+
+  it('「带去对话」把引导句带去 /chat 的输入框（一次性路由状态）', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('见信好。')
+
+    await user.click(within(screen.getByRole('region', { name: '把这条改准确' })).getByRole('button', { name: '带去对话' }))
+
+    expect(await screen.findByText('草稿：就按你信里说的改吧')).toBeInTheDocument()
+    expect(letterService.decide).not.toHaveBeenCalled()
   })
-  it('a queued receipt is not completion; polling supplies the final counters', async () => {
-    const job = { id: 'job1', status: 'queued', processed: 0, total: 3, embedded: 0, skipped: 0, failed: 0 }
-    memoryService.createIndexJob.mockResolvedValue(job)
-    memoryService.indexJob.mockResolvedValue({ ...job, status: 'completed', processed: 3, embedded: 2, failed: 1 })
-    const user = userEvent.setup(); render(<MemoryIndexPanel />)
-    await user.click(screen.getByText('记忆检索维护'))
-    await user.click(screen.getByRole('button', { name: '修复缺失或过期索引' }))
-    expect(await screen.findByText(/等待处理 · 已处理 0\/3/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '全部重新生成' })).toBeDisabled()
-    await waitFor(() => expect(screen.getByText(/处理结束 · 已处理 3\/3 · 成功 2 · 跳过 0 · 失败 1/)).toBeInTheDocument(), { timeout: 2500 })
+
+  it('「同意采纳」走 decide（accept），条目变成「已采纳」', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('见信好。')
+
+    await user.click(within(screen.getByRole('region', { name: '把这条改准确' })).getByRole('button', { name: '同意采纳' }))
+
+    expect(letterService.decide).toHaveBeenCalledWith('l1', 0, { decision: 'accept' })
+    expect(await within(screen.getByRole('region', { name: '把这条改准确' })).findByText('已采纳')).toBeInTheDocument()
   })
-  it('cancellation uses the active task id and preserves the partial result', async () => {
-    const job = { id: 'job1', status: 'running', processed: 1, total: 3, embedded: 1, skipped: 0, failed: 0 }
-    memoryService.latestIndexJob.mockResolvedValue(job)
-    memoryService.cancelIndexJob.mockResolvedValue({ ...job, status: 'cancelled' })
-    const user = userEvent.setup(); render(<MemoryIndexPanel />)
-    await user.click(screen.getByText('记忆检索维护'))
-    await user.click(await screen.findByRole('button', { name: '取消任务' }))
-    expect(memoryService.cancelIndexJob).toHaveBeenCalledWith('job1')
-    expect(await screen.findByText(/已取消 · 已处理 1\/3/)).toBeInTheDocument()
+
+  it('「不用」走 decide（dismiss），条目变成「没采纳」，不碰记忆与安排', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('见信好。')
+
+    await user.click(within(screen.getByRole('region', { name: '把复诊安排上' })).getByRole('button', { name: '不用' }))
+
+    expect(letterService.decide).toHaveBeenCalledWith('l1', 1, { decision: 'dismiss' })
+    expect(await within(screen.getByRole('region', { name: '把复诊安排上' })).findByText('没采纳')).toBeInTheDocument()
+    expect(memoryService.update).not.toHaveBeenCalled()
+  })
+
+  it('删除类建议先问一句再采纳', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('见信好。')
+
+    await user.click(within(screen.getByRole('region', { name: '忘掉这条' })).getByRole('button', { name: '同意采纳' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('删掉后不再出现在她记得的你里。')).toBeInTheDocument()
+    expect(letterService.decide).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole('button', { name: '删掉' }))
+    expect(letterService.decide).toHaveBeenCalledWith('l1', 2, { decision: 'accept' })
+    expect(await within(screen.getByRole('region', { name: '忘掉这条' })).findByText('已采纳')).toBeInTheDocument()
+  })
+
+  it('处理失败行内报错，可以重试', async () => {
+    const user = userEvent.setup()
+    letterService.decide.mockRejectedValueOnce({ response: { status: 409, data: { error: '这条建议已经处理过了' } } })
+    renderPage()
+    await screen.findByText('见信好。')
+
+    await user.click(within(screen.getByRole('region', { name: '把这条改准确' })).getByRole('button', { name: '同意采纳' }))
+    expect(await screen.findByText('这条建议已经处理过了')).toBeInTheDocument()
+    expect(screen.queryByText('已采纳')).not.toBeInTheDocument()
+
+    await user.click(within(screen.getByRole('region', { name: '把这条改准确' })).getByRole('button', { name: '同意采纳' }))
+    expect(await screen.findByText('已采纳')).toBeInTheDocument()
   })
 })
 
+describe('最小记忆列表', () => {
+  it('没有搜索、清空与「她是怎么记住的」，只有放在心上、改一改、删除', async () => {
+    memoryService.listPage.mockResolvedValue({
+      data: [{ id: 'm1', revision: 1, content: '喜欢桂花味', importance: 5, tags: [], pinned: false }],
+      total: 1,
+    })
+    renderPage()
+
+    const card = within((await screen.findByText('喜欢桂花味')).closest('article'))
+    expect(card.getByRole('button', { name: '放在心上' })).toBeInTheDocument()
+    expect(card.getByRole('button', { name: '改一改' })).toBeInTheDocument()
+    expect(card.getByRole('button', { name: /删除这条记忆/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '她是怎么记住的' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('searchbox', { name: '搜索记忆' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '清空' })).not.toBeInTheDocument()
+  })
+})

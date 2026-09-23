@@ -7,6 +7,24 @@ import logger from '../utils/logger.js'
 const router = Router()
 
 // === 大姨妈 ===
+// 单独同意须在 /period/:id 之前注册，避免被当成记录 id。
+router.get('/period/consent', async (req, res, next) => {
+  try { res.json(await periodService.getPeriodConsent(req.user.userId)) } catch (error) { next(error) }
+})
+
+router.put('/period/consent', async (req, res, next) => {
+  try { res.json(await periodService.setPeriodConsent(req.user.userId, req.body?.accepted)) } catch (error) { next(error) }
+})
+
+// 「聊天时让她顾及你的周期」：记录同意之外单独的一项
+router.get('/period/tone', async (req, res, next) => {
+  try { res.json(await periodService.getPeriodTone(req.user.userId)) } catch (error) { next(error) }
+})
+
+router.put('/period/tone', async (req, res, next) => {
+  try { res.json(await periodService.setPeriodTone(req.user.userId, req.body?.enabled)) } catch (error) { next(error) }
+})
+
 router.get('/period/summary', async (req, res, next) => {
   try { res.json(await periodService.getPeriodSummary(req.user.userId, req.query.today)) } catch (error) { next(error) }
 })
@@ -40,19 +58,8 @@ router.post('/period', validate([
     res.json(record)
   } catch (error) {
     logger.error('创建经期记录失败', { error: error.message })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '创建经期记录失败' })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '创建经期记录失败', ...(error.statusCode && error.code ? { code: error.code } : {}) })
   }
-})
-
-// === 天气 (Mock) ===
-router.get('/weather', (req, res) => {
-  res.json({
-    city: '上海',
-    temp: 32,
-    condition: '多云',
-    humidity: 65,
-    tip: '明天降温，记得穿外套',
-  })
 })
 
 export default router

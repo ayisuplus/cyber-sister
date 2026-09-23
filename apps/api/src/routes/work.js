@@ -36,9 +36,8 @@ router.get('/status', async (req, res) => {
       { id: 'diary', api: '/api/diary', generation: 'mock' },
       { id: 'reading', api: '/api/reading', generation: 'mock' },
       { id: 'period', api: '/api/tools/period', generation: 'server_calculation' },
-      { id: 'makeup-room', api: '/api/work/media/makeup/preview', generation: 'mock' },
-      { id: 'wardrobe', api: '/api/work/media/wardrobe/preview', generation: 'mock' },
-      { id: 'workspace', api: '/api/derived', generation: 'mock' },
+      // 装扮是收藏，不做生成
+      { id: 'collection', api: '/api/collection', generation: 'none' },
       { id: 'letters', api: '/api/letters', generation: 'mock' },
     ],
   })

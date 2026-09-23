@@ -14,13 +14,13 @@
 | [`docs/Spec_Amie_v1.0.md`](docs/Spec_Amie_v1.0.md) | **实施基线合同**。范围、认证、聊天、记忆、危机、虚拟房间、发布验收 |
 | [`docs/01-产品/开发计划与路线图.md`](docs/01-产品/开发计划与路线图.md) | 当前排期、已实现/后置能力、已知文档与实现冲突 |
 
-> ⚠️ `docs/architecture/` 下多数大部头方案（API 网关、微服务、Redis、K8s、性能优化等）标注为**历史/未来方案归档**，**不代表当前内测实现**。不要照它们实施，以 Spec 为准。
+> 历史微服务等方案已移入 `docs/09-参考/历史归档/`。开发前查看[文档索引](docs/README.md)的状态和[现状审查](docs/architecture/project-review-20260917.md)的未决项；阶段验收记录不等于当前产品入口。
 
 ---
 
 ## 1. 环境准备
 
-**硬性要求**：Node.js 20+、pnpm 11.5.1、Docker（仅用于本地 PostgreSQL）。
+**硬性要求**：Node.js 24、pnpm 11.5.1、Docker（本地 PostgreSQL；可选隔离执行也依赖 Docker）。
 
 ```bash
 # 1. 安装依赖（仓库只维护根级 pnpm-lock.yaml）
@@ -38,46 +38,9 @@ docker compose -f compose.dev.yaml up -d
 
 内测模式要求 `APP_ENV=internal`，且**密钥、白名单、固定验证码必须通过仓库外的只读文件提供**，绝不进仓库。
 
-在仓库外的私有目录（如 `../.local-secrets/`）建立以下文件，各写一个值：
+密钥文件清单、完整环境变量、初始化与前后端启动命令统一维护在 [README「本地运行」](README.md#本地运行)，本页不再复制一套。只使用独立开发库；本地生活功能需同时启用 API 与 Web 的分发开关，默认 Web 不开放工具。
 
-| 文件 | 内容 |
-|------|------|
-| `postgres_password` | 开发库口令（本机可用 `cyber_sister_dev`） |
-| `jwt_secret` | ≥32 位随机串 |
-| `jwt_refresh_secret` | ≥32 位随机串 |
-| `internal_test_phones` | 逗号分隔的手机号白名单 |
-| `instance_admin_phones` | 管理员手机号（须为白名单子集） |
-| `internal_test_code` | 6 位数字固定验证码 |
-
-启动后端（完整环境变量见 README）：
-
-```bash
-cd apps/api
-APP_ENV=internal NODE_ENV=development PORT=3000 \
-DATABASE_HOST=localhost POSTGRES_USER=cyber_sister POSTGRES_DB=cyber_sister \
-DATABASE_PASSWORD_FILE=../.local-secrets/postgres_password \
-JWT_SECRET_FILE=../.local-secrets/jwt_secret \
-JWT_REFRESH_SECRET_FILE=../.local-secrets/jwt_refresh_secret \
-INTERNAL_TEST_CODE_FILE=../.local-secrets/internal_test_code \
-INTERNAL_TEST_PHONES_FILE=../.local-secrets/internal_test_phones \
-INSTANCE_ADMIN_PHONES_FILE=../.local-secrets/instance_admin_phones \
-CORS_ORIGIN=https://internal.example.test \
-LOCAL_LLM_ALLOWED_ORIGINS=http://127.0.0.1:8080 \
-pnpm db:migrate:deploy && pnpm db:seed && pnpm dev
-```
-
-另起终端启动前端：
-
-```bash
-pnpm dev:web   # Vite 把 /api 代理到 localhost:3000
-```
-
-用白名单手机号 + 固定验证码登录即可。
-
-**两种预期降级**（不是 bug）：
-
-- 未配置 llama.cpp 时聊天返回 `LOCAL_LLM_NOT_CONFIGURED`
-- 未注入 MediaPipe/WASM 资产时 `pnpm build` 按设计失败
+未配置云端供应商时聊天返回 `LLM_UNAVAILABLE`；没有同意授权时不会调用模型。当前装扮页面只提供 `cloud_mock` 模拟预览；构建没有旧文档所称的 MediaPipe/WASM 资产门禁，构建成功不能代替功能验收。
 
 ---
 
@@ -99,7 +62,7 @@ TEST_DATABASE_URL='postgresql://用户:口令@127.0.0.1:5432/postgres' \
 pnpm --filter cyber-sister-server test:postgres
 ```
 
-测试会创建随机隔离空库、执行 `migrate deploy` 与 seed、验证关系，结束后强制删除。
+测试会创建随机隔离空库、执行 `migrate deploy` 与 seed、验证关系，结束后强制删除。未设置 `TEST_DATABASE_URL` 时普通 `pnpm test` 会跳过这 5 个集成套件。覆盖率与 E2E 的实际门禁见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ---
 
@@ -156,8 +119,8 @@ chore: 升级 pnpm 至 11.5.1
 | **AI 身份不可被覆盖** | 人格可以网络化、可以有脾气，但 AI 身份、安全边界、用户自主性不能被人格或用户提示改写 |
 | **危机检测优先于模型调用** | 中高风险输入必须在数据库事务中阻断，模型调用次数为零 |
 | **未核验的危机资源不得进仓库** | 热线等展示资源须产品负责人书面批准并记录来源与核验日期；不得无证据声明"24 小时" |
-| **隐私：本地优先** | 自拍与视频帧只在浏览器本地分析，永不发往服务器或模型供应商 |
-| **数据最小化** | 送入模型的只含 `role` + 脱敏 `content`；不送用户 ID、手机号、时间戳、图片、无关记忆；业务消息最多 20 条；记忆最多注入 5 条 |
+| **媒体边界** | 当前装扮预览在显式提交时把图片送到应用后端，内存校验后返回模拟结果。旧“照片永不上传”说明与实现冲突已登记 R8；这不授权新增上传或对外发送 |
+| **数据最小化** | 按 Spec §3/§4 的同意与消息合同装配、脱敏；Web 业务消息最多 20 条、记忆最多 5 条，本地工具回合预算见 §4；不发送用户 ID、手机号字段和无关记忆。媒体用途的文档冲突见 R8，不能自行扩大范围 |
 | **不做的事** | 不弱化安全红线、不引入情感诱导付费、不做医疗诊断与心理咨询、不冒充真人 |
 
 ---

@@ -34,3 +34,19 @@ export function pickOpeners(date = new Date()) {
   const day = localDayIndex(date)
   return [...CASUAL, BODY[day % BODY.length], EMOTION[day % EMOTION.length]]
 }
+
+/**
+ * 她自己的线索（她惦记的事 / 在读的书 / 最近的手记）排在前面，本机静态池补足到 max 条。
+ * 同一 id 只出现一次，没有正文的话题不摆出来——接口给什么就摆什么，凑数不用它。
+ */
+export function mergeOpeners(candidates = [], fallback = [], max = 4) {
+  const merged = []
+  const seen = new Set()
+  for (const topic of [...candidates, ...fallback]) {
+    if (!topic?.id || !String(topic.text ?? '').trim() || seen.has(topic.id)) continue
+    seen.add(topic.id)
+    merged.push(topic)
+    if (merged.length === max) break
+  }
+  return merged
+}

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -13,12 +14,17 @@ const mocks = vi.hoisted(() => ({
   conversationUpdate: vi.fn(),
   conversationUpdateMany: vi.fn(),
   messageFindMany: vi.fn(),
+  messageCount: vi.fn(() => Promise.resolve(0)),
+  messageDeleteMany: vi.fn(),
   messageUpdate: vi.fn(),
   messageCreate: vi.fn(),
+  bookFindFirst: vi.fn(),
+  diaryFindMany: vi.fn(() => Promise.resolve([])),
+  periodFindFirst: vi.fn(() => Promise.resolve(null)),
+  describeRecentNudges: vi.fn(() => Promise.resolve([])),
   memoryFindMany: vi.fn(),
   memoryEdgeFindMany: vi.fn(),
   derivedInsightFindMany: vi.fn(),
-  maybeAutoAnalyze: vi.fn(() => Promise.resolve({ created: 0, skipped: 0 })),
   crisisCreate: vi.fn(),
   transaction: vi.fn(),
   generateResponse: vi.fn(),
@@ -53,7 +59,11 @@ vi.mock('../prisma/client.js', () => {
         updateMany: mocks.conversationUpdateMany,
         delete: mocks.conversationDelete,
       },
-      message: { findMany: mocks.messageFindMany, update: mocks.messageUpdate },
+      message: { findMany: mocks.messageFindMany, count: mocks.messageCount, deleteMany: mocks.messageDeleteMany, update: mocks.messageUpdate },
+      book: { findFirst: mocks.bookFindFirst },
+      diaryEntry: { findMany: mocks.diaryFindMany },
+      periodRecord: { findFirst: mocks.periodFindFirst },
+      crisisLog: { create: mocks.crisisCreate },
       memory: { findMany: mocks.memoryFindMany },
       memoryEdge: { findMany: mocks.memoryEdgeFindMany },
       derivedInsight: { findMany: mocks.derivedInsightFindMany },
@@ -72,8 +82,9 @@ vi.mock('./llmService.js', () => ({
   detectCrisis: mocks.detectCrisis,
 }))
 
-vi.mock('./derivedService.js', () => ({
-  maybeAutoAnalyze: mocks.maybeAutoAnalyze,
+// 「她今天说过的话」由 nudgeService 自己的单测覆盖，这里只看它怎么进上下文
+vi.mock('./nudgeService.js', () => ({
+  describeRecentNudges: mocks.describeRecentNudges,
 }))
 
 vi.mock('./embeddingService.js', () => ({
@@ -90,7 +101,8 @@ vi.mock('./chatImageService.js', () => ({
   deleteChatImages: mocks.deleteChatImages,
 }))
 
-vi.mock('./detection.js', () => ({
+vi.mock('./detection.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   getCrisisIntervention: (level) => ({
     level,
     message: '固定安全干预',
@@ -103,16 +115,22 @@ vi.mock('../utils/logger.js', () => ({
 }))
 
 import {
-  createConversation,
+  clearThread,
   executeScheduledTask,
   deleteConversation,
   getConversation,
+  getThread,
   listConversations,
   setConversationArchived,
   sendMessage,
   sendMessageStream,
 } from './chatService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import { detectRememberIntent } from './contextBlocks.js'
+import { initExtensions, shutdownExtensions } from './extensionRuntime.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 describe('chatService 会话管理', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -174,16 +192,6 @@ describe('chatService 会话管理', () => {
       skip: 0,
       take: 50,
     }))
-  })
-
-  it('新建会话缺省标题为Amie', async () => {
-    mocks.conversationCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'c1', ...data }))
-
-    const withDefault = await createConversation('user-1')
-    expect(withDefault.title).toBe('Amie')
-
-    const withTitle = await createConversation('user-1', { title: '倾诉' })
-    expect(withTitle.title).toBe('倾诉')
   })
 
   it('会话详情按归属查询并分页消息，不存在抛 404', async () => {
@@ -318,7 +326,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -334,7 +342,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -359,7 +367,7 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateResponse.mock.calls[0][5]).toEqual({
       allowExternal: true,
       authorizeExternal: expect.any(Function),
-      memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_task') }],
+      memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }],
       scene: 'chat',
       agent: true,
       queryEmbedding: null,
@@ -418,6 +426,54 @@ describe('chatService.sendMessage', () => {
     })
     expect(mocks.messageCreate).not.toHaveBeenCalled()
     expect(mocks.transaction).not.toHaveBeenCalled()
+  })
+
+  it('/skill:name 展开成技能正文块作为用户消息，落库仍是原文', async () => {
+    const raw = '/skill:memory 她们都记得哪些？'
+    await expect(sendMessage('conversation-1', 'user-1', raw)).resolves.toMatchObject({ status: 'ok' })
+    const [current, , , , , options] = mocks.generateResponse.mock.calls[0]
+    expect(current).toBe(raw)
+    expect(options.userText.startsWith('<skill name="memory">')).toBe(true)
+    expect(options.userText).toContain('她记得的你')
+    expect(options.userText).toContain('</skill>\n\n她们都记得哪些？')
+    expect(options.userText).not.toContain('description:')
+    expect(mocks.messageCreate).toHaveBeenCalledWith({ data: { conversationId: 'conversation-1', role: 'user', content: raw } })
+  })
+
+  it('/skill: 后 context 与记忆意图判定仍基于原文', async () => {
+    const result = await sendMessage('conversation-1', 'user-1', '/skill:memory')
+    const [current, , , , , options] = mocks.generateResponse.mock.calls[0]
+    expect(current).toBe('/skill:memory')
+    // 展开块里有「帮我记住」字样：判定若误跑在展开文本上就会弹出记忆确认卡
+    expect(detectRememberIntent(options.userText)).toBe(true)
+    expect(result.offerMemory).toBe(false)
+  })
+
+  it('input 钩子只改发给模型的文本，落库与判定仍用原文', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'amie-ext-'))
+    try {
+      writeFileSync(path.join(tempRoot, 'in.js'), `export default (pi) => {
+        pi.on('input', (event) => ({ action: 'transform', text: event.text + '（补）' }))
+      }`)
+      await initExtensions({ dirs: [tempRoot] })
+      await sendMessage('conversation-1', 'user-1', '你好')
+      const [current, , , , , options] = mocks.generateResponse.mock.calls[0]
+      expect(current).toBe('你好')
+      expect(options.userText).toBe('你好（补）')
+      expect(mocks.messageCreate).toHaveBeenCalledWith({ data: { conversationId: 'conversation-1', role: 'user', content: '你好' } })
+    } finally {
+      await shutdownExtensions()
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('没有这个技能报 400，不触达模型也不落库', async () => {
+    await expect(sendMessage('conversation-1', 'user-1', '/skill:nope 干点啥')).rejects.toMatchObject({
+      statusCode: 400,
+      message: '没有「nope」这个技能',
+    })
+    expect(mocks.generateResponse).not.toHaveBeenCalled()
+    expect(mocks.messageCreate).not.toHaveBeenCalled()
   })
 
   it('中高风险先于同意与模型调用，并在一个事务中只写一条 CrisisLog', async () => {
@@ -508,7 +564,7 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
     expect(mocks.generateResponse).toHaveBeenCalledOnce()
     const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options.extraSystem[0].content).toContain('【角色运行状态】')
+    expect(options.extraSystem.some((item) => item.content.includes('【这一轮的分寸】'))).toBe(true)
     expect(options.extraSystem.at(-1).content).toContain('add_task')
     expect(mocks.companionUpdate).toHaveBeenCalledOnce()
     expect(result.aiMessage.companionExperience).toMatchObject({ revision: 1, observation: { positive: 1 } })
@@ -523,18 +579,29 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
+  it('只是倾诉的一轮不塞工具目录；一带办事的线索就照常给', async () => {
+    await sendMessage('conversation-1', 'user-1', '今天好难过')
+    const feeling = mocks.generateResponse.mock.calls[0][5]
+    expect(feeling.extraSystem.some((item) => item.content.includes('add_task'))).toBe(false)
+    expect(feeling.extraSystem.at(-1).content).toContain('这一轮是聊天')
+    expect(feeling).not.toHaveProperty('tools')
+
+    await sendMessage('conversation-1', 'user-1', '好难过，帮我定个明早 7 点的闹钟')
+    expect(mocks.generateResponse.mock.calls[1][5].extraSystem.at(-1).content).toContain('add_task')
+  })
+
   it('持久学习参数改变下一轮表达，角色状态不会成为用户正式记忆', async () => {
     const { createCompanionState } = await import('./companionState.js')
     const state = createCompanionState(Date.now())
     state.learning.brevity = 0.85
     mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', companionState: state, companionRevision: 8 })
     const result = await sendMessage('conversation-1', 'user-1', '你好')
-    expect(mocks.generateResponse.mock.calls[0][5].extraSystem[0].content).toContain('偏简洁')
+    expect(mocks.generateResponse.mock.calls[0][5].extraSystem.find((item) => item.content.includes('【这一轮的分寸】')).content).toContain('偏简洁')
     expect(result.aiMessage.companionExperience.basedOnRevision).toBe(8)
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('存在未确认草稿时也不查询或传入模型，自动整理仍走原隔离入口', async () => {
+  it('存在理解草稿时也不查询或传入模型', async () => {
     const insights = [{ kind: 'pattern', content: '她习惯深夜学习', confidence: 'medium' }]
     mocks.derivedInsightFindMany.mockResolvedValue(insights)
 
@@ -544,7 +611,6 @@ describe('chatService.sendMessage', () => {
     expect(mocks.derivedInsightFindMany).not.toHaveBeenCalled()
     const options = mocks.generateResponse.mock.calls[0][5]
     expect(options).not.toHaveProperty('derivedInsights')
-    expect(mocks.maybeAutoAnalyze).toHaveBeenCalledWith('user-1', undefined)
   })
 
   it('聊天选项没有未确认草稿入口', async () => {
@@ -647,6 +713,15 @@ describe('chatService.sendMessageStream', () => {
     ]))
   })
 
+  it('流式路径同样展开 /skill:，只影响模型输入', async () => {
+    const raw = '/skill:memory'
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', raw, 'req-skill'))
+    expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
+    expect(mocks.generateResponseStream.mock.calls[0][0]).toBe(raw)
+    expect(mocks.generateResponseStream.mock.calls[0][5].userText.startsWith('<skill name="memory">')).toBe(true)
+    expect(mocks.messageCreate).toHaveBeenCalledWith({ data: { conversationId: 'conversation-1', role: 'user', content: raw } })
+  })
+
   it('work 流式危机分支先于接口未接入门', async () => {
     mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1', mode: 'work' })
     mocks.detectCrisis.mockReturnValue('critical')
@@ -714,7 +789,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
   })
 
@@ -815,7 +890,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【角色运行状态】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
@@ -824,10 +899,10 @@ describe('chatService.sendMessageStream', () => {
     const output = await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好'))
     expect(output.map((event) => event.type)).toEqual(['sentence', 'sentence', 'done'])
     const options = mocks.generateResponseStream.mock.calls[0][5]
-    expect(options.extraSystem.some((item) => item.content.includes('【角色运行状态】'))).toBe(true)
+    expect(options.extraSystem.some((item) => item.content.includes('【这一轮的分寸】'))).toBe(true)
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
     expect(mocks.companionUpdate).toHaveBeenCalledOnce()
-    expect(output.at(-1).aiMessage.content).not.toContain('【角色运行状态】')
+    expect(output.at(-1).aiMessage.content).not.toContain('【这一轮的分寸】')
   })
 })
 
@@ -894,7 +969,7 @@ describe('chatService 智能体工具回路', () => {
     expect(mocks.executeToolCall).toHaveBeenCalledTimes(12)
     expect(mocks.generateResponse).toHaveBeenCalledTimes(13)
     const aiData = mocks.messageCreate.mock.calls[1][0].data
-    expect(aiData.content).toContain('本轮工具执行已停止')
+    expect(aiData.content).toContain('这轮先到这儿')
     expect(aiData.content).toContain('已安排「周六复诊」')
     expect(aiData.source).toBe('local_template')
     expect(aiData.toolRuns).toHaveLength(12)
@@ -939,7 +1014,7 @@ describe('chatService 智能体工具回路', () => {
     const visible = events.filter((event) => event.type !== 'tool_progress')
     expect(visible.map((event) => event.type)).toEqual(['sentence', 'replace', 'done'])
     expect(visible[1]).toMatchObject({ type: 'replace', source: 'local_template' })
-    expect(visible[1].content).toContain('本轮工具执行已停止')
+    expect(visible[1].content).toContain('这轮先到这儿')
     expect(visible[2].aiMessage.content).toBe(visible[1].content)
     expect(visible[2].aiMessage.toolRuns).toHaveLength(12)
   })
@@ -953,7 +1028,7 @@ describe('chatService 智能体工具回路', () => {
     expect(mocks.executeToolCall).toHaveBeenCalledTimes(12)
     expect(mocks.generateResponseStream).toHaveBeenCalledTimes(13)
     expect(events.filter((event) => event.type !== 'tool_progress').map((event) => event.type)).toEqual(['replace', 'done'])
-    expect(events.at(-1).aiMessage.content).toContain('本轮工具执行已停止')
+    expect(events.at(-1).aiMessage.content).toContain('这轮先到这儿')
   })
 })
 
@@ -1118,6 +1193,7 @@ describe('chatService 滚动摘要', () => {
   it('积压不足 10 条不触发压缩', async () => {
     mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
     mocks.messageFindMany.mockResolvedValue(buildAscending(25)) // 25 - 19 = 6 条积压
+    mocks.messageCount.mockResolvedValue(25)
     await sendMessage('conversation-1', 'user-1', '你好')
     await flush()
     const compressCalls = mocks.generateCompanionNote.mock.calls
@@ -1129,6 +1205,7 @@ describe('chatService 滚动摘要', () => {
     mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
     const messages = buildAscending(30) // 30 - 19 = 11 条积压
     mocks.messageFindMany.mockResolvedValue(messages)
+    mocks.messageCount.mockResolvedValue(30)
     await sendMessage('conversation-1', 'user-1', '你好')
     await vi.waitFor(() => expect(
       mocks.generateCompanionNote.mock.calls.filter((c) => String(c[0].instruction).includes('对话归档员')),
@@ -1139,6 +1216,10 @@ describe('chatService 滚动摘要', () => {
     expect(noteArgs.userText).not.toContain('已有前情摘要')
     expect(noteArgs.userText).toContain('第1条')
     expect(noteArgs.userText).toContain('第11条')
+    expect(noteArgs.userText).not.toContain('第12条')
+    // 只数、只取未摘要的部分，不再每轮读出整段历史
+    expect(mocks.messageCount).toHaveBeenCalledWith({ where: { conversationId: 'conversation-1' } })
+    expect(mocks.messageFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { conversationId: 'conversation-1' }, take: 11 }))
 
     await vi.waitFor(() => expect(mocks.conversationUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'conversation-1' },
@@ -1153,6 +1234,7 @@ describe('chatService 滚动摘要', () => {
     const coveredAt = new Date(base.getTime() + 4 * 60_000)
     mocks.conversationFindUnique.mockResolvedValue({ summary: '旧摘要', summaryUpToAt: coveredAt })
     mocks.messageFindMany.mockResolvedValue(buildAscending(34)) // 34-19=15 条积压，扣除已覆盖 5 条剩 10 条
+    mocks.messageCount.mockResolvedValue(29) // 数据库只数摘要之后的 29 条
     await sendMessage('conversation-1', 'user-1', '你好')
     await vi.waitFor(() => expect(
       mocks.generateCompanionNote.mock.calls.filter((c) => String(c[0].instruction).includes('对话归档员')),
@@ -1168,6 +1250,7 @@ describe('chatService 滚动摘要', () => {
   it('压缩模型调用失败静默降级，不影响聊天', async () => {
     mocks.conversationFindUnique.mockResolvedValue({ summary: null, summaryUpToAt: null })
     mocks.messageFindMany.mockResolvedValue(buildAscending(30))
+    mocks.messageCount.mockResolvedValue(30)
     mocks.generateCompanionNote.mockRejectedValue(new Error('provider down'))
     const result = await sendMessage('conversation-1', 'user-1', '你好')
     await flush()
@@ -1199,4 +1282,438 @@ describe('chatService.executeScheduledTask 未接入防御门', () => {
     expect(mocks.executeToolCall).not.toHaveBeenCalled()
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
+})
+
+describe('chatService 只有一段对话', () => {
+  const buildTx = () => ({
+    $queryRaw: vi.fn(() => Promise.resolve([{ id: 'user-1' }])),
+    conversation: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn(() => Promise.resolve({ count: 0 })), update: vi.fn(() => Promise.resolve({})) },
+    message: { updateMany: vi.fn(() => Promise.resolve({ count: 0 })), findFirst: vi.fn(() => Promise.resolve(null)) },
+    workTask: { updateMany: vi.fn(() => Promise.resolve({ count: 0 })) },
+    workArtifact: { updateMany: vi.fn(() => Promise.resolve({ count: 0 })) },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'thread-1', userId: 'user-1', messages: [] })
+  })
+
+  it('已经只有一段时直接读取，不加锁也不改数据', async () => {
+    mocks.conversationFindMany.mockResolvedValue([{ id: 'thread-1' }])
+
+    const thread = await getThread('user-1', { page: 2, limit: 30 })
+
+    expect(thread.id).toBe('thread-1')
+    expect(mocks.conversationFindMany).toHaveBeenCalledWith({ where: { userId: 'user-1', archivedAt: null }, select: { id: true } })
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.conversationFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'thread-1', userId: 'user-1' } }))
+  })
+
+  it('一段都没有时在锁内创建', async () => {
+    mocks.conversationFindMany.mockResolvedValue([])
+    const tx = buildTx()
+    tx.conversation.findMany.mockResolvedValue([])
+    tx.conversation.create.mockResolvedValue({ id: 'thread-new' })
+    mocks.transaction.mockImplementationOnce((callback) => callback(tx))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'thread-new', userId: 'user-1', messages: [] })
+
+    expect((await getThread('user-1')).id).toBe('thread-new')
+    expect(tx.$queryRaw).toHaveBeenCalled()
+    expect(tx.conversation.create).toHaveBeenCalledWith({ data: { userId: 'user-1', title: 'Amie', mode: 'chat' } })
+  })
+
+  it('升级前的多段未归档会话合进最近活跃的那段；归档的不动，摘要只覆盖最新 19 条之外', async () => {
+    mocks.conversationFindMany.mockResolvedValue([{ id: 'old' }, { id: 'recent' }])
+    const covered = new Date('2026-09-10T00:00:00.000Z')
+    const boundary = new Date('2026-09-18T00:00:00.000Z')
+    const tx = buildTx()
+    tx.conversation.findMany.mockResolvedValue([{ id: 'recent', summaryUpToAt: covered }, { id: 'old', summaryUpToAt: null }, { id: 'older', summaryUpToAt: null }])
+    tx.message.updateMany.mockResolvedValue({ count: 42 })
+    tx.message.findFirst.mockResolvedValue({ createdAt: boundary })
+    mocks.transaction.mockImplementationOnce((callback) => callback(tx))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'recent', userId: 'user-1', messages: [] })
+
+    expect((await getThread('user-1')).id).toBe('recent')
+
+    expect(tx.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'user-1', archivedAt: null } }))
+    for (const model of [tx.message, tx.workTask, tx.workArtifact]) {
+      expect(model.updateMany).toHaveBeenCalledWith({ where: { conversationId: { in: ['old', 'older'] } }, data: { conversationId: 'recent' } })
+    }
+    expect(tx.conversation.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['old', 'older'] }, userId: 'user-1' } })
+    expect(tx.message.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { conversationId: 'recent' }, skip: 19 }))
+    expect(tx.conversation.update).toHaveBeenCalledWith({ where: { id: 'recent' }, data: { mode: 'chat', summaryUpToAt: boundary } })
+  })
+
+  it('并发的另一次打开已经合并完时，锁内复查后不再改数据', async () => {
+    mocks.conversationFindMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }])
+    const tx = buildTx()
+    tx.conversation.findMany.mockResolvedValue([{ id: 'a', summaryUpToAt: null }])
+    mocks.transaction.mockImplementationOnce((callback) => callback(tx))
+
+    await getThread('user-1')
+
+    expect(tx.message.updateMany).not.toHaveBeenCalled()
+    expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('清空聊天记录只删这段对话的消息与图片，并清掉前情摘要', async () => {
+    mocks.conversationFindMany.mockResolvedValue([{ id: 'thread-1' }])
+    mocks.messageFindMany.mockResolvedValue([{ id: 'img-1' }])
+    mocks.messageDeleteMany.mockReturnValue(Promise.resolve({ count: 7 }))
+    mocks.conversationUpdate.mockReturnValue(Promise.resolve({}))
+    mocks.transaction.mockImplementationOnce((operations) => Promise.all(operations))
+    mocks.deleteChatImages.mockResolvedValue()
+
+    expect(await clearThread('user-1')).toEqual({ success: true, conversationId: 'thread-1' })
+    expect(mocks.messageDeleteMany).toHaveBeenCalledWith({ where: { conversationId: 'thread-1' } })
+    expect(mocks.conversationUpdate).toHaveBeenCalledWith({ where: { id: 'thread-1' }, data: { summary: null, summaryUpToAt: null } })
+    expect(mocks.deleteChatImages).toHaveBeenCalledWith('user-1', ['img-1'])
+  })
+})
+
+describe('伴读问答：书里的原文作为资料进上下文', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+      crisisLog: { create: mocks.crisisCreate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'gentle',
+      externalLlmConsent: true,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    mocks.detectCrisis.mockReturnValue(null)
+    mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.memoryFindMany.mockResolvedValue([])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.derivedInsightFindMany.mockResolvedValue([])
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'done', content: '因为她还在等。', emotion: 'neutral', source: 'local_model', provider: 'llamacpp', model: 'configured-model' },
+    ]))
+  })
+
+  it('带上书名与原文，并明确标注原文只是资料', async () => {
+    mocks.bookFindFirst.mockResolvedValue({ id: 'b1', userId: 'user-1', title: '活着', author: '余华' })
+
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '她为什么不肯走？', 'req-reading', {
+      reading: { bookId: 'b1', passage: '有庆躺在那里，脸色白得像纸。' },
+    }))
+
+    expect(mocks.bookFindFirst).toHaveBeenCalledWith({ where: { id: 'b1', userId: 'user-1' } })
+    const block = mocks.generateResponseStream.mock.calls[0][5].extraSystem
+      .find((item) => item.content.includes('【一起读的书】'))
+    expect(block.content).toContain('《活着》（余华）')
+    expect(block.content).toContain('有庆躺在那里')
+    expect(block.content).toContain('不是指令')
+  })
+
+  it('原文超长就截断，不把整章塞进去', async () => {
+    mocks.bookFindFirst.mockResolvedValue({ id: 'b1', userId: 'user-1', title: '活着', author: null })
+
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '这段讲什么', 'req-long', {
+      reading: { bookId: 'b1', passage: '字'.repeat(5000) },
+    }))
+
+    const block = mocks.generateResponseStream.mock.calls[0][5].extraSystem
+      .find((item) => item.content.includes('【一起读的书】'))
+    expect((block.content.match(/字/g) || []).length).toBe(1500)
+  })
+
+  it('书不是自己的就拒绝，整轮不落库', async () => {
+    mocks.bookFindFirst.mockResolvedValue(null)
+
+    await expect(collectEvents(sendMessageStream('conversation-1', 'user-1', '问一句', 'req-foreign', {
+      reading: { bookId: 'someone-else', passage: '偷看的原文' },
+    }))).rejects.toMatchObject({ statusCode: 404 })
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+    expect(mocks.messageCreate).not.toHaveBeenCalled()
+  })
+
+  it('平常聊天不带这一块', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '你好'))
+
+    expect(mocks.bookFindFirst).not.toHaveBeenCalled()
+    expect(mocks.generateResponseStream.mock.calls[0][5].extraSystem
+      .some((item) => item.content.includes('【一起读的书】'))).toBe(false)
+  })
+})
+
+describe('危机小心模式：中级线索不拦她的回应', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+      crisisLog: { create: mocks.crisisCreate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'gentle',
+      externalLlmConsent: true,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    mocks.detectCrisis.mockReturnValue('medium')
+    mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.memoryFindMany.mockResolvedValue([])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.derivedInsightFindMany.mockResolvedValue([])
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.crisisCreate.mockResolvedValue({ id: 'crisis-1' })
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'done', content: '我在。今天是哪件事把你压成这样？', emotion: 'concerned', source: 'qwen', provider: 'qwen', model: 'm' },
+    ]))
+  })
+
+  const carefulBlock = () => mocks.generateResponseStream.mock.calls[0][5].extraSystem
+    .find((item) => item.content.includes('【这一轮请格外小心】'))
+
+  it('「活着好累」照常得到她的回应，这一轮带着小心模式', async () => {
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '活着好累', 'req-careful'))
+
+    expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
+    expect(events.some((event) => event.type === 'blocked')).toBe(false)
+    expect(carefulBlock().content).toContain('先接住她的感受')
+    expect(carefulBlock().content).toContain('不编造任何热线号码')
+  })
+
+  it('小心模式这一轮只是倾诉，不塞工具目录', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '活着好累', 'req-careful-tools'))
+    const contents = mocks.generateResponseStream.mock.calls[0][5].extraSystem.map((item) => item.content)
+    expect(contents.some((content) => content.includes('add_task'))).toBe(false)
+    expect(contents.at(-1)).toContain('这一轮是聊天')
+  })
+
+  it('中级只记一笔、不存原文，也不算走了固定干预', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '没人爱我', 'req-careful-log'))
+
+    expect(mocks.crisisCreate).toHaveBeenCalledWith({ data: { userId: 'user-1', triggerMsg: null, level: 'medium', handled: false } })
+  })
+
+  it('记录写不进去也不打断这一轮', async () => {
+    mocks.crisisCreate.mockRejectedValue(new Error('db down'))
+
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '我是个废物', 'req-careful-db'))
+
+    expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
+  })
+
+  it('没同意云端模型时退回固定关怀，不让人撞上同意墙', async () => {
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: false, externalLlmConsentVersion: null })
+
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '活着好累', 'req-careful-noconsent'))
+
+    expect(events).toEqual([expect.objectContaining({ type: 'blocked', status: 'blocked' })])
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+  })
+
+  it('明确的自伤意图（高级）仍然整轮拦下', async () => {
+    mocks.detectCrisis.mockReturnValue('high')
+
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '我不想活了', 'req-high'))
+
+    expect(events).toEqual([expect.objectContaining({ type: 'blocked', status: 'blocked' })])
+    expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+  })
+
+  it('平常的话不带小心模式', async () => {
+    mocks.detectCrisis.mockReturnValue(null)
+
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '今天吃了火锅', 'req-plain'))
+
+    expect(carefulBlock()).toBeUndefined()
+    expect(mocks.crisisCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe('她认得你：每轮都在的上下文', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+      crisisLog: { create: mocks.crisisCreate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue({
+      persona: 'gentle',
+      nickname: '小鱼',
+      birthDate: null,
+      externalLlmConsent: true,
+      externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    })
+    mocks.detectCrisis.mockReturnValue(null)
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.memoryFindMany.mockResolvedValue([
+      { id: 'pinned-1', revision: 1, content: '我对芒果过敏', type: 'semantic', importance: 5, tags: null, pinned: true },
+      { id: 'plain-1', revision: 1, content: '喜欢下雨天', type: 'semantic', importance: 5, tags: null, pinned: false },
+    ])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.retrieveRelevantMemories.mockReturnValue([])
+    mocks.describeRecentNudges.mockResolvedValue([{ kind: 'reminder', content: '该喝水啦' }])
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'done', content: '好呀', emotion: 'neutral', source: 'qwen', provider: 'qwen', model: 'm' },
+    ]))
+  })
+
+  const blockWith = (marker) => mocks.generateResponseStream.mock.calls[0][5].extraSystem
+    .find((item) => item.content.includes(marker))
+
+  it('称呼、放在心上的事、此刻、她今天说过的话都在', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '好的', 'req-knows'))
+
+    expect(blockWith('【关于她】').content).toContain('她希望你叫她「小鱼」')
+    expect(blockWith('【关于她】').content).toContain('我对芒果过敏')
+    expect(blockWith('【此刻】').content).toContain('北京时间')
+    expect(blockWith('【你今天主动对她说过】').content).toContain('该喝水啦')
+  })
+
+  it('放在心上的那几条不再挤进「相关记忆」的检索里', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '今天吃什么', 'req-pinned'))
+
+    const searched = mocks.retrieveRelevantMemories.mock.calls[0][1].map((memory) => memory.id)
+    expect(searched).toEqual(['plain-1'])
+  })
+
+  it('上一句话的时间来自已加载的历史，不多查库', async () => {
+    mocks.messageFindMany.mockResolvedValue([{ role: 'assistant', content: '晚安', createdAt: new Date(Date.now() - 3 * 86400000) }])
+
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '我回来啦', 'req-gap'))
+
+    expect(blockWith('【此刻】').content).toContain('3 天前')
+    // 时间只用来算间隔，不跟着历史消息一起交给模型
+    expect(mocks.generateResponseStream.mock.calls[0][2][0]).not.toHaveProperty('createdAt')
+  })
+
+  it('说「帮我记住…」的那一轮：告诉她确认卡在下面，并让界面自动打开', async () => {
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '帮我记住我对芒果过敏', 'req-remember'))
+
+    expect(blockWith('【她想让你记住一件事】')).toBeDefined()
+    expect(events.at(-1)).toMatchObject({ type: 'done', offerMemory: true })
+  })
+
+  it('平常的一轮不带这两样', async () => {
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '今天下雨了', 'req-plain'))
+
+    expect(blockWith('【她想让你记住一件事】')).toBeUndefined()
+    expect(events.at(-1)).toMatchObject({ type: 'done', offerMemory: false })
+  })
+
+  it('她今天说过的话取不到也不耽误聊天', async () => {
+    mocks.describeRecentNudges.mockResolvedValue([])
+
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '在吗', 'req-quiet'))
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' })
+    expect(blockWith('【你今天主动对她说过】')).toBeUndefined()
+  })
+})
+
+describe('「懂你」检验集（冻结）', () => {
+  // 场景与期望冻结在 tests/knows-you/knows-you.cases.json：改期望要产品负责人确认，不在实现里默默改。
+  // 这里只看拼给模型的那段上下文里有什么、没有什么——不调模型、不花钱、进 CI。
+  const suite = JSON.parse(readFileSync(new URL('../../tests/knows-you/knows-you.cases.json', import.meta.url), 'utf8'))
+  const day = 24 * 60 * 60 * 1000
+
+  const userOf = (given = {}) => ({
+    persona: given.persona ?? 'gentle',
+    nickname: given.nickname ?? null,
+    birthDate: null,
+    externalLlmConsent: true,
+    externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
+    periodConsentAt: given.periodConsent ? new Date('2026-09-01T00:00:00.000Z') : null,
+    periodToneAt: given.periodConsent ? new Date('2026-09-01T00:00:00.000Z') : null,
+  })
+
+  const contextOf = () => (mocks.generateResponseStream.mock.calls[0]?.[5].extraSystem ?? [])
+    .map((item) => item.content).join('\n')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+      crisisLog: { create: mocks.crisisCreate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue(userOf())
+    mocks.detectCrisis.mockReturnValue(null)
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.memoryFindMany.mockResolvedValue([])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.derivedInsightFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.retrieveRelevantMemories.mockReturnValue([])
+    mocks.describeRecentNudges.mockResolvedValue([])
+    mocks.diaryFindMany.mockResolvedValue([])
+    mocks.periodFindFirst.mockResolvedValue(null)
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.crisisCreate.mockResolvedValue({ id: 'crisis-1' })
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'done', content: '嗯，我在。', emotion: 'neutral', source: 'qwen', provider: 'qwen', model: 'm' },
+    ]))
+  })
+
+  it('检验集本身是冻结的：版本、场景与期望都齐全', () => {
+    expect(suite.version).toBe(1)
+    expect(suite.cases.length).toBeGreaterThanOrEqual(8)
+    for (const item of suite.cases) {
+      expect(item.id).toBeTruthy()
+      expect(item.title).toBeTruthy()
+      expect(item.text).toBeTruthy()
+      expect(Array.isArray(item.expect.contain)).toBe(true)
+      expect(Array.isArray(item.expect.absent)).toBe(true)
+    }
+  })
+
+  for (const scenario of suite.cases) {
+    it(`${scenario.id}｜${scenario.title}`, async () => {
+      const given = scenario.given ?? {}
+      mocks.userFindUnique.mockResolvedValue(userOf(given))
+      if (given.memories) mocks.memoryFindMany.mockResolvedValue(given.memories)
+      if (given.nudges) mocks.describeRecentNudges.mockResolvedValue(given.nudges.map((content, index) => ({ id: `nudge-${index}`, kind: 'reminder', content })))
+      if (given.lastMessageDaysAgo) {
+        mocks.messageFindMany.mockResolvedValue([{ role: 'assistant', content: '晚安', createdAt: new Date(Date.now() - given.lastMessageDaysAgo * day) }])
+      }
+      if (given.crisis) mocks.detectCrisis.mockReturnValue(given.crisis)
+      if (given.periodRecord) mocks.periodFindFirst.mockResolvedValue({ startDate: new Date(Date.now() - 2 * day), endDate: null })
+
+      await collectEvents(sendMessageStream('conversation-1', 'user-1', scenario.text, `req-${scenario.id}`))
+
+      if (scenario.expect.model === false) {
+        expect(mocks.generateResponseStream).not.toHaveBeenCalled()
+        expect(mocks.generateResponse).not.toHaveBeenCalled()
+        return
+      }
+      const context = contextOf()
+      expect(context).not.toBe('')
+      for (const marker of scenario.expect.contain) expect(context).toContain(marker)
+      for (const marker of scenario.expect.absent) expect(context).not.toContain(marker)
+      // 没同意的事连读都不读：数据在那儿也不碰
+      for (const unread of scenario.expect.unread ?? []) {
+        if (unread === 'periodRecord') expect(mocks.periodFindFirst).not.toHaveBeenCalled()
+      }
+    })
+  }
 })

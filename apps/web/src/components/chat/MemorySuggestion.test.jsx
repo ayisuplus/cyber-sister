@@ -15,6 +15,21 @@ const CANDIDATES = [
 ]
 
 describe('MemorySuggestion', () => {
+  it('你说了「帮我记住」时不等点，候选直接摆出来（仍要确认才存）', async () => {
+    memoryService.getSuggestions.mockResolvedValue({ candidates: CANDIDATES })
+    render(<MemorySuggestion userMessageId="u1" autoOpen />)
+
+    expect(await screen.findByDisplayValue('喜欢科幻电影')).toBeInTheDocument()
+    expect(memoryService.getSuggestions).toHaveBeenCalledWith('u1')
+    expect(memoryService.create).not.toHaveBeenCalled()
+  })
+
+  it('平常不自动取候选', () => {
+    memoryService.getSuggestions.mockClear()
+    render(<MemorySuggestion userMessageId="u1" />)
+    expect(memoryService.getSuggestions).not.toHaveBeenCalled()
+  })
+
   it('fetches candidates for the corresponding user message on click', async () => {
     const user = userEvent.setup()
     memoryService.getSuggestions.mockResolvedValue({ candidates: CANDIDATES })
@@ -38,24 +53,19 @@ describe('MemorySuggestion', () => {
     const content = await screen.findByLabelText('记忆内容')
     await user.clear(content)
     await user.type(content, '最爱科幻电影')
-    await user.selectOptions(screen.getByLabelText('类型'), 'episodic')
-    const importance = screen.getByLabelText('重要度（1–10）')
-    await user.clear(importance)
-    await user.type(importance, '9')
-    const tags = screen.getByLabelText('标签（逗号分隔）')
-    await user.clear(tags)
-    await user.type(tags, '电影，科幻')
-
     await user.click(screen.getByRole('button', { name: /保存/ }))
 
+    // 类型、重要度、标签按她给的建议原样保存，不摆到界面上
     expect(memoryService.create).toHaveBeenCalledWith({
-      type: 'episodic',
+      type: CANDIDATES[0].type,
       content: '最爱科幻电影',
-      importance: 9,
-      tags: ['电影', '科幻'],
+      importance: CANDIDATES[0].importance,
+      tags: CANDIDATES[0].tags,
       origin: 'suggestion',
       sourceRef: 'u1',
     })
+    expect(screen.queryByLabelText('类型')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('重要度（1–10）')).not.toBeInTheDocument()
     expect(await screen.findByText('已记住')).toBeInTheDocument()
     expect(screen.queryByLabelText('记忆内容')).not.toBeInTheDocument()
   })

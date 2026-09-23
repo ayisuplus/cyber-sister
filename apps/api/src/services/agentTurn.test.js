@@ -28,6 +28,32 @@ describe('统一 agent loop 的终态与协议', () => {
     expect(result.filter((event) => event.type === 'tool_progress')).toHaveLength(24)
     expect(result.at(-1).toolRuns).toHaveLength(12)
   })
+  it('只是倾诉的一轮不给工具目录；模型硬要调用也不执行、不留记录、不发进度，接着让她直接回复', async () => {
+    execute.mockClear()
+    const turn = createAgentTurn({ userId: 'u', conversationId: 'c', offerTools: false, currentText: '好难过', systemMessages: [{ role: 'system', content: 'ctx' }] })
+    expect(turn.tools).toEqual([])
+    expect(turn.extraSystem.map((item) => item.content)).toEqual(['ctx', expect.stringContaining('这一轮是聊天')])
+    expect(turn.extraSystem.some((item) => item.content === 'tools')).toBe(false)
+    const generate = vi.fn()
+      .mockImplementationOnce(() => events([call]))
+      .mockImplementationOnce(() => events([{ type: 'done', content: '我在，慢慢说。' }]))
+    const result = await collect(runAgentLoop({ turn, generate, fallback }))
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.some((event) => event.type === 'tool_progress')).toBe(false)
+    expect(result.at(-1)).toMatchObject({ type: 'done', content: '我在，慢慢说。', toolRuns: [] })
+    expect(turn.history).toEqual([
+      { role: 'user', content: '好难过' },
+      { role: 'assistant', content: JSON.stringify({ tool: call.name, args: call.args }) },
+      { role: 'user', content: expect.stringContaining('没有开放工具') },
+    ])
+  })
+  it('倾诉的一轮连着两次硬要调用工具，走兜底收尾', async () => {
+    execute.mockClear()
+    const turn = createAgentTurn({ userId: 'u', offerTools: false })
+    const result = await collect(runAgentLoop({ turn, generate: () => events([call]), fallback }))
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.at(-1)).toMatchObject({ type: 'done', content: 'fallback', toolRuns: [] })
+  })
   it('连续两次失败触发收尾，停止无限重试', async () => {
     execute.mockClear()
     execute.mockResolvedValue({ tool: 'read_artifact', ok: false, summary: 'not found', feedback: 'failed' })

@@ -112,24 +112,6 @@ router.put('/external-llm-consent', async (req, res) => {
   }
 })
 
-router.get('/membership', async (req, res) => {
-  try {
-    res.json(await userService.getMembership(req.user.userId))
-  } catch (error) {
-    logger.error('获取会员状态失败', { error: error.message, userId: req.user.userId })
-    sendError(res, error, '获取会员状态失败')
-  }
-})
-
-router.post('/membership/subscribe', async (req, res) => {
-  try {
-    res.json(await userService.subscribeMembership(req.user.userId))
-  } catch (error) {
-    logger.error('开通会员失败', { error: error.message, userId: req.user.userId })
-    sendError(res, error, '开通会员失败')
-  }
-})
-
 // 形象资产只在内存中流转（≤8MB，仅 JPEG/PNG/WebP）
 const assetUpload = createImageUpload({
   field: 'file',

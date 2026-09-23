@@ -152,6 +152,16 @@ describe('createScheduledReminder 校验', () => {
 describe('listDueReminders（幂等投递）', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('excludes ended reminders at the final read, while retaining completed task outputs', async () => {
+    mocks.srFindMany.mockResolvedValue([])
+    mocks.rdFindMany.mockResolvedValue([])
+    await listDueReminders('u1')
+    expect(mocks.rdFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
+      status: 'pending', reminder: { userId: 'u1' },
+      OR: [{ reminder: { status: { not: 'done' } } }, { result: { not: null } }],
+    } }))
+  })
+
   it('到点提醒幂等创建投递并返回 pending 列表；撞唯一键静默复用', async () => {
     const reminder = { id: 'r1', userId: 'u1', status: 'active', nextFireAt: local(2026, 9, 10, 8, 0) }
     mocks.srFindMany.mockResolvedValue([reminder])

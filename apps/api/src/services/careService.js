@@ -5,7 +5,8 @@
  * - 每条触点都由真实数据驱动（生日/经期/安排/日记心情），附「为什么看到这条」、可跳转到
  *   对应入口、可按日忽略（次日条件仍成立会再来，与提醒语义一致）。
  * - 只发有用的（PRD §5.3.3）：不做「早安/在吗/想你了」式无意义内容，不做情感绑架；
- *   每次最多 3 条按优先级出队；设置页有真实总开关（users.care_enabled）。
+ *   每天最多 3 条：先按优先级取当天前 3 张，再滤掉点过的，第 4 张不会补上来；设置页有真实总开关（users.care_enabled）。
+ * - 用她当前的说话方式写（voice.js）；经期只在经期记录的单独同意还在时才读。
  * - 安排只看带日子的（一次性、每年）：每天/每周的例行由铃铛到点提醒，不再重复成卡片；
  *   交给她执行的任务（有指令）是她的事，也不打扰。
  * - 全部本地确定性计算，不调用云端模型；日志不记触点内容。
@@ -14,10 +15,13 @@ import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { localTodayUtc, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
+import { voiceOf } from './voice.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_TOUCHPOINTS = 3
 const SOON_DAYS = 3
+// 过了预计的日子还没新记录：晚 1 到 7 天各说一次，再往后不天天追着问
+const LATE_DAYS = 7
 const HEAVY_MOODS = new Set(['sad', 'angry', 'anxious'])
 const MAX_KEY_LENGTH = 200
 
@@ -35,6 +39,7 @@ const localDaysUntil = (date, now) => Math.round((localDay(new Date(date)) - loc
  */
 export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiary, todayUtc, now }) {
   const day = toUtcDayString(todayUtc)
+  const voice = voiceOf(user.persona)
   const cards = []
   const push = (priority, kind, ref, card) => {
     cards.push({ key: `${kind}:${ref}:${day}`, kind, priority, ...card })
@@ -49,46 +54,31 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
     if (monthDay === todayMd) {
       push(0, 'birthday', 'profile', {
         title: '今天是你生日',
-        body: '生日快乐。新的一岁，愿你被温柔以待——今晚想吃什么都行，今天我站你。',
+        body: voice.birthdayToday,
         reason: '你在资料里填的生日',
         action: { to: '/chat', label: '去找她聊聊' },
       })
     } else if (monthDay === tomorrowMd) {
       push(1, 'birthday', 'profile', {
         title: '明天是你生日',
-        body: '先想好愿望，明天我第一个说生日快乐。',
+        body: voice.birthdayTomorrow,
         reason: '你在资料里填的生日',
         action: { to: '/chat', label: '去找她聊聊' },
       })
     }
   }
 
-  // 经期预测：最近一次记录 + 周期天数，未来 0~3 天
-  if (latestPeriod) {
-    const nextUtc = addDays(new Date(Date.UTC(
-      latestPeriod.startDate.getUTCFullYear(),
-      latestPeriod.startDate.getUTCMonth(),
-      latestPeriod.startDate.getUTCDate(),
-    )), latestPeriod.cycleDays)
-    const until = daysUntil(nextUtc, todayUtc)
-    if (until >= 0 && until <= 3) {
-      push(10, 'period', latestPeriod.id, {
-        title: until === 0 ? '大姨妈可能今天到' : `预计 ${until} 天后来大姨妈`,
-        body: '包里备着点，注意保暖，别吃冰的。不舒服随时跟我说。',
-        reason: `按上次 ${cnDate(latestPeriod.startDate)}、周期 ${latestPeriod.cycleDays} 天估的，前后浮动一两天很正常`,
-        action: { to: '/tools/period', label: '看看经期日历' },
-      })
-    }
-  }
+  // 经期预测：最近一次记录 + 周期天数。未来 0~3 天提前说；过了日子还没记，晚 1~7 天也说，不悄悄消失
+  if (latestPeriod) pushPeriodCard(push, latestPeriod, todayUtc, voice)
 
   // 安排：今天的聚成一条；1~3 天内的各一条「还有 N 天」
   const today = tasks.filter((task) => localDaysUntil(task.nextFireAt, now) === 0)
   if (today.length > 0) {
     push(20, 'task-today', 'all', {
-      title: today.length === 1 ? `今天：「${today[0].content}」` : `今天有 ${today.length} 件安排`,
-      body: today.length === 1 ? '按你的节奏来，到点我会提醒你。' : `先捡最重要的那件：「${today[0].content}」。`,
-      reason: '你在安排里记的今天',
-      action: { to: '/tools/schedule', label: '看看安排' },
+      title: today.length === 1 ? `今天：「${today[0].content}」` : `今天有 ${today.length} 件事`,
+      body: today.length === 1 ? voice.taskToday : voice.taskTodayMany(today[0].content),
+      reason: '你在日历上记的今天',
+      action: { to: '/tools/calendar', label: '看看日历' },
     })
   }
   for (const task of tasks) {
@@ -96,9 +86,9 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
     if (until < 1 || until > SOON_DAYS) continue
     push(20 + until, 'task-soon', task.id, {
       title: `「${task.content}」还有 ${until} 天`,
-      body: '时间刚刚好，今天顺手推进一点。',
-      reason: '你在安排里记的日子',
-      action: { to: '/tools/schedule', label: '看看安排' },
+      body: voice.taskSoon,
+      reason: '你在日历上记的日子',
+      action: { to: '/tools/calendar', label: '看看日历' },
     })
   }
 
@@ -106,7 +96,7 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
   if (yesterdayDiary && HEAVY_MOODS.has(yesterdayDiary.mood)) {
     push(70, 'mood', 'diary', {
       title: '昨天你好像不太好',
-      body: '我看了眼昨天的心情。今天我在，想说说随时来找我。',
+      body: voice.moodYesterday,
       reason: '你昨天日记里的心情',
       action: { to: '/tools/notes?tab=diary', label: '写写今天' },
     })
@@ -115,13 +105,39 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
   return cards.sort((a, b) => a.priority - b.priority)
 }
 
-/** 拉取当前触点：忽略（按日）过滤后取前 3 条；总开关关闭或用户不存在时为空。 */
-export async function listTouchpoints(userId) {
+function pushPeriodCard(push, latestPeriod, todayUtc, voice) {
+  const nextUtc = addDays(new Date(Date.UTC(
+    latestPeriod.startDate.getUTCFullYear(),
+    latestPeriod.startDate.getUTCMonth(),
+    latestPeriod.startDate.getUTCDate(),
+  )), latestPeriod.cycleDays)
+  const until = daysUntil(nextUtc, todayUtc)
+  const basis = `按上次 ${cnDate(latestPeriod.startDate)}、周期 ${latestPeriod.cycleDays} 天估的`
+  const action = { to: '/tools/calendar', label: '看看日历' }
+  if (until >= 0 && until <= SOON_DAYS) {
+    push(10, 'period', latestPeriod.id, {
+      title: until === 0 ? '大姨妈可能今天到' : `预计 ${until} 天后来大姨妈`,
+      body: voice.periodSoon,
+      reason: `${basis}，前后浮动一两天很正常`,
+      action,
+    })
+  } else if (until < 0 && -until <= LATE_DAYS) {
+    push(10, 'period-late', latestPeriod.id, {
+      title: `比预计晚了 ${-until} 天`,
+      body: voice.periodLate,
+      reason: `${basis}，还没有新的记录`,
+      action,
+    })
+  }
+}
+
+/** 今天她想说的关心（按优先级排好，不管有没有被点过「知道了」）；关掉「她来想你」就没有。 */
+async function todaysTouchpoints(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { birthDate: true, careEnabled: true },
+    select: { birthDate: true, careEnabled: true, persona: true, periodConsentAt: true },
   })
-  if (!user?.careEnabled) return []
+  if (!user?.careEnabled) return null
 
   const todayUtc = localTodayUtc()
   const now = new Date()
@@ -136,11 +152,14 @@ export async function listTouchpoints(userId) {
       orderBy: { nextFireAt: 'asc' },
       select: { id: true, content: true, nextFireAt: true },
     }),
-    prisma.periodRecord.findFirst({
-      where: { userId },
-      orderBy: { startDate: 'desc' },
-      select: { id: true, startDate: true, cycleDays: true },
-    }),
+    // 撤回经期记录同意后她不再读取经期（日历上的承诺）
+    user.periodConsentAt
+      ? prisma.periodRecord.findFirst({
+        where: { userId },
+        orderBy: { startDate: 'desc' },
+        select: { id: true, startDate: true, cycleDays: true },
+      })
+      : null,
     prisma.diaryEntry.findFirst({
       where: { userId, day: addDays(todayUtc, -1) },
       select: { mood: true },
@@ -148,11 +167,19 @@ export async function listTouchpoints(userId) {
     prisma.careDismissal.findMany({ where: { userId }, select: { key: true } }),
   ])
 
+  return { cards: buildTouchpoints({ user, tasks, latestPeriod, yesterdayDiary, todayUtc, now }), dismissals }
+}
+
+/**
+ * 今天她想说的关心：按优先级取当天前 3 张，每张标明你点没点过「知道了」（dismissed）。
+ * 先取再滤，点掉一张不会让第 4 张补上来；点过的也算她今天说过，给她自己的上下文用。
+ */
+export async function listTodaysCare(userId) {
+  const { cards = [], dismissals = [] } = await todaysTouchpoints(userId) ?? {}
   const dismissed = new Set(dismissals.map((entry) => entry.key))
-  return buildTouchpoints({ user, tasks, latestPeriod, yesterdayDiary, todayUtc, now })
-    .filter((card) => !dismissed.has(card.key))
+  return cards
     .slice(0, MAX_TOUCHPOINTS)
-    .map(({ priority: _priority, ...card }) => card)
+    .map(({ priority: _priority, ...card }) => ({ ...card, dismissed: dismissed.has(card.key) }))
 }
 
 /** 按日忽略一条触点（同日同键幂等）。 */

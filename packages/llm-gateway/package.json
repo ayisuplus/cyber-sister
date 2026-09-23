@@ -2,11 +2,15 @@
   "name": "@cyber-sister/llm-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Amie统一 LLM 网关：本地优先（llama.cpp）+ 授权后云端备用（Qwen）",
+  "description": "Amie统一 LLM 网关：同意门控制的云端模型调用与流式响应",
   "type": "module",
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./safe-fetch": "./src/safeFetch.js"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.5.0"
   },
   "scripts": {
     "test": "node --test"

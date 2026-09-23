@@ -17,17 +17,18 @@ import { chatService } from './chatService'
 import { resetSession } from './sessionLifecycle'
 
 describe('chatService', () => {
-  it('lists and creates conversations', async () => {
-    api.get.mockResolvedValue({ data: [{ id: 'c1' }] })
-    api.post.mockResolvedValue({ data: { id: 'c2' } })
+  it('lists archived conversations and opens the one thread, with no way to create another', async () => {
+    api.get.mockResolvedValueOnce({ data: [{ id: 'c1' }] })
+    expect(await chatService.getConversations({ archived: true })).toEqual([{ id: 'c1' }])
+    expect(api.get).toHaveBeenCalledWith('/chat/conversations', { params: { archived: true } })
 
-    const list = await chatService.getConversations()
-    const created = await chatService.createConversation()
-
-    expect(api.get).toHaveBeenCalledWith('/chat/conversations', undefined)
-    expect(list).toEqual([{ id: 'c1' }])
-    expect(api.post).toHaveBeenCalledWith('/chat/conversations', {})
-    expect(created).toEqual({ id: 'c2' })
+    api.get.mockResolvedValueOnce({ data: { id: 't1', messages: [] } })
+    expect(await chatService.getThread()).toEqual({ id: 't1', messages: [] })
+    expect(api.get).toHaveBeenLastCalledWith('/chat/thread', undefined)
+    api.get.mockResolvedValueOnce({ data: { id: 't1', messages: [] } })
+    await chatService.getThread({ page: 2, limit: 50 })
+    expect(api.get).toHaveBeenLastCalledWith('/chat/thread', { params: { page: 2, limit: 50 } })
+    expect(chatService).not.toHaveProperty('createConversation')
   })
 
   it('loads a single conversation with its messages', async () => {
@@ -39,12 +40,13 @@ describe('chatService', () => {
     expect(result.messages).toEqual([{ id: 'm1' }])
   })
 
-  it('deletes a conversation by id', async () => {
-    api.delete.mockResolvedValue({ data: {} })
+  it('clears the chat history of the one thread', async () => {
+    api.delete.mockResolvedValue({ data: { success: true } })
 
-    await chatService.deleteConversation('c1')
+    await chatService.clearThread()
 
-    expect(api.delete).toHaveBeenCalledWith('/chat/conversations/c1')
+    expect(api.delete).toHaveBeenCalledWith('/chat/thread/messages')
+    expect(chatService).not.toHaveProperty('deleteConversation')
   })
 })
 

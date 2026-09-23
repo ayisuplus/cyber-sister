@@ -598,7 +598,7 @@ h1, h2, h3 {
   0%, 100% { opacity: 0.35; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1); }
 }
-.bubble-ai[data-streaming="true"] .message-markdown > :last-child::after {
+.letter-entry[data-streaming="true"] .message-markdown > :last-child::after {
   content: '';
   display: inline-block;
   width: 6px;
@@ -635,3 +635,389 @@ h1, h2, h3 {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ===== 信纸（2026-09-22）：对话写在横格上，写满一页轻轻翻过 =====
+ * 行高就是横格的间距；所有字的行高都等于它，嵌进来的照片、卡片、便签由 usePagedLetter 补到整数行。
+ * 页边、字距与 components/letter/pagedLayout.js 的常量一致。 */
+.letter {
+  --line: 34px;
+  --letter-size: 17px;
+  --letter-font: var(--cs-font-hand);
+  --margin-x: 44px;
+  --text-inset: 10px;
+  --right-pad: 18px;
+  --rule-lift: 5px;
+  --spine-w: 16px;
+  --book-w: 600px;
+  /* 翻一页用多久：与 usePagedLetter.js 的 FLIP_MS 一致 */
+  --flip-ms: 700ms;
+  /* 纸上的那一层：一条页边线 + 一叠横格。纸、翻页的拓印、存档页共用它，才不会各画各的 */
+  --letter-paper-image:
+    repeating-linear-gradient(to right,
+      transparent 0, transparent calc(var(--margin-x) - 1px),
+      var(--cs-paper-margin) calc(var(--margin-x) - 1px), var(--cs-paper-margin) var(--margin-x),
+      transparent var(--margin-x), transparent 100%),
+    repeating-linear-gradient(to bottom,
+      transparent 0, transparent calc(var(--line) - 1px),
+      var(--cs-paper-line) calc(var(--line) - 1px), var(--cs-paper-line) var(--line));
+}
+@media (min-width: 1024px) {
+  .letter { --line: 36px; --letter-size: 18px; }
+}
+/* 最窄的手机上把页边线收一点，字才有地方写 */
+@media (max-width: 480px) {
+  .letter { --margin-x: 32px; --text-inset: 8px; --spine-w: 14px; }
+}
+:root[data-letter-font="print"] .letter {
+  --letter-font: var(--cs-font-print);
+  --letter-size: 16px;
+}
+
+/* ===== 本子（2026-09-22 追加）：左边一条封皮，翻页绕左边封线；封面是第 0 页 =====
+ * 圆角与阴影只在本子外轮廓上；纸、页码那一行、最底下的书写行共用同一条页边线和同样的左右留白。
+ * 宽屏也只摊开一页：本子居中，宽度不超过 --book-w。 */
+.letter-book {
+  display: flex;
+  width: 100%;
+  max-width: var(--book-w);
+  min-height: 0;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 8px;
+  /* 右下两三层很浅的纸边：底下还压着页 */
+  box-shadow:
+    3px 3px 0 -1px color-mix(in srgb, var(--cs-paper) 90%, var(--cs-paper-line)),
+    6px 6px 0 -2px color-mix(in srgb, var(--cs-paper) 76%, var(--cs-paper-line)),
+    var(--cs-paper-shadow);
+}
+/* 左封皮：比纸深的纸板色，两道细缝线，安静，不做金属环 */
+.letter-spine {
+  flex: 0 0 var(--spine-w);
+  background-color: var(--cs-cover);
+  background-image:
+    repeating-linear-gradient(to right,
+      transparent 0, transparent calc(var(--spine-w) * 0.28),
+      var(--cs-cover-stitch) calc(var(--spine-w) * 0.28), var(--cs-cover-stitch) calc(var(--spine-w) * 0.28 + 1px),
+      transparent calc(var(--spine-w) * 0.28 + 1px), transparent calc(var(--spine-w) * 0.66),
+      var(--cs-cover-stitch) calc(var(--spine-w) * 0.66), var(--cs-cover-stitch) calc(var(--spine-w) * 0.66 + 1px),
+      transparent calc(var(--spine-w) * 0.66 + 1px), transparent 100%),
+    repeating-linear-gradient(45deg, transparent 0 3px, var(--cs-cover-weave) 3px 4px);
+  box-shadow: inset -7px 0 9px -7px color-mix(in srgb, var(--cs-ink-her) 34%, transparent);
+}
+
+/* 一张纸：上面是写满字的页，中间一行页码，最底下是你落笔的那一行；横格与页边线画满整张 */
+.letter-sheet {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  background-color: var(--cs-paper);
+  background-image: var(--letter-paper-image);
+  /* 横线往上挪一点，字才像落在线上，而不是浮在两条线正中间 */
+  background-position: 0 0, 0 calc(-1 * var(--rule-lift));
+}
+
+.letter-viewport {
+  overflow: hidden;
+  overflow: clip;
+  touch-action: pan-y pinch-zoom;
+}
+
+.letter-strip {
+  position: absolute;
+  column-fill: auto;
+  font-family: var(--letter-font);
+  font-size: var(--letter-size);
+  line-height: var(--line);
+  color: var(--cs-ink-her);
+  letter-spacing: 0.02em;
+}
+.letter-viewport[data-ready="false"] .letter-strip { opacity: 0; }
+/* 存档页：不分页，竖着滚的一张纸，横格和字与对话一样 */
+.letter-scroll {
+  position: relative;
+  padding: var(--line) var(--right-pad) var(--line) calc(var(--margin-x) + var(--text-inset));
+  border-radius: 6px;
+  box-shadow: var(--cs-paper-shadow);
+  font-family: var(--letter-font);
+  font-size: var(--letter-size);
+  line-height: var(--line);
+  color: var(--cs-ink-her);
+  letter-spacing: 0.02em;
+  background-color: var(--cs-paper);
+  background-image: var(--letter-paper-image);
+  background-position: 0 0, 0 calc(-1 * var(--rule-lift));
+}
+:is(.letter-strip, .letter-scroll) > * + * { margin-top: var(--line); }
+.letter-end { display: block; height: 0; margin: 0 !important; }
+
+/* 一段话：两种墨色，页边一个落款 */
+.letter-entry { position: relative; }
+.letter-entry--her { color: var(--cs-ink-her); }
+.letter-entry--you { color: var(--cs-ink-you); }
+.letter-who {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * (var(--margin-x) + var(--text-inset)) + 8px);
+  width: 28px;
+  height: var(--line);
+  font-size: 13px;
+  line-height: var(--line);
+  text-align: center;
+  color: var(--cs-ink-pencil);
+}
+.letter-who--avatar {
+  top: calc((var(--line) - 22px) / 2);
+  left: calc(-1 * (var(--margin-x) + var(--text-inset)) + 11px);
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--cs-paper-line);
+}
+/* 写了日期时，页边的落款挪到正文那一行 */
+.letter-date ~ .letter-who { top: var(--line); }
+.letter-date ~ .letter-who--avatar { top: calc(var(--line) + (var(--line) - 22px) / 2); }
+.letter-date {
+  text-align: right;
+  font-size: 0.82em;
+  color: var(--cs-ink-pencil);
+}
+.letter-text { text-indent: 2em; }
+.letter-time, .letter-pencil {
+  font-size: 0.78em;
+  color: var(--cs-ink-pencil);
+}
+.letter-time { text-align: right; }
+.letter-stamp {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 0 6px;
+  border: 1px solid var(--cs-ink-pencil);
+  border-radius: 4px;
+  font-family: var(--cs-font-print);
+  font-size: 11px;
+  line-height: 20px;
+  letter-spacing: 0.08em;
+  color: var(--cs-ink-pencil);
+  transform: rotate(-3deg);
+}
+
+/* 她的回复：Markdown 也落在横格上；每段首行空两格，像写信 */
+:is(.letter-strip, .letter-scroll) .message-markdown { font-size: inherit; line-height: var(--line); }
+:is(.letter-strip, .letter-scroll) .message-markdown > * + * { margin-top: 0; }
+:is(.letter-strip, .letter-scroll) .message-markdown p { text-indent: 2em; }
+:is(.letter-strip, .letter-scroll) .message-markdown li + li { margin-top: 0; }
+:is(.letter-strip, .letter-scroll) .message-markdown :is(h1, h2, h3) { font-size: 1.06em; line-height: var(--line); }
+:is(.letter-strip, .letter-scroll) .message-markdown code { font-family: var(--cs-font-print); font-size: 0.82em; }
+/* 代码与表格：贴上去的一张印刷体小卡片，不拆到两页，太长就在卡片里滚动 */
+:is(.letter-strip, .letter-scroll) .message-markdown :is(pre, .letter-table) {
+  break-inside: avoid;
+  max-height: calc(var(--page-h, 60vh) - var(--line) * 2);
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cs-paper) 70%, var(--cs-pastel-mist));
+  box-shadow: 0 0 0 1px var(--cs-paper-line);
+  font-family: var(--cs-font-print);
+  font-size: 13px;
+  line-height: 1.6;
+  text-indent: 0;
+  color: var(--cs-text-primary);
+}
+:is(.letter-strip, .letter-scroll) .message-markdown pre code { font-size: inherit; }
+:is(.letter-strip, .letter-scroll) .message-markdown .letter-table :is(th, td) { line-height: 1.5; }
+
+/* 照片：像用胶带贴在纸上的小相片，高度正好六行 */
+.letter-photo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: calc(var(--line) * 6);
+  margin: 0;
+  break-inside: avoid;
+}
+.letter-photo img {
+  max-width: 72%;
+  max-height: calc(var(--line) * 6 - 14px);
+  padding: 4px;
+  background: #fff;
+  border-radius: 3px;
+  box-shadow: var(--cs-paper-shadow);
+  object-fit: contain;
+  transform: rotate(-1.2deg);
+}
+.letter-photo::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 18px;
+  z-index: 1;
+  width: 56px;
+  height: 14px;
+  background: color-mix(in srgb, var(--cs-pastel-apricot) 75%, transparent);
+  transform: rotate(-6deg);
+}
+
+/* 夹在这一页里的便签：她想对你说的话、帮我记住、她办的事 */
+.letter-snap { break-inside: avoid; }
+/* 封面：第 0 页。纸板色加一层布纹，不画横格；翻开它才是第一封信 */
+.letter-cover-page {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow-y: auto;
+  padding: var(--line) calc(var(--text-inset) * 2) var(--line) calc(var(--margin-x) + var(--text-inset));
+  background-color: var(--cs-cover);
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--cs-cover-weave) 3px 4px);
+}
+:is(.letter-strip, .letter-scroll) > .letter-snap:empty { display: none; }
+.letter-note {
+  break-inside: avoid;
+  max-width: 92%;
+  padding: 8px 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cs-paper) 55%, var(--cs-pastel-apricot));
+  box-shadow: var(--cs-paper-shadow);
+  transform: rotate(-0.4deg);
+  line-height: 1.7;
+}
+
+/* 她正在写：纸上一枚呼吸的墨点 */
+.letter-typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--line);
+}
+.letter-typing .typing-dot { background: var(--cs-ink-pencil); }
+
+/* 页码与翻页：和纸、书写行共用同一条页边线，自己不再画一条线 */
+.letter-nav {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--cs-ink-pencil);
+  font-size: 12px;
+}
+.letter-nav__button {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--cs-ink-pencil);
+  transition: color var(--cs-dur-soft) var(--cs-ease-calm), background-color var(--cs-dur-soft) var(--cs-ease-calm);
+}
+.letter-nav__button:hover:not(:disabled) { background: color-mix(in srgb, var(--cs-paper-line) 60%, transparent); color: var(--cs-ink-her); }
+.letter-nav__button:disabled { opacity: 0.35; }
+.letter-nav__label { min-width: 7.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.letter-new {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--cs-paper);
+  box-shadow: var(--cs-paper-shadow), 0 0 0 1px var(--cs-paper-line);
+  color: var(--cs-ink-her);
+  font-size: 12px;
+}
+
+/* 翻页：拓印的那一页绕左边封线翻过去——先被捻起一点，再翻向左，落定时新的一页已经在底下 */
+/* 父层给一点景深，纸才有厚度；曲线比静谧层的 calm 更靠后，翻页才不会像一闪 */
+.letter-ghost-host { perspective: 1600px; }
+.letter-ghost {
+  background-color: var(--cs-paper);
+  background-image: var(--letter-paper-image);
+  background-position: 0 0, 0 calc(-1 * var(--rule-lift));
+  box-shadow: var(--cs-paper-shadow);
+}
+.letter-ghost--forward {
+  transform-origin: left center;
+  animation: letterFlipForward var(--flip-ms) cubic-bezier(0.4, 0, 0.22, 1) forwards;
+}
+.letter-ghost--back {
+  transform-origin: left center;
+  animation: letterFlipBack var(--flip-ms) cubic-bezier(0.4, 0, 0.22, 1) forwards;
+}
+/* 翻过一半就看不到这一页的正面，露出纸的背面；往前翻正好相反。静影那一层不播这两条 */
+.letter-ghost--forward > * { animation: letterHide var(--flip-ms) linear forwards; }
+.letter-ghost--back > * { animation: letterShow var(--flip-ms) linear forwards; }
+.letter-ghost::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in srgb, var(--cs-paper) 86%, var(--cs-ink-her));
+}
+.letter-ghost--forward::after { animation: letterShow var(--flip-ms) linear forwards; }
+.letter-ghost--back::after { animation: letterHide var(--flip-ms) linear forwards; }
+@keyframes letterFlipForward {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(-180deg); }
+}
+@keyframes letterFlipBack {
+  from { transform: rotateY(-180deg); }
+  to { transform: rotateY(0deg); }
+}
+@keyframes letterHide {
+  0%, 49% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+@keyframes letterShow {
+  0%, 49% { opacity: 0; }
+  51%, 100% { opacity: 1; }
+}
+@keyframes letterFade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes letterFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* 减少动态效果：不翻，只把旧页淡出、新页淡入 */
+@media (prefers-reduced-motion: reduce) {
+  .letter-ghost:not(.letter-ghost--back) { animation: letterFade 200ms linear forwards; transform: none; }
+  .letter-ghost--back { animation: letterFadeIn 200ms linear forwards; transform: none; }
+  .letter-ghost > * { animation: none; }
+  .letter-ghost::after { display: none; }
+}
+
+/* 最底下那一行：你落笔的地方。和上面是同一张纸、同一条页边线，左右留白与正文列对齐 */
+.letter-writing .chat-input__inner {
+  max-width: none;
+  padding-top: 0;
+  padding-right: var(--right-pad);
+  padding-bottom: var(--text-inset);
+  padding-left: calc(var(--margin-x) + var(--text-inset));
+}
+.letter-writing .input-capsule {
+  padding-left: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* 这一条就是纸上的书写线，聚焦时变成墨色 */
+  border-bottom: 1px solid var(--cs-paper-line);
+  transition: border-color var(--cs-dur-soft) var(--cs-ease-calm);
+}
+.letter-writing .input-capsule:has(textarea:focus) {
+  box-shadow: none;
+  border-bottom-color: var(--cs-focus-info);
+}
+.letter-writing textarea {
+  padding-left: 0;
+  padding-right: var(--text-inset);
+  font-family: var(--letter-font);
+  font-size: 16px;
+  color: var(--cs-ink-you);
+}
+.letter-writing textarea::placeholder { color: var(--cs-ink-pencil); }

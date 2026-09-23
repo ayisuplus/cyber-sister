@@ -28,23 +28,20 @@ import { useToolsStore } from './toolsStore'
 const resetStore = () => useToolsStore.setState({
   periodRecords: [],
   scheduledReminders: [],
-  dueDeliveries: [],
 })
 
 describe('toolsStore account ownership', () => {
   beforeEach(resetStore)
 
   it('clears private tool data at an account boundary', () => {
-    useToolsStore.setState({
-      periodRecords: [{ id: 'old-period' }], scheduledReminders: [{ id: 'old-scheduled' }], dueDeliveries: [{ id: 'old-delivery' }],
-    })
+    useToolsStore.setState({ periodRecords: [{ id: 'old-period' }], scheduledReminders: [{ id: 'old-scheduled' }] })
     resetSession()
-    expect(useToolsStore.getState()).toMatchObject({ periodRecords: [], scheduledReminders: [], dueDeliveries: [] })
+    expect(useToolsStore.getState()).toMatchObject({ periodRecords: [], scheduledReminders: [] })
   })
 
   it('only exposes period records and 安排 — the retired todo, countdown, legacy reminder and weather state is gone', () => {
     const state = useToolsStore.getState()
-    for (const key of ['todos', 'loadTodos', 'countdowns', 'loadCountdowns', 'reminders', 'toggleReminder', 'weather', 'loadWeather']) {
+    for (const key of ['todos', 'loadTodos', 'countdowns', 'loadCountdowns', 'reminders', 'toggleReminder', 'weather', 'loadWeather', 'dueDeliveries', 'pollDueDeliveries', 'ackDelivery']) {
       expect(state).not.toHaveProperty(key)
     }
   })
@@ -93,15 +90,6 @@ describe('toolsStore 安排', () => {
 
     await expect(useToolsStore.getState().loadScheduledReminders()).rejects.toThrow('offline')
     expect(useToolsStore.getState().scheduledReminders).toEqual([{ id: 'keep' }])
-  })
-
-  it('polls due deliveries and drops one after it is acknowledged', async () => {
-    reminderService.listDue.mockResolvedValue([{ id: 'd1' }, { id: 'd2' }])
-    await useToolsStore.getState().pollDueDeliveries()
-    reminderService.ack.mockResolvedValue({ id: 'd1', status: 'shown' })
-    await useToolsStore.getState().ackDelivery('d1', 'shown')
-    expect(reminderService.ack).toHaveBeenCalledWith('d1', 'shown')
-    expect(useToolsStore.getState().dueDeliveries).toEqual([{ id: 'd2' }])
   })
 })
 

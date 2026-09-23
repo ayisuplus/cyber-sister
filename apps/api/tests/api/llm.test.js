@@ -40,7 +40,7 @@ describe('云端模型 API 路由合同', () => {
       id: 'tester',
       phone: '13900139000',
       externalLlmConsent: false,
-      externalLlmConsentVersion: 'cloud-primary-v3',
+      externalLlmConsentVersion: 'cloud-primary-v4',
     })
     process.env.GATEWAY_QWEN_BASE_URL = 'https://example.invalid/v1'
     process.env.GATEWAY_QWEN_MODEL = 'qwen-model'
@@ -62,9 +62,31 @@ describe('云端模型 API 路由合同', () => {
       embedding: { configured: false, model: null, mode: 'keyword', available: null },
       workGeneration: expect.objectContaining({ mode: 'mock', cloudConnected: false }),
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, primary: true, consent: false, version: 'cloud-primary-v3' },
+      isInstanceAdmin: false,
+      externalFallback: { configured: true, primary: true, consent: false, version: 'cloud-primary-v4', providers: [] },
     })
     expect(JSON.stringify(response.body)).not.toContain('baseUrl')
+  })
+
+  it('实例管理员在状态里多一个 true 标记（设置页据此显示模型供应商卡片）', async () => {
+    state.users.set('admin', { id: 'admin', phone: '13800138000' })
+    const response = await request(app)
+      .get('/api/llm/status')
+      .set(token('admin', '13800138000'))
+
+    expect(response.status).toBe(200)
+    expect(response.body.isInstanceAdmin).toBe(true)
+  })
+
+  it('管理接口对非管理员关闭，对未认证请求要求登录', async () => {
+    const anonymous = await request(app).get('/api/admin/model-providers')
+    expect(anonymous.status).toBe(401)
+
+    const tester = await request(app)
+      .get('/api/admin/model-providers')
+      .set(token('tester', '13900139000'))
+    expect(tester.status).toBe(403)
+    expect(tester.body.code).toBe('INSTANCE_ADMIN_REQUIRED')
   })
 
   it('供应商未配置时 externalFallback.configured 为 false', async () => {

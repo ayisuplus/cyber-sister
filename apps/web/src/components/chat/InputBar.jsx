@@ -109,7 +109,7 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
 
   return (
     <div className="safe-area-bottom relative z-10">
-      <div className="mx-auto w-full max-w-[880px] px-3 pb-3 pt-1 min-[641px]:px-5 min-[641px]:pb-5">
+      <div className="chat-input__inner mx-auto w-full max-w-[880px] px-3 pb-3 pt-1 min-[641px]:px-5 min-[641px]:pb-5">
         {onBackgroundSend && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
           <input type="checkbox" checked={background} disabled={disabled || Boolean(image)} onChange={(event) => setBackground(event.target.checked)} />
           后台执行 <span className="text-text-muted">关闭页面后继续，稍后查看结果</span>
@@ -145,7 +145,7 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder="和姐妹说点什么..."
+            placeholder="写下想说的…"
             disabled={disabled}
             className="min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3.5 py-2.5 text-[15px] leading-6 text-text-primary outline-none placeholder:text-text-muted"
           />

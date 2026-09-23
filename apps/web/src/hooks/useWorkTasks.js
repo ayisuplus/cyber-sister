@@ -35,7 +35,7 @@ export function useWorkTasks(enabled) {
         setError('')
         for (const task of next) {
           if (task.status === 'completed' && seen.get(task.id) !== 'completed') {
-            void useChatStore.getState().refreshConversation(task.conversationId)
+            void useChatStore.getState().refreshThread()
           }
           seen.set(task.id, task.status)
         }
@@ -72,7 +72,7 @@ export function useWorkTasks(enabled) {
     const session = getSessionVersion()
     try {
       const chat = useChatStore.getState()
-      const conversationId = chat.currentConversationId || (await chat.createConversation())?.id
+      const conversationId = chat.currentConversationId || (await chat.loadThread())
       if (!conversationId || current !== generation.current || session !== getSessionVersion()) return false
       const previous = pending.current
       const sameInput = previous && previous.conversationId === conversationId && previous.content === content

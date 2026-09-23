@@ -19,15 +19,18 @@ import memoriesRoutes from './routes/memories.js'
 import complianceRoutes from './routes/compliance.js'
 import llmRoutes from './routes/llm.js'
 import workRoutes from './routes/work.js'
-import workMediaRoutes from './routes/workMedia.js'
 import asrRoutes from './routes/asr.js'
-import derivedRoutes from './routes/derived.js'
-import makeupPresetRoutes from './routes/makeupPresets.js'
-import wardrobeRoutes from './routes/wardrobe.js'
-import careRoutes from './routes/care.js'
+import collectionRoutes from './routes/collection.js'
 import reminderRoutes from './routes/reminders.js'
 import letterRoutes from './routes/letters.js'
+import bridgeRoutes from './routes/bridge.js'
+import adminModelProvidersRoutes from './routes/adminModelProviders.js'
+import { hashSecret } from './services/bridgeService.js'
+import { loadCloudProviders } from './services/llmService.js'
+import { builtinToolNames } from './services/agentService.js'
+import { initExtensions, shutdownExtensions } from './services/extensionRuntime.js'
 import { authMiddleware } from './middleware/auth.js'
+import { instanceAdminMiddleware } from './middleware/instanceAdmin.js'
 import logger from './utils/logger.js'
 import prisma from './prisma/client.js'
 import usageTracker from './utils/usageTracker.js'
@@ -119,8 +122,22 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '请求过于频繁，请稍后再试' },
-  // 进度轮询有独立的鉴权与额度，不能耗尽聊天、保存及退出登录的普通额度。
-  skip: (req) => req.method === 'GET' && /^\/api\/(?:memories\/index-jobs\/[^/]+|work\/tasks(?:\/[^/]+)?)$/.test(req.originalUrl.split('?')[0]),
+  // 进度轮询与本机助手的取任务/交结果有独立的鉴权与额度，不能耗尽聊天、保存及退出登录的普通额度
+  // （助手和浏览器常在同一个家庭网络、同一个公网 IP 下）。
+  skip: (req) => {
+    const path = req.originalUrl.split('?')[0]
+    if (req.method === 'GET' && /^\/api\/(?:memories\/index-jobs\/[^/]+|work\/tasks(?:\/[^/]+)?|bridge\/poll)$/.test(path)) return true
+    return req.method === 'POST' && /^\/api\/bridge\/jobs\/[^/]+\/result$/.test(path)
+  },
+})
+// 每台电脑自己的额度：长轮询 25 秒一轮，正常远低于此；按令牌哈希计数，不信任 IP。
+const bridgeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `bridge:${hashSecret(req.headers.authorization || '')}`,
+  message: { error: '本机助手请求过于频繁，请稍后再试' },
 })
 const memoryProgressLimiter = rateLimit({
   windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false,
@@ -143,33 +160,30 @@ const llmUserLimiter = rateLimit({
 app.use('/api/llm', authMiddleware, llmUserLimiter, llmRoutes)
 app.use('/api/memories/index-jobs', authMiddleware, memoryProgressLimiter)
 app.use('/api/work/tasks', authMiddleware, memoryProgressLimiter)
+// 只有一个 Web 版：安排、手记、经期、装扮与「她」都走普通鉴权。
+// 本机能力（文件、代码、浏览器、后台任务）只在 API 跑在用户自己的电脑上时开放。
 app.use('/api/work', authMiddleware, localWorkOnly)
-app.use(['/api/tools', '/api/diary', '/api/reading', '/api/derived', '/api/makeup-presets', '/api/wardrobe', '/api/letters', '/api/reminders', '/api/care'], authMiddleware, localWorkOnly)
+app.use(['/api/bridge/poll', '/api/bridge/jobs'], bridgeLimiter)
 app.use('/api', limiter)
 
 app.use('/api/auth', authRoutes)
 app.use('/api/chat', authMiddleware, chatRoutes)
 app.use('/api/user', authMiddleware, userRoutes)
-if (APP_ENV === 'internal') {
-  // 经期在内测开放；天气路由是硬编码假数据，保持关闭。
-  app.use('/api/tools/weather', authMiddleware, (_req, res) => {
-    res.status(409).json({ error: '该功能未在内测中开放', code: 'FEATURE_NOT_AVAILABLE' })
-  })
-}
 app.use('/api/tools', authMiddleware, toolsRoutes)
 app.use('/api/diary', authMiddleware, diaryRoutes)
 app.use('/api/memories', authMiddleware, memoriesRoutes)
 app.use('/api/reading', authMiddleware, readingRoutes)
 app.use('/api/compliance', authMiddleware, complianceRoutes)
 app.use('/api/work', authMiddleware, workRoutes)
-app.use('/api/work/media', authMiddleware, workMediaRoutes)
 app.use('/api/asr', authMiddleware, asrRoutes)
-app.use('/api/derived', authMiddleware, derivedRoutes)
-app.use('/api/makeup-presets', authMiddleware, makeupPresetRoutes)
-app.use('/api/wardrobe', authMiddleware, wardrobeRoutes)
-app.use('/api/letters', authMiddleware, letterRoutes)
+// 装扮里的收藏（衣柜 / 化妆间）；旧的化妆预设、3D 衣柜与模拟预览接口已于 2026-09-21 下线
+app.use('/api/collection', authMiddleware, collectionRoutes)
 app.use('/api/reminders', authMiddleware, reminderRoutes)
-app.use('/api/care', authMiddleware, careRoutes)
+app.use('/api/letters', authMiddleware, letterRoutes)
+// 本机助手：路由内分别用登录身份（设置页）和助手令牌（取任务/交结果）鉴权
+app.use('/api/bridge', bridgeRoutes)
+// 模型供应商：只有实例管理员能配。authMiddleware 在前，管理员中间件要读 req.user
+app.use('/api/admin/model-providers', authMiddleware, instanceAdminMiddleware, adminModelProvidersRoutes)
 
 app.use((_req, res) => {
   res.status(404).json({ error: '接口不存在' })
@@ -220,11 +234,16 @@ app.use((err, req, res, _next) => {
 const isTestEnv = NODE_ENV === 'test' || process.env.VITEST === 'true'
 let server = null
 if (!isTestEnv) {
+  // 自定义模型供应商：启动时读一次库，之后每次配置变更即时重读并重建网关。
+  // 读不到就让快照保持空着（请求时会再试一次），不阻塞启动。
+  await loadCloudProviders().catch(() => logger.warn('模型供应商配置尚未就绪，先用环境变量槽'))
   void startMemoryIndexWorker().catch(() => logger.warn('记忆索引任务尚未就绪'))
   if (isLocalWorkRuntime()) {
     startWorkTaskWorker()
     startWorkContainerReaper()
   }
+  // 仓库内扩展：装配完成后、开始监听前加载（工具注册不得覆盖内置工具）
+  await initExtensions({ reservedToolNames: builtinToolNames() })
   // 内测环境 BIND_ADDRESS 已经 validateRuntimeConfig 强制校验为具体私网 IPv4；
   // 开发环境未设置时保持 Node 默认绑定行为。
   // 容器化部署里进程的监听地址与宿主机暴露地址是两件事：API 不发布宿主机端口，
@@ -247,6 +266,7 @@ async function gracefulShutdown(signal) {
   stopMemoryIndexWorker()
   const closeDependencies = async () => {
     try {
+      await shutdownExtensions()
       await stopWorkTaskWorker()
       await stopWorkContainerReaper()
       await prisma.$disconnect()

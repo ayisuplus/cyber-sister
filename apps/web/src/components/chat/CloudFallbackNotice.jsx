@@ -35,7 +35,7 @@ export default function CloudFallbackNotice({ onClose }) {
         这个姐妹住在云端
       </h2>
       <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）、已确认的相关记忆与你主动发送的照片会发送给外部模型供应商处理；不同意暂时无法聊天。你随时可以在「设置 → 聊天模型」里改主意。语义检索使用单独配置的向量服务，开启后会发送记忆正文与检索文本；未配置时使用关键词检索。
+        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）、已确认的相关记忆与你主动发送的照片会发送给外部模型供应商处理。开启「她写的信」后，信件草稿、相关记忆和近况统计也会交给云端模型分析并写信；你可在「她写的信」里关闭。不同意暂时无法聊天。你随时可以在「设置 → 聊天模型」里改主意。语义检索使用单独配置的向量服务，开启后会发送记忆正文与检索文本；未配置时使用关键词检索。
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
@@ -52,7 +52,7 @@ export default function CloudFallbackNotice({ onClose }) {
           onClick={() => decide(true)}
           className="min-h-11 rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover disabled:opacity-50"
         >
-          同意并开始聊天
+          同意云端处理
         </button>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">

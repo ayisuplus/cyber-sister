@@ -7,15 +7,16 @@ const connection = vi.hoisted(() => ({ client: null }))
 vi.mock('../../src/prisma/client.js', () => ({ default: new Proxy({}, {
   get: (_, key) => typeof connection.client?.[key] === 'function' ? connection.client[key].bind(connection.client) : connection.client?.[key],
 }) }))
-import { createMemory, updateMemory, deleteMemory, restoreMemory, listRevisions } from '../../src/services/memoryService.js'
-import { promoteInsight, clearInsights } from '../../src/services/derivedService.js'
-import { promoteEdge, deriveEdges } from '../../src/services/edgeService.js'
+import { createMemory, updateMemory, deleteMemory } from '../../src/services/memoryService.js'
+import { deriveEdges } from '../../src/services/edgeService.js'
 import { embedMemory } from '../../src/services/embeddingService.js'
 import { createIndexJob, cancelIndexJob, runIndexJob, startMemoryIndexWorker, stopMemoryIndexWorker } from '../../src/services/memoryIndexService.js'
 import { exportMemoryBundle, previewMemoryImport, applyMemoryImport } from '../../src/services/memoryTransferService.js'
 import { applyImport, previewImport } from '../../src/services/importService.js'
 import { retrieveRelevantMemories, buildMemoryContext } from '../../src/services/llmService.js'
 import * as llm from '../../src/services/llmService.js'
+import { migrateUserPlans } from '../../src/services/planMigrationService.js'
+import { listDueReminders, updateScheduledReminder } from '../../src/services/reminderService.js'
 
 const withDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip
 const databaseName = `cyber_sister_memory_test_${Date.now()}`
@@ -44,7 +45,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No live cloud in tests')))
     vi.stubEnv('MEMORY_EMBEDDING_BASE_URL', '')
     await db.user.deleteMany()
-    user = await db.user.create({ data: { phone: '19900000001', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' } })
+    user = await db.user.create({ data: { phone: '19900000001', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' } })
   })
   afterEach(() => { stopMemoryIndexWorker(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs() })
   afterAll(async () => {
@@ -55,7 +56,53 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     }
   })
 
-  it('creates a baseline, rejects concurrent edits and restores by appending a revision', async () => {
+  it('claims a legacy-plan migration once under overlapping calls and preserves source records', async () => {
+    await db.habit.create({ data: { userId: user.id, name: '迁移测试散步', icon: 'droplet' } })
+    const results = await Promise.all(Array.from({ length: 4 }, () => migrateUserPlans(user.id)))
+    expect(results.filter(result => !result.skipped)).toHaveLength(1)
+    expect(await db.scheduledReminder.count({ where: { userId: user.id } })).toBe(1)
+    expect(await db.habit.count({ where: { userId: user.id } })).toBe(1)
+    expect(await migrateUserPlans(user.id)).toMatchObject({ skipped: true, created: 0 })
+  })
+
+  it('hides pending deliveries after ending a recurring series, including a late insert', async () => {
+    const fireAt = new Date('2026-09-01T08:00:00Z')
+    const reminder = await db.scheduledReminder.create({ data: {
+      userId: user.id, content: '系列结束测试', freq: 'daily', time: '08:00', nextFireAt: fireAt,
+    } })
+    expect(await listDueReminders(user.id, fireAt)).toHaveLength(1)
+    await updateScheduledReminder(reminder.id, user.id, { status: 'done' })
+    const late = await db.reminderDelivery.create({ data: { reminderId: reminder.id, fireAt: new Date('2026-09-02T08:00:00Z') } })
+    expect(await listDueReminders(user.id, new Date('2026-09-03T08:00:00Z'))).toEqual([])
+    expect(await db.reminderDelivery.count({ where: { reminderId: reminder.id } })).toBe(2)
+    await db.reminderDelivery.update({ where: { id: late.id }, data: { result: '已生成的历史产出' } })
+    expect(await listDueReminders(user.id)).toMatchObject([{ id: late.id, result: '已生成的历史产出' }])
+  })
+
+  it('rolls back the migration claim on insert failure so a retry can succeed', async () => {
+    await db.habit.create({ data: { userId: user.id, name: '迁移重试散步', icon: 'droplet' } })
+    // The trigger only exists in this test-created database.
+    await db.$executeRawUnsafe("CREATE FUNCTION reject_plan_insert() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'injected plan failure'; END; $$ LANGUAGE plpgsql")
+    await db.$executeRawUnsafe('CREATE TRIGGER reject_plan BEFORE INSERT ON scheduled_reminders FOR EACH ROW EXECUTE FUNCTION reject_plan_insert()')
+    try {
+      await expect(migrateUserPlans(user.id)).rejects.toThrow()
+      expect((await db.user.findUnique({ where: { id: user.id } })).plansMigratedAt).toBeNull()
+      expect(await db.scheduledReminder.count({ where: { userId: user.id } })).toBe(0)
+    } finally {
+      await db.$executeRawUnsafe('DROP TRIGGER reject_plan ON scheduled_reminders')
+      await db.$executeRawUnsafe('DROP FUNCTION reject_plan_insert()')
+    }
+    expect(await migrateUserPlans(user.id)).toMatchObject({ skipped: false, created: 1 })
+  })
+
+  it('previews a plan migration without claiming the user or inserting tasks', async () => {
+    await db.habit.create({ data: { userId: user.id, name: '迁移预览散步', icon: 'droplet' } })
+    expect(await migrateUserPlans(user.id, { dryRun: true })).toMatchObject({ created: 1, dryRun: true })
+    expect((await db.user.findUnique({ where: { id: user.id } })).plansMigratedAt).toBeNull()
+    expect(await db.scheduledReminder.count({ where: { userId: user.id } })).toBe(0)
+  })
+
+  it('creates a baseline and rejects concurrent edits', async () => {
     const memory = await create()
     expect(memory.revision).toBe(1)
     const result = await Promise.allSettled([
@@ -64,12 +111,9 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     ])
     expect(result.filter((item) => item.status === 'fulfilled')).toHaveLength(1)
     expect(result.find((item) => item.status === 'rejected').reason.statusCode).toBe(409)
-    const restored = await restoreMemory(user.id, memory.id, { revision: 1, expectedRevision: 2 })
-    expect(restored).toMatchObject({ content: memory.content, revision: 3 })
-    const revisions = await listRevisions(user.id, memory.id)
-    expect(revisions.map((item) => item.revision)).toEqual([3, 2, 1])
-    expect(revisions[0]).toMatchObject({ action: 'restore', restoredFrom: 1 })
-    expect(restored).not.toHaveProperty('projection')
+    const changed = await updateMemory(user.id, memory.id, { content: '后来又变了', expectedRevision: 2 })
+    expect(changed).toMatchObject({ content: '后来又变了', revision: 3 })
+    expect(changed).not.toHaveProperty('projection')
   })
 
   it('rejects forged quotes and another user’s source', async () => {
@@ -79,22 +123,6 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const memory = await create()
     await expect(createMemory(user.id, { type: 'semantic', content: '伪造', sources: [{ type: 'memory', id: memory.id, revision: 1, quote: '不存在的依据' }] })).rejects.toMatchObject({ statusCode: 409 })
     expect(await db.memory.count({ where: { userId: user.id } })).toBe(1)
-  })
-
-  it('promotes once under duplicate requests and keeps approval history when drafts are cleared', async () => {
-    const source = await create('周末常去爬山')
-    const insight = await db.derivedInsight.create({ data: {
-      userId: user.id, kind: 'pattern', content: '喜欢户外活动', sourceMemoryIds: [source.id],
-      sources: [{ type: 'memory', id: source.id, revision: 1, quote: source.content }],
-    } })
-    const confirmations = await Promise.all([promoteInsight(user.id, insight.id, { expectedRevision: 1 }), promoteInsight(user.id, insight.id, { expectedRevision: 1 })])
-    expect(confirmations[0].memory.id).toBe(confirmations[1].memory.id)
-    expect(await db.memory.count()).toBe(2)
-    await clearInsights(user.id)
-    expect(await db.derivedInsight.count({ where: { status: 'promoted' } })).toBe(1)
-    expect(await db.memoryRevision.count({ where: { memoryId: confirmations[0].memory.id } })).toBe(1)
-    await deleteMemory(user.id, confirmations[0].memory.id)
-    await expect(promoteInsight(user.id, insight.id, { expectedRevision: 1 })).rejects.toMatchObject({ statusCode: 404 })
   })
 
   it('rolls back a formal write if recording its revision fails', async () => {
@@ -113,13 +141,14 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const a = await create('喜欢爬山')
     const b = await create('周末外出')
     const edge = await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'related' } })
-    await promoteEdge(user.id, edge.id, { expectedRevision: 1, expectedFromRevision: 1, expectedToRevision: 1 })
+    await db.memoryEdge.update({ where: { id: edge.id }, data: {
+      status: 'canonical', revision: 2, fromRevision: 1, toRevision: 1,
+      decisions: [{ action: 'confirm', at: new Date().toISOString(), fromRevision: 1, toRevision: 1 }],
+    } })
     await updateMemory(user.id, a.id, { content: '最近更喜欢室内阅读', expectedRevision: 1 })
-    expect(await db.memoryEdge.findUnique({ where: { id: edge.id } })).toMatchObject({ status: 'needs_review', revision: 3 })
-    await expect(promoteEdge(user.id, edge.id, { expectedRevision: 3, expectedFromRevision: 1, expectedToRevision: 1 })).rejects.toMatchObject({ statusCode: 409 })
-    const reviewed = await promoteEdge(user.id, edge.id, { expectedRevision: 3, expectedFromRevision: 2, expectedToRevision: 1 })
-    expect(reviewed.status).toBe('canonical')
-    expect(reviewed.decisions).toHaveLength(2)
+    const reviewed = await db.memoryEdge.findUnique({ where: { id: edge.id } })
+    expect(reviewed).toMatchObject({ status: 'needs_review', revision: 3 })
+    expect(reviewed.decisions).toHaveLength(1)
   })
 
   function enableEmbeddings() {
@@ -165,7 +194,10 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     await updateMemory(user.id, a.id, { importance: 8, expectedRevision: 1 })
     const edge = await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'related', fromRevision: 2,
       evidence: JSON.stringify([{ type: 'memory', id: a.id, revision: 2, quote: a.content, status: 'verified' }]) } })
-    await promoteEdge(user.id, edge.id, { expectedRevision: 1, expectedFromRevision: 2, expectedToRevision: 1 })
+    await db.memoryEdge.update({ where: { id: edge.id }, data: {
+      status: 'canonical', revision: 2,
+      decisions: [{ action: 'confirm', at: new Date().toISOString(), fromRevision: 2, toRevision: 1 }],
+    } })
     const bundle = await exportMemoryBundle(user.id)
     expect(JSON.stringify(bundle)).not.toContain('embedding')
     expect(JSON.stringify(bundle)).not.toContain('vector')
@@ -268,8 +300,8 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
   it('removes deleted memory dependencies and reference copies without erasing other formal history', async () => {
     const source = await create('原始偏好')
     const sources = [{ type: 'memory', id: source.id, revision: 1, quote: source.content }]
-    const insight = await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '用户另外确认的内容', sources, sourceMemoryIds: [source.id] } })
-    const { memory: dependent } = await promoteInsight(user.id, insight.id, { expectedRevision: 1 })
+    const dependent = await createMemory(user.id, { type: 'semantic', content: '用户另外确认的内容', sources }, { projectEmbedding: false })
+    await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '靠这条来源的草稿', sources, sourceMemoryIds: [source.id] } })
     await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: source.id, toMemoryId: dependent.id, relation: 'related' } })
     await deleteMemory(user.id, source.id)
     expect(await db.derivedInsight.count()).toBe(0)
@@ -280,18 +312,12 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(preserved.revisions[0].sources).toEqual([])
   })
 
-  it('rejects dismissed and changed drafts until an explicit manual review of changed content', async () => {
+  it('改了来源记忆，靠它的草稿自动转 needs_review（等她在信里提）', async () => {
     const source = await create('喜欢去图书馆')
     const insight = await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '爱读书',
       sourceMemoryIds: [source.id], sources: [{ type: 'memory', id: source.id, revision: 1, quote: source.content }] } })
     await updateMemory(user.id, source.id, { type: 'episodic', expectedRevision: 1 })
-    const changed = await db.derivedInsight.findUnique({ where: { id: insight.id } })
-    expect(changed.status).toBe('needs_review')
-    await expect(promoteInsight(user.id, insight.id, { expectedRevision: changed.revision })).rejects.toMatchObject({ statusCode: 409 })
-    const reviewed = await promoteInsight(user.id, insight.id, { expectedRevision: changed.revision, asManual: true, content: '我确认自己爱读书' })
-    expect(reviewed.memory).toMatchObject({ content: '我确认自己爱读书', origin: 'manual', sources: [] })
-    const dismissed = await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '已拒绝', status: 'dismissed' } })
-    await expect(promoteInsight(user.id, dismissed.id, { expectedRevision: 1, asManual: true, content: '试图跳过拒绝' })).rejects.toMatchObject({ statusCode: 409 })
+    expect(await db.derivedInsight.findUnique({ where: { id: insight.id } })).toMatchObject({ status: 'needs_review' })
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -307,7 +333,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(context).not.toContain('vector')
   })
 
-  it.each(['edit', 'delete', 'clear'])('discards late relationship generation after %s changes its inputs', async (action) => {
+  it.each(['edit', 'delete'])('discards late relationship generation after %s changes its inputs', async (action) => {
     const memory = await create('明天去散步')
     await create('散步前查看天气')
     let finish
@@ -315,8 +341,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const pending = deriveEdges(user.id, 'synthetic-late-edge', { allowExternal: true, authorizeExternal: async () => true })
     await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
     if (action === 'edit') await updateMemory(user.id, memory.id, { content: '明天留在家', expectedRevision: 1 })
-    else if (action === 'delete') await deleteMemory(user.id, memory.id)
-    else await clearInsights(user.id)
+    else await deleteMemory(user.id, memory.id)
     finish({ content: JSON.stringify([{ from: 1, to: 2, relation: 'related', confidence: 'high', evidence: ['散步'] }]) })
     expect(await pending).toMatchObject({ created: 0, skipped: 1 })
     expect(await db.memoryEdge.count()).toBe(0)

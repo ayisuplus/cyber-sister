@@ -1,377 +1,207 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { BookOpen, Sparkles, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { BookOpen, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
-import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
-import SourceBadge from '../components/ui/SourceBadge'
-import Spinner from '../components/ui/Spinner'
 import { readingService } from '../services/readingService'
+import { bookStore } from '../services/bookStore'
+import { readEpub } from '../lib/epub'
+import { readPlainText } from '../lib/plaintext'
 
-const STATUS_GROUPS = [
-  { value: 'reading', label: '在读' },
-  { value: 'want', label: '想读' },
-  { value: 'finished', label: '读完' },
-]
-const inputClass = 'w-full rounded-2xl bg-surface-input p-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-status-info'
+// 书架：书放在这台设备的浏览器里，服务器只记书目、进度和笔记。
+// 换一台设备，书架还在，重新放一次文件就能接着读。
+const STATUS_LABEL = { want: '想读', reading: '在读', finished: '读完' }
 
-function NoteItem({ note, onComment, onDelete }) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [preview, setPreview] = useState(null)
-
-  const handleComment = async () => {
-    if (loading) return
-    setLoading(true); setError('')
-    try {
-      const result = await onComment(note.id)
-      if (result.source === 'cloud_mock') setPreview(result)
-    } catch (requestError) {
-      const code = requestError?.response?.data?.code
-      setError(code === 'CLOUD_NOT_CONSENTED' ? 'not_consented' : 'unavailable')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <li className="rounded-2xl bg-surface-muted p-3">
-      <div className="flex items-start gap-2">
-        {note.page != null && (
-          <span className="mt-0.5 inline-flex shrink-0 rounded-full bg-pastel-apricot px-2 py-0.5 text-[10px] font-medium text-text-secondary">第 {note.page} 页</span>
-        )}
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{note.content}</p>
-        <button type="button" aria-label={`删除笔记 ${note.content.slice(0, 16)}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-text-muted hover:text-danger" onClick={() => onDelete(note)}><Trash2 size={16} /></button>
-      </div>
-      <div className="mt-2">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex rounded-full bg-pastel-mist px-2 py-0.5 text-[10px] font-medium text-status-info">AI</span>
-          <span className="text-xs font-semibold text-text-primary">姐妹的回应</span>
-        </div>
-        {note.aiComment || preview ? (
-          <div className="mt-2">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{preview?.aiComment || note.aiComment}</p>
-            <div className="mt-1">
-              <SourceBadge source={preview?.source || note.aiCommentSource} />
-            </div>
-            {preview && <p className="mt-2 text-xs text-text-muted">这是模拟回应，未连接云端，也未保存到笔记。</p>}
-          </div>
-        ) : (
-          <div className="mt-2">
-            <Button variant="secondary" className="w-full" disabled={loading} onClick={handleComment}>
-              {loading ? <Spinner /> : <Sparkles size={16} />}
-              让姐妹看看
-            </Button>
-            {error === 'not_consented' && (
-              <p role="alert" className="mt-2 text-xs text-danger">
-                还没有同意使用云端模型，去<Link to="/settings" className="underline">「设置 → 聊天模型」</Link>开启后再让她看看吧
-              </p>
-            )}
-            {error === 'unavailable' && (
-              <p role="alert" className="mt-2 text-xs text-danger">姐妹现在有点忙，稍后再让她看看吧</p>
-            )}
-          </div>
-        )}
-      </div>
-    </li>
-  )
+const formatOf = (name) => {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.epub')) return 'epub'
+  if (lower.endsWith('.txt')) return 'txt'
+  return null
 }
 
-function BookCard({ book, onUpdated, onDeleted }) {
-  const [notes, setNotes] = useState([])
-  const [showNoteForm, setShowNoteForm] = useState(false)
-  const [pageText, setPageText] = useState('')
-  const [noteText, setNoteText] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [noteError, setNoteError] = useState('')
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [noteToDelete, setNoteToDelete] = useState(null)
-  const [actionError, setActionError] = useState('')
-  const [notesError, setNotesError] = useState('')
-  const [notesReload, setNotesReload] = useState(0)
-  const [updating, setUpdating] = useState(false)
+const readableError = (error, fallback) =>
+  error?.name === 'EpubError' || error?.name === 'BookStoreError' ? error.message : fallback
 
-  useEffect(() => {
-    let cancelled = false
-    setNotesError('')
-    readingService.listNotes(book.id)
-      .then(list => { if (!cancelled) setNotes(list) })
-      .catch(() => { if (!cancelled) setNotesError('笔记加载失败，请重试') })
-    return () => { cancelled = true }
-  }, [book.id, notesReload])
-
-  const progress = book.totalPages ? Math.min(100, Math.round((book.currentPage / book.totalPages) * 100)) : null
-
-  const handleStatus = async (status) => {
-    if (status === book.status || updating) return
-    setUpdating(true); setActionError('')
-    try {
-      const updated = await readingService.updateBook(book.id, { status })
-      onUpdated(updated)
-    } catch { setActionError('阅读状态更新失败，请重试') }
-    finally { setUpdating(false) }
-  }
-
-  const handleAddNote = async () => {
-    if (!noteText.trim() || saving) return
-    setSaving(true); setNoteError('')
-    try {
-      const page = pageText.trim() ? Number(pageText) : undefined
-      const result = await readingService.addNote(book.id, { content: noteText.trim(), page })
-      setNotes(prev => [result.note, ...prev])
-      onUpdated(result.book)
-      setNoteText(''); setPageText(''); setShowNoteForm(false)
-    } catch (requestError) {
-      setNoteError(requestError?.response?.data?.error || '保存失败，请稍后再试')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleComment = async (noteId) => {
-    const result = await readingService.requestNoteComment(noteId)
-    if (result.source !== 'cloud_mock') setNotes(prev => prev.map(n => (n.id === noteId ? { ...n, aiComment: result.aiComment, aiCommentSource: result.source } : n)))
-    return result
-  }
-
-  const handleDeleteNote = async () => {
-    const target = noteToDelete
-    setNoteToDelete(null); setActionError('')
-    if (!target) return
-    try {
-      await readingService.deleteNote(target.id)
-      setNotes(prev => prev.filter(item => item.id !== target.id))
-    } catch { setActionError('删除笔记失败，请重试') }
-  }
-
-  const handleDelete = async () => {
-    setShowDeleteConfirm(false)
-    setActionError('')
-    try {
-      await readingService.deleteBook(book.id)
-      onDeleted(book.id)
-    } catch { setActionError('删除书籍失败，请重试') }
-  }
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-text-primary">《{book.title}》</h3>
-          {book.author && <p className="mt-0.5 text-xs text-text-muted">{book.author}</p>}
-        </div>
-        <button
-          type="button"
-          aria-label={`删除《${book.title}》`}
-          onClick={() => setShowDeleteConfirm(true)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-text-muted hover:text-danger"
-        >
-          <Trash2 size={18} />
-        </button>
-      </div>
-
-      {book.totalPages ? (
-        <div className="mt-2">
-          <div className="h-2 w-full rounded-full bg-surface-muted">
-            <div className="h-2 rounded-full bg-action-primary" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="mt-1 text-xs text-text-muted tabular-nums">读到 {book.currentPage}/{book.totalPages} 页</p>
-        </div>
-      ) : (
-        <p className="mt-2 text-xs text-text-muted">已读 {book.currentPage} 页</p>
-      )}
-
-      <div className="mt-2 flex gap-2" role="group" aria-label="阅读状态">
-        {STATUS_GROUPS.map(group => (
-          <button
-            key={group.value}
-            type="button"
-            aria-pressed={book.status === group.value}
-            disabled={updating}
-            onClick={() => handleStatus(group.value)}
-            className={`min-h-11 flex-1 rounded-xl text-xs ${book.status === group.value ? 'bg-pastel-blush font-semibold text-action-primary' : 'bg-surface-muted text-text-muted'}`}
-          >
-            {group.label}
-          </button>
-        ))}
-      </div>
-
-      {actionError && <p role="alert" className="mt-2 text-xs text-danger">{actionError}</p>}
-      {notesError && <div className="mt-2"><p role="alert" className="text-xs text-danger">{notesError}</p><Button variant="secondary" onClick={() => setNotesReload(value => value + 1)}>重试笔记</Button></div>}
-      <div className="mt-3">
-        <Button variant="secondary" className="w-full" onClick={() => setShowNoteForm(v => !v)}>
-          {showNoteForm ? '收起' : '记一笔'}
-        </Button>
-        {showNoteForm && (
-          <div className="mt-2 space-y-2">
-            <input
-              aria-label="页码"
-              inputMode="numeric"
-              value={pageText}
-              onChange={event => setPageText(event.target.value)}
-              placeholder="读到第几页"
-              className={inputClass}
-            />
-            <textarea
-              aria-label="感想"
-              value={noteText}
-              maxLength={500}
-              onChange={event => setNoteText(event.target.value)}
-              placeholder="这句话、这个情节……此刻的想法"
-              className={`${inputClass} h-20 resize-none`}
-            />
-            {noteError && <p role="alert" className="text-xs text-danger">{noteError}</p>}
-            <Button variant="primary" className="w-full" disabled={!noteText.trim() || saving} onClick={handleAddNote}>
-              {saving ? <Spinner onDark /> : null}
-              记下来
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {notes.length > 0 && (
-        <ul className="mt-3 space-y-2">
-          {notes.map(note => (
-            <NoteItem key={note.id} note={note} onComment={handleComment} onDelete={setNoteToDelete} />
-          ))}
-        </ul>
-      )}
-
-      <ConfirmDialog
-        open={noteToDelete !== null}
-        title="删除这条笔记"
-        description="这条感想及其已保存的回应会一起删除，确定继续吗？"
-        confirmLabel="删除笔记"
-        danger
-        onConfirm={handleDeleteNote}
-        onCancel={() => setNoteToDelete(null)}
-      />
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        title={`删除《${book.title}》`}
-        description="这本书和它的感想笔记都会删掉，确定继续吗？"
-        confirmLabel="确认删除"
-        danger
-        onConfirm={handleDelete}
-        onCancel={() => setShowDeleteConfirm(false)}
-      />
-    </Card>
-  )
-}
-
-// embedded：作为「手记」页签嵌入时不渲染自己的页头
-export default function ReadingPage({ embedded = false } = {}) {
+export default function ReadingPage() {
+  const navigate = useNavigate()
+  const sequence = useRef(0)
+  const fileInput = useRef(null)
   const [books, setBooks] = useState([])
+  const [localIds, setLocalIds] = useState(new Set())
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [reloadTick, setReloadTick] = useState(0)
-  const [title, setTitle] = useState('')
-  const [author, setAuthor] = useState('')
-  const [totalPagesText, setTotalPagesText] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [tip, setTip] = useState('')
+  const [pendingDelete, setPendingDelete] = useState(null)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true); setLoadError('')
-    readingService.listBooks()
-      .then(list => { if (!cancelled) setBooks(list) })
-      .catch(() => { if (!cancelled) setLoadError('书架加载失败，请稍后再试') })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [reloadTick])
-
-  const handleAddBook = async () => {
-    if (!title.trim() || adding) return
-    setAdding(true); setAddError('')
+  const load = useCallback(async () => {
+    const request = ++sequence.current
+    setLoading(true)
+    setLoadError('')
     try {
-      const totalPages = totalPagesText.trim() ? Number(totalPagesText) : undefined
-      await readingService.addBook({ title: title.trim(), author: author.trim() || undefined, totalPages })
-      setTitle(''); setAuthor(''); setTotalPagesText('')
-      setReloadTick(tick => tick + 1)
-    } catch (requestError) {
-      setAddError(requestError?.response?.data?.error || '保存失败，请稍后再试')
+      const shelf = await readingService.listBooks()
+      const ids = await bookStore.listIds().catch(() => new Set())
+      if (request !== sequence.current) return
+      setBooks(shelf)
+      setLocalIds(ids)
+    } catch {
+      if (request === sequence.current) setLoadError('书架没打开，请检查网络后重试')
     } finally {
-      setAdding(false)
+      if (request === sequence.current) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const importFile = async (file) => {
+    if (!file || busy) return
+    setBusy(true); setError(''); setTip('')
+    try {
+      const format = formatOf(file.name)
+      if (!format) throw Object.assign(new Error('先放 EPUB 或 TXT，PDF 暂时读不了'), { name: 'EpubError' })
+
+      const room = await bookStore.estimate()
+      if (room && room.quota - room.usage < file.size * 2) {
+        throw Object.assign(new Error('这台设备的存储空间不够了，先删掉一本再放'), { name: 'BookStoreError' })
+      }
+
+      const buffer = await file.arrayBuffer()
+      const parsed = format === 'epub' ? await readEpub(buffer) : readPlainText(buffer)
+      const title = (parsed.title || file.name.replace(/\.(epub|txt)$/i, '')).trim().slice(0, 100)
+
+      const book = await readingService.addBook({
+        title,
+        ...(parsed.author ? { author: parsed.author.slice(0, 50) } : {}),
+        format,
+        fileName: file.name.slice(0, 200),
+      })
+      try {
+        await bookStore.putBook(book.id, { fileName: file.name, format, chapters: parsed.chapters })
+      } catch (storeError) {
+        // 文件没存下来就不要在书架上留一本打不开的书
+        await readingService.deleteBook(book.id).catch(() => {})
+        throw storeError
+      }
+      setTip(`《${title}》放好了`)
+      await load()
+    } catch (importError) {
+      setError(readableError(importError, '没放进去，再试一次'))
+    } finally {
+      setBusy(false)
+      if (fileInput.current) fileInput.current.value = ''
     }
   }
 
-  const handleUpdated = useCallback((updated) => {
-    setBooks(prev => prev.map(b => (b.id === updated.id ? { ...b, ...updated } : b)))
-  }, [])
-  const handleDeleted = useCallback((id) => {
-    setBooks(prev => prev.filter(b => b.id !== id))
-  }, [])
+  const remove = async () => {
+    const target = pendingDelete
+    setPendingDelete(null)
+    if (!target) return
+    try {
+      await readingService.deleteBook(target.id)
+      await bookStore.deleteBook(target.id).catch(() => {})
+      await load()
+    } catch {
+      setError('没删掉，请重试')
+    }
+  }
+
+  const open = (book) => {
+    if (!localIds.has(book.id)) {
+      setError(`《${book.title}》的文件不在这台设备上，重新放一次就能接着读`)
+      return
+    }
+    navigate(`/tools/reading/${book.id}`)
+  }
+
+  // 在读、且文件确实在这台设备上的第一本——书架本来就按最近更新排
+  const resume = books.find((item) => item.status === 'reading' && localIds.has(item.id))
 
   return (
-    <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
-      {!embedded && <Header title="一起读书" showBack />}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+      <Header title="读书" showBack />
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {resume && (
+          <Card className="p-0">
+            <button type="button" onClick={() => navigate(`/tools/reading/${resume.id}`)} className="w-full rounded-card p-4 text-left">
+              <span className="block text-xs text-text-muted">接着读</span>
+              <span className="mt-1 block truncate text-sm font-semibold text-text-primary">{resume.title}</span>
+              {resume.percent != null && <span className="mt-1 block text-xs text-text-muted">读到 {resume.percent}%</span>}
+            </button>
+          </Card>
+        )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-text-primary">放一本新书</h2>
-          <div className="mt-3 space-y-2">
-            <input
-              aria-label="书名"
-              value={title}
-              maxLength={100}
-              onChange={event => setTitle(event.target.value)}
-              placeholder="书名（必填）"
-              className={inputClass}
-            />
-            <input
-              aria-label="作者"
-              value={author}
-              maxLength={50}
-              onChange={event => setAuthor(event.target.value)}
-              placeholder="作者（可空）"
-              className={inputClass}
-            />
-            <input
-              aria-label="总页数"
-              inputMode="numeric"
-              value={totalPagesText}
-              onChange={event => setTotalPagesText(event.target.value)}
-              placeholder="总页数（可空）"
-              className={inputClass}
-            />
-          </div>
-          {addError && <p role="alert" className="mt-2 text-xs text-danger">{addError}</p>}
-          <Button variant="primary" className="mt-2 w-full" disabled={!title.trim() || adding} onClick={handleAddBook}>
-            {adding ? <Spinner onDark /> : null}
-            放上书架
-          </Button>
+        <Card className="space-y-2 p-4">
+          <input
+            ref={fileInput} type="file" accept=".epub,.txt" aria-label="选一本书"
+            onChange={(event) => importFile(event.target.files?.[0])}
+            className="sr-only"
+          />
+          <button
+            type="button" disabled={busy} onClick={() => fileInput.current?.click()}
+            className="min-h-11 w-full rounded-xl bg-action-primary px-5 text-sm font-semibold text-text-inverse disabled:opacity-50"
+          >
+            {busy ? '正在读这本书…' : '放一本书进来'}
+          </button>
+          <p className="text-xs leading-relaxed text-text-muted">
+            支持 EPUB 和 TXT。书只存在这台设备上，不会上传；问她的时候才会把你选中的那一段发过去。
+          </p>
+          <p aria-live="polite" className="min-h-5 text-xs text-text-secondary">
+            {error ? <span role="alert" className="text-danger">{error}</span> : tip}
+          </p>
         </Card>
 
-        {loading ? (
-          <p role="status" className="py-8 text-center text-sm text-text-muted">加载中…</p>
-        ) : loadError ? (
-          <div className="py-8 text-center">
-            <p role="alert" className="text-sm text-danger">{loadError}</p>
-            <Button variant="secondary" className="mt-3" onClick={() => setReloadTick(tick => tick + 1)}>重试</Button>
-          </div>
-        ) : books.length === 0 ? (
-          <EmptyState icon={BookOpen} title="书架还空着" description="先加一本想读的书吧" />
-        ) : (
-          STATUS_GROUPS.map(group => {
-            const groupBooks = books.filter(b => b.status === group.value)
-            if (groupBooks.length === 0) return null
-            return (
-              <section key={group.value}>
-                <h2 className="px-1 text-xs font-semibold text-text-muted">{group.label}（{groupBooks.length}）</h2>
-                <div className="mt-2 space-y-3">
-                  {groupBooks.map(book => (
-                    <BookCard key={book.id} book={book} onUpdated={handleUpdated} onDeleted={handleDeleted} />
-                  ))}
-                </div>
-              </section>
-            )
-          })
+        {loadError && (
+          <p role="alert" className="text-sm text-danger">
+            {loadError}
+            <button type="button" className="ml-2 min-h-11 underline" onClick={load}>重试</button>
+          </p>
         )}
+
+        {loading && books.length === 0 ? <p role="status" className="py-8 text-center text-sm text-text-muted">加载中…</p>
+          : books.length === 0 ? (
+            <div className="rounded-card bg-surface-card shadow-card">
+              <EmptyState icon={BookOpen} title="书架还空着" description="放一本书进来，就可以和她一起读了。" />
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {books.map((book) => (
+                <li key={book.id}>
+                  <Card className="flex items-center gap-3 p-4">
+                    <button type="button" onClick={() => open(book)} className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-sm font-semibold text-text-primary">{book.title}</p>
+                      <p className="mt-1 truncate text-xs text-text-muted">
+                        {[
+                          book.author,
+                          STATUS_LABEL[book.status],
+                          book.percent != null ? `读到 ${book.percent}%` : null,
+                          book.noteCount ? `${book.noteCount} 条笔记` : null,
+                          localIds.has(book.id) ? null : '文件不在这台设备上',
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    </button>
+                    <button
+                      type="button" aria-label={`删除《${book.title}》`}
+                      onClick={() => setPendingDelete(book)}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center text-text-muted hover:text-danger"
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
       </div>
 
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="把这本书从书架上拿走"
+        description="书、进度和这本书下的笔记都会删掉，找不回来了。"
+        confirmLabel="确认删除" danger onConfirm={remove} onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advanceCompanionState, companionStatePrompt, createCompanionState } from './companionState.js'
+import { advanceCompanionState, companionPacing, companionStatePrompt, createCompanionState } from './companionState.js'
 
 const step = (state, observation = {}, now = 1000) => advanceCompanionState(state, observation, now).state
 const severe = { stimulus: 0.9, threat: 0.9, helplessness: 0.9, controlLoss: 0.9, violation: 0.9, escapeFailure: 0.9, recoveryFailure: 0.9, duration: 1 }
@@ -84,6 +84,54 @@ describe('companion numerical experience model', () => {
     expect(companionStatePrompt(state)).toContain('偏简洁')
     expect(state.learning.expectedOutcome).toBeGreaterThan(0.8)
     expect(initial.learning.samples).toBe(0)
+  })
+
+  it('连续冒犯两句放慢、四句简短并说明边界；一句正常的话回到自然交流，信任仍低于之前', () => {
+    const hostile = { threat: 0.8, violation: 0.8 }
+    let state = createCompanionState(1000)
+    const before = state.trust
+    state = step(state, hostile)
+    expect(state.protection.mode).toBe('open')
+    state = step(state, hostile)
+    expect(state.protection.mode).toBe('guarded')
+    state = step(step(state, hostile), hostile)
+    expect(state.protection.mode).toBe('withdrawn')
+    state = step(state, { positive: 1 })
+    expect(state.protection.mode).toBe('open')
+    expect(state.trust).toBeLessThan(before)
+  })
+
+  it('隔半小时以上算新的一次聊天，恢复不打断；没有会话字段的旧状态照样能读', () => {
+    const initial = createCompanionState(0)
+    const talking = step(step(initial, {}, 10 * 60_000), {}, 35 * 60_000)
+    expect(talking.session.startedAt).toBe(0)
+    expect(step(talking, {}, 70 * 60_000).session.startedAt).toBe(70 * 60_000)
+    expect(step(talking, { kind: 'recovery', recovery: 1 }, 200 * 60_000).session.startedAt).toBe(0)
+    const { session: _session, ...legacy } = talking
+    expect(step(legacy, {}, 36 * 60_000).session.startedAt).toBe(35 * 60_000)
+  })
+
+  it('分寸只在这里决定：深夜、聊得久、久别、心情低、经期各有一条，她这一句的要求排最前', () => {
+    const state = createCompanionState(0)
+    const at = (moment) => companionPacing(state, moment).join('\n')
+    for (const hour of [22, 23, 0, 4]) expect(at({ hour })).toContain('很晚')
+    for (const hour of [5, 15, 21]) expect(at({ hour })).not.toContain('很晚')
+    expect(at({ hour: 23, sessionMinutes: 75 })).toContain('早点休息')
+    expect(at({ hour: 15, sessionMinutes: 75 })).not.toContain('早点休息')
+    expect(at({ gapMs: 3 * 24 * 3_600_000 })).toContain('不追问')
+    expect(at({ gapMs: 2 * 24 * 3_600_000 })).not.toContain('不追问')
+    expect(at({ lowMood: true })).toContain('先陪着')
+    expect(companionPacing(state, { hour: 23, lowMood: true, asksShort: true })[0]).toContain('简短')
+    expect(companionPacing(state, {})).toEqual([])
+  })
+
+  it('经期只在同意后给出，只调分寸：不提起、不归因；没有时整块不出现「经期」', () => {
+    const state = createCompanionState(0)
+    expect(companionStatePrompt(state, { hour: 23, lowMood: true })).not.toContain('经期')
+    const period = companionStatePrompt(state, { cyclePhase: 'period' })
+    expect(period).toContain('不要提起经期')
+    expect(period).toContain('不要把她的情绪归因于经期')
+    expect(period).toContain('不要向她复述')
   })
 
   it('过期时间不倒退，非法数值和未知状态版本拒绝，重复计算完全一致', () => {

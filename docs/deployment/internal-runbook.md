@@ -12,6 +12,7 @@
 - Docker Engine 与支持 `service_completed_successfully` 的 Docker Compose v2。
 - 指向主机的内测域名，以及该域名对应的 PEM 证书和私钥。
 - 聊天模型只走云端：经批准的云端模型（供应商槽 `GATEWAY_QWEN_*`）及其 Base URL、模型名和 Key 文件。
+- 模型主密钥文件（`MODEL_CONFIG_KEY_FILE`，只读、64 位十六进制）：实例管理员在设置页「模型供应商」里保存的供应商密钥，用它做 AES-256-GCM 加解密。
 - 产品负责人批准的 `cloud-primary-v1` 云端模型同意文案与危机资源清单；资源记录官方来源和核验日期。
 
 内测仅允许白名单成年测试者从 VPN 或可信私网访问。
@@ -25,14 +26,33 @@
 - `POSTGRES_PASSWORD_FILE`、`DATABASE_PASSWORD_FILE`、`JWT_SECRET_FILE`、`JWT_REFRESH_SECRET_FILE`
 - `INTERNAL_TEST_PHONES_FILE`、`INSTANCE_ADMIN_PHONES_FILE`、`INTERNAL_TEST_CODE_FILE`
 - `APP_DOMAIN`、`BIND_ADDRESS`、`IMAGE_TAG`、`TLS_CERT_PATH`、`TLS_KEY_PATH`
+- `MODEL_CONFIG_KEY_FILE`（模型主密钥，见下）
 
-每个 `*_FILE` 都指向仓库外的独立只读文件：数据库口令、两个至少 32 字符的 JWT 密钥、六位内测码、逗号分隔的手机号白名单和其中作为实例管理员的手机号。`POSTGRES_PASSWORD_FILE` 与 `DATABASE_PASSWORD_FILE` 内容必须相同，但必须是两个独立文件，以便分别授予 PostgreSQL 容器用户和 API 容器用户读取权限。文件内容不加引号，末尾换行会被安全移除。Compose 以只读 secret 挂载到对应容器，凭据不会作为环境变量注入。
+每个 `*_FILE` 都指向仓库外的独立只读文件：数据库口令、两个至少 32 字符的 JWT 密钥、六位内测码、逗号分隔的手机号白名单、其中作为实例管理员的手机号，以及模型主密钥。`POSTGRES_PASSWORD_FILE` 与 `DATABASE_PASSWORD_FILE` 内容必须相同，但必须是两个独立文件，以便分别授予 PostgreSQL 容器用户和 API 容器用户读取权限。文件内容不加引号（模型主密钥的末尾换行也会被安全去掉）。Compose 以只读 secret 挂载到对应容器，凭据不会作为环境变量注入。
 
-聊天模型为云端唯一路径：必须提供 Qwen Base URL、模型名和 Key 文件（`GATEWAY_QWEN_*`），并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。同意版本为 `cloud-primary-v1`，旧的外部同意版本不会沿用，用户进入聊天首屏需重新同意；未同意时云端调用次数为零。
+### 模型主密钥 `MODEL_CONFIG_KEY_FILE`（2026-09-22 起）
+
+实例管理员可以在设置页「模型供应商」里配多家 OpenAI 兼容的聊天模型；这些供应商的密钥以 AES-256-GCM 密文存进数据库的 `model_providers.api_key_encrypted`，主密钥单独放在一个只读文件里：
+
+```bash
+umask 077
+openssl rand -hex 32 > /absolute/private/secrets/model_config_key
+wc -c < /absolute/private/secrets/model_config_key   # 65：64 位十六进制 + 一个换行
+```
+
+- **格式**：只接受 64 位十六进制（32 字节）。文件内容不加引号。
+- **放置**：放在仓库外的私密目录，只给 API 容器用户读（同下面六个文件的 `1000:1000` / `0400` 规则），容器内固定是 `/run/secrets/model_config_key`。**不要**提交、不要写进镜像、不要贴进聊天或工单、不要当成环境变量的值。
+- **缺失的后果**：主密钥不在或格式不对时，供应商密钥写不进去（接口 503），库里的旧密文也解不开——此时聊天如实报 `LLM_UNAVAILABLE`，**不会**退回明文，也**不会**偷偷改用环境变量槽里的那一家。
+- **备份**：它和 `pg_dump` 必须分别保管、同一时刻能凑齐。备份里的密文没有它解不开；反过来，只有它而没有备份也恢复不了配置。丢了它，已有供应商的密钥全部作废，只能在设置页逐家重填。
+- **轮换**：换主密钥等于换一把锁，旧密文一律解不开。步骤是：先按第 5 节做并验证备份 → 写入新的 `/run/secrets/model_config_key`（`0400`、`1000:1000`）→ 重启 API → 到设置页把每一家的密钥重填一遍 → 确认聊天恢复。轮换期间聊天会报 `LLM_UNAVAILABLE`，这是预期的失败方式。
+
+> ✅ **已接线（2026-09-22）**：`compose.yaml` 的 api 服务已有 `MODEL_CONFIG_KEY_FILE: /run/secrets/model_config_key` 与 `secrets: model_config_key`，文件底部 `secrets:` 段由私密 env 文件里的 `MODEL_CONFIG_KEY_FILE` 指到宿主文件，`deploy/internal.env.example` 也加了这一行。内测环境要真正用设置页的「模型供应商」，仍须先把主密钥文件放好并按第 2 节重启 API；一家都没配时行为与以前一致，仍走 `GATEWAY_QWEN_*`。
+
+聊天模型为云端唯一路径：必须提供 Qwen Base URL、模型名和 Key 文件（`GATEWAY_QWEN_*`），并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。同意版本为 `cloud-primary-v4`，旧的外部同意版本不会沿用，用户进入聊天首屏需重新同意；未同意时云端调用次数为零。改用设置页的「模型供应商」后，聊天只认数据库里配的那几家、不再用这个槽位（一家都没配时才回退到它）；`compose.qwen.yaml` 目前仍要求 `GATEWAY_QWEN_API_KEY_FILE`，接线方式见上一节。
 
 模型调用的总预算固定为 60 秒；Nginx 与主 Web API 客户端等待 75 秒。这个顺序不得倒置，否则客户端可能先报失败，而服务端稍后仍持久化成功结果。
 
-file-backed Compose secrets 会保留宿主机数值 UID/权限。固定镜像中的 Node 用户为 UID/GID `1000:1000`；在普通 rootful Docker 主机上，应由管理员把 `DATABASE_PASSWORD_FILE`、两个 JWT、固定码、测试手机号和实例管理员这六个文件设为 `1000:1000`、模式 `0400`。`POSTGRES_PASSWORD_FILE` 单独授予固定 PostgreSQL 镜像中的 postgres 用户读取权限并保持 `0400`。私密目录只允许管理员和对应映射用户遍历。TLS 私钥需让 edge 镜像的非 root nginx 用户可读；不要通过放宽为全局可读来解决。rootless/userns-remap 主机必须按其 UID 映射调整，并以启动前预检结果为准。
+file-backed Compose secrets 会保留宿主机数值 UID/权限。固定镜像中的 Node 用户为 UID/GID `1000:1000`；在普通 rootful Docker 主机上，应由管理员把 `DATABASE_PASSWORD_FILE`、两个 JWT、固定码、测试手机号、实例管理员和模型主密钥这七个文件设为 `1000:1000`、模式 `0400`。`POSTGRES_PASSWORD_FILE` 单独授予固定 PostgreSQL 镜像中的 postgres 用户读取权限并保持 `0400`。私密目录只允许管理员和对应映射用户遍历。TLS 私钥需让 edge 镜像的非 root nginx 用户可读；不要通过放宽为全局可读来解决。rootless/userns-remap 主机必须按其 UID 映射调整，并以启动前预检结果为准。
 
 如配置 `CRISIS_RESOURCES_JSON`，只允许使用已批准的资源，不得加入未经核验的热线号码或“24 小时”等可用性声明。私密运行配置本身也应设为 `0600`。
 
@@ -48,7 +68,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" build
 构建后先以镜像的实际运行用户检查可读性，不输出文件内容：
 
 ```bash
-docker compose --env-file "$RUNTIME_ENV_FILE" run --rm --no-deps api node -e "for (const p of ['/run/secrets/database_password','/run/secrets/jwt_secret','/run/secrets/jwt_refresh_secret','/run/secrets/internal_test_code','/run/secrets/internal_test_phones','/run/secrets/instance_admin_phones']) require('node:fs').accessSync(p, require('node:fs').constants.R_OK)"
+docker compose --env-file "$RUNTIME_ENV_FILE" run --rm --no-deps api node -e "for (const p of ['/run/secrets/database_password','/run/secrets/jwt_secret','/run/secrets/jwt_refresh_secret','/run/secrets/internal_test_code','/run/secrets/internal_test_phones','/run/secrets/instance_admin_phones','/run/secrets/model_config_key']) require('node:fs').accessSync(p, require('node:fs').constants.R_OK)"
 docker compose --env-file "$RUNTIME_ENV_FILE" run --rm --no-deps --entrypoint sh postgres -c 'test -r /run/secrets/postgres_password'
 docker compose --env-file "$RUNTIME_ENV_FILE" run --rm --no-deps --entrypoint sh edge -c 'test -r /run/tls/tls.crt && test -r /run/tls/tls.key'
 ```
@@ -85,6 +105,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" run --rm api node prisma/seed.js
 - `/api/health/live` 返回进程存活；`/api/health/ready` 在 PostgreSQL 可用时成功。
 - 数据库不可用时 ready 失败，恢复后无需重启即可重新成功。
 - `/api/llm/status` 恒为 `external_primary`；`local` 段固定为 `{ configured:false, state:'removed' }`。
+- 模型供应商：设置页「模型供应商」只对实例管理员出现；配一家后保存不重启即生效，停用后自动换下一家；任何响应、日志和审计里都没有密钥（列表只有 `hasKey`）；`POST /api/admin/model-providers/:id/test` 会真的花一点钱，只在拿到外部调用批准后手工点。一家都没配时聊天仍走 `GATEWAY_QWEN_*`，行为与升级前一致。
 - 登录、刷新、退出、云端模型同意（`cloud-primary-v1`，重新同意与撤回拦截）、聊天、人格、记忆和危机阻断完成冒烟测试。
 - 日志不含提示词、聊天/记忆正文、手机号、凭据或图片。
 
@@ -131,6 +152,16 @@ docker compose --env-file "$RUNTIME_ENV_FILE" up -d --no-build --pull never
 ```
 
 初始内测没有历史数据，可重建基线数据库；进入基线后不得重写已发布迁移。备份文件包含用户数据，必须按敏感数据保管，禁止提交仓库。
+
+**用户上传的图片（2026-09-21 起）**：头像、首页/对话背景、聊天里发的照片，以及装扮里收藏的照片（`data/collection/`）存在命名卷 `api-data`（挂在 api 容器的 `/workspace/apps/api/data`），重建容器不再丢失。**上面的 `pg_dump` 不包含这个卷**，`release.sh` 的自动备份也不包含。需要连图片一起备份时另行导出，例如：
+
+```bash
+docker run --rm -v cyber-sister-internal_api-data:/data:ro -v "$PWD":/backup alpine tar czf /backup/cyber-sister-api-data.tgz -C /data .
+```
+
+卷名以 `docker volume ls` 实际显示为准；导出的归档同样含个人数据，按敏感数据保管。
+
+**模型主密钥不在任何备份里（2026-09-22 起）**：`MODEL_CONFIG_KEY_FILE` 指向的只读文件既不在上面的 `pg_dump` 里，也不在 `release.sh` 的自动备份里；而库里的 `model_providers.api_key_encrypted` 没有它解不开。按第 2 节单独保管一份离线副本，并记下它是哪一天启用、什么时候轮换过。回滚到旧库时，要配回**那个库当时**用的那把主密钥；轮换过的旧密钥在确认不再需要之前不要删。
 
 ## 6. 发布门禁
 

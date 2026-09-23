@@ -13,7 +13,7 @@
  */
 import prisma from '../prisma/client.js'
 import { buildTaskFields } from './reminderService.js'
-import { toUtcDayString } from '../utils/dayHelpers.js'
+import { toLocalDayString as localDateString, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 
 const MAX_CONTENT = 200
@@ -26,9 +26,6 @@ const clip = (text) => {
   const value = String(text ?? '').trim()
   return value.length > MAX_CONTENT ? `${value.slice(0, MAX_CONTENT - 1)}…` : value
 }
-
-const localDateString = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 // 旧表的日期是"本地日历日按 UTC 零点存储"：还原成 yyyy-MM-dd 后再拼本地时间
 const localFireAt = (dayString, time) => {
@@ -87,6 +84,12 @@ export async function migrateUserPlans(userId, { dryRun = false, now = new Date(
     const user = await tx.user.findUnique({ where: { id: userId }, select: { plansMigratedAt: true } })
     if (!user || user.plansMigratedAt) return { userId, skipped: true, created: 0, invalid: 0 }
 
+    if (!dryRun) {
+      // 条件更新在事务内领取用户；并发者等待行锁后重查条件，插入失败则标记一起回滚。
+      const claimed = await tx.user.updateMany({ where: { id: userId, plansMigratedAt: null }, data: { plansMigratedAt: now } })
+      if (claimed.count === 0) return { userId, skipped: true, created: 0, invalid: 0 }
+    }
+
     const [todos, countdowns, habits, reminders] = await Promise.all([
       tx.todo.findMany({ where: { userId }, select: { content: true, dueDate: true, dueTime: true, isDone: true } }),
       tx.countdown.findMany({ where: { userId }, select: { title: true, targetDate: true } }),
@@ -99,7 +102,6 @@ export async function migrateUserPlans(userId, { dryRun = false, now = new Date(
     if (tasks.length > 0) {
       await tx.scheduledReminder.createMany({ data: tasks.map((task) => ({ userId, ...task })) })
     }
-    await tx.user.update({ where: { id: userId }, data: { plansMigratedAt: now } })
     return { userId, skipped: false, created: tasks.length, invalid }
   })
 }

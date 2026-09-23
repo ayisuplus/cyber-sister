@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { readSkillResource } from './skillCatalog.js'
 
-const root = new URL('../skills/emotion-reflection/', import.meta.url)
-const read = (file) => readFileSync(new URL(file, root), 'utf8')
+const read = (file) => readSkillResource('emotion-reflection', file)
 const core = read('SKILL.md').split('## 核心行为')[1].split('## 方法取舍')[0].trim()
 const glossary = read('glossary.md')
 const declined = (text) => /不要.{0,8}(心理分析|分析我|分析我的|用克莱因)|别分析|只想.{0,4}(倾听|听我说)|不想.{0,4}分析/.test(text)

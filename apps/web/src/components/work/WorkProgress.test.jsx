@@ -13,10 +13,15 @@ describe('工作任务步骤', () => {
   })
   it('重新打开会话后从持久化的工具记录恢复最后计划', () => {
     render(<WorkProgress toolRuns={[
-      { plan: [{ title: '旧步骤', status: 'pending' }] },
-      { plan: [{ title: '交付报告', status: 'completed' }] },
+      { plan: [{ title: '旧步骤', status: 'pending' }, { title: '旧收尾', status: 'pending' }] },
+      { plan: [{ title: '整理资料', status: 'completed' }, { title: '交付报告', status: 'completed' }] },
     ]} />)
     expect(screen.queryByText('旧步骤')).not.toBeInTheDocument()
     expect(screen.getByRole('list')).toHaveTextContent('已完成交付报告')
+  })
+  it('只有一步的计划不值得一张清单', () => {
+    const { container } = render(<WorkProgress toolRuns={[{ plan: [{ title: '交付报告', status: 'completed' }] }]} />)
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 })

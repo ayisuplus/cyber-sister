@@ -44,19 +44,4 @@ router.delete('/:day', async (req, res) => {
   }
 })
 
-router.post('/:day/comment', async (req, res) => {
-  try {
-    const result = await diaryService.generateComment(req.user.userId, req.params.day, req.requestId)
-    res.json(result)
-  } catch (error) {
-    logger.error('生成日记回应失败', { errorCode: error.code || error.name })
-    const statusCode = error.statusCode || 500
-    const body = {
-      error: error.statusCode ? error.message : '生成回应失败',
-      ...(error.statusCode && error.code ? { code: error.code } : {}),
-    }
-    res.status(statusCode).json(body)
-  }
-})
-
 export default router

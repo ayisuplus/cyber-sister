@@ -72,7 +72,7 @@ const toHttpError = async (response) => {
   return error
 }
 
-const postMessageStream = (conversationId, content, signal, image, files) => {
+const postMessageStream = (conversationId, content, signal, image, files, reading) => {
   /** @type {Record<string, string>} */
   const headers = {}
   const token = getPersistedToken()
@@ -86,7 +86,8 @@ const postMessageStream = (conversationId, content, signal, image, files) => {
     for (const file of files) body.append('files', file, file.name)
   } else {
     headers['Content-Type'] = 'application/json'
-    body = JSON.stringify({ content })
+    // 伴读问答多带一段书里的原文；发图/传文件那条路用不上
+    body = JSON.stringify({ content, ...(reading ? { reading } : {}) })
   }
   return fetch(`${API_BASE_URL}/chat/conversations/${conversationId}/messages/stream`, {
     method: 'POST',
@@ -103,9 +104,14 @@ export const chatService = {
     return response.data
   },
 
-  // 只有一种对话
-  createConversation: async () => {
-    const response = await api.post('/chat/conversations', {})
+  // 只有一段对话：取出（没有就由服务端创建）这段对话；params 用于往上翻更早的消息
+  getThread: async (params) => {
+    const response = await api.get('/chat/thread', params ? { params } : undefined)
+    return response.data
+  },
+
+  clearThread: async () => {
+    const response = await api.delete('/chat/thread/messages')
     return response.data
   },
 
@@ -116,15 +122,15 @@ export const chatService = {
 
   // SSE 流式发送（原生 fetch，需要 ReadableStream，不走 axios）。
   // onEvent 逐事件收到 {event: 'delta'|'replace'|'done'|'blocked'|'error', ...payload}。
-  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void, image?: Blob | null, files?: File[] }} [options] */
-  streamMessage: async (conversationId, content, { signal, onEvent, image = null, files = [] } = {}) => {
+  /** @param {string} conversationId @param {string} content @param {{ signal?: AbortSignal, onEvent?: (event: any) => void, image?: Blob | null, files?: File[], reading?: { bookId: string, passage?: string } | null }} [options] */
+  streamMessage: async (conversationId, content, { signal, onEvent, image = null, files = [], reading = null } = {}) => {
     const session = getSessionVersion()
     const assertCurrent = () => {
       assertSessionVersion(session)
       signal?.throwIfAborted()
     }
     assertCurrent()
-    let response = await postMessageStream(conversationId, content, signal, image, files)
+    let response = await postMessageStream(conversationId, content, signal, image, files, reading)
     assertCurrent()
 
     if (response.status === 401) {
@@ -132,7 +138,7 @@ export const chatService = {
       // 刷新失败时 refreshAccessToken 内部已执行既有退出语义（清登录态跳登录页）。
       await refreshAccessToken(session)
       assertCurrent()
-      response = await postMessageStream(conversationId, content, signal, image, files)
+      response = await postMessageStream(conversationId, content, signal, image, files, reading)
       assertCurrent()
       if (response.status === 401) {
         // 重试仍是 401：不再刷新，沿用既有退出语义清除登录态
@@ -155,13 +161,15 @@ export const chatService = {
     assertCurrent()
   },
 
-  deleteConversation: async (conversationId) => {
-    const response = await api.delete(`/chat/conversations/${conversationId}`)
-    return response.data
-  },
-
   setArchived: async (conversationId, archived) => {
     const response = await api.patch(`/chat/conversations/${conversationId}/archive`, { archived })
     return response.data
   },
+
+  // 聊天内确认卡：点头执行她提出的动作 / 「不用」把提案标记成没做
+  confirmToolAction: async (messageId, index) =>
+    (await api.post(`/chat/messages/${messageId}/tool-runs/${index}/confirm`)).data,
+
+  dismissToolAction: async (messageId, index) =>
+    (await api.post(`/chat/messages/${messageId}/tool-runs/${index}/dismiss`)).data,
 }

@@ -65,7 +65,7 @@ withDatabase('one-use external approvals on isolated PostgreSQL', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No live network in tests')))
     generateResponseStream.mockReset().mockImplementation(async function* () { yield { type: 'done', content: '操作结果已核对。', source: 'test_model', emotion: 'neutral' } })
     await db.user.deleteMany()
-    user = await db.user.create({ data: { phone: '19900000031', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' } })
+    user = await db.user.create({ data: { phone: '19900000031', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' } })
     conversation = await db.conversation.create({ data: { userId: user.id, mode: 'work' } })
     const created = await createWorkTask(user.id, conversation.id, { content: '提交测试反馈', requestKey: 'approval-test-request' })
     task = await db.workTask.update({ where: { id: created.id }, data: { status: 'running', leaseToken: 'test-lease', leaseExpiresAt: new Date(Date.now() + 30000), attempts: 1,

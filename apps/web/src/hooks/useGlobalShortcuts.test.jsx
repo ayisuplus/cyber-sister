@@ -3,14 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ createConversation: vi.fn() }))
-
-vi.mock('../stores/chatStore', () => {
-  const useChatStore = () => ({})
-  useChatStore.getState = () => ({ createConversation: mocks.createConversation })
-  return { useChatStore }
-})
-
 import useGlobalShortcuts from './useGlobalShortcuts'
 
 function Harness({ modalRole = undefined }) {
@@ -85,21 +77,13 @@ describe('useGlobalShortcuts', () => {
     expect(document.activeElement).not.toBe(textarea)
   })
 
-  it('creates a new conversation on Ctrl+Shift+O from any page', () => {
+  it('has no new-conversation shortcut: there is only one conversation', () => {
     renderAt('/tools')
 
     fireEvent.keyDown(document, { key: 'O', ctrlKey: true, shiftKey: true })
-
-    expect(mocks.createConversation).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('pathname')).toHaveTextContent('/chat')
-  })
-
-  it('creates a new conversation on Meta+Shift+O', () => {
-    renderAt('/chat')
-
     fireEvent.keyDown(document, { key: 'O', metaKey: true, shiftKey: true })
 
-    expect(mocks.createConversation).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/tools')
   })
 
   it.each(['dialog', 'alertdialog'])('keeps / and ? inside an active %s', (modalRole) => {
@@ -112,15 +96,6 @@ describe('useGlobalShortcuts', () => {
     fireEvent.keyDown(close, { key: '?' })
     expect(screen.getByTestId('help')).toHaveTextContent('closed')
     expect(document.activeElement).toBe(close)
-  })
-
-  it.each(['ctrlKey', 'metaKey'])('does not create a background conversation with %s while a modal is open', (modifier) => {
-    renderAt('/tools', 'dialog')
-
-    fireEvent.keyDown(document, { key: 'O', [modifier]: true, shiftKey: true })
-
-    expect(mocks.createConversation).not.toHaveBeenCalled()
-    expect(screen.getByTestId('pathname')).toHaveTextContent('/tools')
   })
 
   it('leaves Escape focus handling to the active modal', () => {
@@ -151,6 +126,5 @@ describe('useGlobalShortcuts', () => {
 
     expect(screen.getByTestId('help')).toHaveTextContent('closed')
     expect(document.activeElement).not.toBe(screen.getByRole('textbox', { name: '聊天消息' }))
-    expect(mocks.createConversation).not.toHaveBeenCalled()
   })
 })

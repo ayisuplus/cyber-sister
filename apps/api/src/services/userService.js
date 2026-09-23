@@ -10,7 +10,7 @@ import logger from '../utils/logger.js'
 import { VALID_PERSONA_IDS } from '../../../../packages/llm-gateway/src/personas.js'
 
 export const PERSONAS = [...VALID_PERSONA_IDS]
-export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v3'
+export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v4'
 
 export async function getProfile(userId) {
   const user = await prisma.user.findUnique({
@@ -25,6 +25,7 @@ export async function getProfile(userId) {
       avatarUrl: true,
       birthDate: true,
       careEnabled: true,
+      letterFreqDays: true,
       createdAt: true,
     },
   })
@@ -33,7 +34,7 @@ export async function getProfile(userId) {
   return user
 }
 
-export async function updateProfile(userId, { nickname, avatarUrl, birthDate, careEnabled }) {
+export async function updateProfile(userId, { nickname, avatarUrl, birthDate, careEnabled, letterFreqDays }) {
   const updateData = {}
   if (nickname !== undefined) {
     if (typeof nickname !== 'string' || nickname.trim().length > 50) {
@@ -60,6 +61,12 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
     }
     updateData.careEnabled = careEnabled
   }
+  if (letterFreqDays !== undefined) {
+    if (letterFreqDays !== null && letterFreqDays !== 3 && letterFreqDays !== 7) {
+      throw new HttpError('letterFreqDays只能是3、7或空', 400)
+    }
+    updateData.letterFreqDays = letterFreqDays
+  }
 
   const user = await prisma.user.update({
     where: { id: userId },
@@ -71,6 +78,7 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
       persona: true,
       birthDate: true,
       careEnabled: true,
+      letterFreqDays: true,
       isVip: true,
       vipExpireAt: true,
       avatarUrl: true,
@@ -136,17 +144,24 @@ export async function updateExternalLlmConsent(userId, accepted) {
   return { accepted, version: EXTERNAL_LLM_CONSENT_VERSION, updatedAt }
 }
 
-export async function getMembership(userId) {
-  const user = await prisma.user.findUnique({
+/** 与记忆候选/写信同款的同意装配：allowExternal + authorizeExternal 动态复查（同意门是所有云端调用的前置）。 */
+export async function loadExternalConsent(userId) {
+  const consent = await prisma.user.findUnique({
     where: { id: userId },
-    select: { isVip: true, vipExpireAt: true },
+    select: { externalLlmConsent: true, externalLlmConsentVersion: true },
   })
-  if (!user) throw new HttpError('用户不存在', 404)
-  return { isVip: user.isVip, vipExpireAt: user.vipExpireAt }
-}
-
-export function subscribeMembership() {
-  const error = new HttpError('会员功能暂未开放', 409)
-  error.code = 'FEATURE_NOT_AVAILABLE'
-  throw error
+  const allowExternal = consent?.externalLlmConsent === true
+    && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  let authorizeExternal
+  if (allowExternal) {
+    authorizeExternal = async () => {
+      const current = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
+      })
+      return current?.externalLlmConsent === true
+        && current.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+    }
+  }
+  return { allowExternal, authorizeExternal }
 }

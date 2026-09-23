@@ -1,0 +1,9 @@
+{
+  "name": "schedule-logic",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "「安排」的调度判定纯函数：日历页与聊天工具共用一份 occursOn/daysLeft，不造第二份判定。零依赖。",
+  "main": "src/schedule.js",
+  "exports": "./src/schedule.js"
+}

@@ -1,6 +1,5 @@
 import { Router } from 'express'
 import * as reminderService from '../services/reminderService.js'
-import { WORK_CLOUD_EXECUTION } from '../services/workCloudService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -43,34 +42,6 @@ router.delete('/scheduled/:id', async (req, res) => {
   } catch (error) {
     logger.error('删除提醒失败', { error: error.message, userId: req.user.userId, reminderId: req.params.id })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '删除提醒失败' })
-  }
-})
-
-// 前台轮询仅读取提醒；云端未接入的任务保留待处理状态。
-router.get('/due', async (req, res) => {
-  try {
-    const deliveries = await reminderService.listDueReminders(req.user.userId)
-    // 云端执行未接入：任务保持 pending，不领取、不回写结果、不推进调度。
-    const deferredTaskCount = deliveries.filter((d) => d.reminder?.instruction && d.result == null).length
-    res.json({
-      deliveries: deliveries.filter((d) => d.status === 'pending' && (!d.reminder?.instruction || d.result != null)),
-      deferredTaskCount,
-      execution: { ...WORK_CLOUD_EXECUTION },
-    })
-  } catch (error) {
-    logger.error('拉取到期提醒失败', { error: error.message, userId: req.user.userId })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '拉取到期提醒失败' })
-  }
-})
-
-// 确认投递（知道了 / 忽略）
-router.post('/deliveries/:id/ack', async (req, res) => {
-  try {
-    const delivery = await reminderService.ackDelivery(req.params.id, req.user.userId, req.body?.action)
-    res.json({ delivery })
-  } catch (error) {
-    logger.error('确认提醒投递失败', { error: error.message, userId: req.user.userId, deliveryId: req.params.id })
-    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '确认提醒投递失败' })
   }
 })
 

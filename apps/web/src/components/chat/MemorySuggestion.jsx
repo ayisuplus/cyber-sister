@@ -1,17 +1,13 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Brain, Save } from 'lucide-react'
 import Spinner from '../ui/Spinner'
 import { memoryService } from '../../services/memoryService'
 import { parseTags } from '../../utils/parseTags'
 
-const TYPE_OPTIONS = [
-  { value: 'semantic', label: '语义记忆' },
-  { value: 'episodic', label: '情景记忆' },
-  { value: 'procedural', label: '程序记忆' },
-]
+const TYPES = ['semantic', 'episodic', 'procedural']
 
 const toCard = (candidate) => ({
-  type: TYPE_OPTIONS.some((option) => option.value === candidate.type) ? candidate.type : 'semantic',
+  type: TYPES.includes(candidate.type) ? candidate.type : 'semantic',
   content: candidate.content || '',
   importance: Number(candidate.importance) || 5,
   tags: Array.isArray(candidate.tags) ? candidate.tags.join('，') : '',
@@ -22,11 +18,12 @@ const toCard = (candidate) => ({
 
 // 最新正常回复旁的「帮我记住」入口与候选卡片。
 // 候选仅存本组件状态，点「保存」前绝不落库；建议失败只内联提示，不影响聊天。
-export default function MemorySuggestion({ userMessageId }) {
+// autoOpen：你在那一轮说了「帮我记住…」，候选不等你点就摆出来——仍然要你确认才存。
+export default function MemorySuggestion({ userMessageId, autoOpen = false }) {
   const [status, setStatus] = useState('idle') // idle | loading | ready | error | empty
   const [cards, setCards] = useState([])
 
-  const fetchSuggestions = async () => {
+  const fetchSuggestions = useCallback(async () => {
     setStatus('loading')
     setCards([])
     try {
@@ -41,7 +38,12 @@ export default function MemorySuggestion({ userMessageId }) {
     } catch {
       setStatus('error')
     }
-  }
+  }, [userMessageId])
+
+  // 组件按回复 id 挂载（ChatPage 的 key），所以每条回复最多自动打开一次
+  useEffect(() => {
+    if (autoOpen) fetchSuggestions()
+  }, [autoOpen, fetchSuggestions])
 
   const updateCard = (index, patch) => {
     setCards((current) => current.map((card, cardIndex) => (cardIndex === index ? { ...card, ...patch } : card)))
@@ -117,40 +119,6 @@ export default function MemorySuggestion({ userMessageId }) {
               maxLength={500}
               rows={3}
               className="w-full rounded-xl bg-surface-input p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-status-info"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor={`memory-suggestion-type-${index}`} className="mb-1 block text-xs text-text-secondary">类型</label>
-              <select
-                id={`memory-suggestion-type-${index}`}
-                value={card.type}
-                onChange={(event) => updateCard(index, { type: event.target.value })}
-                className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm"
-              >
-                {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor={`memory-suggestion-importance-${index}`} className="mb-1 block text-xs text-text-secondary">重要度（1–10）</label>
-              <input
-                id={`memory-suggestion-importance-${index}`}
-                type="number"
-                min="1"
-                max="10"
-                value={card.importance}
-                onChange={(event) => updateCard(index, { importance: Number(event.target.value) })}
-                className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor={`memory-suggestion-tags-${index}`} className="mb-1 block text-xs text-text-secondary">标签（逗号分隔）</label>
-            <input
-              id={`memory-suggestion-tags-${index}`}
-              value={card.tags}
-              onChange={(event) => updateCard(index, { tags: event.target.value })}
-              className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm"
             />
           </div>
           {card.error && <p role="alert" className="text-xs text-danger">{card.error}</p>}

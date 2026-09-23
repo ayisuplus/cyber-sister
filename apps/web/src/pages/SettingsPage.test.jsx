@@ -7,8 +7,12 @@ const mocks = vi.hoisted(() => ({
   setBackground: vi.fn(),
   clearBackground: vi.fn(),
   resolveAssetUrl: vi.fn(),
+  clearThread: vi.fn(),
   appearance: { homeBgUrl: null, chatBgUrl: null },
 }))
+
+vi.mock('../stores/chatStore', () => ({ useChatStore: selector => selector({ clearThread: mocks.clearThread }) }))
+vi.mock('../services/bridgeService', () => ({ bridgeService: { list: vi.fn(async () => ({ bridges: [] })), createPairing: vi.fn(), revoke: vi.fn() } }))
 
 vi.mock('../services/modelStatusService', () => ({ modelStatusService: { getStatus: vi.fn().mockResolvedValue({ externalFallback: { configured: true, consent: true } }) } }))
 
@@ -81,7 +85,7 @@ describe('SettingsPage', () => {
   it('keeps a single cloud consent control and no duplicate profile page', async () => {
     renderPage()
 
-    expect(await screen.findAllByRole('switch', { name: '允许云端模型处理聊天' })).toHaveLength(1)
+    expect(await screen.findAllByRole('switch', { name: '允许云端模型处理聊天与可选来信' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: '允许云端模型' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '我的资料与装扮' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /退出登录/ })).toHaveLength(1)
@@ -96,19 +100,33 @@ describe('SettingsPage', () => {
     }
   })
 
-  it('navigates to her memories', async () => {
-    const user = userEvent.setup()
+  it('has no duplicate shortcuts to pages the navigation already opens, and no fake version row', async () => {
     renderPage()
-
-    await user.click(screen.getByRole('button', { name: /记忆管理/ }))
-
-    expect(await screen.findByRole('heading', { name: '她页' })).toBeInTheDocument()
+    await waitFor(() => expect(profileService.get).toHaveBeenCalled())
+    for (const name of [/记忆管理/]) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    expect(screen.queryByText('关于')).not.toBeInTheDocument()
   })
 
-  it('opens conversation archives from settings', async () => {
+  it('opens the conversations archived before there was only one conversation', async () => {
     renderPage()
-    await userEvent.click(screen.getByRole('button', { name: '对话归档' }))
+    await userEvent.click(screen.getByRole('button', { name: '以前归档的对话' }))
     expect(await screen.findByRole('heading', { name: '归档页' })).toBeInTheDocument()
+  })
+
+  it('clears the chat history only after confirmation, and keeps the dialog open on failure', async () => {
+    const user = userEvent.setup()
+    mocks.clearThread.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: '清空聊天记录' }))
+    expect(mocks.clearThread).not.toHaveBeenCalled()
+    expect(screen.getByText(/她记得的你、她的状态和以前归档的对话不受影响/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认清空' }))
+    expect(await screen.findByText('没清空成功，聊天记录仍在，请重试。')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认清空' }))
+    expect(await screen.findByText('聊天记录已清空')).toBeInTheDocument()
+    expect(mocks.clearThread).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: '确认清空' })).not.toBeInTheDocument()
   })
 
   it('flips 她来想你 off and on through the server (real users.care_enabled)', async () => {
@@ -144,12 +162,6 @@ describe('SettingsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('关怀设置保存失败')
     expect(toggle).toHaveAttribute('aria-checked', 'true')
     expect(toggle).toBeEnabled()
-  })
-
-  it('shows static app information', () => {
-    renderPage()
-
-    expect(screen.getByText('1.0.0')).toBeInTheDocument()
   })
 })
 

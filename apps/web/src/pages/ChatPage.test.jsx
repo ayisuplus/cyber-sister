@@ -5,11 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../services/chatService', () => ({
   chatService: {
-    getConversations: vi.fn(),
-    getConversation: vi.fn(),
-    createConversation: vi.fn(),
+    getThread: vi.fn(),
     streamMessage: vi.fn(),
-    deleteConversation: vi.fn(),
   },
 }))
 
@@ -47,10 +44,7 @@ vi.mock('../services/memoryService', () => ({
   memoryService: { getSuggestions: vi.fn(), create: vi.fn() },
 }))
 
-vi.mock('../services/careService', () => ({
-  careService: { list: vi.fn(), dismiss: vi.fn() },
-}))
-vi.mock('../services/reminderService', () => ({ reminderService: { listDue: vi.fn(async () => []) } }))
+vi.mock('../services/nudgeService', () => ({ nudgeService: { list: vi.fn(), ack: vi.fn() } }))
 vi.mock('../services/userService', () => ({ userService: { fetchAssetUrl: vi.fn(async () => null) } }))
 
 import { chatService } from '../services/chatService'
@@ -58,7 +52,7 @@ import { complianceService } from '../services/complianceService'
 import { consentService } from '../services/consentService'
 import { modelStatusService } from '../services/modelStatusService'
 import { memoryService } from '../services/memoryService'
-import { careService } from '../services/careService'
+import { nudgeService } from '../services/nudgeService'
 import { useChatStore } from '../stores/chatStore'
 import { useComplianceStore } from '../stores/complianceStore'
 import ChatPage from './ChatPage'
@@ -70,7 +64,6 @@ describe('ChatPage', () => {
     // 已确认过 AI 提示，避免弹窗遮挡交互
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     useChatStore.setState({
-      conversations: [],
       currentConversationId: null,
       messages: [],
       isTyping: false,
@@ -82,15 +75,15 @@ describe('ChatPage', () => {
       showAIDisclaimer: false,
       crisisLevel: null,
     })
-    chatService.getConversations.mockResolvedValue([])
+    chatService.getThread.mockResolvedValue({ id: 'c1', messages: [] })
     sessionStorage.clear()
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v3' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v4' },
     })
-    careService.list.mockResolvedValue({ touchpoints: [] })
-    careService.dismiss.mockResolvedValue({ dismissed: true })
+    nudgeService.list.mockResolvedValue({ nudges: [] })
+    nudgeService.ack.mockResolvedValue({ success: true })
   })
 
   it('shows the AI disclaimer dialog on the very first visit', async () => {
@@ -129,25 +122,22 @@ describe('ChatPage', () => {
     const input = screen.getByRole('textbox', { name: '聊天消息' })
     await waitFor(() => expect(input.value.length).toBeGreaterThan(10))
     expect(chatService.streamMessage).not.toHaveBeenCalled()
-    expect(chatService.createConversation).not.toHaveBeenCalled()
     await waitFor(() => expect(draftOpener).toBeDisabled())
   })
 
-  it('shows the primary care card in the empty state when touchpoints exist', async () => {
-    careService.list.mockResolvedValue({
-      touchpoints: [{
-        key: 'birthday:profile:2026-09-09',
-        kind: 'birthday',
-        title: '今天是你生日',
-        body: '生日快乐。',
+  it('shows what she wants to say inside the conversation, with a reason', async () => {
+    nudgeService.list.mockResolvedValue({
+      nudges: [{
+        id: 'care:birthday:profile:2026-09-20',
+        kind: 'care',
+        content: '今天是你生日\n生日快乐。',
         reason: '你在资料里填的生日',
-        action: { to: '/chat', label: '去找她聊聊' },
       }],
     })
 
     renderPage()
 
-    expect(await screen.findByText('今天是你生日')).toBeInTheDocument()
+    expect(await screen.findByText(/今天是你生日/)).toBeInTheDocument()
     expect(screen.getByText('为什么看到这条：你在资料里填的生日')).toBeInTheDocument()
   })
 
@@ -157,12 +147,11 @@ describe('ChatPage', () => {
     expect(await screen.findByText('嗨，我是你的Amie')).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: '功能桌面' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '会话模式' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '和姐妹说点什么...')
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '写下想说的…')
   })
 
   it('streams a topic shortcut reply: deltas appear progressively, then persisted messages take over', async () => {
     const user = userEvent.setup()
-    chatService.createConversation.mockResolvedValue({ id: 'c1' })
     const stream = controllableStream()
     renderPage()
 
@@ -195,7 +184,8 @@ describe('ChatPage', () => {
 
     // 新建会话触发的翻页会在 200ms 后整页重挂载：每次重新查询，不持有可能被卸载的旧节点
     await waitFor(() => expect(screen.getByText('本地安全模板')).toBeInTheDocument())
-    expect(screen.getByText('推荐个电影')).toBeInTheDocument()
+    // 翻页的拓印里也留着封面上的开场话题，查信纸这一层才算数
+    expect(within(document.querySelector('.letter-strip')).getByText('推荐个电影')).toBeInTheDocument()
     expect(useChatStore.getState().messages.map(m => m.id)).toEqual(['u1', 'a1'])
   })
 
@@ -269,7 +259,8 @@ describe('ChatPage', () => {
 
     expect(screen.getByText('旧问题')).toBeInTheDocument()
     expect(screen.getByText('旧回答')).toBeInTheDocument()
-    expect(screen.getByText('云端模型')).toBeInTheDocument()
+    // 普通回复不再每条挂「云端模型」
+    expect(screen.queryByText('云端模型')).not.toBeInTheDocument()
   })
 })
 
@@ -282,7 +273,6 @@ describe('ChatPage 帮我记住入口', () => {
   beforeEach(() => {
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     useChatStore.setState({
-      conversations: [],
       currentConversationId: 'c1',
       messages: [],
       isTyping: false,
@@ -294,11 +284,12 @@ describe('ChatPage 帮我记住入口', () => {
       showAIDisclaimer: false,
       crisisLevel: null,
     })
-    chatService.getConversations.mockResolvedValue([])
+    // 打开这段对话时服务端返回的就是测试预置的消息
+    chatService.getThread.mockImplementation(async () => ({ id: 'c1', messages: useChatStore.getState().messages }))
     modelStatusService.getStatus.mockResolvedValue({
       mode: 'external_primary',
       local: { configured: false, state: 'removed' },
-      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v3' },
+      externalFallback: { configured: true, consent: true, version: 'cloud-primary-v4' },
     })
   })
 
@@ -330,7 +321,7 @@ describe('ChatPage 帮我记住入口', () => {
   })
 
   it('旧的工作会话里的回复同样可以「帮我记住」', () => {
-    useChatStore.setState({ conversations: [{ id: 'c1', mode: 'work' }], messages: persistedPair })
+    useChatStore.setState({ currentConversationId: 'c1', messages: persistedPair })
     renderPage()
 
     expect(screen.getByText('推荐《流浪地球》')).toBeInTheDocument()
@@ -364,7 +355,6 @@ describe('ChatPage usage session wiring', () => {
   beforeEach(() => {
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     useChatStore.setState({
-      conversations: [],
       currentConversationId: null,
       messages: [],
       isTyping: false,
@@ -378,7 +368,7 @@ describe('ChatPage usage session wiring', () => {
       usageStartTime: null,
       usageMinutes: 0,
     })
-    chatService.getConversations.mockResolvedValue([])
+    chatService.getThread.mockResolvedValue({ id: 'c1', messages: [] })
     complianceService.startUsage.mockResolvedValue({})
     complianceService.endUsage.mockResolvedValue({})
   })
@@ -430,7 +420,6 @@ describe('ChatPage 云端同意门', () => {
   beforeEach(() => {
     localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
     useChatStore.setState({
-      conversations: [],
       currentConversationId: null,
       messages: [],
       isTyping: false,
@@ -442,14 +431,14 @@ describe('ChatPage 云端同意门', () => {
       showAIDisclaimer: false,
       crisisLevel: null,
     })
-    chatService.getConversations.mockResolvedValue([])
+    chatService.getThread.mockResolvedValue({ id: 'c1', messages: [] })
     sessionStorage.clear()
   })
 
   const statusWith = ({ configured = true, consent = null } = {}) => ({
     mode: 'external_primary',
     local: { configured: false, state: 'removed' },
-    externalFallback: { configured, consent, version: 'cloud-primary-v3' },
+    externalFallback: { configured, consent, version: 'cloud-primary-v4' },
   })
 
   it('prompts for consent when the cloud provider is configured but consent is undecided', async () => {
@@ -460,7 +449,7 @@ describe('ChatPage 云端同意门', () => {
 
     expect(await screen.findByText('这个姐妹住在云端')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '同意并开始聊天' }))
+    await user.click(screen.getByRole('button', { name: '同意云端处理' }))
 
     expect(consentService.update).toHaveBeenCalledWith(true)
     expect(screen.queryByText('这个姐妹住在云端')).not.toBeInTheDocument()

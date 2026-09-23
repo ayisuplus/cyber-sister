@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { readSkillResource } from './skillCatalog.js'
 
-const root = new URL('../skills/body-care/', import.meta.url)
-const read = (file) => readFileSync(new URL(file, root), 'utf8')
+const read = (file) => readSkillResource('body-care', file)
 const core = read('SKILL.md').split('## 核心行为')[1].split('## 方法取舍')[0].trim()
 const sources = read('sources.md').split('## 一般健康信息复核')[1].split('## 不进入执行规则')[0].trim()
 const topics = [

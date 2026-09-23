@@ -1,10 +1,8 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ChevronLeft } from 'lucide-react'
-import WorkCloudNotice from '../work/WorkCloudNotice'
 
 export default function Header({ title, showBack = false, rightAction = null }) {
   const navigate = useNavigate()
-  const { pathname } = useLocation()
 
   return (
     <>
@@ -22,7 +20,6 @@ export default function Header({ title, showBack = false, rightAction = null }) 
         {rightAction}
       </div>
     </div>
-    {pathname.startsWith('/tools/') && <WorkCloudNotice />}
     </>
   )
 }

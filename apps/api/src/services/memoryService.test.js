@@ -8,6 +8,10 @@ const db = vi.hoisted(() => ({
   memoryUpdate: vi.fn(),
   memoryDelete: vi.fn(),
   memoryDeleteMany: vi.fn(),
+  diaryEntryFindFirst: vi.fn(),
+  readingNoteFindFirst: vi.fn(),
+  scheduledReminderFindFirst: vi.fn(),
+  collectionItemFindFirst: vi.fn(),
 }))
 
 const embedding = vi.hoisted(() => ({ embedMemory: vi.fn() }))
@@ -21,6 +25,10 @@ vi.mock('../prisma/client.js', () => {
     memoryEdge: { updateMany: vi.fn() },
     memoryIndexJob: { updateMany: vi.fn() },
     derivedInsight: { updateMany: vi.fn(), deleteMany: vi.fn() },
+    diaryEntry: { findFirst: db.diaryEntryFindFirst },
+    readingNote: { findFirst: db.readingNoteFindFirst },
+    scheduledReminder: { findFirst: db.scheduledReminderFindFirst },
+    collectionItem: { findFirst: db.collectionItemFindFirst },
     memory: {
       findMany: db.memoryFindMany,
       count: db.memoryCount,
@@ -42,10 +50,10 @@ vi.mock('../utils/logger.js', () => ({
 }))
 
 import {
-  clearAllMemories,
   createMemory,
   deleteMemory,
   listMemories,
+  setMemoryPinned,
   updateMemory,
 } from './memoryService.js'
 
@@ -169,6 +177,64 @@ describe('createMemory', () => {
   })
 })
 
+describe('createMemory：手记/读书/日历/收藏四类痕迹来源', () => {
+  const DIARY = { id: 'd1', content: '今天在工作室待到很晚，把展览方案定了下来' }
+  const NOTE = { id: 'n1', quote: '人是为活着本身而活着的', content: '这句看得我心里一震' }
+
+  it('本人手记的原文片段核验通过，落库为 verified', async () => {
+    db.diaryEntryFindFirst.mockResolvedValue(DIARY)
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+
+    await createMemory('u1', {
+      type: 'semantic',
+      content: '她最近在准备展览方案',
+      sources: [{ type: 'diary', id: 'd1', quote: '把展览方案定了下来' }],
+    })
+
+    expect(db.diaryEntryFindFirst).toHaveBeenCalledWith({ where: { id: 'd1', userId: 'u1' } })
+    expect(db.memoryCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sources: [{ type: 'diary', id: 'd1', quote: '把展览方案定了下来', status: 'verified' }],
+      }),
+    })
+  })
+
+  it('引用片段不是来源原文的子串抛 409 引用片段与来源不一致', async () => {
+    db.diaryEntryFindFirst.mockResolvedValue(DIARY)
+
+    await expect(createMemory('u1', {
+      type: 'semantic', content: 'x', sources: [{ type: 'diary', id: 'd1', quote: '凭空改写的一句' }],
+    })).rejects.toMatchObject({ statusCode: 409, message: '引用片段与来源不一致' })
+    expect(db.memoryCreate).not.toHaveBeenCalled()
+  })
+
+  it('他人或已删的痕迹抛 409 来源已不可用', async () => {
+    db.diaryEntryFindFirst.mockResolvedValue(null)
+
+    await expect(createMemory('u1', {
+      type: 'semantic', content: 'x', sources: [{ type: 'diary', id: 'other-diary', quote: 'x' }],
+    })).rejects.toMatchObject({ statusCode: 409, message: '来源已不可用，请重新核对内容' })
+    expect(db.memoryCreate).not.toHaveBeenCalled()
+  })
+
+  it('读书笔记可用 quote 字段里的原文子串通过', async () => {
+    db.readingNoteFindFirst.mockResolvedValue(NOTE)
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+
+    await createMemory('u1', {
+      type: 'semantic',
+      content: '《活着》里那句她记住了',
+      sources: [{ type: 'reading_note', id: 'n1', quote: '为活着本身而活着' }],
+    })
+
+    expect(db.memoryCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sources: [{ type: 'reading_note', id: 'n1', quote: '为活着本身而活着', status: 'verified' }],
+      }),
+    })
+  })
+})
+
 describe('listMemories', () => {
   it('非法分页参数回退默认，limit 封顶 100', async () => {
     db.memoryFindMany.mockResolvedValue([])
@@ -212,6 +278,13 @@ describe('listMemories', () => {
 })
 
 describe('updateMemory', () => {
+  it('提案后记忆已被编辑时拒绝旧版本，不覆盖新内容', async () => {
+    db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 2, content: '用户后来改的内容' })
+    await expect(updateMemory('u1', 'm1', { content: '旧提案', expectedRevision: 1 }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'MEMORY_CONFLICT' })
+    expect(db.memoryUpdate).not.toHaveBeenCalled()
+  })
+
   it('只更新传入字段，空更新抛 400', async () => {
     db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 1 })
     db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null, tags: '[]' }))
@@ -271,7 +344,7 @@ describe('updateMemory', () => {
 
 })
 
-describe('deleteMemory / clearAllMemories', () => {
+describe('deleteMemory', () => {
   it('删除前校验归属', async () => {
     db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1' })
     await deleteMemory('u1', 'm1')
@@ -280,11 +353,55 @@ describe('deleteMemory / clearAllMemories', () => {
     db.memoryFindFirst.mockResolvedValue(null)
     await expect(deleteMemory('u2', 'm1')).rejects.toMatchObject({ statusCode: 404 })
   })
+})
 
-  it('清空记忆返回删除数量', async () => {
-    db.memoryFindMany.mockResolvedValueOnce(Array.from({ length: 7 }, (_, index) => ({ id: `m${index}` })))
-    db.memoryDeleteMany.mockResolvedValue({ count: 7 })
-    expect(await clearAllMemories('u1')).toBe(7)
-    expect(db.memoryDeleteMany).toHaveBeenCalledWith({ where: { userId: 'u1', id: { in: ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'] } } })
+describe('放在心上', () => {
+  const memory = { id: 'm1', userId: 'u1', type: 'semantic', content: '我对芒果过敏', revision: 3, pinned: false, entities: null, tags: null }
+
+  it('放上去不改内容、不升版本、不写修订记录', async () => {
+    db.memoryFindFirst.mockResolvedValue(memory)
+    db.memoryCount.mockResolvedValue(2)
+    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ ...memory, ...data }))
+
+    const pinned = await setMemoryPinned('u1', 'm1', true)
+
+    expect(db.memoryUpdate).toHaveBeenCalledWith({ where: { id: 'm1' }, data: { pinned: true } })
+    expect(pinned).toMatchObject({ id: 'm1', pinned: true, revision: 3 })
+  })
+
+  it('最多 5 件；满了再放如实拒绝', async () => {
+    db.memoryFindFirst.mockResolvedValue(memory)
+    db.memoryCount.mockResolvedValue(5)
+
+    await expect(setMemoryPinned('u1', 'm1', true)).rejects.toMatchObject({ statusCode: 400, message: '最多放 5 件在心上，先拿下一件再放' })
+    expect(db.memoryUpdate).not.toHaveBeenCalled()
+  })
+
+  it('拿下来不受上限影响；已经是那个状态就什么也不写', async () => {
+    db.memoryFindFirst.mockResolvedValue({ ...memory, pinned: true })
+    db.memoryCount.mockResolvedValue(5)
+    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ ...memory, ...data }))
+
+    await setMemoryPinned('u1', 'm1', false)
+    expect(db.memoryUpdate).toHaveBeenCalledWith({ where: { id: 'm1' }, data: { pinned: false } })
+
+    db.memoryUpdate.mockClear()
+    db.memoryFindFirst.mockResolvedValue(memory)
+    await setMemoryPinned('u1', 'm1', false)
+    expect(db.memoryUpdate).not.toHaveBeenCalled()
+  })
+
+  it('不是自己的记忆是 404；pinned 不是布尔值是 400', async () => {
+    db.memoryFindFirst.mockResolvedValue(null)
+    await expect(setMemoryPinned('u1', 'someone-else', true)).rejects.toMatchObject({ statusCode: 404 })
+    await expect(setMemoryPinned('u1', 'm1', 'yes')).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('列表把放在心上的排在最前', async () => {
+    db.memoryCount.mockResolvedValue(0)
+    await listMemories('u1')
+    expect(db.memoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ pinned: 'desc' }, { importance: 'desc' }, { createdAt: 'desc' }],
+    }))
   })
 })

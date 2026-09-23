@@ -4,6 +4,7 @@ const db = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   userFindMany: vi.fn(),
   userUpdate: vi.fn(),
+  userClaim: vi.fn(),
   todoFindMany: vi.fn(),
   countdownFindMany: vi.fn(),
   habitFindMany: vi.fn(),
@@ -13,7 +14,7 @@ const db = vi.hoisted(() => ({
 
 vi.mock('../prisma/client.js', () => {
   const client = {
-    user: { findUnique: db.userFindUnique, findMany: db.userFindMany, update: db.userUpdate },
+    user: { findUnique: db.userFindUnique, findMany: db.userFindMany, update: db.userUpdate, updateMany: db.userClaim },
     todo: { findMany: db.todoFindMany },
     countdown: { findMany: db.countdownFindMany },
     habit: { findMany: db.habitFindMany },
@@ -103,6 +104,7 @@ describe('migrateUserPlans / migrateAllUsers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.userFindUnique.mockResolvedValue({ plansMigratedAt: null })
+    db.userClaim.mockResolvedValue({ count: 1 })
     db.todoFindMany.mockResolvedValue([{ content: '交房租', dueDate: utcDay(2026, 9, 20), dueTime: '18:30', isDone: false }])
     db.countdownFindMany.mockResolvedValue([])
     db.habitFindMany.mockResolvedValue([{ name: '散步', archivedAt: null }])
@@ -116,7 +118,8 @@ describe('migrateUserPlans / migrateAllUsers', () => {
     expect(result).toEqual({ userId: 'u1', skipped: false, created: 2, invalid: 0 })
     const { data } = db.taskCreateMany.mock.calls[0][0]
     expect(data.every((task) => task.userId === 'u1')).toBe(true)
-    expect(db.userUpdate).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { plansMigratedAt: NOW } })
+    expect(db.userClaim).toHaveBeenCalledWith({ where: { id: 'u1', plansMigratedAt: null }, data: { plansMigratedAt: NOW } })
+    expect(db.userClaim.mock.invocationCallOrder[0]).toBeLessThan(db.taskCreateMany.mock.invocationCallOrder[0])
   })
 
   it('已迁移的用户直接跳过，保证可重复执行', async () => {
@@ -125,12 +128,22 @@ describe('migrateUserPlans / migrateAllUsers', () => {
     expect(await migrateUserPlans('u1', { now: NOW })).toMatchObject({ skipped: true, created: 0 })
     expect(db.taskCreateMany).not.toHaveBeenCalled()
     expect(db.userUpdate).not.toHaveBeenCalled()
+    expect(db.userClaim).not.toHaveBeenCalled()
   })
 
   it('dry-run 只计算条数，不写任何东西', async () => {
     expect(await migrateUserPlans('u1', { dryRun: true, now: NOW })).toMatchObject({ created: 2, dryRun: true })
     expect(db.taskCreateMany).not.toHaveBeenCalled()
     expect(db.userUpdate).not.toHaveBeenCalled()
+    expect(db.userClaim).not.toHaveBeenCalled()
+  })
+
+  it('两个调用读到同一空标记时，仅成功领取者写入安排', async () => {
+    db.userClaim.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
+    const results = await Promise.all([migrateUserPlans('u1', { now: NOW }), migrateUserPlans('u1', { now: NOW })])
+    expect(results.filter(result => !result.skipped)).toHaveLength(1)
+    expect(results.filter(result => result.skipped)).toHaveLength(1)
+    expect(db.taskCreateMany).toHaveBeenCalledTimes(1)
   })
 
   it('全量迁移逐用户进行，单个用户失败不影响其他人', async () => {

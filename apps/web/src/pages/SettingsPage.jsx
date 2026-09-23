@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Archive, Bell, ChevronRight, Download, Heart, Info, LogOut, Moon, Monitor, Palette, Shield, Sun, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Archive, Bell, ChevronRight, Download, Eraser, LogOut, Moon, Monitor, Palette, Shield, Sun, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useThemeStore } from '../stores/themeStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
+import { useChatStore } from '../stores/chatStore'
 import { migrationService, profileService, userService } from '../services/userService'
 import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl'
-import { isLocalWorkClient } from '../features/distribution'
 import Header from '../components/layout/Header'
 import Card from '../components/ui/Card'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import CloudModelSettings from '../components/chat/CloudModelSettings'
+import ModelProviderSettings from '../components/chat/ModelProviderSettings'
 import ImportMigration from '../components/profile/ImportMigration'
+import LocalBridgeSettings from '../components/profile/LocalBridgeSettings'
+import AboutYouSettings from '../components/profile/AboutYouSettings'
+import LetterFontSetting from '../components/profile/LetterFontSetting'
 
 const BACKGROUND_SLOTS = [
   { slot: 'bg-home', label: '主页背景', inputLabel: '选择主页背景图片' },
   { slot: 'bg-chat', label: '聊天背景', inputLabel: '选择聊天背景图片' },
 ]
 
-// 设置：原「我的」与「设置」合并为一处——形象、外观、聊天模型（唯一授权开关）、关怀、数据与隐私、关于、退出。
+// 设置：原「我的」与「设置」合并为一处——形象、外观、聊天模型（唯一授权开关）、关怀、数据与隐私、退出。
 // 说话方式与记忆在「她」页面；只保留真实可用的开关。
 export default function SettingsPage() {
   const navigate = useNavigate()
@@ -35,6 +40,9 @@ export default function SettingsPage() {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [clearError, setClearError] = useState('')
+  const clearThread = useChatStore(state => state.clearThread)
 
   useEffect(() => {
     profileService.get()
@@ -115,6 +123,21 @@ export default function SettingsPage() {
     }
   }
 
+  const handleClearHistory = async () => {
+    if (saving) return
+    setSaving('clear')
+    setClearError('')
+    try {
+      await clearThread()
+      setConfirmClear(false)
+      setMessage('聊天记录已清空')
+    } catch {
+      setClearError('没清空成功，聊天记录仍在，请重试。')
+    } finally {
+      setSaving(null)
+    }
+  }
+
   const handleLogout = async () => {
     if (saving) return
     setSaving('logout')
@@ -135,10 +158,12 @@ export default function SettingsPage() {
         <div className="mx-auto max-w-3xl space-y-4">
           <div className="px-1 pb-1">
             <p className="display-serif text-xl font-semibold text-text-primary">让 Amie 更合你的习惯</p>
-            <p className="mt-2 text-xs text-text-muted">形象、外观、模型和关怀，都可以在这里调整。她的说话方式和记忆在「她」页面。</p>
+            <p className="mt-2 text-xs text-text-muted">她怎么叫你、形象、外观、模型和关怀，都可以在这里调整。她的说话方式和记忆在「她」页面。</p>
           </div>
 
           {error && <p role="alert" className="rounded-control bg-pastel-blush p-3 text-sm text-danger">{error}</p>}
+
+          <AboutYouSettings />
 
           <Card className="overflow-hidden">
             <section aria-labelledby="appearance-assets-title" className="p-4">
@@ -220,11 +245,15 @@ export default function SettingsPage() {
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-text-muted">跟随系统会自动切换日夜配色。选择会保存在这台设备上。</p>
+                <LetterFontSetting />
               </div>
             </fieldset>
           </Card>
 
           <CloudModelSettings />
+
+          {/* 只有实例管理员看得见；不是管理员时整张卡片不渲染 */}
+          <ModelProviderSettings />
 
           <Card className="overflow-hidden">
             <div className="border-b border-border-subtle px-4 py-3">
@@ -236,7 +265,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between px-4 py-3">
               <div className="min-w-0 flex-1">
                 <span className="text-sm text-text-primary">她来想你</span>
-                <p className="mt-0.5 text-[11px] text-text-muted">基于你的真实安排与记录，只发有用的关怀卡片（无推送）</p>
+                <p className="mt-0.5 text-[11px] text-text-muted">基于你日历上的事与记录，只发有用的关怀卡片（无推送）</p>
               </div>
               <button type="button" onClick={toggleCare} disabled={careEnabled === null || saving !== null} aria-label="她来想你总开关" role="switch" aria-checked={careEnabled === true} className="flex h-11 w-11 items-center justify-center disabled:opacity-40">
                 {careEnabled ? (
@@ -246,12 +275,9 @@ export default function SettingsPage() {
                 )}
               </button>
             </div>
-            {isLocalWorkClient() && (
-              <button type="button" onClick={() => navigate('/tools/schedule')} className={`border-t border-border-subtle ${rowButton} text-text-secondary`}>
-                <span>定时提醒与安排</span><ChevronRight size={16} aria-hidden="true" />
-              </button>
-            )}
           </Card>
+
+          <LocalBridgeSettings />
 
           <Card className="overflow-hidden">
             <section aria-labelledby="data-migration-title" className="p-4">
@@ -274,21 +300,8 @@ export default function SettingsPage() {
                 隐私与记录
               </h3>
             </div>
-            <button type="button" onClick={() => navigate('/chat/archives')} className={rowButton}><span className="flex items-center gap-2"><Archive size={16} aria-hidden="true" />对话归档</span><ChevronRight size={16} aria-hidden="true" /></button>
-            <button type="button" onClick={() => navigate('/her')} className={rowButton}><span className="flex items-center gap-2"><Heart size={16} aria-hidden="true" />记忆管理</span><ChevronRight size={16} className="text-text-muted" aria-hidden="true" /></button>
-          </Card>
-
-          <Card className="overflow-hidden">
-            <div className="border-b border-border-subtle px-4 py-3">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-                <Info size={16} className="text-brand-yellow" aria-hidden="true" />
-                关于
-              </h3>
-            </div>
-            <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-text-primary">版本</span>
-              <span className="text-sm text-text-muted">1.0.0</span>
-            </div>
+            <button type="button" onClick={() => navigate('/chat/archives')} className={rowButton}><span className="flex items-center gap-2"><Archive size={16} aria-hidden="true" />以前归档的对话</span><ChevronRight size={16} aria-hidden="true" /></button>
+            <button type="button" disabled={saving !== null} onClick={() => { setClearError(''); setConfirmClear(true) }} className={`${rowButton} text-danger disabled:opacity-50`}><span className="flex items-center gap-2"><Eraser size={16} aria-hidden="true" />清空聊天记录</span></button>
           </Card>
 
           <p aria-live="polite" className="min-h-5 text-center text-xs text-text-secondary">{message}</p>
@@ -296,6 +309,17 @@ export default function SettingsPage() {
           <button type="button" disabled={saving !== null} onClick={handleLogout} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-card border border-border-subtle bg-surface-card text-sm text-danger disabled:opacity-50"><LogOut size={16} aria-hidden="true" />退出登录</button>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmClear}
+        title="清空聊天记录"
+        description="和她的这段对话里的全部消息与照片都会删除，无法恢复。她记得的你、她的状态和以前归档的对话不受影响。"
+        confirmLabel="确认清空"
+        danger
+        busy={saving === 'clear'}
+        error={clearError}
+        onConfirm={handleClearHistory}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   )
 }

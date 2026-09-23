@@ -19,12 +19,8 @@ import {
   MAX_MODEL_MESSAGE_CHARS,
   redactSensitiveText,
 } from './llmService.js'
-import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
-import {
-  REDACTION_PLACEHOLDER_PATTERN,
-  SENSITIVE_LOCATION_PATTERNS,
-  SENSITIVE_MEDICAL_PATTERNS,
-} from '../utils/sensitivePatterns.js'
+import { loadExternalConsent } from './userService.js'
+import { isSensitiveContent, REDACTION_PLACEHOLDER_PATTERN } from '../utils/sensitivePatterns.js'
 
 const MAX_CANDIDATES = 2
 const SUGGESTION_TIMEOUT_MS = 60000
@@ -107,11 +103,7 @@ function normalizeForDedup(value) {
 function containsSensitiveContent(value) {
   // 只认脱敏占位符本身：NFKC 归一化会把全角标点变半角，直接比较差分会把正常中文误判为敏感
   if (REDACTION_PLACEHOLDER_PATTERN.test(redactSensitiveText(value))) return true
-  if (REDACTION_PLACEHOLDER_PATTERN.test(value)) return true
-  return (
-    SENSITIVE_LOCATION_PATTERNS.some((pattern) => pattern.test(value)) ||
-    SENSITIVE_MEDICAL_PATTERNS.some((pattern) => pattern.test(value))
-  )
+  return isSensitiveContent(value)
 }
 
 async function findOwnedUserMessage(userId, messageId) {
@@ -133,25 +125,9 @@ async function findOwnedUserMessage(userId, messageId) {
 }
 
 async function runCloudExtraction(text, requestId, userId) {
-  const consent = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-  })
-  const allowExternal = consent?.externalLlmConsent === true
-    && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  const { allowExternal, authorizeExternal } = await loadExternalConsent(userId)
   // 云端切割后记忆候选同样走同意门：未同意不得调用云端模型
   assertCloudCallable(allowExternal)
-  let authorizeExternal
-  if (allowExternal) {
-    authorizeExternal = async () => {
-      const current = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-      })
-      return current?.externalLlmConsent === true
-        && current.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-    }
-  }
   const gateway = await getGateway()
   const result = await gateway.complete({
     scene: 'explain',

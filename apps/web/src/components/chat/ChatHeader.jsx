@@ -17,7 +17,7 @@ export default function ChatHeader({ onOpenDrawer }) {
 
       <div className="glass-bar relative z-10 flex h-16 shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-3">
-          <button type="button" aria-label="打开会话列表" onClick={onOpenDrawer} className="flex h-11 w-11 items-center justify-center rounded-full text-text-primary transition-colors duration-300 ease-calm hover:bg-surface-muted min-[641px]:hidden">
+          <button type="button" aria-label="打开导航" onClick={onOpenDrawer} className="flex h-11 w-11 items-center justify-center rounded-full text-text-primary transition-colors duration-300 ease-calm hover:bg-surface-muted min-[641px]:hidden">
             <Menu size={22} aria-hidden="true" />
           </button>
           {/* 不放"在线"圆点：V3.0 禁止虚假在线状态与真人暗示 */}

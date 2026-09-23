@@ -9,6 +9,26 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createGateway } from './index.js'
 
+test('database provider network policy applies to complete and stream', async (t) => {
+  const originalFetch = globalThis.fetch
+  let unsafeFetches = 0
+  globalThis.fetch = async () => { unsafeFetches += 1; throw new Error('unsafe fetch') }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const gateway = await createGateway({
+    GATEWAY_PROVIDERS: 'custom',
+    GATEWAY_CUSTOM_BASE_URL: 'http://127.0.0.1:3000/v1',
+    GATEWAY_CUSTOM_MODEL: 'test',
+    GATEWAY_CUSTOM_SCOPE: 'external',
+    GATEWAY_CUSTOM_SAFE_NETWORK: 'true',
+  })
+  const request = { scene: 'chat', messages: [{ role: 'user', content: 'hello' }], allowExternal: true, authorizeExternal: async () => true }
+  assert.equal(await gateway.complete(request), null)
+  const events = []
+  for await (const event of gateway.stream(request)) events.push(event)
+  assert.deepEqual(events, [{ type: 'error', reason: 'all_providers_failed' }])
+  assert.equal(unsafeFetches, 0)
+})
+
 const NATIVE_TOOLS = [{ type: 'function', function: { name: 'execute_python', parameters: { type: 'object', properties: { code: { type: 'string' } } } } }]
 const nativeFrame = (args, name = 'execute_python', finish_reason = null) => sseChunk(JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name, arguments: args } }] }, finish_reason }] }))
 

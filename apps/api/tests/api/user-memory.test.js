@@ -141,16 +141,16 @@ describe('用户、同意与显式记忆 API', () => {
       .set(authed())
       .send({ accepted: true })
 
-    expect(initial.body).toEqual({ accepted: null, version: 'cloud-primary-v3', updatedAt: null })
-    expect(declined.body).toMatchObject({ accepted: false, version: 'cloud-primary-v3' })
-    expect(accepted.body).toMatchObject({ accepted: true, version: 'cloud-primary-v3' })
+    expect(initial.body).toEqual({ accepted: null, version: 'cloud-primary-v4', updatedAt: null })
+    expect(declined.body).toMatchObject({ accepted: false, version: 'cloud-primary-v4' })
+    expect(accepted.body).toMatchObject({ accepted: true, version: 'cloud-primary-v4' })
     expect(state.users.get('user-1').externalLlmConsent).toBe(true)
   })
 
-  it('旧版本同意会自动回到未选择状态', async () => {
+  it('已接受 v3 的用户也必须重新选择 v4', async () => {
     Object.assign(state.users.get('user-1'), {
       externalLlmConsent: true,
-      externalLlmConsentVersion: 'qwen-data-v0',
+      externalLlmConsentVersion: 'cloud-primary-v3',
       externalLlmConsentUpdatedAt: new Date(),
     })
 
@@ -158,7 +158,7 @@ describe('用户、同意与显式记忆 API', () => {
       .get('/api/user/external-llm-consent')
       .set(authed())
 
-    expect(res.body).toEqual({ accepted: null, version: 'cloud-primary-v3', updatedAt: null })
+    expect(res.body).toEqual({ accepted: null, version: 'cloud-primary-v4', updatedAt: null })
   })
 
   it('人格只接受 toxic、gentle 和 rational', async () => {
@@ -228,14 +228,5 @@ describe('用户、同意与显式记忆 API', () => {
     expect(invalid.status).toBe(400)
     expect(crossUser.status).toBe(404)
     expect(state.memories[0].content).toBe('其他用户的数据')
-  })
-
-  it('会员写接口明确返回未开放，不执行伪购买', async () => {
-    const res = await request(app)
-      .post('/api/user/membership/subscribe')
-      .set(authed())
-
-    expect(res.status).toBe(409)
-    expect(res.body.code).toBe('FEATURE_NOT_AVAILABLE')
   })
 })

@@ -36,7 +36,6 @@ import {
   listMonth,
   getEntry,
   deleteEntry,
-  generateComment,
 } from './diaryService.js'
 
 const ENTRY = {
@@ -104,31 +103,4 @@ describe('diaryService', () => {
     await expect(getEntry('u1', '2026-09-04')).rejects.toMatchObject({ statusCode: 404 })
   })
 
-  it('reuses an existing comment instead of calling the model again', async () => {
-    mocks.diaryFindUnique.mockResolvedValue({ ...ENTRY, aiComment: '我在', aiCommentSource: 'qwen' })
-
-    const result = await generateComment('u1', '2026-09-04', 'req-d1')
-
-    expect(result).toEqual({ aiComment: '我在', source: 'qwen', reused: true })
-    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
-  })
-
-  it('returns a clearly labelled mock without model or persistence for an owned diary', async () => {
-    mocks.diaryFindUnique.mockResolvedValue(ENTRY)
-    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v3' })
-    const result = await generateComment('u1', '2026-09-04', 'req-d2')
-    expect(result).toMatchObject({ source: 'cloud_mock', reused: false, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
-    expect(result.aiComment).toContain('模拟')
-    expect(mocks.diaryFindUnique).toHaveBeenCalledWith({ where: { userId_day: { userId: 'u1', day: expect.any(Date) } } })
-    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
-    expect(mocks.diaryUpdate).not.toHaveBeenCalled()
-    expect(mocks.userFindUnique).not.toHaveBeenCalled()
-  })
-
-  it('requires an existing entry before commenting', async () => {
-    mocks.diaryFindUnique.mockResolvedValue(null)
-
-    await expect(generateComment('u1', '2026-09-04', 'req-d3')).rejects.toMatchObject({ statusCode: 404 })
-    expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
-  })
 })

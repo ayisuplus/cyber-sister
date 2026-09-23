@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../services/chatService', () => ({ chatService: { getConversations: vi.fn(), getConversation: vi.fn(), setArchived: vi.fn() } }))
-vi.mock('../components/chat/MessageBubble', () => ({ default: ({ message }) => <p>{message.content}</p> }))
+vi.mock('../services/chatService', () => ({ chatService: { getConversations: vi.fn(), getConversation: vi.fn(), setArchived: vi.fn(), getThread: vi.fn() } }))
+vi.mock('../components/letter/LetterEntry', () => ({ default: ({ message }) => <p>{message.content}</p> }))
 
 import { chatService } from '../services/chatService'
 import { useChatStore } from '../stores/chatStore'
@@ -20,6 +20,7 @@ describe('ConversationArchivePage', () => {
     chatService.getConversations.mockResolvedValue([archived])
     chatService.getConversation.mockResolvedValue({ ...archived, messages: [{ id: 'm1', content: '原来的聊天记录' }] })
     chatService.setArchived.mockResolvedValue({ success: true, archived: false })
+    chatService.getThread.mockResolvedValue({ id: 'thread-1', messages: [] })
   })
 
   it('loads archived conversations and reads retained messages without restoring them', async () => {
@@ -31,30 +32,24 @@ describe('ConversationArchivePage', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('restores the conversation and refreshes the active list', async () => {
+  it('puts an archived conversation back into the one thread and reopens it', async () => {
     renderPage()
-    const restore = await screen.findByRole('button', { name: '恢复对话 值得收藏的聊天' })
+    const restore = await screen.findByRole('button', { name: '放回对话 值得收藏的聊天' })
     chatService.getConversations.mockResolvedValue([])
     await userEvent.click(restore)
     expect(chatService.setArchived).toHaveBeenCalledWith('c1', false)
-    expect(await screen.findByText('还没有归档的对话')).toBeInTheDocument()
-    expect(chatService.getConversations).toHaveBeenCalledWith()
+    expect(await screen.findByText('没有以前归档的对话')).toBeInTheDocument()
+    // 服务端在打开这段对话时按时间把它合进来
+    expect(chatService.getThread).toHaveBeenCalled()
+    expect(useChatStore.getState().currentConversationId).toBe('thread-1')
   })
 
   it('keeps archived records visible if restore fails', async () => {
     chatService.setArchived.mockRejectedValue(new Error('offline'))
     renderPage()
-    await userEvent.click(await screen.findByRole('button', { name: '恢复对话 值得收藏的聊天' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('恢复失败')
+    await userEvent.click(await screen.findByRole('button', { name: '放回对话 值得收藏的聊天' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('没放回去')
     expect(screen.getByRole('button', { name: '查看记录 值得收藏的聊天' })).toBeInTheDocument()
-  })
-
-  it('refreshes the archive page when another conversation is archived from the sidebar', async () => {
-    chatService.getConversations.mockResolvedValueOnce([])
-    renderPage()
-    await screen.findByText('还没有归档的对话')
-    await act(async () => { await useChatStore.getState().archiveConversation('c1') })
-    expect(await screen.findByRole('button', { name: '查看记录 值得收藏的聊天' })).toBeInTheDocument()
   })
 
   it('loads more archives and older messages in order', async () => {

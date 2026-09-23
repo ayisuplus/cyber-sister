@@ -8,6 +8,10 @@ const service = vi.hoisted(() => ({
   getPeriodSummary: vi.fn(),
   updatePeriodRecord: vi.fn(),
   deletePeriodRecord: vi.fn(),
+  getPeriodConsent: vi.fn(),
+  setPeriodConsent: vi.fn(),
+  getPeriodTone: vi.fn(),
+  setPeriodTone: vi.fn(),
 }))
 
 vi.mock('../services/periodService.js', () => service)
@@ -81,16 +85,36 @@ describe('经期路由', () => {
   })
 })
 
-describe('天气路由', () => {
-  it('返回固定的 mock 天气数据', async () => {
-    const response = await request(app).get('/weather')
-    expect(response.status).toBe(200)
-    expect(response.body).toEqual({
-      city: '上海',
-      temp: 32,
-      condition: '多云',
-      humidity: 65,
-      tip: '明天降温，记得穿外套',
-    })
+describe('经期单独同意路由', () => {
+  it('读取与更新只作用于当前用户，且不会被当成记录 id', async () => {
+    service.getPeriodConsent.mockResolvedValue({ accepted: false, updatedAt: null })
+    const read = await request(app).get('/period/consent')
+    expect(read.body).toEqual({ accepted: false, updatedAt: null })
+    expect(service.getPeriodConsent).toHaveBeenCalledWith('user-1')
+
+    service.setPeriodConsent.mockResolvedValue({ accepted: true, updatedAt: '2026-09-19T00:00:00.000Z' })
+    const saved = await request(app).put('/period/consent').send({ accepted: true, userId: 'attacker' })
+    expect(saved.status).toBe(200)
+    expect(service.setPeriodConsent).toHaveBeenCalledWith('user-1', true)
+    expect(service.updatePeriodRecord).not.toHaveBeenCalled()
+  })
+
+  it('「顾及周期」单独读写，只作用于当前用户，也不会被当成记录 id', async () => {
+    service.getPeriodTone.mockResolvedValue({ enabled: false, updatedAt: null })
+    expect((await request(app).get('/period/tone')).body).toEqual({ enabled: false, updatedAt: null })
+    expect(service.getPeriodTone).toHaveBeenCalledWith('user-1')
+
+    service.setPeriodTone.mockResolvedValue({ enabled: true, updatedAt: '2026-09-21T00:00:00.000Z' })
+    const saved = await request(app).put('/period/tone').send({ enabled: true, userId: 'attacker' })
+    expect(saved.status).toBe(200)
+    expect(service.setPeriodTone).toHaveBeenCalledWith('user-1', true)
+    expect(service.updatePeriodRecord).not.toHaveBeenCalled()
+  })
+
+  it('未同意时新增记录返回 403 与稳定 code', async () => {
+    service.createPeriodRecord.mockRejectedValue(Object.assign(new Error('需要先同意'), { statusCode: 403, code: 'PERIOD_CONSENT_REQUIRED' }))
+    const response = await request(app).post('/period').send({ startDate: '2026-08-01' })
+    expect(response.status).toBe(403)
+    expect(response.body).toEqual({ error: '需要先同意', code: 'PERIOD_CONSENT_REQUIRED' })
   })
 })

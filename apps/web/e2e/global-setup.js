@@ -3,7 +3,9 @@ import { readFile, stat } from 'node:fs/promises'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../dist')
+const WEB_DIST = process.env.E2E_DIST_DIR
+  ? resolve(process.env.E2E_DIST_DIR)
+  : resolve(dirname(fileURLToPath(import.meta.url)), '../dist')
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',

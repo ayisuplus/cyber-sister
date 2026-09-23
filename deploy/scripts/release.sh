@@ -41,6 +41,9 @@ PREVIOUS_TAG=""
 
 rollback_on_failure() {
   local code=$?
+  # EXIT 同时覆盖命令失败和 fail 的显式 exit；先解除，避免回滚失败时递归触发。
+  trap - EXIT
+  [ "$code" -ne 0 ] || return 0
   log "发布失败（退出码 $code）"
   if [ -n "$BACKUP_FILE" ]; then
     log "数据库备份保留在：$BACKUP_FILE（数据回滚需人工确认，脚本不自动执行）"
@@ -52,9 +55,9 @@ rollback_on_failure() {
   else
     log "没有可回滚的上一个标签（首次部署？），保持现状等待人工处理"
   fi
-  exit 1
+  exit "$code"
 }
-trap rollback_on_failure ERR
+trap rollback_on_failure EXIT
 
 # ---- 2. 备份（迁移之前，失败即止）----
 if [ "${SKIP_BACKUP:-0}" = "1" ]; then
@@ -95,7 +98,7 @@ if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
   printf '%s\n' "$PREVIOUS_TAG" > "$STATE_DIR/previous-tag"
 fi
 printf '%s\n' "$IMAGE_TAG" > "$STATE_DIR/current-tag"
-trap - ERR
+trap - EXIT
 
 log "发布完成：$IMAGE_TAG（上一个：${PREVIOUS_TAG:-无}）"
 report_llm_status

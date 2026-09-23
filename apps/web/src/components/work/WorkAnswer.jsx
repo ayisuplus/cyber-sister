@@ -12,7 +12,8 @@ const components = {
     const url = safeWorkLink(src)
     return url ? <a href={url} target="_blank" rel="noopener noreferrer">{alt || '图片链接'}</a> : <span>{alt || '图片'}</span>
   },
-  table: ({ children }) => <div className="overflow-x-auto"><table>{children}</table></div>,
+  // letter-table：在信纸上贴成一张印刷体小卡片
+  table: ({ children }) => <div className="letter-table overflow-x-auto"><table>{children}</table></div>,
 }
 
 export default function WorkAnswer({ content }) {

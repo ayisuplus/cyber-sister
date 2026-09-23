@@ -1,11 +1,9 @@
 import api from './api'
 
-// 自定义定时提醒：nextFireAt 落库 + 前台轮询拉取到点投递，无推送通道
+// 「安排」的增删改查；到点的提醒由她在对话里说（见 services/nudgeService.js）
 export const reminderService = {
   list: async () => (await api.get('/reminders/scheduled')).data.reminders,
   create: async (payload) => (await api.post('/reminders/scheduled', payload)).data.reminder,
   update: async (id, payload) => (await api.put(`/reminders/scheduled/${id}`, payload)).data.reminder,
   remove: async (id) => (await api.delete(`/reminders/scheduled/${id}`)).data,
-  listDue: async () => (await api.get('/reminders/due')).data.deliveries,
-  ack: async (deliveryId, action) => (await api.post(`/reminders/deliveries/${deliveryId}/ack`, { action })).data.delivery,
 }

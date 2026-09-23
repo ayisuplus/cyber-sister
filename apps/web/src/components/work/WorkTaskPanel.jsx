@@ -34,7 +34,7 @@ export default function WorkTaskPanel({ tasks, cancel, retry, decide }) {
         {task.actions?.map(action => <WorkActionCard key={action.id} taskId={task.id} action={action} decide={decide} />)}
         {['failed', 'paused'].includes(task.status) && <p className="mt-2 text-xs text-danger">{ERRORS[task.errorCode] || '执行暂时中断，已完成步骤已保存，可以重试。'}</p>}
         <div className="mt-2 flex flex-wrap gap-2">
-          {task.status === 'completed' && <button type="button" className="min-h-11 rounded-lg bg-surface-card px-3 text-xs text-action-primary" onClick={() => useChatStore.getState().setCurrentConversation(task.conversationId)}>查看结果</button>}
+          {task.status === 'completed' && <button type="button" className="min-h-11 rounded-lg bg-surface-card px-3 text-xs text-action-primary" onClick={() => useChatStore.getState().refreshThread()}>查看结果</button>}
           {task.status === 'failed' && <button type="button" disabled={busy === task.id} className="min-h-11 rounded-lg bg-surface-card px-3 text-xs text-action-primary" onClick={() => act(task.id, retry)}>从保存步骤继续</button>}
           {['queued', 'running', 'paused', 'failed'].includes(task.status) && <button type="button" disabled={busy === task.id} className="min-h-11 rounded-lg px-3 text-xs text-text-secondary" onClick={() => act(task.id, cancel)}>取消任务</button>}
         </div>

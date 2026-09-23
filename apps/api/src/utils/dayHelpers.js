@@ -18,6 +18,11 @@ export function toUtcDayString(date) {
   return date.toISOString().slice(0, 10)
 }
 
+/** 按本地日历日格式化 Date；与 UTC 零点存储日期的 toUtcDayString 区分。 */
+export function toLocalDayString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 /** 今天（本地日历日）按 UTC 零点表示，与 parseUtcDay 的存储形态一致。 */
 export function localTodayUtc() {
   const now = new Date()

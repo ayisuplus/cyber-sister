@@ -8,6 +8,7 @@
     "dev:web": "pnpm --filter cyber-sister-client dev",
     "build": "pnpm -r --filter \"./apps/*\" --filter \"./packages/*\" build",
     "test": "pnpm -r test",
+    "test:deploy": "node --test deploy/scripts/release.test.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint"
   },

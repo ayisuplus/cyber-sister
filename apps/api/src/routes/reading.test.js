@@ -10,8 +10,10 @@ const service = vi.hoisted(() => ({
   listNotes: vi.fn(),
   addNote: vi.fn(),
   deleteNote: vi.fn(),
-  generateNoteComment: vi.fn(),
   logReading: vi.fn(),
+  listRecentNotes: vi.fn(),
+  listNotesBetween: vi.fn(),
+  updateProgress: vi.fn(),
 }))
 
 vi.mock('../services/readingService.js', () => service)
@@ -32,6 +34,21 @@ app.use('/', readingRoutes)
 const httpError = (message, statusCode, code) => Object.assign(new Error(message), { statusCode, code })
 
 beforeEach(() => vi.clearAllMocks())
+
+describe('笔记按日界查询', () => {
+  it('GET /notes 带 from/to 透传 listNotesBetween，不带维持最近笔记口径', async () => {
+    service.listNotesBetween.mockResolvedValue([{ id: 'n1', book: '活着' }])
+
+    const ok = await request(app).get('/notes?from=2026-09-20&to=2026-09-20&book=活着')
+    expect(ok.status).toBe(200)
+    expect(ok.body.notes[0].book).toBe('活着')
+    expect(service.listNotesBetween).toHaveBeenCalledWith('user-1', { from: '2026-09-20', to: '2026-09-20', bookTitle: '活着' })
+
+    service.listRecentNotes.mockResolvedValue([])
+    await request(app).get('/notes?limit=20')
+    expect(service.listRecentNotes).toHaveBeenCalled()
+  })
+})
 
 describe('书架路由', () => {
   it('GET /books 返回列表，service 错误透传状态码', async () => {
@@ -95,15 +112,49 @@ describe('笔记路由', () => {
     expect(missing.body).toEqual({ error: '笔记不存在' })
   })
 
-  it('POST /notes/:noteId/comment 成功与本地模型未配置 code 透传', async () => {
-    service.generateNoteComment.mockResolvedValue({ aiComment: '我在', source: 'local_model', reused: false })
-    const ok = await request(app).post('/notes/n1/comment')
-    expect(ok.status).toBe(200)
-    expect(ok.body.aiComment).toBe('我在')
+})
 
-    service.generateNoteComment.mockRejectedValue(httpError('本地模型未配置', 503, 'LOCAL_LLM_NOT_CONFIGURED'))
-    const fail = await request(app).post('/notes/n1/comment')
-    expect(fail.status).toBe(503)
-    expect(fail.body).toEqual({ error: '本地模型未配置', code: 'LOCAL_LLM_NOT_CONFIGURED' })
+describe('手记时间线接口', () => {
+  it('GET /notes 取最近的笔记；limit 与 before 透传', async () => {
+    service.listRecentNotes.mockResolvedValue([{ id: 'n1', book: '活着', content: '有庆那段' }])
+    const response = await request(app).get('/notes?limit=10&before=2026-09-21T00:00:00Z')
+    expect(response.body).toEqual({ notes: [{ id: 'n1', book: '活着', content: '有庆那段' }] })
+    expect(service.listRecentNotes).toHaveBeenCalledWith('user-1', { limit: 10, before: '2026-09-21T00:00:00Z' })
+  })
+
+  it('POST /notes 按书名记一笔，书不在书架由服务端自动放上去；校验失败透传 400', async () => {
+    service.logReading.mockResolvedValue({ bookId: 'b1', title: '活着', currentPage: 30 })
+    const ok = await request(app).post('/notes').send({ book: '活着', note: '有庆那段', page: 30 })
+    expect(ok.body).toEqual({ bookId: 'b1', title: '活着', currentPage: 30 })
+    expect(service.logReading).toHaveBeenCalledWith('user-1', { title: '活着', note: '有庆那段', page: 30 })
+
+    service.logReading.mockRejectedValue(Object.assign(new Error('书名不能为空'), { statusCode: 400 }))
+    const fail = await request(app).post('/notes').send({ note: '没有书名' })
+    expect(fail.status).toBe(400)
+    expect(fail.body).toEqual({ error: '书名不能为空' })
+  })
+})
+
+describe('阅读进度接口', () => {
+  it('PUT /books/:id/progress 只把 locator 与 percent 交给 service', async () => {
+    service.updateProgress.mockResolvedValue({ id: 'b1', percent: 62, locator: '5:200' })
+
+    const response = await request(app).put('/books/b1/progress').send({ locator: '5:200', percent: 62, status: 'finished' })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toEqual({ id: 'b1', percent: 62, locator: '5:200' })
+    expect(service.updateProgress).toHaveBeenCalledWith('user-1', 'b1', { locator: '5:200', percent: 62 })
+  })
+
+  it('书不是自己的就 404，校验失败透传 400', async () => {
+    service.updateProgress.mockRejectedValue(httpError('书籍不存在', 404))
+    const missing = await request(app).put('/books/nope/progress').send({ percent: 10 })
+    expect(missing.status).toBe(404)
+    expect(missing.body).toEqual({ error: '书籍不存在' })
+
+    service.updateProgress.mockRejectedValue(httpError('进度必须是0到100之间的整数', 400))
+    const bad = await request(app).put('/books/b1/progress').send({ percent: 999 })
+    expect(bad.status).toBe(400)
+    expect(bad.body).toEqual({ error: '进度必须是0到100之间的整数' })
   })
 })

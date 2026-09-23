@@ -68,55 +68,16 @@ describe('自定义提醒路由', () => {
     expect(del.body.ok).toBe(true)
   })
 
-  it('GET /due 返回 pending 投递；POST /deliveries/:id/ack 确认', async () => {
-    service.listDueReminders.mockResolvedValue([{ id: 'd1', status: 'pending', result: null, reminder: { content: '喝水', instruction: null } }])
-    const due = await request(app).get('/due')
-    expect(due.status).toBe(200)
-    expect(due.body.deliveries[0].reminder.content).toBe('喝水')
-
-    service.ackDelivery.mockResolvedValue({ id: 'd1', status: 'shown' })
-    const ack = await request(app).post('/deliveries/d1/ack').send({ action: 'shown' })
-    expect(ack.status).toBe(200)
-    expect(service.ackDelivery).toHaveBeenCalledWith('d1', 'user-1', 'shown')
-  })
-
   it('service 抛 404 时路由透传 404', async () => {
-    service.ackDelivery.mockRejectedValue(Object.assign(new Error('提醒投递不存在'), { statusCode: 404 }))
-    const res = await request(app).post('/deliveries/nope/ack').send({ action: 'shown' })
+    service.updateScheduledReminder.mockRejectedValue(Object.assign(new Error('提醒不存在'), { statusCode: 404 }))
+    const res = await request(app).put('/scheduled/nope').send({ status: 'done' })
     expect(res.status).toBe(404)
   })
-})
 
-describe('定时任务接口未接入', () => {
-  const task = () => ({ id: 'd1', status: 'pending', result: null, reminder: { id: 'r1', instruction: '总结日记' } })
-  it('到期任务保持待处理，不领取、不调用模型、不推进调度', async () => {
-    service.listDueReminders.mockResolvedValue([task()])
-    service.executeScheduledTask.mockResolvedValue({ content: '不可出现的真实结果', source: 'qwen' })
-    const res = await request(app).get('/due')
-    expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ deliveries: [], deferredTaskCount: 1, execution: { mode: 'mock', cloudConnected: false, persisted: false } })
-    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
-    expect(service.executeScheduledTask).not.toHaveBeenCalled()
-    expect(service.completeTaskDelivery).not.toHaveBeenCalled()
-    expect(service.failTaskDelivery).not.toHaveBeenCalled()
-  })
-  it('纯提醒与历史真实任务结果仍可显示', async () => {
-    service.listDueReminders.mockResolvedValue([
-      task(),
-      { id: 'd2', status: 'pending', result: null, reminder: { content: '喝水', instruction: null } },
-      { ...task(), id: 'd3', result: '之前真实完成的结果' },
-    ])
-    const res = await request(app).get('/due')
-    expect(res.body.deliveries.map((d) => d.id)).toEqual(['d2', 'd3'])
-    expect(res.body.deferredTaskCount).toBe(1)
-    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
-  })
-  it('重复和并发轮询也不会执行或消费任务', async () => {
-    service.listDueReminders.mockResolvedValue([task()])
-    const results = await Promise.all([request(app).get('/due'), request(app).get('/due')])
-    expect(results.every((res) => res.body.deferredTaskCount === 1)).toBe(true)
-    expect(service.claimTaskDelivery).not.toHaveBeenCalled()
-    expect(service.completeTaskDelivery).not.toHaveBeenCalled()
-    expect(service.failTaskDelivery).not.toHaveBeenCalled()
+  it('到期投递与确认已并入对话（/api/chat/nudges），这里不再提供', async () => {
+    expect((await request(app).get('/due')).status).toBe(404)
+    expect((await request(app).post('/deliveries/d1/ack').send({ action: 'shown' })).status).toBe(404)
+    expect(service.listDueReminders).not.toHaveBeenCalled()
+    expect(service.ackDelivery).not.toHaveBeenCalled()
   })
 })

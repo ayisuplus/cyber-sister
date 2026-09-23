@@ -1,0 +1,17 @@
+{
+  "name": "amie-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Amie 本机助手：装在用户自己电脑上，主动连到 Amie，让她在你授权的文件夹里看目录、读文件、新建文件",
+  "type": "module",
+  "bin": {
+    "amie-bridge": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js run",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

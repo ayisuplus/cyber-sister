@@ -76,7 +76,7 @@ describe('memoryService.getSuggestions', () => {
 })
 
 describe('memoryService mutations', () => {
-  it('creates, updates, removes and clears memories', async () => {
+  it('creates, updates and removes memories', async () => {
     api.post.mockResolvedValue({ data: { id: 'm1' } })
     api.put.mockResolvedValue({ data: { id: 'm1', content: '更新' } })
     api.delete.mockResolvedValue({ data: {} })
@@ -84,13 +84,11 @@ describe('memoryService mutations', () => {
     const created = await memoryService.create({ content: '新记忆' })
     const updated = await memoryService.update('m1', { content: '更新' })
     await memoryService.remove('m1')
-    await memoryService.clear()
 
     expect(api.post).toHaveBeenCalledWith('/memories', { content: '新记忆' })
     expect(created).toEqual({ id: 'm1' })
     expect(api.put).toHaveBeenCalledWith('/memories/m1', { content: '更新' })
     expect(updated).toEqual({ id: 'm1', content: '更新' })
-    expect(api.delete).toHaveBeenNthCalledWith(1, '/memories/m1')
-    expect(api.delete).toHaveBeenNthCalledWith(2, '/memories')
+    expect(api.delete).toHaveBeenCalledWith('/memories/m1')
   })
 })

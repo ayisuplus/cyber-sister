@@ -36,7 +36,7 @@ body:
         - module: auth（登录/鉴权）
         - module: memories（记忆）
         - module: compliance（危机/合规）
-        - module: virtual（虚拟试衣/化妆间）
+        - module: style（装扮 · 收藏）
         - module: docs（文档）
         - module: other
     validations:

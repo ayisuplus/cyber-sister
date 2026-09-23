@@ -1,15 +1,16 @@
 import { create } from 'zustand'
 import { chatService } from '../services/chatService'
 import { onSessionReset } from '../services/sessionLifecycle'
-import { isLocalWorkClient } from '../features/distribution'
 
-// 迟到流防护：streamSeq 单调递增标记当前流归属，
-// 切换会话/重置/新发送时 abort 旧流并递增序号，旧流事件一律丢弃。
+// 只有一段对话：store 只持有这段对话的 id 与已加载的消息（最新一页 + 往上翻出来的更早消息）。
+// 迟到流防护：streamSeq 单调递增标记当前流归属，重置/清空/新发送时 abort 旧流并递增序号，旧流事件一律丢弃。
 let streamSeq = 0
 let activeStreamController = null
 let storeVersion = 0
 let viewVersion = 0
-let listVersion = 0
+
+// 与服务端默认分页一致：一页满了就说明可能还有更早的
+const PAGE_SIZE = 50
 
 const stopActiveStream = () => {
   streamSeq += 1
@@ -20,7 +21,7 @@ const stopActiveStream = () => {
 }
 
 // 流事件处理：delta 累积进临时 AI 气泡，replace 整体替换临时文本，终态事件捕获待收尾。
-// 归属失效（序号已变或已切走会话）后事件一律丢弃。
+// 归属失效（序号已变或对话已被重置）后事件一律丢弃。
 const createStreamEventHandler = ({ set, get, tempAiId, isCurrentStream, targetId }) => {
   /** @type {any} */
   let terminalEvent = null
@@ -62,7 +63,7 @@ const createStreamEventHandler = ({ set, get, tempAiId, isCurrentStream, targetI
 
 // 流收尾：done 用已落库的持久化消息替换临时消息；blocked 写入持久化用户消息与干预文案；
 // error / 无终态事件（断线、服务端中途失败不落库）移除临时消息并抛带 code 的错误。
-const settleStream = ({ terminalEvent, set, withoutTempMessages, targetId }) => {
+const settleStream = ({ terminalEvent, set, withoutTempMessages }) => {
   const dropTempMessages = () =>
     set((state) => ({ messages: withoutTempMessages(state.messages), isTyping: false }))
 
@@ -111,99 +112,88 @@ const settleStream = ({ terminalEvent, set, withoutTempMessages, targetId }) => 
     messages: [
       ...withoutTempMessages(state.messages),
       userMessage,
-      aiMessage && { ...aiMessage, source },
+      // offerMemory：她那一轮你说了「帮我记住…」，回复下面的确认卡自动打开
+      aiMessage && { ...aiMessage, source, ...(terminalEvent.offerMemory === true ? { offerMemory: true } : {}) },
     ].filter(Boolean),
-    conversations: state.conversations.map((c) =>
-      c.id === targetId
-        ? { ...c, updatedAt: new Date().toISOString() }
-        : c
-    ),
   }))
   return { status: 'ok', source }
 }
 
+// 最新一页与已加载的更早消息合并：保留比最新一页更早的，其余以服务端为准
+const mergeLatest = (loaded, latest) => {
+  const latestIds = new Set(latest.map((message) => message.id))
+  const oldest = latest[0]?.createdAt
+  const earlier = oldest ? loaded.filter((message) => !latestIds.has(message.id) && !String(message.id).startsWith('temp-') && message.createdAt < oldest) : []
+  return [...earlier, ...latest]
+}
+
 export const useChatStore = create(
   (set, get) => ({
-    conversations: [],
-    archiveRevision: 0,
     currentConversationId: null,
     messages: [],
+    olderPage: 1,
+    hasOlder: false,
+    loadingOlder: false,
     isTyping: false,
     isSending: false,
 
-    loadConversations: async () => {
+    // 打开这段对话（没有就由服务端创建）。发送中不覆盖进行中的临时消息。返回对话 id，失败返回 null。
+    loadThread: async () => {
       const session = storeVersion
-      const list = ++listVersion
       const view = viewVersion
       try {
-        const conversations = await chatService.getConversations()
-        if (session !== storeVersion || list !== listVersion) return
-        // 只有一种对话；旧的工作会话在网页版仍不显示（后端同样过滤）
-        set({ conversations: isLocalWorkClient() ? conversations : conversations.filter(c => c.mode !== 'work') })
-
-        if (view === viewVersion && conversations.length > 0 && !get().currentConversationId) {
-          const first = get().conversations.find((c) => !c.archivedAt)
-          if (!first) return
-          await get().setCurrentConversation(first.id)
+        const thread = await chatService.getThread()
+        if (session !== storeVersion) return null
+        if (view !== viewVersion || get().isSending) {
+          if (!get().currentConversationId) set({ currentConversationId: thread.id })
+          return thread.id
         }
+        const messages = thread.messages || []
+        set({ currentConversationId: thread.id, messages, olderPage: 1, hasOlder: messages.length >= PAGE_SIZE })
+        return thread.id
       } catch {
-        // 页面保持可重试的空状态，不向浏览器日志写入请求配置。
+        // 保持可重试的空状态，不向浏览器日志写入请求配置。
+        return null
       }
     },
 
-    createConversation: async () => {
-      stopActiveStream()
+    // 往上翻：取更早的一页，按 id 去重后放在最前面
+    loadOlder: async () => {
+      const { currentConversationId, olderPage, loadingOlder, hasOlder } = get()
+      if (!currentConversationId || loadingOlder || !hasOlder) return
       const session = storeVersion
-      const view = ++viewVersion
-      listVersion += 1
-      set({ isSending: false, isTyping: false })
-      const conversation = await chatService.createConversation()
-      if (session !== storeVersion || view !== viewVersion) return null
-      set((state) => ({
-        conversations: [conversation, ...state.conversations],
-        currentConversationId: conversation.id,
-        messages: [],
-      }))
-      return conversation
-    },
-
-    setCurrentConversation: async (id) => {
-      // 作废旧流：进行中的流被取消，迟到事件因序号失效被丢弃
-      stopActiveStream()
-      const view = ++viewVersion
-      set({ currentConversationId: id, messages: [], isTyping: false, isSending: false })
-
+      set({ loadingOlder: true })
       try {
-        const conversation = await chatService.getConversation(id)
-          // 响应回来时若已切换到其它会话，丢弃这条过期数据
-          if (view !== viewVersion || get().currentConversationId !== id) return
-          if (!isLocalWorkClient() && conversation.mode === 'work') {
-            set({ currentConversationId: null, messages: [] })
-            return
-          }
-        set({ messages: conversation.messages || [] })
+        const page = await chatService.getThread({ page: olderPage + 1, limit: PAGE_SIZE })
+        if (session !== storeVersion) return
+        const older = page.messages || []
+        set((state) => {
+          const known = new Set(state.messages.map((message) => message.id))
+          return { messages: [...older.filter((message) => !known.has(message.id)), ...state.messages], olderPage: olderPage + 1, hasOlder: older.length >= PAGE_SIZE }
+        })
       } catch {
-        // 保持该会话的空状态，不把其它会话消息展示为当前记录。
+        // 保持现状，可以再点一次。
+      } finally {
+        if (session === storeVersion) set({ loadingOlder: false })
       }
     },
 
-    // 后台结果刷新不会取消正在发送的消息，也不会把旧会话响应写进新页面。
-    refreshConversation: async (id) => {
-      if (get().currentConversationId !== id || get().isSending) return
+    // 后台结果刷新不会取消正在发送的消息，也不会丢掉已经往上翻出来的更早消息。
+    refreshThread: async () => {
+      if (get().isSending) return
       const view = viewVersion
       const session = storeVersion
       try {
-        const conversation = await chatService.getConversation(id)
-        if (!isLocalWorkClient() && conversation.mode === 'work') return
-        if (view !== viewVersion || session !== storeVersion || get().currentConversationId !== id || get().isSending) return
-        set({ messages: conversation.messages || [] })
-      } catch { /* Task results remain available through the conversation history. */ }
+        const thread = await chatService.getThread()
+        if (view !== viewVersion || session !== storeVersion || get().isSending) return
+        set((state) => ({ currentConversationId: thread.id, messages: mergeLatest(state.messages, thread.messages || []) }))
+      } catch { /* 任务结果仍在对话里，下次打开可见。 */ }
     },
 
-    sendMessage: async (content, { image = null, files = [] } = {}) => {
+    sendMessage: async (content, { image = null, files = [], reading = null } = {}) => {
       if ((content.trim() === '' && !image && !files.length) || get().isSending) return
 
-      // 发送守卫立即生效，并覆盖会话创建，避免并发发送/并发建会话
+      // 发送守卫立即生效，并覆盖首次打开对话，避免并发发送
       set({ isSending: true })
       // 新发送作废旧流（abort + 序号失效）
       stopActiveStream()
@@ -226,15 +216,10 @@ export const useChatStore = create(
 
       try {
         if (!get().currentConversationId) {
-          // 自动创建属于当前发送；公开的新建操作会取消流，因此在这里直接创建。
-          listVersion += 1
-          const conversation = await chatService.createConversation()
+          // 还没打开过这段对话：先取回它的 id（发送中不覆盖消息）
+          const id = await get().loadThread()
           if (!isCurrentStream()) return { status: 'aborted' }
-          set((state) => ({
-            conversations: [conversation, ...state.conversations],
-            currentConversationId: conversation.id,
-            messages: [],
-          }))
+          if (!id) throw new Error('对话加载失败')
         }
         const targetId = get().currentConversationId
 
@@ -253,7 +238,7 @@ export const useChatStore = create(
           set, get, tempAiId, isCurrentStream, targetId,
         })
 
-        await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent, image: image?.blob ?? null, files })
+        await chatService.streamMessage(targetId, content, { signal: controller.signal, onEvent, image: image?.blob ?? null, files, reading })
 
         if (!isCurrentStream() || get().currentConversationId !== targetId) {
           // 等待流收尾期间被作废：丢弃结果，不留临时消息
@@ -265,7 +250,6 @@ export const useChatStore = create(
           terminalEvent: getTerminalEvent(),
           set,
           withoutTempMessages,
-          targetId,
         })
       } catch (error) {
         removeTempMessages()
@@ -279,65 +263,35 @@ export const useChatStore = create(
       }
     },
 
-    archiveConversation: async (id) => {
-      const session = storeVersion
-      await chatService.setArchived(id, true)
-      if (session !== storeVersion) return
-      listVersion += 1
-      set((state) => ({ conversations: state.conversations.filter((c) => c.id !== id), archiveRevision: state.archiveRevision + 1 }))
-      if (get().currentConversationId === id) {
-        stopActiveStream()
-        viewVersion += 1
-        set({ currentConversationId: null, messages: [], isSending: false, isTyping: false })
-        const next = get().conversations.find((c) => !c.archivedAt)
-        if (next) await get().setCurrentConversation(next.id)
-      }
+    // 确认卡处理完一条待确认动作：就地替换那条 toolRun（pending 消失，卡片让位给动作标签）
+    patchToolRun: (messageId, index, toolRun) => {
+      set((state) => ({
+        messages: state.messages.map((message) => (message.id !== messageId || !Array.isArray(message.toolRuns)
+          ? message
+          : { ...message, toolRuns: message.toolRuns.map((run, runIndex) => (runIndex === index ? toolRun : run)) })),
+      }))
     },
 
-    deleteConversation: async (id) => {
+    // 清空聊天记录：服务端删掉这段对话里的全部消息；她记得的你和她的状态不受影响
+    clearThread: async () => {
       const session = storeVersion
-      await chatService.deleteConversation(id)
+      await chatService.clearThread()
       if (session !== storeVersion) return
-      listVersion += 1
-
-      const deletingCurrent = get().currentConversationId === id
-      const nextConversationId = deletingCurrent
-        ? get().conversations.find((conversation) => conversation.id !== id && !conversation.archivedAt)?.id || null
-        : get().currentConversationId
-      set((state) => {
-        const conversations = state.conversations.filter((c) => c.id !== id)
-
-        return {
-          conversations,
-          currentConversationId: nextConversationId,
-          messages: deletingCurrent ? [] : state.messages,
-        }
-      })
-      if (deletingCurrent) {
-        stopActiveStream()
-        viewVersion += 1
-        set({ isSending: false, isTyping: false })
-      }
-      if (deletingCurrent && nextConversationId) {
-        await get().setCurrentConversation(nextConversationId)
-      }
-    },
-
-    clearMessages: () => {
       stopActiveStream()
       viewVersion += 1
-      set({ messages: [], isSending: false, isTyping: false })
+      set({ messages: [], olderPage: 1, hasOlder: false, isSending: false, isTyping: false })
     },
+
     reset: () => {
       stopActiveStream()
       storeVersion += 1
       viewVersion += 1
-      listVersion += 1
       set({
-        conversations: [],
-        archiveRevision: 0,
         currentConversationId: null,
         messages: [],
+        olderPage: 1,
+        hasOlder: false,
+        loadingOlder: false,
         isTyping: false,
         isSending: false,
       })

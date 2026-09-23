@@ -8,7 +8,7 @@ export const PERSONAS = [
   { id: 'rational', name: '理性军师' },
   { id: 'energetic', name: '元气炸弹' },
   { id: 'sister', name: '知心姐姐' },
-  { id: 'cool', name: '高冷靠谱' },
+  { id: 'cool', name: '安静' },
 ]
 
 export const SPEAKING_STYLES = [

@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "frozenAt": "2026-09-22",
+  "note": "「懂你」检验集（路线图 C9 第三步）：场景与期望在这里冻结。改动期望要产品负责人确认，不在实现里默默改。跑法见 apps/api/src/services/chatService.test.js 的『「懂你」检验集（冻结）』一节；这里只断言拼给模型的那段上下文里有什么、没有什么，不调模型、不花钱。",
+  "cases": [
+    {
+      "id": "call-me-and-pinned",
+      "title": "她知道怎么叫你、把放在心上那几条每轮都带上",
+      "text": "今天过得还行",
+      "given": {
+        "nickname": "小鱼",
+        "memories": [
+          { "id": "pinned-1", "content": "我对芒果过敏", "pinned": true, "importance": 5, "type": "semantic" },
+          { "id": "plain-1", "content": "喜欢下雨天", "pinned": false, "importance": 5, "type": "semantic" }
+        ]
+      },
+      "expect": {
+        "contain": ["她希望你叫她「小鱼」", "我对芒果过敏"],
+        "absent": []
+      }
+    },
+    {
+      "id": "moment-and-gap",
+      "title": "她知道你那边几点、你们上一句话隔了多久",
+      "text": "我回来啦",
+      "given": { "lastMessageDaysAgo": 3 },
+      "expect": {
+        "contain": ["【此刻】", "北京时间", "3 天前"],
+        "absent": []
+      }
+    },
+    {
+      "id": "today-said",
+      "title": "她知道自己今天主动对你说过什么",
+      "text": "好的",
+      "given": { "nudges": ["该喝水啦"] },
+      "expect": {
+        "contain": ["【你今天主动对她说过】", "该喝水啦"],
+        "absent": []
+      }
+    },
+    {
+      "id": "period-not-consented",
+      "title": "没打开「顾及周期」时，她不读经期记录、上下文里也没有那一句",
+      "text": "今天好累",
+      "given": { "periodConsent": false, "periodRecord": true },
+      "expect": {
+        "contain": [],
+        "absent": ["不要提起经期或身体"],
+        "unread": ["periodRecord"]
+      }
+    },
+    {
+      "id": "period-consented-in-period",
+      "title": "两个同意都开着而且在经期里：只多一句「她这几天在经期」的语气要求，不做任何推测",
+      "text": "今天好累",
+      "given": { "periodConsent": true, "periodRecord": true },
+      "expect": {
+        "contain": ["她这几天在经期", "不要提起经期或身体"],
+        "absent": ["快来了"]
+      }
+    },
+    {
+      "id": "medium-crisis-careful",
+      "title": "「活着好累」这类中级线索：照常回应，但这一轮格外小心，且不塞工具目录",
+      "text": "活着好累",
+      "given": { "crisis": "medium" },
+      "expect": {
+        "contain": ["【这一轮请格外小心】", "先接住她的感受", "不编造任何热线号码"],
+        "absent": ["add_task"]
+      }
+    },
+    {
+      "id": "venting-no-tools",
+      "title": "只是倾诉的一轮：难过、又没有办事的线索，工具目录整个不出现",
+      "text": "今天好难过",
+      "given": {},
+      "expect": {
+        "contain": [],
+        "absent": ["add_task", "list_collection"]
+      }
+    },
+    {
+      "id": "vent-with-task-words",
+      "title": "难过的一句里带了「记住」「帮我」这样的字，仍是倾诉轮：不塞工具目录，只留聊天规则",
+      "text": "我什么都记不住了，帮帮我，好难过",
+      "given": {},
+      "expect": {
+        "contain": ["这一轮是聊天"],
+        "absent": ["add_task", "list_collection"]
+      }
+    },
+    {
+      "id": "high-crisis-blocked",
+      "title": "明确的自伤意图（高级）：根本不调模型，照旧整轮拦下",
+      "text": "我想消失",
+      "given": { "crisis": "high" },
+      "expect": {
+        "contain": [],
+        "absent": [],
+        "model": false
+      }
+    }
+  ]
+}

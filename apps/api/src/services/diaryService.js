@@ -1,10 +1,9 @@
 /**
- * 日记服务：按本地日历日一记（userId+day 唯一），心情与聊天同词表，
- * 回应接口当前返回明确标注的模拟预览，不调用模型或写回预览内容。
+ * 日记服务：按本地日历日一记（userId+day 唯一），心情与聊天同词表。
+ * 以前生成过的 AI 回应只读保留；内容编辑后清空。
  */
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
-import { generateWorkComment } from './workCloudService.js'
 import { parseUtcDay, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 
@@ -78,20 +77,4 @@ export async function deleteEntry(userId, dayStr) {
   if (!entry) throw new HttpError('这一天还没有日记', 404)
   await prisma.diaryEntry.delete({ where: { id: entry.id } })
   logger.info('删除日记', { userId, day: dayStr })
-}
-
-/**
- * 读取既有回应，或为已保存日记返回不落库的模拟预览。
- * 幂等：已有回应直接返回，不重复消耗模型；内容被编辑后回应清空，可再生成。
- */
-export async function generateComment(userId, dayStr, requestId) {
-  const day = parseUtcDay(dayStr)
-  const entry = await prisma.diaryEntry.findUnique({ where: { userId_day: { userId, day } } })
-  if (!entry) throw new HttpError('这一天还没有日记，先写点什么吧', 404)
-  if (entry.aiComment) {
-    return { aiComment: entry.aiComment, source: entry.aiCommentSource, reused: true }
-  }
-
-  const note = await generateWorkComment('diary', { userId, day: dayStr, entryId: entry.id, requestId })
-  return { aiComment: note.content, source: note.source, reused: false, execution: note.execution }
 }

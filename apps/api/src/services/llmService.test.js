@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 
 const gatewayComplete = vi.hoisted(() => vi.fn())
 const gatewayStream = vi.hoisted(() => vi.fn())
+const providerRows = vi.hoisted(() => ({ listProvidersForGateway: vi.fn(async () => []) }))
 
 vi.mock('@cyber-sister/llm-gateway', () => ({
   createGateway: vi.fn(() => Promise.resolve({
@@ -11,11 +14,20 @@ vi.mock('@cyber-sister/llm-gateway', () => ({
   })),
 }))
 
+// 只替换读库那一步：槽名与场景常量仍用真实实现，测试才算真的验了装配
+vi.mock('./modelProviderService.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  listProvidersForGateway: providerRows.listProvidersForGateway,
+}))
+
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
+import { createGateway } from '@cyber-sister/llm-gateway'
+import logger from '../utils/logger.js'
 import {
+  activeChatProviders,
   buildMemoryContext,
   buildDerivedContext,
   buildModelMessages,
@@ -26,10 +38,14 @@ import {
   generateLocalTemplateResponse,
   generateResponse,
   generateResponseStream,
+  getGateway,
+  isCloudProviderConfigured,
+  loadCloudProviders,
   cosineSimilarity,
   CloudConsentRequiredError,
   LlmUnavailableError,
   redactSensitiveText,
+  resetCloudProviders,
   resetGatewayCache,
   retrieveRelevantMemories,
 } from './llmService.js'
@@ -51,6 +67,9 @@ function withoutCloudEnv() {
 }
 
 const authorized = () => Promise.resolve(true)
+
+// 供应商快照是模块级状态：每个用例都从「还没读过库」开始，避免互相影响
+beforeEach(() => { resetCloudProviders() })
 
 describe('工作代码协议回归', () => {
   beforeEach(() => { withCloudEnv(); resetGatewayCache(); vi.clearAllMocks() })
@@ -228,6 +247,35 @@ describe('llmService 数据最小化', () => {
     expect(context).not.toContain('importance')
   })
 
+  it('记忆分两组：此刻可以自然提起的，和知道就好、不必主动提的', () => {
+    const context = buildMemoryContext([
+      { id: 'a', type: 'semantic', content: '周三要答辩', foreground: true },
+      { id: 'b', type: 'semantic', content: '喜欢下雨天', foreground: false },
+    ])
+    const [mention, background] = context.split('你知道、但不必主动提起')
+    expect(mention).toContain('此刻相关、可以自然地提起')
+    expect(mention).toContain('周三要答辩')
+    expect(background).toContain('喜欢下雨天')
+    expect(background).not.toContain('周三要答辩')
+  })
+
+  it('没经过内核挑选的记忆都算可以提起，不出现空的那一组', () => {
+    const context = buildMemoryContext([{ id: 'a', type: 'semantic', content: '喜欢火锅' }])
+    expect(context).toContain('此刻相关、可以自然地提起')
+    expect(context).not.toContain('你知道、但不必主动提起')
+  })
+
+  it('记忆带跨功能来源标注 from，没有可标注来源就不加这个键', () => {
+    const labeled = buildMemoryContext([
+      { id: 'm1', type: 'semantic', content: '喜欢火锅', sources: [{ type: 'reading_note', id: 'n1', quote: 'x' }] },
+    ])
+    expect(labeled).toContain('"from":"你读书时记的"')
+
+    const plain = buildMemoryContext([{ id: 'm2', type: 'semantic', content: '喜欢火锅', sources: [] }])
+    expect(plain).not.toContain('"from"')
+    expect(buildMemoryContext([{ id: 'm3', type: 'semantic', content: '喜欢火锅' }])).not.toContain('"from"')
+  })
+
   it('兼容入口也永远不会为未确认草稿构建聊天上下文', () => {
     expect(buildDerivedContext([])).toBe('')
     const context = buildDerivedContext([
@@ -337,6 +385,139 @@ describe('buildGatewayEnv 云端唯一路径', () => {
     expect(env.GATEWAY_SCENE_chat).toBe('qwen')
     expect(env.GATEWAY_SCENE_explain).toBe('qwen')
     expect(env.GATEWAY_LLAMACPP_BASE_URL).toBeUndefined()
+  })
+})
+
+describe('自定义模型供应商装配（2026-09-22）', () => {
+  const provider = (id, host, scenes = ['chat'], priority = 1) => ({
+    id,
+    name: host,
+    baseUrl: `https://${host}.example/v1`,
+    model: `${host}-chat`,
+    apiKey: `key-${host}`,
+    scenes,
+    priority,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetCloudProviders()
+    resetGatewayCache()
+    providerRows.listProvidersForGateway.mockResolvedValue([])
+  })
+
+  it('一家都没配时退回 GATEWAY_QWEN_* 槽位，现有部署不受影响', async () => {
+    await loadCloudProviders()
+    const env = buildGatewayEnv({ ...CLOUD_ENV })
+    expect(env.GATEWAY_PROVIDERS).toBe('qwen')
+    expect(env.GATEWAY_SCENE_chat).toBe('qwen')
+    expect(env.GATEWAY_SCENE_work).toBe('qwen')
+    expect(env.GATEWAY_QWEN_SCOPE).toBe('external')
+    expect(activeChatProviders()).toEqual([])
+  })
+
+  it('配了两家就按优先级拼出两家槽位与场景路由', async () => {
+    providerRows.listProvidersForGateway.mockResolvedValue([
+      provider('id-1', 'jia', ['chat', 'explain'], 1),
+      provider('id-2', 'yi', ['chat'], 2),
+    ])
+    await loadCloudProviders()
+    const env = buildGatewayEnv({ ...process.env, ...CLOUD_ENV })
+
+    expect(env.GATEWAY_PROVIDERS).toBe('mpid1,mpid2')
+    expect(env.GATEWAY_SCENE_chat).toBe('mpid1,mpid2')
+    expect(env.GATEWAY_SCENE_explain).toBe('mpid1')
+    // 没有一家承接工作台：不写这条路由，网关就不会误用一家没声明过的供应商
+    expect(env.GATEWAY_SCENE_work).toBeUndefined()
+    expect(env.GATEWAY_MPID1_BASE_URL).toBe('https://jia.example/v1')
+    expect(env.GATEWAY_MPID1_MODEL).toBe('jia-chat')
+    expect(env.GATEWAY_MPID1_API_KEY).toBe('key-jia')
+    expect(env.GATEWAY_MPID1_SCOPE).toBe('external')
+    expect(env.GATEWAY_MPID1_SAFE_NETWORK).toBe('true')
+    expect(env.GATEWAY_MPID1_ALLOW_LOOPBACK).toBe('false')
+    expect(env.GATEWAY_MPID1_SCENES).toBe('chat,explain')
+    expect(env.GATEWAY_MPID1_PRIORITY).toBe('1')
+    expect(env.GATEWAY_MPID2_PRIORITY).toBe('2')
+    // 数据库里有配置时，环境变量槽不再参与
+    expect(env.GATEWAY_PROVIDERS).not.toContain('qwen')
+    expect(activeChatProviders()).toEqual([{ name: 'jia', model: 'jia-chat' }, { name: 'yi', model: 'yi-chat' }])
+  })
+
+  it('isCloudProviderConfigured 同时看数据库与环境变量', async () => {
+    withoutCloudEnv()
+    await loadCloudProviders()
+    expect(isCloudProviderConfigured()).toBe(false)
+
+    providerRows.listProvidersForGateway.mockResolvedValue([provider('id-1', 'jia')])
+    await loadCloudProviders()
+    expect(isCloudProviderConfigured()).toBe(true)
+  })
+
+  it('配置一变就清掉网关缓存，下一次聊天用新的装配', async () => {
+    providerRows.listProvidersForGateway.mockResolvedValue([provider('id-1', 'jia')])
+    await loadCloudProviders()
+    await getGateway()
+    expect(createGateway).toHaveBeenCalledTimes(1)
+    expect(createGateway.mock.calls[0][0].GATEWAY_PROVIDERS).toBe('mpid1')
+
+    // 管理员又加了一家：网关重建，而不是继续用旧的那一家
+    providerRows.listProvidersForGateway.mockResolvedValue([provider('id-1', 'jia'), provider('id-2', 'yi', ['chat'], 2)])
+    await loadCloudProviders()
+    await getGateway()
+    expect(createGateway).toHaveBeenCalledTimes(2)
+    expect(createGateway.mock.calls[1][0].GATEWAY_PROVIDERS).toBe('mpid1,mpid2')
+  })
+
+  it('网关的日志转成我们的 logger 口径：切换原因不会只剩 [object Object]', async () => {
+    providerRows.listProvidersForGateway.mockResolvedValue([provider('id-1', 'jia')])
+    await loadCloudProviders()
+    await getGateway()
+
+    const { logger: gatewayLogger } = createGateway.mock.calls[0][1]
+    expect(typeof gatewayLogger.warn).toBe('function')
+
+    // 网关是 pino 式调用（对象在前、消息在后），我们的 logger 相反
+    gatewayLogger.warn({ provider: 'mpid1', model: 'jia-chat', attempt: 1, result: 'http_401' }, 'llm gateway attempt failed')
+    expect(logger.warn).toHaveBeenCalledWith('llm gateway attempt failed', {
+      provider: 'mpid1', model: 'jia-chat', attempt: 1, result: 'http_401',
+    })
+
+    gatewayLogger.info('only a message')
+    expect(logger.info).toHaveBeenCalledWith('only a message')
+  })
+
+  it('两家时前一家失败就换下一家（真网关，本机测试端点）', async () => {
+    const calls = []
+    const first = createServer((_request, response) => { calls.push('jia'); response.writeHead(500).end() })
+    const second = createServer((_request, response) => {
+      calls.push('yi')
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ choices: [{ message: { content: '我在。' } }] }))
+    })
+    first.listen(0, '127.0.0.1')
+    second.listen(0, '127.0.0.1')
+    await Promise.all([once(first, 'listening'), once(second, 'listening')])
+    providerRows.listProvidersForGateway.mockResolvedValue([
+      { ...provider('id-1', 'jia', ['chat'], 1), baseUrl: `http://127.0.0.1:${first.address().port}/v1` },
+      { ...provider('id-2', 'yi', ['chat'], 2), baseUrl: `http://127.0.0.1:${second.address().port}/v1` },
+    ])
+    await loadCloudProviders()
+    const { createGateway: realCreateGateway } = await vi.importActual('@cyber-sister/llm-gateway')
+    const realGateway = await realCreateGateway(buildGatewayEnv({ APP_DISTRIBUTION: 'local', BIND_ADDRESS: '127.0.0.1' }), {})
+
+    try {
+      const result = await realGateway.complete({
+        scene: 'chat',
+        requestId: 'r-provider-failover',
+        messages: [{ role: 'user', content: '你好' }],
+        allowExternal: true,
+        authorizeExternal: async () => true,
+      })
+      expect(result).toMatchObject({ content: '我在。', provider: 'mpid2', model: 'yi-chat', scope: 'external' })
+      expect(calls).toEqual(['jia', 'jia', 'yi'])
+    } finally {
+      await Promise.all([first, second].map(server => new Promise(resolve => server.close(resolve))))
+    }
   })
 })
 
@@ -536,18 +717,25 @@ describe('generateCompanionNote / generateExplanationWithModel 同意门', () =>
     withCloudEnv()
   })
 
-  it('未同意时短评与解释均抛 CLOUD_NOT_CONSENTED', async () => {
-    await expect(generateCompanionNote({ persona: 'toxic', instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: false }))
+  it('未同意时摘要与解释均抛 CLOUD_NOT_CONSENTED', async () => {
+    await expect(generateCompanionNote({ instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: false }))
       .rejects.toThrow(CloudConsentRequiredError)
     await expect(generateExplanationWithModel('p', 'req-1', { allowExternal: false }))
       .rejects.toThrow(CloudConsentRequiredError)
     expect(gatewayComplete).not.toHaveBeenCalled()
   })
 
-  it('已同意时短评来源为 qwen 且经输出过滤', async () => {
-    gatewayComplete.mockResolvedValue({ content: '辛苦啦。', provider: 'qwen', model: 'm', scope: 'external' })
-    const note = await generateCompanionNote({ persona: 'toxic', instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: true, authorizeExternal: authorized })
-    expect(note).toMatchObject({ source: 'qwen', content: '辛苦啦。' })
+  it('摘要是内部笔记：走 explain、不带说话方式，含过滤词也原样保留', async () => {
+    // 回复过滤会把「找他理论」换成安慰模板；摘要若也被换掉，那段历史就永久丢了
+    const vent = '用户说被同事抢功，气到想去找他理论，最后决定先写邮件。'
+    gatewayComplete.mockResolvedValue({ content: vent, provider: 'qwen', model: 'm', scope: 'external' })
+
+    const note = await generateCompanionNote({ instruction: 'i', userText: 'u' }, 'req-1', { allowExternal: true, authorizeExternal: authorized })
+
+    expect(note).toMatchObject({ source: 'qwen', content: vent })
+    const request = gatewayComplete.mock.calls[0][0]
+    expect(request.scene).toBe('explain')
+    expect(request.persona).toBeUndefined()
   })
 
   for (const [name, call] of [

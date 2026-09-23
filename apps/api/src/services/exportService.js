@@ -44,6 +44,7 @@ export async function buildUserExport(userId) {
     derivedInsights,
     makeupPresets,
     wardrobeItems,
+    collectionItems,
     memoryEdges,
     letters,
     workTasks,
@@ -61,13 +62,15 @@ export async function buildUserExport(userId) {
         birthDate: true,
         externalLlmConsent: true,
         externalLlmConsentVersion: true,
+        periodConsentAt: true,
+        periodToneAt: true,
         createdAt: true,
       },
     }),
     prisma.memory.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
-      select: { type: true, content: true, importance: true, tags: true, origin: true, createdAt: true },
+      select: { type: true, content: true, importance: true, tags: true, origin: true, pinned: true, createdAt: true },
     }),
     prisma.conversation.findMany({
       where: { userId },
@@ -126,8 +129,13 @@ export async function buildUserExport(userId) {
         title: true,
         author: true,
         status: true,
+        format: true,
+        totalPages: true,
+        currentPage: true,
+        percent: true,
+        locator: true,
         createdAt: true,
-        notes: { orderBy: { createdAt: 'asc' }, select: { content: true, aiComment: true, createdAt: true } },
+        notes: { orderBy: { createdAt: 'asc' }, select: { content: true, page: true, quote: true, locator: true, aiComment: true, createdAt: true } },
       },
     }),
     prisma.studySession.findMany({
@@ -150,6 +158,11 @@ export async function buildUserExport(userId) {
       orderBy: { createdAt: 'asc' },
       select: { name: true, createdAt: true },
     }),
+    prisma.collectionItem.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { shelf: true, category: true, name: true, note: true, status: true, link: true, imageExt: true, createdAt: true, updatedAt: true },
+    }),
     prisma.memoryEdge.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
@@ -164,8 +177,8 @@ export async function buildUserExport(userId) {
     }),
     prisma.letter.findMany({
       where: { userId },
-      orderBy: { weekStart: 'asc' },
-      select: { weekStart: true, content: true, createdAt: true },
+      orderBy: { periodStart: 'asc' },
+      select: { periodStart: true, freqDays: true, content: true, createdAt: true },
     }),
     prisma.workTask.findMany({
       where: { userId }, orderBy: { createdAt: 'asc' },
@@ -200,6 +213,9 @@ export async function buildUserExport(userId) {
           birthDate: iso(user.birthDate),
           externalLlmConsent: user.externalLlmConsent,
           externalLlmConsentVersion: user.externalLlmConsentVersion,
+          // 经期的两项单独同意：记录，以及聊天时让她顾及周期
+          periodConsentAt: iso(user.periodConsentAt),
+          periodToneAt: iso(user.periodToneAt),
           createdAt: iso(user.createdAt),
         }
       : null,
@@ -209,6 +225,7 @@ export async function buildUserExport(userId) {
       importance: m.importance,
       tags: parseTags(m.tags),
       origin: m.origin,
+      pinned: m.pinned === true,
       createdAt: iso(m.createdAt),
     })),
     conversations: conversations.map((c) => ({
@@ -275,12 +292,18 @@ export async function buildUserExport(userId) {
       createdAt: iso(h.createdAt),
       checkins: h.checkins.map((c) => ({ day: iso(c.day), createdAt: iso(c.createdAt) })),
     })),
+    // 书本身存在用户自己的浏览器里，导不出来；这里带走的是书目、进度与笔记
     books: books.map((b) => ({
       title: b.title,
       author: b.author,
       status: b.status,
+      format: b.format,
+      totalPages: b.totalPages,
+      currentPage: b.currentPage,
+      percent: b.percent,
+      locator: b.locator,
       createdAt: iso(b.createdAt),
-      notes: b.notes.map((n) => ({ content: n.content, aiComment: n.aiComment, createdAt: iso(n.createdAt) })),
+      notes: b.notes.map((n) => ({ content: n.content, page: n.page, quote: n.quote, locator: n.locator, aiComment: n.aiComment, createdAt: iso(n.createdAt) })),
     })),
     studySessions: studySessions.map((s) => ({
       subject: s.subject,
@@ -303,6 +326,18 @@ export async function buildUserExport(userId) {
     })),
     // 衣柜只导出单品元数据：照片与 GLB 属 v1 二进制资产边界（同头像/背景），不落导出包
     wardrobeItems: wardrobeItems.map((w) => ({ name: w.name, createdAt: iso(w.createdAt) })),
+    // 装扮里的收藏：照片同属二进制资产边界，只记有没有照片
+    collection: collectionItems.map((item) => ({
+      shelf: item.shelf,
+      category: item.category ?? null,
+      name: item.name,
+      note: item.note ?? null,
+      status: item.status,
+      link: item.link ?? null,
+      hasPhoto: Boolean(item.imageExt),
+      createdAt: iso(item.createdAt),
+      updatedAt: iso(item.updatedAt),
+    })),
     derivedInsights: derivedInsights.map((d) => ({
       kind: d.kind,
       content: d.content,
@@ -321,7 +356,7 @@ export async function buildUserExport(userId) {
       status: e.status,
       createdAt: iso(e.createdAt),
     })),
-    letters: letters.map((l) => ({ weekStart: iso(l.weekStart), content: l.content, createdAt: iso(l.createdAt) })),
+    letters: letters.map((l) => ({ periodStart: iso(l.periodStart), freqDays: l.freqDays, content: l.content, createdAt: iso(l.createdAt) })),
   }
 
   logger.info('用户数据导出', {
@@ -336,6 +371,7 @@ export async function buildUserExport(userId) {
     books: bundle.books.length,
     makeupPresets: bundle.makeupPresets.length,
     wardrobeItems: bundle.wardrobeItems.length,
+    collection: bundle.collection.length,
     studySessions: bundle.studySessions.length,
     derivedInsights: bundle.derivedInsights.length,
     memoryEdges: bundle.memoryEdges.length,

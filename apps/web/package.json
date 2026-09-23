@@ -16,16 +16,16 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@google/model-viewer": "^4.3.1",
-    "@mediapipe/tasks-vision": "0.10.35",
     "axios": "^1.7.4",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.427.0",
+    "lxgw-wenkai-screen-webfont": "1.7.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "10.1.0",
     "react-router-dom": "^6.26.0",
     "remark-gfm": "4.0.1",
+    "schedule-logic": "workspace:*",
     "zustand": "^4.5.4"
   },
   "devDependencies": {

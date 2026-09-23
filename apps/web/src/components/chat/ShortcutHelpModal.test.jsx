@@ -9,7 +9,7 @@ describe('ShortcutHelpModal', () => {
     render(<ShortcutHelpModal open onClose={vi.fn()} />)
 
     expect(screen.getByRole('alertdialog', { name: '键盘快捷键' })).toBeInTheDocument()
-    expect(screen.getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.getAllByRole('listitem')).toHaveLength(6)
     for (const { keys, label } of SHORTCUTS) {
       expect(screen.getByText(label)).toBeInTheDocument()
       expect(screen.getByText(keys)).toBeInTheDocument()
