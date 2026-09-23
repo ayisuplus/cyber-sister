@@ -23,11 +23,13 @@ const optionOf = (name) => {
 }
 
 if (args.includes('--help')) {
-  console.log('用法：eval-replies [--live] [--arms A,B,C] [--cases e01,b0] [--limit 5]')
+  console.log('用法：eval-replies [--live] [--validate-only] [--arms A,B,C] [--cases e01,b0] [--limit 5]')
   process.exit(0)
 }
 
 const env = { ...process.env, EVAL_MODE: args.includes('--live') ? 'live' : 'dry' }
+// 只用手写的正反例自检打分模型，不生成、不比较各组：挑打分模型时用，花费最小
+if (args.includes('--validate-only')) env.EVAL_VALIDATE_ONLY = '1'
 for (const [flag, name] of [['--arms', 'EVAL_ARMS'], ['--cases', 'EVAL_CASES'], ['--limit', 'EVAL_LIMIT']]) {
   const value = optionOf(flag)
   if (value) env[name] = value
@@ -56,7 +58,7 @@ if (latest) {
     const meta = JSON.parse(readFileSync(path.join(latest, 'run.json'), 'utf8'))
     console.log([
       '',
-      `[评测] ${meta.mode === 'live' ? '真实调用' : '桩模式（没有联网，数字不代表模型表现）'}：${meta.caseCount} 个场景，分组 ${meta.arms.join('、')}`,
+      `[评测] ${meta.mode === 'live' ? '真实调用' : '桩模式（没有联网，数字不代表模型表现）'}：${meta.caseCount} 个场景，${meta.arms.length ? `分组 ${meta.arms.join('、')}` : '只自检打分模型'}`,
       `[评测] 生成 ${meta.calls.generation} 次，打分 ${meta.calls.judge} 次，发出的提示词共 ${meta.promptChars} 字`,
       `[评测] 报告：${path.join(latest, 'report.md')}`,
     ].join('\n'))

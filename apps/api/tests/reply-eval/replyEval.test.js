@@ -377,7 +377,8 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
   it('按冻结的数据集跑一遍并写出报告', async () => {
     const problems = [...validateRubric(rubric), ...validateScenarios(scenarios, rubric)]
     if (problems.length) throw new Error(`数据集有问题，先修好再跑：\n${problems.join('\n')}`)
-    const arms = parseArms(process.env.EVAL_ARMS)
+    // 只自检打分模型时不生成、不比较，只拿手写的正反例考它
+    const arms = process.env.EVAL_VALIDATE_ONLY === '1' ? [] : parseArms(process.env.EVAL_ARMS)
     const cases = selectCases()
     const startedAt = new Date()
     const dir = path.join(RESULTS_ROOT, `${stampOf(startedAt)}-${MODE}`)
@@ -422,6 +423,6 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
     writeJsonl(path.join(dir, 'gateway-log.jsonl'), h.logs)
     writeFileSync(path.join(dir, 'run.json'), `${JSON.stringify({ ...meta, summary: summarize(record) }, null, 2)}\n`)
     writeFileSync(path.join(dir, 'report.md'), renderMarkdown(record))
-    expect(run.generations.length).toBeGreaterThan(0)
+    expect(arms.length ? run.generations.length : run.validation.pairwise.length).toBeGreaterThan(0)
   }, 4 * 60 * 60 * 1000)
 })

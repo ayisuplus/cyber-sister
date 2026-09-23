@@ -94,7 +94,7 @@ export function renderMarkdown(run, summary = summarize(run)) {
     `- 代码：${meta.commit}`,
     `- 场景集：v${meta.scenariosVersion}（${meta.scenariosStatus === 'frozen' ? `已冻结 ${meta.scenariosFrozenAt}` : '草案，未冻结'}），${meta.caseCount} 个场景；评分标准 v${meta.rubricVersion}（${meta.rubricStatus === 'frozen' ? '已冻结' : '草案'}）`,
     `- 生成：${meta.generator}；打分：${meta.judge}`,
-    `- 分组：${arms.map(armName).join('、')}`,
+    `- 分组：${arms.length ? arms.map(armName).join('、') : '（这次只自检打分模型）'}`,
     `- 调用：生成 ${meta.calls.generation} 次，打分 ${meta.calls.judge} 次；发出的提示词共 ${meta.promptChars} 字`,
   ]
   if (meta.scenariosStatus !== 'frozen' || meta.rubricStatus !== 'frozen') {
@@ -111,6 +111,7 @@ export function renderMarkdown(run, summary = summarize(run)) {
   ), '', validation.trusted
     ? `结论：两两比较准确率不低于 ${TRUST_THRESHOLD * 100}%，可以用它来比较各组。`
     : `结论：两两比较准确率低于 ${TRUST_THRESHOLD * 100}%，先改评分标准的措辞（要产品负责人同意），暂不比较各组。`)
+  if (!arms.length) return `${lines.join('\n')}\n`
 
   lines.push('', '## 各组通过率', '', table(
     ['组', '全部', ...Object.values(LAYERS), '退回本地模板', '生成失败', '答不清的条目', '每次生成的提示词（字）'],

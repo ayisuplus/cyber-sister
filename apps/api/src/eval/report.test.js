@@ -70,6 +70,13 @@ describe('报告', () => {
     expect(markdown).toContain('先改评分标准的措辞')
   })
 
+  it('只自检打分模型时只有自检那一节', () => {
+    const markdown = renderMarkdown(run({ meta: { ...run().meta, arms: [] }, generations: [], judgements: [], comparisons: [] }))
+    expect(markdown).toContain('（这次只自检打分模型）')
+    expect(markdown).toContain('## 打分模型自检')
+    expect(markdown).not.toContain('## 各组通过率')
+  })
+
   it('真实调用且数据集已冻结时不再提示草案', () => {
     const markdown = renderMarkdown(run({
       meta: { ...run().meta, mode: 'live', scenariosStatus: 'frozen', scenariosFrozenAt: '2026-09-30', rubricStatus: 'frozen' },
