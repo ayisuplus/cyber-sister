@@ -71,7 +71,8 @@ describe('InputBar', () => {
     fireEvent.change(screen.getByLabelText('选择工作文件'), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('', { image: null, files: [file] }))
-    expect(screen.getByText('数据.csv')).toBeInTheDocument()
+    // 发送没成：文件放回信笺
+    expect(await screen.findByText('数据.csv')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
     await waitFor(() => expect(screen.queryByText('数据.csv')).not.toBeInTheDocument())
   })
@@ -133,9 +134,10 @@ describe('InputBar', () => {
     expect(onDraftChange).toHaveBeenLastCalledWith(true)
   })
 
-  it('keeps the original input when sending is not confirmed', async () => {
+  it('点发送，字马上离开信笺；没放进本子（发送没成）就原样放回来', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn().mockResolvedValue(false)
+    let settle
+    const onSend = vi.fn(() => new Promise((resolve) => { settle = resolve }))
     render(<InputBar onSend={onSend} disabled={false} />)
 
     const input = screen.getByRole('textbox', { name: '聊天消息' })
@@ -143,10 +145,77 @@ describe('InputBar', () => {
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
     expect(onSend).toHaveBeenCalledWith('请重试', { image: null })
+    // 还没等到结果：信笺已经空了，这段字在本子里
+    expect(input).toHaveValue('')
+    await act(async () => { settle(false) })
     expect(input).toHaveValue('  请重试  ')
+    // 放回来就是原处的字，不再叠着一层正在淡去的
+    expect(document.querySelector('.chat-slip__handed')).toBeNull()
   })
 
-  it('clears the input only after a confirmed send', async () => {
+  it('没放进本子时，这期间新写的字接在放回来的那段后面，一个字不丢', async () => {
+    const user = userEvent.setup()
+    let settle
+    const onSend = vi.fn(() => new Promise((resolve) => { settle = resolve }))
+    render(<InputBar onSend={onSend} disabled={false} />)
+
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    await user.type(input, '第一段{Enter}')
+    expect(input).toHaveValue('')
+    await user.type(input, '又想到一句')
+    await act(async () => { settle(false) })
+
+    expect(input).toHaveValue('第一段\n又想到一句')
+  })
+
+  it('她还在写（busy）：信笺照样能写、能说，只是先放不进本子，并轻轻说一声', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn().mockResolvedValue(true)
+    const { rerender } = render(<InputBar onSend={onSend} disabled={false} busy />)
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    expect(input).toBeEnabled()
+    expect(await screen.findByRole('button', { name: '语音输入' })).toBeEnabled()
+    // 信笺空着时不多话
+    expect(screen.getByRole('status')).not.toHaveTextContent('她写完这一段')
+
+    await user.type(input, '还有，{Enter}')
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).toHaveValue('还有，')
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('她写完这一段，就能放进本子')
+
+    // 她写完了：提示收起，这一段可以放进本子
+    rerender(<InputBar onSend={onSend} disabled={false} busy={false} />)
+    expect(screen.getByRole('status')).not.toHaveTextContent('她写完这一段')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    expect(onSend).toHaveBeenCalledWith('还有，', { image: null })
+  })
+
+  it('放进本子的那几行在信笺上淡去，只给眼睛看，淡完就撤掉；要求减少动态效果时不播', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<InputBar onSend={vi.fn().mockResolvedValue(true)} disabled={false} />)
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+
+    await user.type(input, '今晚有点难过{Enter}')
+    const handed = container.querySelector('.chat-slip__handed')
+    expect(handed).toHaveTextContent('今晚有点难过')
+    expect(handed).toHaveAttribute('aria-hidden', 'true')
+    // 淡去的时候提示语先不出来，免得和那几行叠在一起
+    expect(input).toHaveClass('chat-slip__text--handing')
+    await waitFor(() => expect(container.querySelector('.chat-slip__handed')).toBeNull())
+    expect(input).not.toHaveClass('chat-slip__text--handing')
+
+    const reduced = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({ matches: query.includes('reduce') }))
+    try {
+      await user.type(input, '再说一句{Enter}')
+      expect(input).toHaveValue('')
+      expect(container.querySelector('.chat-slip__handed')).toBeNull()
+    } finally {
+      reduced.mockRestore()
+    }
+  })
+
+  it('clears the slip once the text is handed over', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn().mockResolvedValue(true)
     render(<InputBar onSend={onSend} disabled={false} />)
@@ -207,7 +276,7 @@ describe('InputBar', () => {
     expect(asrService.transcribeAudio).toHaveBeenCalledWith(expect.any(Blob), { signal: expect.any(AbortSignal) })
   })
 
-  it('长段转写填进来后书写行跟着长高，不抢焦点；几段中文直接接上，不加空格', async () => {
+  it('长段转写填进来后信笺跟着长高，不抢焦点；几段中文直接接上，不加空格', async () => {
     webmToWav16kMono.mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }))
     asrService.transcribeAudio.mockResolvedValueOnce({ text: '今天好累。' }).mockResolvedValueOnce({ text: '明天还要早起。' })
     stubMedia()
@@ -287,7 +356,7 @@ describe('InputBar', () => {
     await waitFor(() => expect(input).toHaveValue('今天好累。'))
     expect(screen.getByRole('status')).toHaveTextContent(AUTO_STOP_NOTICE)
 
-    // 书写行清空后提示收起；接着写下一句，旧提示不会再冒出来
+    // 信笺清空后提示收起；接着写下一句，旧提示不会再冒出来
     fireEvent.change(input, { target: { value: '' } })
     await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent(AUTO_STOP_NOTICE))
     fireEvent.change(input, { target: { value: '新的一句' } })
@@ -304,8 +373,10 @@ describe('InputBar', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('麦克风权限被拒绝')
   })
 
-  it('disables the mic while the chat is sending', () => {
+  it('disables the mic while the chat is sending', async () => {
     render(<InputBar onSend={vi.fn()} disabled />)
+    expect(await screen.findByRole('button', { name: '语音输入' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: '聊天消息' })).toBeDisabled()
   })
 
   it('does not send while the IME is composing', async () => {
@@ -350,7 +421,7 @@ describe('InputBar', () => {
     expect(asrService.transcribeAudio).not.toHaveBeenCalled()
   })
 
-  it('只有一种对话：语音、照片与附件同在一个输入胶囊里，占位文案只有一句', async () => {
+  it('只有一种对话：语音、照片与附件同在一张信笺上，占位文案只有一句', async () => {
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
     expect(await screen.findByRole('button', { name: '语音输入' })).toBeInTheDocument()

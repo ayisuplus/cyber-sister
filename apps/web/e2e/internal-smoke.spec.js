@@ -238,9 +238,11 @@ test('streaming chat settles deltas into the persisted messages from done', asyn
   await input.fill('最近有点累')
   await page.getByRole('button', { name: '发送消息' }).click()
 
-  // 流进行中：发送守卫生效，输入与发送键禁用，等待服务端事件
+  // 流进行中：字已经离开信笺、写进本子；发送守卫生效，发送键禁用，信笺照样能先写着（C20）
+  await expect(input).toHaveValue('')
+  await expect(page.getByRole('region', { name: '信纸' }).getByText('最近有点累')).toBeAttached()
   await expect(page.getByRole('button', { name: '发送消息' })).toBeDisabled()
-  await expect(input).toBeDisabled()
+  await expect(input).toBeEnabled()
   releaseStream()
 
   // done 后临时气泡被持久消息替换：内容合并完整、只出现一次；普通回复不再每条挂「云端模型」
@@ -531,21 +533,31 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
   })
   expect(book.width).toBeLessThanOrEqual(600)
   expect(Math.abs(book.left - book.right)).toBeLessThan(2)
-  // 手写字；横格与页边线画在整张纸上，从纸顶一直贯穿到书写行
+  // 手写字；横格与页边线画在整张纸上，从纸顶一直贯穿到页码那一行
   const entry = page.locator('.letter-entry').last()
   expect(await entry.evaluate(element => getComputedStyle(element).fontFamily)).toContain('LXGW WenKai Screen')
   const sheetBackground = await page.locator('.letter-sheet').evaluate(element => getComputedStyle(element).backgroundImage)
-  // 一整张纸上两层：横向位置的那条页边线 + 一叠横格；页码行与书写行都在同一张纸上
+  // 一整张纸上两层：横向位置的那条页边线 + 一叠横格
   expect(sheetBackground.match(/repeating-linear-gradient/g)).toHaveLength(2)
   expect(sheetBackground).toContain('to right')
-  // 正文列与最底下的书写行共用同一条页边线（纸带里正文列离纸的左边 = 书写行文字离纸的左边）
-  const aligned = await page.evaluate(() => {
-    const viewport = document.querySelector('.letter-viewport').getBoundingClientRect()
-    const stripLeft = parseFloat(getComputedStyle(document.querySelector('.letter-strip')).left)
-    const writing = document.querySelector('.letter-writing textarea').getBoundingClientRect()
-    return { column: viewport.left + stripLeft, writing: writing.left }
+  // 落笔的地方是本子下面单独的一张信笺（C20）：不在本子里，和本子的纸面左右对齐，写的是同样的手写字
+  const slip = await page.evaluate(() => {
+    const book = document.querySelector('.letter-book').getBoundingClientRect()
+    const sheet = document.querySelector('.letter-sheet').getBoundingClientRect()
+    const paper = document.querySelector('.chat-slip__paper').getBoundingClientRect()
+    return {
+      insideBook: Boolean(document.querySelector('.letter-book textarea')),
+      gap: paper.top - book.bottom,
+      left: paper.left - sheet.left,
+      right: paper.right - sheet.right,
+      font: getComputedStyle(document.querySelector('.letter-slip textarea')).fontFamily,
+    }
   })
-  expect(Math.abs(aligned.writing - aligned.column)).toBeLessThan(1.5)
+  expect(slip.insideBook).toBe(false)
+  expect(slip.gap).toBeGreaterThan(0)
+  expect(Math.abs(slip.left)).toBeLessThan(1.5)
+  expect(Math.abs(slip.right)).toBeLessThan(1.5)
+  expect(slip.font).toContain('LXGW WenKai Screen')
   await expectNoSeriousAxeFindings(page)
 
   expect(fontSlices.size).toBeGreaterThan(0)
@@ -576,6 +588,9 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
   ]))
   await page.getByRole('textbox', { name: '聊天消息' }).fill('晚安前想和你说说话')
   await page.getByRole('button', { name: '发送消息' }).click()
+  // 字离开信笺、写进本子
+  await expect(page.getByRole('textbox', { name: '聊天消息' })).toHaveValue('')
+  await expect(paper.getByText('晚安前想和你说说话')).toBeAttached()
   await expect(paper.getByText('第12句', { exact: false }).first()).toBeAttached()
   await expect.poll(async () => (await letterPages(page)).total).toBeGreaterThan(pages.total)
   pages = await letterPages(page)
@@ -601,6 +616,8 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
   await page.goto('/chat')
   await expect(page.locator('.letter-entry').last()).toBeAttached()
   expect(await page.locator('.letter-entry').last().evaluate(element => getComputedStyle(element).fontFamily)).not.toContain('LXGW')
+  // 信笺上的字跟着换：写的时候什么样，放进本子就什么样
+  expect(await page.locator('.letter-slip textarea').evaluate(element => getComputedStyle(element).fontFamily)).not.toContain('LXGW')
 
   // 夜里：暗色的纸也读得清
   await page.evaluate(() => localStorage.setItem('amie-theme', 'dark'))

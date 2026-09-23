@@ -279,20 +279,6 @@ h1, h2, h3 {
   backdrop-filter: blur(6px) saturate(1.05);
 }
 
-/* 聊天输入胶囊：hairline 环 + 悬浮影；只在正文框聚焦时亮起焦点环（按钮自有焦点样式） */
-.input-capsule {
-  box-shadow: 0 0 0 1px var(--cs-border-hairline), var(--cs-shadow-float);
-  transition: box-shadow var(--cs-dur-soft) var(--cs-ease-calm);
-}
-.input-capsule:has(textarea:focus) {
-  box-shadow: 0 0 0 2px var(--cs-focus-info), var(--cs-focus-halo), var(--cs-shadow-float);
-}
-@supports not selector(:has(*)) {
-  .input-capsule:focus-within {
-    box-shadow: 0 0 0 2px var(--cs-focus-info), var(--cs-focus-halo), var(--cs-shadow-float);
-  }
-}
-
 /* 表单字段：暖底，聚焦时转卡片色 + 焦点环与柔光 */
 .field-calm {
   background: var(--cs-surface-muted);
@@ -674,8 +660,8 @@ h1, h2, h3 {
 }
 
 /* ===== 本子（2026-09-22 追加）：左边一条封皮，翻页绕左边封线；封面是第 0 页 =====
- * 圆角与阴影只在本子外轮廓上；纸、页码那一行、最底下的书写行共用同一条页边线和同样的左右留白。
- * 宽屏也只摊开一页：本子居中，宽度不超过 --book-w。 */
+ * 圆角与阴影只在本子外轮廓上；纸和页码那一行共用同一条页边线和同样的左右留白。
+ * 宽屏也只摊开一页：本子居中，宽度不超过 --book-w。你落笔的地方在本子下面（见「信笺」一节）。 */
 .letter-book {
   display: flex;
   width: 100%;
@@ -705,7 +691,7 @@ h1, h2, h3 {
   box-shadow: inset -7px 0 9px -7px color-mix(in srgb, var(--cs-ink-her) 34%, transparent);
 }
 
-/* 一张纸：上面是写满字的页，中间一行页码，最底下是你落笔的那一行；横格与页边线画满整张 */
+/* 一张纸：上面是写满字的页，最底下一行页码；横格与页边线画满整张 */
 .letter-sheet {
   display: flex;
   min-width: 0;
@@ -895,7 +881,7 @@ h1, h2, h3 {
 }
 .letter-typing .typing-dot { background: var(--cs-ink-pencil); }
 
-/* 页码与翻页：和纸、书写行共用同一条页边线，自己不再画一条线 */
+/* 页码与翻页：和纸共用同一条页边线，自己不再画一条线 */
 .letter-nav {
   position: relative;
   display: flex;
@@ -905,6 +891,11 @@ h1, h2, h3 {
   gap: 4px;
   color: var(--cs-ink-pencil);
   font-size: 12px;
+}
+/* 合着的本子：页码这一行也是封面的纸板和布纹，整面都是封面 */
+.letter-nav[data-cover="true"] {
+  background-color: var(--cs-cover);
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--cs-cover-weave) 3px 4px);
 }
 .letter-nav__button {
   display: flex;
@@ -1050,34 +1041,128 @@ h1, h2, h3 {
   .letter-ghost::after { display: none; }
 }
 
-/* 最底下那一行：你落笔的地方。和上面是同一张纸、同一条页边线，左右留白与正文列对齐 */
-.letter-writing .chat-input__inner {
-  max-width: none;
-  padding-top: 0;
-  padding-right: var(--right-pad);
-  padding-bottom: var(--text-inset);
-  padding-left: calc(var(--margin-x) + var(--text-inset));
+/* ===== 信笺（2026-09-24，路线图 C20）：你落笔的地方从本子里挪出来，是本子下面单独的一张小纸 =====
+ * 同一种纸、同一种手写字、你的藏青墨，只是不画横格：这是写给她之前的草稿。点发送，字才离开信笺、落进本子。
+ * 和本子的纸面对齐（让开左边封皮），中间空一道缝；小图标是铅笔灰的细线，发送是一枚小墨章。 */
+.letter-slip {
+  width: 100%;
+  max-width: var(--book-w);
+  margin: 12px auto 0;
+  padding-left: var(--spine-w);
 }
-.letter-writing .input-capsule {
-  padding-left: 0;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  /* 这一条就是纸上的书写线，聚焦时变成墨色 */
-  border-bottom: 1px solid var(--cs-paper-line);
-  transition: border-color var(--cs-dur-soft) var(--cs-ease-calm);
+.chat-slip__paper {
+  position: relative;
+  padding: 6px 6px 6px 16px;
+  border-radius: 10px;
+  background-color: var(--cs-paper);
+  box-shadow: 0 0 0 1px var(--cs-paper-line), var(--cs-paper-shadow);
+  transition: box-shadow var(--cs-dur-soft) var(--cs-ease-calm);
 }
-.letter-writing .input-capsule:has(textarea:focus) {
-  box-shadow: none;
-  border-bottom-color: var(--cs-focus-info);
+.chat-slip__paper:has(.chat-slip__text:focus) {
+  box-shadow: 0 0 0 2px var(--cs-focus-info), var(--cs-paper-shadow);
 }
-.letter-writing textarea {
-  padding-left: 0;
-  padding-right: var(--text-inset);
-  font-family: var(--letter-font);
+@supports not selector(:has(*)) {
+  .chat-slip__paper:focus-within { box-shadow: 0 0 0 2px var(--cs-focus-info), var(--cs-paper-shadow); }
+}
+.chat-slip__row { display: flex; align-items: flex-end; gap: 2px; }
+.chat-slip__field { position: relative; display: flex; min-width: 0; flex: 1 1 auto; }
+.chat-slip__text,
+.chat-slip__handed {
+  font-family: var(--letter-font, var(--cs-font-hand));
+  /* 16px：手机上聚焦时不被放大 */
   font-size: 16px;
+  line-height: 24px;
+  letter-spacing: 0.02em;
   color: var(--cs-ink-you);
 }
-.letter-writing textarea::placeholder { color: var(--cs-ink-pencil); }
+.chat-slip__text {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 8px 10px 0;
+  resize: none;
+  background: transparent;
+  outline: none;
+}
+.chat-slip__text::placeholder { color: var(--cs-ink-pencil); }
+.chat-slip__text:disabled { opacity: 0.6; }
+/* 刚放进本子的那几行：就在信笺上原来的位置往上飘一点、淡去；这时提示语先不出来，免得和它叠在一起 */
+.chat-slip__text--handing::placeholder { color: transparent; }
+.chat-slip__handed {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 8px 10px 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  pointer-events: none;
+  animation: slipHandOver 480ms var(--cs-ease-calm) forwards;
+}
+@keyframes slipHandOver {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+/* 铅笔灰的细线小图标：和页码那一行的翻页按钮一个样子 */
+.chat-slip__tool {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--cs-ink-pencil);
+  transition: color var(--cs-dur-soft) var(--cs-ease-calm), background-color var(--cs-dur-soft) var(--cs-ease-calm), transform var(--cs-dur-soft) var(--cs-ease-calm);
+}
+.chat-slip__tool:hover:not(:disabled) { background: color-mix(in srgb, var(--cs-paper-line) 60%, transparent); color: var(--cs-ink-her); }
+.chat-slip__tool:active:not(:disabled) { transform: scale(0.95); }
+.chat-slip__tool:disabled { opacity: 0.4; }
+.chat-slip__tool[aria-pressed="true"],
+.chat-slip__tool[aria-pressed="true"]:hover { background: var(--cs-pastel-blush); color: var(--cs-danger); }
+/* 墨章：蘸满墨时是一枚双圈的小章，像盖上去的邮戳；空着（或她还在写）时只是一圈铅笔印 */
+.chat-slip__send {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--cs-action-primary);
+  color: var(--cs-paper);
+  box-shadow: inset 0 0 0 2px var(--cs-action-primary), inset 0 0 0 3.5px var(--cs-paper);
+  transition: background-color var(--cs-dur-soft) var(--cs-ease-calm), color var(--cs-dur-soft) var(--cs-ease-calm), box-shadow var(--cs-dur-soft) var(--cs-ease-calm), transform var(--cs-dur-soft) var(--cs-ease-calm);
+}
+.chat-slip__send:hover:not(:disabled) {
+  background: var(--cs-action-primary-hover);
+  box-shadow: inset 0 0 0 2px var(--cs-action-primary-hover), inset 0 0 0 3.5px var(--cs-paper);
+}
+.chat-slip__send:active:not(:disabled) { transform: scale(0.94); }
+.chat-slip__send:disabled {
+  background: transparent;
+  color: var(--cs-ink-pencil);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--cs-ink-pencil) 55%, transparent);
+}
+/* 待发的照片：像本子里贴的小相片 */
+.chat-slip__photo {
+  width: 64px;
+  height: 64px;
+  padding: 3px;
+  border-radius: 3px;
+  background: #fff;
+  object-fit: cover;
+  box-shadow: var(--cs-paper-shadow);
+  transform: rotate(-2deg);
+}
+.chat-slip__status { font-size: 12px; color: var(--cs-ink-pencil); }
+
+/* 你刚放进本子的那一段：墨迹慢慢洇开。只在本子这一面上播，翻页的拓印里不播 */
+.letter-viewport:not(.letter-ghost) .letter-entry[data-fresh="true"] { animation: inkSettle 560ms var(--cs-ease-calm) backwards; }
+@keyframes inkSettle {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-slip__handed { display: none; }
+  .letter-viewport:not(.letter-ghost) .letter-entry[data-fresh="true"] { animation: none; }
+}

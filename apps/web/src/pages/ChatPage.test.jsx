@@ -232,11 +232,53 @@ describe('ChatPage', () => {
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
     expect(await screen.findByText(expectedMessage)).toBeInTheDocument()
-    // 发送失败时草稿保留，方便重试
-    expect(input).toHaveValue('这条会失败')
+    // 发送失败时这段字放回信笺，方便重试
+    await waitFor(() => expect(input).toHaveValue('这条会失败'))
     // 失败不留临时消息，页面可继续重试
     expect(useChatStore.getState().messages).toEqual([])
     expect(useChatStore.getState().isSending).toBe(false)
+  })
+
+  it('信笺在本子下面：点发送，字马上离开信笺、写进本子；她回信时可以先写着，等她写完再放进去', async () => {
+    const user = userEvent.setup()
+    useChatStore.setState({ currentConversationId: 'c1' })
+    const stream = controllableStream()
+    const { container } = renderPage()
+    const paper = () => within(document.querySelector('.letter-strip'))
+
+    // 信笺不在本子里，是本子下面单独的一张
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    expect(container.querySelector('.letter-book textarea')).toBeNull()
+    expect(input.closest('.letter-slip')).not.toBeNull()
+
+    await user.type(input, '今晚睡不着')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    // 她还没回：信笺已经空了，这段字写进了本子，是刚放进去的那一段
+    expect(input).toHaveValue('')
+    await waitFor(() => expect(paper().getByText('今晚睡不着')).toBeInTheDocument())
+    expect(paper().getByText('今晚睡不着').closest('article')).toHaveAttribute('data-fresh', 'true')
+
+    // 她在写：信笺照样能写，只是先放不进本子
+    await user.type(input, '还有')
+    expect(input).toHaveValue('还有')
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
+    expect(screen.getByText('她写完这一段，就能放进本子')).toBeInTheDocument()
+
+    await act(async () => {
+      stream.onEvent({
+        event: 'done', status: 'ok', source: 'qwen',
+        userMessage: { id: 'u1', role: 'user', content: '今晚睡不着' },
+        aiMessage: { id: 'a1', role: 'assistant', content: '我在，慢慢说。' },
+      })
+      stream.resolve()
+    })
+
+    // 她写完了：信笺上的字可以放进去；那一段存好了，换成正式的一段，不再播洇开
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled())
+    expect(screen.queryByText('她写完这一段，就能放进本子')).not.toBeInTheDocument()
+    expect(paper().getByText('今晚睡不着').closest('article')).not.toHaveAttribute('data-fresh')
+    expect(input).toHaveValue('还有')
   })
 
   it('shows the typing indicator while the AI is composing', () => {

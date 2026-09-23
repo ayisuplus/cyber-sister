@@ -237,12 +237,15 @@ describe('封面', () => {
     paper.pages = 1
     const { rerender } = render(<Letter items={[]} cover={<p>封面上的她</p>} />)
     expect(label()).toHaveTextContent('封面')
+    // 合着的时候，页码这一行也是封面的纸板，不露出底下的横格
+    expect(screen.getByRole('navigation', { name: '翻页' })).toHaveAttribute('data-cover', 'true')
 
     await act(async () => rerender(<Letter items={['a']} cover={<p>封面上的她</p>} />))
     expect(label()).toHaveTextContent('1 / 1')
     expect(cover()).not.toBeInTheDocument()
     expect(strip()).not.toHaveAttribute('inert')
     expect(strip()).toHaveStyle({ transform: 'none' })
+    expect(screen.getByRole('navigation', { name: '翻页' })).toHaveAttribute('data-cover', 'false')
   })
 
   it('有对话时打开仍在最新一页；一直往前翻，翻过最早的信就回到封面', async () => {

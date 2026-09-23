@@ -203,7 +203,7 @@ export default function ChatPage() {
         <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
       )}
 
-      {/* 一个本子：左边一条封皮，翻页绕它翻；封面是第一页，最底下那一行是你落笔的地方 */}
+      {/* 一个本子：左边一条封皮，翻页绕它翻；封面是第一页。你落笔的地方是本子下面单独的一张小信笺 */}
       <div className="letter relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-2 pb-1 pt-2 min-[641px]:px-5">
         <div className="letter-book min-h-0 flex-1">
           <div aria-hidden="true" className="letter-spine" />
@@ -248,10 +248,11 @@ export default function ChatPage() {
               <div className="letter-snap"><HerNudges onComposeDraft={(text) => inputRef.current?.fillDraft(text)} /></div>
               {isTyping && <TypingIndicator />}
             </LetterPad>
-            <div className="letter-writing">
-              <InputBar ref={inputRef} onSend={handleSend} onBackgroundSend={local && workTasks.available ? workTasks.submit : undefined} disabled={isSending || isTyping || workTasks.submitting} onDraftChange={setDraftLocked} />
-            </div>
           </div>
+        </div>
+        {/* 先写在信笺上，点发送才落进本子；她回信时也能先写着，等她写完再放进去 */}
+        <div className="letter-slip">
+          <InputBar ref={inputRef} onSend={handleSend} onBackgroundSend={local && workTasks.available ? workTasks.submit : undefined} disabled={Boolean(workTasks.submitting)} busy={isSending || isTyping} onDraftChange={setDraftLocked} />
         </div>
       </div>
 

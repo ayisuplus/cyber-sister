@@ -19,6 +19,17 @@ function renderRichText(text) {
   ))
 }
 
+// 这一段在本子里的几个标记：她正在写；危机干预的那一段（这一页不贴任何小装饰，页码那一行的贴纸据此收起）；
+// 你刚从信笺放进本子、还没存好的临时一段（墨迹慢慢洇开，存好换成正式的一段时不再播）
+const entryMarks = (message, isUser) => {
+  const id = String(message.id)
+  return {
+    'data-streaming': !isUser && message.streaming ? 'true' : undefined,
+    'data-quiet': id.startsWith('intervention-') ? 'true' : undefined,
+    'data-fresh': isUser && id.startsWith('temp-user-') ? 'true' : undefined,
+  }
+}
+
 const timeLabel = (value) => (value ? new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '')
 
 // 页边的落款：她写「她」；你有头像时是一枚小小的圆形头像，没有就写「你」
@@ -45,9 +56,7 @@ export default function LetterEntry({ message, isLast = false, showDate = false 
   return (
     <article
       data-role={isUser ? 'user' : 'assistant'}
-      data-streaming={!isUser && message.streaming ? 'true' : undefined}
-      // 危机干预的那一段：这一页不贴任何小装饰（页码那一行的贴纸据此收起）
-      data-quiet={String(message.id).startsWith('intervention-') ? 'true' : undefined}
+      {...entryMarks(message, isUser)}
       className={`letter-entry ${isUser ? 'letter-entry--you' : 'letter-entry--her'}`}
     >
       {showDate && (

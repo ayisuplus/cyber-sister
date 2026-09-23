@@ -32,6 +32,17 @@ describe('信纸上的一段', () => {
     expect(screen.getByText('今天好累').closest('p')).toHaveClass('whitespace-pre-wrap')
   })
 
+  it('你刚从信笺放进本子、还没存好的那一段标成刚写上（墨迹洇开）；存好的、她写的都不标', () => {
+    const { container, rerender } = render(<LetterEntry message={{ id: 'temp-user-3', role: 'user', content: '今晚睡不着' }} />)
+    expect(container.querySelector('article')).toHaveAttribute('data-fresh', 'true')
+
+    rerender(<LetterEntry message={{ id: 'u1', role: 'user', content: '今晚睡不着' }} />)
+    expect(container.querySelector('article')).not.toHaveAttribute('data-fresh')
+
+    rerender(<LetterEntry message={{ id: 'temp-ai-3', role: 'assistant', content: '我在', streaming: true }} />)
+    expect(container.querySelector('article')).not.toHaveAttribute('data-fresh')
+  })
+
   it('只标例外：本地安全模板盖一枚小印章，普通云端回复不标', () => {
     const { rerender } = render(<LetterEntry message={{ role: 'assistant', content: '回复', source: 'local_template' }} />)
     expect(screen.getByText('本地安全模板')).toHaveClass('letter-stamp')

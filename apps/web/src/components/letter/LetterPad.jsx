@@ -30,6 +30,7 @@ const LetterPad = forwardRef(/**
   const page = Math.max(0, pad.index - (cover ? 1 : 0))
   const offset = page * pad.layout.pageWidth
   const label = pageLabel(pad.index, pad.layout.pages, Boolean(cover))
+  const onCover = Boolean(cover) && pad.index === 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -53,7 +54,7 @@ const LetterPad = forwardRef(/**
             <span ref={endRef} aria-hidden="true" className="letter-end" />
           </div>
           {/* 封面压在最上面：翻开它才是第一封信 */}
-          {cover && pad.index === 0 && <div className="letter-cover-page">{cover}</div>}
+          {onCover && <div className="letter-cover-page">{cover}</div>}
         </div>
         <div ref={ghostHostRef} aria-hidden="true" className="letter-ghost-host pointer-events-none absolute inset-0 z-10" />
         {pad.newPending && (
@@ -62,7 +63,8 @@ const LetterPad = forwardRef(/**
           </button>
         )}
       </div>
-      <nav aria-label="翻页" className="letter-nav">
+      {/* 合着的时候，页码这一行也是封面的纸板，不露出底下的横格 */}
+      <nav aria-label="翻页" data-cover={String(onCover)} className="letter-nav">
         <button type="button" aria-label="上一页" disabled={!pad.canGoBack || pad.loadingOlder} onClick={pad.goBack} className="letter-nav__button">
           <ChevronLeft size={18} aria-hidden="true" />
         </button>
@@ -73,7 +75,7 @@ const LetterPad = forwardRef(/**
         <button type="button" aria-label="下一页" disabled={!pad.canGoForward} onClick={pad.goForward} className="letter-nav__button">
           <ChevronRight size={18} aria-hidden="true" />
         </button>
-        <PageSticker page={page} onCover={Boolean(cover) && pad.index === 0} pages={pad.layout.pages} quietPages={pad.layout.quietPages} />
+        <PageSticker page={page} onCover={onCover} pages={pad.layout.pages} quietPages={pad.layout.quietPages} />
       </nav>
     </div>
   )
