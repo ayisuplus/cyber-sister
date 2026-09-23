@@ -16,6 +16,7 @@ import ImportMigration from '../components/profile/ImportMigration'
 import LocalBridgeSettings from '../components/profile/LocalBridgeSettings'
 import AboutYouSettings from '../components/profile/AboutYouSettings'
 import LetterFontSetting from '../components/profile/LetterFontSetting'
+import DecorSetting from '../components/profile/DecorSetting'
 
 const BACKGROUND_SLOTS = [
   { slot: 'bg-home', label: '主页背景', inputLabel: '选择主页背景图片' },
@@ -246,6 +247,7 @@ export default function SettingsPage() {
                 </div>
                 <p className="mt-3 text-xs text-text-muted">跟随系统会自动切换日夜配色。选择会保存在这台设备上。</p>
                 <LetterFontSetting />
+                <DecorSetting />
               </div>
             </fieldset>
           </Card>

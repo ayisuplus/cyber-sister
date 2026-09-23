@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import LetterPad from './LetterPad'
 import { pageGeometry, pageLabel, pageOf } from './pagedLayout'
+import { pageStickerFor } from './Decor'
 
 // jsdom 不排版：用替身给出纸的尺寸，并让结尾标记落在第 pages 页（一页宽 400px，步长正好是一页）
 const paper = { width: 400, height: 34 * 12, pages: 3 }
 const rect = (left) => ({ left, right: left + 1, top: 0, bottom: 1, width: 1, height: 1, x: left, y: 0, toJSON() {} })
 
-function Letter({ items, hasOlder = false, onLoadOlder, cover = null }) {
+function Letter({ items, hasOlder = false, onLoadOlder, cover = null, quiet = [] }) {
   return (
     <>
       <LetterPad
@@ -19,7 +20,7 @@ function Letter({ items, hasOlder = false, onLoadOlder, cover = null }) {
         hasOlder={hasOlder}
         onLoadOlder={onLoadOlder}
       >
-        {items.map((item, index) => <p key={item} data-page={index % paper.pages}><a href={`#${item}`}>{item}</a></p>)}
+        {items.map((item, index) => <p key={item} data-page={index % paper.pages} data-quiet={quiet.includes(item) ? 'true' : undefined}><a href={`#${item}`}>{item}</a></p>)}
       </LetterPad>
       <textarea aria-label="聊天消息" />
     </>
@@ -270,5 +271,46 @@ describe('封面', () => {
     expect(label()).toHaveTextContent('正在翻出更早的信')
     expect(cover()).not.toBeInTheDocument()
     await act(async () => resolve())
+  })
+})
+
+describe('页码那一行的小贴纸', () => {
+  const sticker = () => label().querySelector('img.decor-page-sticker')
+
+  it('按页码固定地轮着贴一枚植物贴纸，翻走再翻回来还是同一枚；读屏读不到', async () => {
+    const user = userEvent.setup()
+    render(<Letter items={['a', 'b', 'c']} />)
+    expect(sticker()).toHaveAttribute('src', expect.stringContaining(`/${pageStickerFor(2)}.webp`))
+    expect(sticker()).toHaveAttribute('alt', '')
+    expect(sticker()).toHaveAttribute('aria-hidden', 'true')
+
+    await user.click(screen.getByRole('button', { name: '上一页' }))
+    expect(sticker()).toHaveAttribute('src', expect.stringContaining(`/${pageStickerFor(1)}.webp`))
+    await user.click(screen.getByRole('button', { name: '下一页' }))
+    expect(sticker()).toHaveAttribute('src', expect.stringContaining(`/${pageStickerFor(2)}.webp`))
+  })
+
+  it('封面那一页不贴：封面有自己的装饰', async () => {
+    const user = userEvent.setup()
+    paper.pages = 1
+    render(<Letter items={['a']} cover={<p>封面上的她</p>} />)
+    expect(sticker()).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: '上一页' }))
+    expect(label()).toHaveTextContent('封面')
+    expect(sticker()).toBeNull()
+  })
+
+  it('危机干预落在哪一页，那一页什么都不贴；别的页照常', async () => {
+    // 这里让每一段按自己所在的页给出位置，才分得清干预落在第几页
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function rects() {
+      return this.matches('[data-page]') ? [this.getBoundingClientRect()] : []
+    })
+    const user = userEvent.setup()
+    render(<Letter items={['a', 'b', 'c']} quiet={['c']} />)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(sticker()).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '上一页' }))
+    expect(sticker()).not.toBeNull()
   })
 })

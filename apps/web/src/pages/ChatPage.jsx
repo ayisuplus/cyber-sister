@@ -8,7 +8,8 @@ import ChatHeader from '../components/chat/ChatHeader'
 import CloudFallbackNotice, { CLOUD_FALLBACK_DISMISSED_KEY } from '../components/chat/CloudFallbackNotice'
 import LetterPad from '../components/letter/LetterPad'
 import LetterEntry from '../components/letter/LetterEntry'
-import { sameDay } from '../components/letter/letterDate'
+import { dayPhase, sameDay } from '../components/letter/letterDate'
+import { DayPartDoodle, Sticker, WashiTape } from '../components/letter/Decor'
 import TypingIndicator from '../components/chat/TypingIndicator'
 import InputBar from '../components/chat/InputBar'
 import NavDrawer from '../components/layout/NavDrawer'
@@ -51,11 +52,14 @@ const greetingFor = (hour) => {
 }
 
 // 封面：本子的第 0 页，也是空白对话打开时看到的那一页。
-// 手写问候、贴上去的一张她的小照片、开场话题用铅笔写在下面；翻开它才是第一封信。
-function CoverPage({ greeting, onSend, onDraft, draftLocked }) {
+// 手写问候（旁边一个时段小画）、用纸胶带贴上去的一张她的小照片、角落一枝压花，开场话题用铅笔写在下面；翻开它才是第一封信。
+function CoverPage({ greeting, phase, onSend, onDraft, draftLocked }) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center pb-4">
-      <p className="animate-reveal-up mb-4 font-hand text-[15px] tracking-[0.2em] text-text-secondary">{greeting}</p>
+      <p className="animate-reveal-up mb-4 font-hand text-[15px] tracking-[0.2em] text-text-secondary">
+        <DayPartDoodle phase={phase} size={15} className="decor-greeting" />
+        {greeting}
+      </p>
       <div className="relative mb-5">
         <div aria-hidden="true" className="halo-glow animate-breathe absolute -inset-8 rounded-full" />
         <div className="animate-reveal-up relative h-40 w-32 overflow-hidden rounded-[999px_999px_28px_28px] bg-gradient-pastel shadow-soft ring-1 ring-border-hairline" style={{ animationDelay: '80ms' }}>
@@ -65,6 +69,8 @@ function CoverPage({ greeting, onSend, onDraft, draftLocked }) {
             className="ambient-decoration h-full w-full scale-[1.06] object-cover"
           />
         </div>
+        <WashiTape className="decor-cover-tape" />
+        <Sticker name="daisy" size={46} className="decor-cover-flower" />
         <span aria-hidden="true" className="animate-doodle-float absolute -right-6 bottom-1 text-action-primary opacity-40" style={{ animationDuration: '11s' }}>
           <LeafSprig size={56} flip />
         </span>
@@ -109,6 +115,7 @@ export default function ChatPage() {
   const checkUsageTime = useComplianceStore(state => state.checkUsageTime)
   const chatBgUrl = useAppearanceStore(s => s.chatBgUrl)
   const [greeting] = useState(() => greetingFor(new Date().getHours()))
+  const [phase] = useState(() => dayPhase(new Date()))
 
   // 只有一段对话：进来就打开它
   useEffect(() => {
@@ -203,7 +210,7 @@ export default function ChatPage() {
           <div className="letter-sheet min-h-0">
             <LetterPad
               ref={padRef}
-              cover={<CoverPage greeting={greeting} onSend={handleSend} onDraft={(draft) => inputRef.current?.fillDraft(draft)} draftLocked={draftLocked} />}
+              cover={<CoverPage greeting={greeting} phase={phase} onSend={handleSend} onDraft={(draft) => inputRef.current?.fillDraft(draft)} draftLocked={draftLocked} />}
               firstKey={messages[0]?.id ?? null}
               lastKey={lastMessage?.id ?? null}
               lastVersion={`${lastMessage?.id}:${lastMessage?.content?.length ?? 0}:${isTyping}`}

@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "created": "2026-09-23",
+  "status": "implemented_pending_user_acceptance",
+  "purpose": "手帐小装饰（路线图 C18）：页边的压花、叶子、火漆印与邮票，纯装饰，alt 为空",
+  "generator": "本机 ComfyUI 0.37.0",
+  "workflow": "Qwen-Image 2.1 文生图（作者本机 ComfyUI 工作流，界面格式；经 comfy-cli 1.20.0 转成接口格式后提交），30 步，euler / simple，cfg 1，1024×1024，直接出 RGBA 透明底",
+  "model": {
+    "diffusion": "qwen_image_2.1_bf16.safetensors",
+    "textEncoder": "qwen3vl_8b_fp8_scaled.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+    "source": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1（原模型 Qwen/Qwen-Image-2.1）",
+    "license": "Qwen Research License：只许非商业用途；对生成的图没有另加限制。本项目是课程作业与论文原型，属非商业用途；若日后商用，须换掉这批贴纸或另取授权"
+  },
+  "processing": "tools/decor/process_stickers.py build：透明度 <16 归零去底雾 → 半透明边缘换成相邻不透明像素的颜色 → 裁透明边 → 约 2.5px 白色模切边 → 缩到显示尺寸的 2 倍 → WebP（quality 90）",
+  "qa": "作者在风格板联系表上逐件挑选；成品在日间与夜间信纸上人工看过",
+  "files": [
+    {
+      "file": "daisy.webp",
+      "use": "封面左下角的压花（46px）；页码那一行（30px）",
+      "width": 59,
+      "height": 96,
+      "bytes": 3248,
+      "sha256": "079d9d7a01bc054d57ea28c8cfeb411fbd9914b327ebd94e3de49b8afec1de37",
+      "seed": 2002,
+      "promptId": "201a090b-1d71-4efc-abcc-a21c5e146d72",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a small pressed daisy flower with a short stem and two leaves, white petals and a soft yellow centre. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "forget-me-not.webp",
+      "use": "页码那一行（30px）",
+      "width": 39,
+      "height": 64,
+      "bytes": 1912,
+      "sha256": "b192c220b202eaea0699c4e34675f926dc19b91b7318e8fd7989099d791ccd92",
+      "seed": 1001,
+      "promptId": "18ee0ce1-b8f6-4254-a56d-8e6f8653b1bd",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a small sprig of pressed forget-me-not flowers, tiny five-petal flowers in soft dusty blue with pale yellow centres on a thin green stem. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "sage.webp",
+      "use": "页码那一行（30px）",
+      "width": 44,
+      "height": 64,
+      "bytes": 1950,
+      "sha256": "590bc7017360085934c93e3e86aac5a11da94a5ab50b8f4db1b45109f0524918",
+      "seed": 3003,
+      "promptId": "26ebcf52-a0fe-4de1-8133-00456700d21c",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a sprig of sage leaves, soft velvety oval leaves in muted sage green on a thin stem. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "ginkgo.webp",
+      "use": "页码那一行（30px）",
+      "width": 64,
+      "height": 61,
+      "bytes": 1596,
+      "sha256": "e66cb48c3517a60f12e7c1c83d639567f380c92c74e65a8f5f2186ac6e5145ea",
+      "seed": 2002,
+      "promptId": "2d74b6e3-d1e3-45d3-9e62-1ecab5fce566",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a single ginkgo leaf, fan shaped, soft sage green fading to pale yellow at the edge, with fine vein lines. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "clover.webp",
+      "use": "页码那一行（30px）",
+      "width": 53,
+      "height": 64,
+      "bytes": 1986,
+      "sha256": "2a3e3418aeaa2b711d353e4ae1091914f7b837618f7dfc9ebecc89893f7960df",
+      "seed": 2002,
+      "promptId": "62c8bd76-7e54-475f-a30e-53e29284ce43",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a small three-leaf clover with a short stem, rounded heart-shaped leaves in muted green. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "lavender.webp",
+      "use": "页码那一行（30px）",
+      "width": 42,
+      "height": 64,
+      "bytes": 2150,
+      "sha256": "6230597742ff1a42a462882fce974773a616f2122972e555beb489ea7e27724a",
+      "seed": 2002,
+      "promptId": "5511e802-d523-4386-9380-7aea74eb9033",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of two small lavender sprigs tied together with a thin dusty rose ribbon, soft lilac flower buds. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "wax-seal.webp",
+      "use": "来信便签右上角（36px）；看信页信尾（34px）",
+      "width": 72,
+      "height": 70,
+      "bytes": 2652,
+      "sha256": "ae652ad551e1ea387b114487a942f036f5829b40cf3e38feb72c4d360f4a23c2",
+      "seed": 1001,
+      "promptId": "f9cd0ba1-4b58-45b3-95b4-07b4b54332b7",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a round wax seal in muted sage green wax with soft, irregular melted edges and a simple leaf pressed into the centre, seen from the front. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    },
+    {
+      "file": "stamp.webp",
+      "use": "看信页信头（58px）",
+      "width": 120,
+      "height": 105,
+      "bytes": 5014,
+      "sha256": "8c790bfed2f56cd8a18110f416b547b12146e7055daf08a3701e96b3280475aa",
+      "seed": 1001,
+      "promptId": "fdfca97f-6be3-49c3-8df3-52ecfdca33ab",
+      "prompt": "This is an RGBA format image with transparency. Cute hand-drawn journal sticker of a small vintage postage stamp with perforated scalloped edges on cream paper; inside it a cute grey tabby kitten curled up asleep on an open book, soft pastel colours. Thin dark navy ink outline with a slightly wobbly, hand-drawn line; flat soft pastel colours: muted sage green, warm cream, soft apricot and a touch of dusty rose. Gentle, quiet and minimal, one single object centred with lots of empty space around it, no shadow, no gradient, no text, no letters, no numbers, no frame. The image has an alpha channel and a transparent background."
+    }
+  ],
+  "rejectedCandidates": [
+    {
+      "item": "clover",
+      "seed": 1001,
+      "promptId": "ed25ffad-bfdd-41f5-80e4-57179dc4e112",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "clover",
+      "seed": 3003,
+      "promptId": "b1b508c5-245e-4426-b2c8-b7c6c7a4ec60",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "daisy",
+      "seed": 1001,
+      "promptId": "96b1ad1f-3d84-4550-932f-121821e0a3b8",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "daisy",
+      "seed": 3003,
+      "promptId": "6297538b-b543-4e9e-b851-92376cfbb0de",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "forget-me-not",
+      "seed": 2002,
+      "promptId": "caca3e0f-f43e-4932-8dc3-ef34beb14754",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "forget-me-not",
+      "seed": 3003,
+      "promptId": "d2e98bbc-1d3d-4ed2-aee7-b7ef33861dd1",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "ginkgo",
+      "seed": 1001,
+      "promptId": "062cbb3e-c7f7-4a72-b2c1-3a6ab09c0968",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "ginkgo",
+      "seed": 3003,
+      "promptId": "60c8327a-6348-4458-bc0d-05771ad2ef77",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "lavender",
+      "seed": 1001,
+      "promptId": "57f0789c-1e86-4b92-abea-7b03c79a9ec9",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "lavender",
+      "seed": 3003,
+      "promptId": "dbe132b7-02c6-40c9-b3ef-c6ca1d8693eb",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "sage",
+      "seed": 1001,
+      "promptId": "e31b2056-ae1a-4650-90f5-e74219e1b6d3",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "sage",
+      "seed": 2002,
+      "promptId": "8cecd2da-46eb-4150-bfca-bd3e78daf65d",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "stamp",
+      "seed": 2002,
+      "promptId": "8643820c-e98e-4881-a04f-ebf2b1183ce2",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "stamp",
+      "seed": 3003,
+      "promptId": "fc8ece7a-cc0d-4337-a98e-6ab98248795c",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "wax-seal",
+      "seed": 2002,
+      "promptId": "21e71b58-e8ea-4745-ac0c-34804c901fe3",
+      "reason": "风格板上没被选中"
+    },
+    {
+      "item": "wax-seal",
+      "seed": 3003,
+      "promptId": "70d86b9c-2624-4386-9d73-cdece4184532",
+      "reason": "风格板上没被选中"
+    }
+  ]
+}

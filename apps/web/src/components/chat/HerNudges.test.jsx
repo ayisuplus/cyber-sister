@@ -126,3 +126,20 @@ describe('来信便签里的建议', () => {
     expect(letterService.decide).not.toHaveBeenCalled()
   })
 })
+
+describe('HerNudges 的小装饰', () => {
+  it('只有她的来信压一枚火漆印；提醒和关心的便签不压', async () => {
+    nudgeService.list.mockResolvedValue({
+      nudges: [
+        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日历上定的' },
+        { id: 'letter:l1', kind: 'letter', content: '见信好。', reason: '她写给你的信' },
+      ],
+    })
+    renderNudges()
+    const letter = (await screen.findByText('见信好。')).closest('article')
+    const seal = letter.querySelector('img.decor-seal')
+    expect(seal).toHaveAttribute('src', '/design-assets/decor/wax-seal.webp')
+    expect(seal).toHaveAttribute('alt', '')
+    expect(screen.getByText('该喝水啦').closest('article').querySelector('img')).toBeNull()
+  })
+})

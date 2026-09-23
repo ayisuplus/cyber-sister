@@ -135,3 +135,21 @@ describe('日期', () => {
     expect(letterDateLabel('2026-09-22T23:30:00')).toBe('9月22日 · 深夜')
   })
 })
+
+describe('信纸上的小装饰', () => {
+  it('日期旁画一个时段小画（深夜是弯月），读屏只读日期', () => {
+    const { container } = render(<LetterEntry message={{ role: 'user', content: '睡不着', createdAt: '2026-09-23T01:40:00' }} showDate />)
+    const doodle = container.querySelector('.letter-date svg')
+    expect(doodle).toHaveAttribute('data-phase', 'night')
+    expect(doodle).toHaveAttribute('aria-hidden', 'true')
+    expect(container.querySelector('.letter-date')).toHaveTextContent('9月23日 · 凌晨')
+  })
+
+  it('危机干预那一段标成安静：那一页不贴小装饰；普通的一段不标', () => {
+    const { container, rerender } = render(<LetterEntry message={{ id: 'intervention-m1', role: 'assistant', content: '我很担心你现在的安全。' }} />)
+    expect(container.querySelector('article')).toHaveAttribute('data-quiet', 'true')
+
+    rerender(<LetterEntry message={{ id: 'm2', role: 'assistant', content: '我在' }} />)
+    expect(container.querySelector('article')).not.toHaveAttribute('data-quiet')
+  })
+})

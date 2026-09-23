@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import SuggestionActions from './SuggestionActions'
+import { Sticker } from './Decor'
 import { letterService } from '../../services/letterService'
 
 // 看信：正文按段落走信纸的墨色，每条建议交给 SuggestionActions——同意采纳、带去对话、不用。
@@ -25,9 +26,12 @@ export default function LetterView({ letter, onDecided }) {
 
   return (
     <article aria-label="她的来信" className="letter-entry letter-entry--her">
+      {/* 像一封寄来的信：信头一张邮票，信尾一枚火漆印 */}
+      <Sticker name="stamp" size={58} className="decor-stamp" />
       {paragraphs.map((paragraph, index) => (
         <p key={index} className="letter-text whitespace-pre-wrap">{paragraph}</p>
       ))}
+      <Sticker name="wax-seal" size={34} className="decor-seal-end" />
 
       {suggestions.map((item, index) => (
         <SuggestionActions

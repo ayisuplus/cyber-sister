@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { usePagedLetter } from './usePagedLetter'
 import { pageLabel } from './pagedLayout'
+import { Sticker, pageStickerFor } from './Decor'
 
 /**
  * 本子：一段对话写在信纸的横格上，写满一页就绕左边封线翻过去；不往下无限延伸。
@@ -19,8 +20,13 @@ const LetterPad = forwardRef(/**
   useImperativeHandle(ref, () => ({ showLatest: pad.showLatest }), [pad.showLatest])
 
   // 翻到第几页，就把纸带往左挪几张纸宽；封面那一页底下还是第一页，不动
-  const offset = Math.max(0, pad.index - (cover ? 1 : 0)) * pad.layout.pageWidth
+  const page = Math.max(0, pad.index - (cover ? 1 : 0))
+  const offset = page * pad.layout.pageWidth
   const label = pageLabel(pad.index, pad.layout.pages, Boolean(cover))
+  // 页码那一行的小贴纸：按页码固定地轮着来；封面有它自己的装饰，危机干预的那一页什么都不贴
+  const onCover = Boolean(cover) && pad.index === 0
+  const quiet = pad.layout.quietPages ? pad.layout.quietPages.split(',').map(Number).includes(page) : false
+  const showSticker = !onCover && pad.layout.pages > 0 && !quiet
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -62,6 +68,7 @@ const LetterPad = forwardRef(/**
         <button type="button" aria-label="下一页" disabled={!pad.canGoForward} onClick={pad.goForward} className="letter-nav__button">
           <ChevronRight size={18} aria-hidden="true" />
         </button>
+        {showSticker && <Sticker key={page} name={pageStickerFor(page)} size={30} className="decor-page-sticker" />}
       </nav>
     </div>
   )

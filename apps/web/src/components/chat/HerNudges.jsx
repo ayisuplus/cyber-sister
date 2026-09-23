@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import SuggestionActions from '../letter/SuggestionActions'
+import { Sticker } from '../letter/Decor'
 import { nudgeService } from '../../services/nudgeService'
 
 const POLL_INTERVAL_MS = 60_000
@@ -53,6 +54,8 @@ export default function HerNudges({ onComposeDraft }) {
     <section aria-label="她想对你说" className="space-y-3">
       {nudges.map((nudge) => (
         <article key={nudge.id} className="letter-note">
+          {/* 她的来信：便签右上角压一枚火漆印，别的便签不压 */}
+          {nudge.kind === 'letter' && <Sticker name="wax-seal" size={36} className="decor-seal" />}
           <p className="whitespace-pre-line text-[15px] leading-relaxed text-text-primary">{nudge.content}</p>
           {nudge.kind === 'letter' && (Array.isArray(nudge.suggestions) ? nudge.suggestions : []).map((item, index) => (
             <SuggestionActions key={index} letterId={nudge.letterId} item={item} index={index} onTakeToChat={takeToChat} />

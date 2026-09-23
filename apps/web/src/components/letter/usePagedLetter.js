@@ -17,6 +17,19 @@ function snapToLines(strip, line) {
   }
 }
 
+/**
+ * 危机干预落在哪几页（从 0 数，逗号分隔，方便比较）：这些页上不贴任何小装饰。
+ * 一段话可能被分到两页，所以按它的每一截（getClientRects）算。
+ */
+function quietPagesOf(strip, geometry) {
+  const left = strip.getBoundingClientRect().left
+  const pages = new Set()
+  for (const element of strip.querySelectorAll('[data-quiet="true"]')) {
+    for (const rect of element.getClientRects()) pages.add(pageOf(rect.left - left, geometry))
+  }
+  return [...pages].sort((a, b) => a - b).join(',')
+}
+
 /** 纸带里有没有真的写出东西：空对话只剩一枚结尾标记，那就一页都没有，只看得到封面。 */
 function stripHasContent(strip) {
   for (const element of strip.children) {
@@ -83,7 +96,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
   const stripRef = useRef(null)
   const endRef = useRef(null)
   const ghostHostRef = useRef(null)
-  const [layout, setLayout] = useState({ pages: 0, pageWidth: 0, width: 0, hasCover, firstKey, lastKey, lastVersion })
+  const [layout, setLayout] = useState({ pages: 0, pageWidth: 0, width: 0, hasCover, quietPages: '', firstKey, lastKey, lastVersion })
   const [index, setIndex] = useState(0)
   const [ready, setReady] = useState(false)
   const [newPending, setNewPending] = useState(false)
@@ -134,7 +147,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     const pages = stripHasContent(strip)
       ? pageOf(end.getBoundingClientRect().left - strip.getBoundingClientRect().left, geometry) + 1
       : 0
-    const next = { pages, pageWidth: geometry.pageWidth, width: viewport.clientWidth, hasCover, ...keysRef.current }
+    const next = { pages, pageWidth: geometry.pageWidth, width: viewport.clientWidth, hasCover, quietPages: quietPagesOf(strip, geometry), ...keysRef.current }
     setLayout((previous) => (Object.keys(next).every((key) => previous[key] === next[key]) ? previous : next))
   }, [hasCover])
 

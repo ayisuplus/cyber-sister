@@ -55,6 +55,8 @@ coverage/
 apps/api/eval-results/
 # CI 在网页版构建上跑 e2e 时的输出目录
 apps/web/test-results-web/
+# 论文偏好小实验的截图材料（scripts/decor-study-shots.mjs 生成，随时可重做）
+apps/web/study-results/
 
 # Agent 协调工具的机器本地瞬时状态（含机器特定路径），不入库
 .coordination/

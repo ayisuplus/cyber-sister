@@ -875,6 +875,7 @@ h1, h2, h3 {
 }
 :is(.letter-strip, .letter-scroll) > .letter-snap:empty { display: none; }
 .letter-note {
+  position: relative;
   break-inside: avoid;
   max-width: 92%;
   padding: 8px 14px;
@@ -896,6 +897,7 @@ h1, h2, h3 {
 
 /* 页码与翻页：和纸、书写行共用同一条页边线，自己不再画一条线 */
 .letter-nav {
+  position: relative;
   display: flex;
   min-height: 44px;
   align-items: center;
@@ -926,6 +928,43 @@ h1, h2, h3 {
   color: var(--cs-ink-her);
   font-size: 12px;
 }
+
+/* ===== 手帐小装饰（2026-09-23，路线图 C18）=====
+ * 手绘压花、叶子、火漆印、邮票、纸胶带和日期旁的小画：只放在页边，不压正文，全部静止，全部是装饰。
+ * 设置里「小装饰：没有」时一个都不显示；夜里把贴纸调暗一点，别在深色纸上发亮。依据见 docs/02-设计/手帐装饰.md。 */
+:root[data-decor="off"] .decor { display: none !important; }
+.decor { pointer-events: none; user-select: none; }
+.decor-sticker { display: inline-block; max-width: none; object-fit: contain; }
+:root[data-theme="dark"] .decor-sticker { filter: brightness(0.82) saturate(0.85); }
+.decor-doodle { display: inline-block; flex: none; vertical-align: -2px; }
+.letter-date .decor-doodle { margin-right: 6px; }
+
+/* 纸胶带：杏色半透明底上浅浅的鼠尾草竖纹，两头是撕口 */
+.decor-tape {
+  display: block;
+  width: 76px;
+  height: 18px;
+  background:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--cs-action-primary) 22%, transparent) 0 3px, transparent 3px 8px),
+    color-mix(in srgb, var(--cs-pastel-apricot) 82%, transparent);
+  clip-path: polygon(0 12%, 4% 0, 8% 14%, 12% 2%, 88% 2%, 92% 14%, 96% 0, 100% 12%, 100% 88%, 96% 100%, 92% 86%, 88% 98%, 12% 98%, 8% 86%, 4% 100%, 0 88%);
+  opacity: 0.9;
+}
+:root[data-theme="dark"] .decor-tape { opacity: 0.55; }
+
+/* 封面：拱窗顶上贴一段胶带，左下角一枝压花，问候旁一个时段小画 */
+.decor-cover-tape { position: absolute; top: -8px; left: 50%; z-index: 1; transform: translateX(-50%) rotate(-4deg); }
+.decor-cover-flower { position: absolute; bottom: -10px; left: -28px; z-index: 1; transform: rotate(-14deg); }
+.decor-greeting { margin-right: 8px; vertical-align: -2px; }
+
+/* 页码那一行：右边一枚植物贴纸，按页码固定 */
+.decor-page-sticker { position: absolute; top: 50%; right: 14px; transform: translateY(-50%) rotate(8deg); }
+
+/* 来信：便签右上角一枚火漆印；看信页信头一张邮票，信尾一枚火漆印。
+ * 火漆印浮在便签里、只借便签自己的内边距：便签落在一页最上面时，伸出便签外的部分会被分栏裁掉 */
+.decor-seal { float: right; margin: -6px -8px 4px 10px; transform: rotate(10deg); }
+.decor-stamp { float: right; margin: 0 0 6px 12px; transform: rotate(4deg); }
+.decor-seal-end { display: block; margin: 12px 0 0 auto; transform: rotate(-6deg); }
 
 /* 翻页：拓印的那一页绕左边封线翻过去——先被捻起一点，再翻向左，落定时新的一页已经在底下 */
 /* 父层给一点景深，纸才有厚度；曲线比静谧层的 calm 更靠后，翻页才不会像一闪 */

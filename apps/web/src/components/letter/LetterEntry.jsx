@@ -5,7 +5,8 @@ import WorkProgress from '../work/WorkProgress'
 import ArtifactCard from '../work/ArtifactCard'
 import WorkSources from '../work/WorkSources'
 import ToolTrail from '../chat/ToolTrail'
-import { letterDateLabel } from './letterDate'
+import { dayPhase, letterDateLabel } from './letterDate'
+import { DayPartDoodle } from './Decor'
 
 const WorkAnswer = lazy(() => import('../work/WorkAnswer'))
 
@@ -45,9 +46,16 @@ export default function LetterEntry({ message, isLast = false, showDate = false 
     <article
       data-role={isUser ? 'user' : 'assistant'}
       data-streaming={!isUser && message.streaming ? 'true' : undefined}
+      // 危机干预的那一段：这一页不贴任何小装饰（页码那一行的贴纸据此收起）
+      data-quiet={String(message.id).startsWith('intervention-') ? 'true' : undefined}
       className={`letter-entry ${isUser ? 'letter-entry--you' : 'letter-entry--her'}`}
     >
-      {showDate && <p className="letter-date">{letterDateLabel(message.createdAt)}</p>}
+      {showDate && (
+        <p className="letter-date">
+          <DayPartDoodle phase={dayPhase(message.createdAt)} />
+          {letterDateLabel(message.createdAt)}
+        </p>
+      )}
       <Who isUser={isUser} />
       <span className="sr-only">{isUser ? '你说：' : '她说：'}</span>
       {photoUrl && (
