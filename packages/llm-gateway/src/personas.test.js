@@ -39,6 +39,15 @@ test('every style carries the shared layer for how she answers a girl', () => {
   }
 })
 
+test('the blunt style catches her feeling first, then roasts the thing, never her feeling', () => {
+  // 2026-09-23 基线：「先怼回去让她清醒」和共用前言的「先接住情绪」互相矛盾，直爽方式先接住情绪的通过率最低
+  const blunt = getPersonaSystemPrompt('toxic')
+  assert.ok(!blunt.includes('先怼回去'), 'blunt style must not roast before catching her feeling')
+  const body = blunt.slice(blunt.indexOf('\n人设：'))
+  assert.ok(body.indexOf('先用一句话接住她的情绪') < body.indexOf('再去怼那件事'), 'catch first, roast after')
+  assert.ok(body.includes('她的感受永远不是被怼的对象'))
+})
+
 test('the energetic style does not push her to act right now', () => {
   const prompt = getPersonaSystemPrompt('energetic')
   assert.ok(!prompt.includes('现在就做'), 'energetic style must not push 现在就做')
