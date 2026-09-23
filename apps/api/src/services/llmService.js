@@ -400,18 +400,45 @@ export function generateLocalTemplateResponse(text, persona = 'gentle') {
   }
 }
 
-const UNSAFE_OUTPUT_PATTERNS = [
-  /(?:干他|弄死|打死|杀了|砍他|捅他|揍他|打他|报复他|骂他|怼回去|找他理论)/i,
-  /(?:人肉|网暴|堵他|曝光隐私|毁掉他)/i,
-  /(?:威胁|恐吓).{0,8}(?:他|她|对方)/i,
-  /(?:一起死|殉情|为爱去死)/i,
-  /我(?:是|就是)(?:真人|人类|真实的人)/i,
-  /(?:必须|听我的).{0,12}(?:分手|辞职|退学|断绝关系|停药)/i,
+// 红线输出（拱火伤人、网暴、威胁、殉情、替她做重大决定）：命中就整条换成本地安全模板。
+const HARM_PATTERNS = [
+  /干他|弄死|打死|杀了|砍他|捅他|揍他|打他|报复他|骂他|怼回去|找他理论/g,
+  /人肉|网暴|堵他|曝光隐私|毁掉他/g,
+  /(?:威胁|恐吓).{0,8}(?:他|她|对方)/g,
+  /一起死|殉情|为爱去死/g,
+  /(?:必须|听我的).{0,12}(?:分手|辞职|退学|断绝关系|停药)/g,
 ]
+// 冒充真人：只拦她自己这么说
+const HUMAN_CLAIM = /我(?:是|就是)(?:真人|人类|真实的人)/g
+// 按意思判，不按字面（2026-09-23 回复质量基线：关键词过滤误伤了诚实回答，「你是真人吧」被换成一句「我在听」）。
+// 紧挨在前面的否定或劝阻：「别骂他」「不用怼回去」「不是让你找他理论」。
+// 单个「不」不算（「不骂他不行」「不杀了他我不甘心」意思正相反）；否定后面紧跟问号的是反问（「你不会怼回去吗？」），也不算
+const NEGATED_BEFORE = /(?:别|不要|不用|不必|不会|不能|不该|不想|没必要|用不着|犯不着|千万别|先别|不是)(?:帮你|替你|让你|叫你|跟他|去|再|直接|真的)?$/
+// 紧跟在后面的、她自己说的拒绝：「帮你骂他我不干」「骂他的话我不写」
+const REFUSED_AFTER = /^.{0,6}?(?:我不干|我不做|我不写|我不帮|不帮你|我不接|我不会写)/
+// 转述或反问她的话：「你总觉得我是真人」「你以为我是真人吗」
+const REPORTED_BEFORE = /(?:觉得|以为|认为|当成|当作|怀疑|希望|猜)$/
+const QUESTION_AFTER = /^[^。！？!?\n]{0,6}[吗嘛？?]/
+
+function hits(text, pattern, excused) {
+  for (const match of text.matchAll(pattern)) {
+    const before = text.slice(Math.max(0, match.index - 10), match.index)
+    const after = text.slice(match.index + match[0].length, match.index + match[0].length + 12)
+    if (!excused(before, after)) return true
+  }
+  return false
+}
+
+/** 这段话有没有真的越过红线：劝阻、她自己的拒绝、转述与反问她的话不算。 */
+export function crossesRedLine(text) {
+  const harm = (before, after) => (NEGATED_BEFORE.test(before) && !QUESTION_AFTER.test(after)) || REFUSED_AFTER.test(after)
+  const reported = (before, after) => REPORTED_BEFORE.test(before) || QUESTION_AFTER.test(after)
+  return HARM_PATTERNS.some((pattern) => hits(text, pattern, harm)) || hits(text, HUMAN_CLAIM, reported)
+}
 
 export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false) {
   const normalized = redactSensitiveText(content).trim()
-  if (!normalized || UNSAFE_OUTPUT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+  if (!normalized || crossesRedLine(normalized)) {
     return { ...generateLocalTemplateResponse(currentText, persona), filtered: true }
   }
   return { content: normalized.slice(0, messageLimit(agent)), source, filtered: false }
@@ -507,8 +534,7 @@ function nextSentenceEnd(text, from) {
 
 /** 与 filterModelOutput 同款的累计安全判定（不含空内容分支）。 */
 function isUnsafeAccumulation(accumulated) {
-  const normalized = redactSensitiveText(accumulated)
-  return UNSAFE_OUTPUT_PATTERNS.some((pattern) => pattern.test(normalized))
+  return crossesRedLine(redactSensitiveText(accumulated))
 }
 
 /**

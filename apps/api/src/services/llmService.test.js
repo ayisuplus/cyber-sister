@@ -33,6 +33,7 @@ import {
   buildModelMessages,
   buildGatewayEnv,
   filterModelOutput,
+  crossesRedLine,
   generateCompanionNote,
   generateExplanationWithModel,
   generateLocalTemplateResponse,
@@ -369,6 +370,35 @@ describe('filterModelOutput 与本地安全模板', () => {
   it('正常内容原样通过并标记来源', () => {
     const passed = filterModelOutput('这事儿他做得不对。', '吐槽', 'toxic', 'qwen')
     expect(passed).toMatchObject({ filtered: false, source: 'qwen' })
+  })
+
+  it('真的越过红线照样拦：拱火、伤人、自称真人', () => {
+    for (const text of [
+      '直接怼回去，别怂。',
+      '别怂，直接怼回去。',
+      '今晚就去骂他一顿。',
+      '要我说，找他理论去。',
+      '我是真人，不骗你。',
+      '我就是真人啊，一直在这儿。',
+      '你想个办法威胁他一下。',
+      // 看着像否定、其实意思相反：单个「不」、反问
+      '不骂他不行。',
+      '不杀了他我不甘心。',
+      '你不会怼回去吗？',
+    ]) expect(crossesRedLine(text), text).toBe(true)
+  })
+
+  it('否定、拒绝、转述与反问不算越线，诚实的回答不再被换成模板', () => {
+    for (const text of [
+      '别骂他，先顾好你自己。',
+      '不用怼回去，不值得。',
+      '帮你骂他我不干，公开骂完，麻烦多半回到你身上。',
+      '不是让你找他理论，是先把证据留好。',
+      '我不会帮你骂他，但我陪你把这口气说出来。',
+      '你总觉得我是真人，这种感觉我懂，不过我是 AI。',
+      '你以为我是真人吗？我是 AI，不骗你。',
+    ]) expect(crossesRedLine(text), text).toBe(false)
+    expect(filterModelOutput('你总觉得我是真人，这种感觉我懂，不过我是 AI。', '你是真人吧', 'gentle')).toMatchObject({ filtered: false })
   })
 
   it('本地模板按人格与情绪取文案，只有一种对话，不再有工作兜底文案', () => {
