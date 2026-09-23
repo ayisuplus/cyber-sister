@@ -68,6 +68,24 @@ describe('transcribeAudio', () => {
     expect(options.body.get('file')).toBeInstanceOf(Blob)
   })
 
+  it('只把文字交出去：情绪、事件标签不出这一层，旧版 sidecar 夹在文字里的表情也去掉', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ text: '明早9点要汇报。', emotions: ['SAD'], events: ['Cry'] }),
+    })))
+    await expect(transcribeAudio({ audioBuffer: WAV }, ENV)).resolves.toEqual({ text: '明早9点要汇报。' })
+
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ text: '😭今天又被骂了。😔' }),
+    })))
+    await expect(transcribeAudio({ audioBuffer: WAV }, ENV)).resolves.toEqual({ text: '今天又被骂了。' })
+
+    // 旧版 sidecar 没听到人声时只回一个 ❓：去掉后是空文字，前端据此请她再说一次
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ text: '❓' }) })))
+    await expect(transcribeAudio({ audioBuffer: WAV }, ENV)).resolves.toEqual({ text: '' })
+  })
+
   it('sidecar 400：原文透传给调用方（音频格式校验失败）', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: false,

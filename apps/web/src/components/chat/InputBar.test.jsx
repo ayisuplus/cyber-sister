@@ -8,13 +8,17 @@ const svc = vi.hoisted(() => ({
   transcribeAudio: vi.fn(),
 }))
 const wav = vi.hoisted(() => ({ webmToWav16kMono: vi.fn() }))
+// jsdom 没有 AudioContext：默认取不到音量（null），需要时按用例装假音量计
+const meter = vi.hoisted(() => ({ createLevelMeter: vi.fn(() => null) }))
 
 vi.mock('../../services/asrService', () => ({ asrService: svc }))
 vi.mock('../../utils/voiceWav', () => ({ webmToWav16kMono: wav.webmToWav16kMono }))
+vi.mock('../../utils/voiceLevel', () => ({ createLevelMeter: meter.createLevelMeter }))
 
 import { asrService } from '../../services/asrService'
 import { webmToWav16kMono } from '../../utils/voiceWav'
 import InputBar from './InputBar'
+import { appendTranscript, AUTO_STOP_NOTICE } from './useVoiceInput'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -72,12 +76,12 @@ describe('InputBar', () => {
     await waitFor(() => expect(screen.queryByText('数据.csv')).not.toBeInTheDocument())
   })
 
-  it('网页版不暴露文档入口和后台执行；本地客户端超量附件不能覆盖已有草稿', () => {
+  it('网页版不暴露文档入口和后台执行；本地客户端超量附件不能覆盖已有草稿', async () => {
     vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
     const { rerender } = render(<InputBar onSend={vi.fn()} disabled={false} />)
     expect(screen.queryByLabelText('选择工作文件')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: /后台执行/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '语音输入' })).toBeInTheDocument()
     vi.stubEnv('VITE_APP_DISTRIBUTION', 'local')
     rerender(<InputBar onSend={vi.fn()} disabled={false} />)
     const file = new File(['a'], '保留.txt')
@@ -89,6 +93,7 @@ describe('InputBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     asrService.getAsrStatus.mockResolvedValue({ available: true, configured: true, reason: null })
+    meter.createLevelMeter.mockImplementation(() => null)
   })
 
   it('fillDraft puts an editable draft into an empty composer without sending it', async () => {
@@ -153,9 +158,24 @@ describe('InputBar', () => {
     expect(input).toHaveValue('')
   })
 
-  it('renders the voice input button next to send', () => {
+  it('renders the voice input button next to send', async () => {
     render(<InputBar onSend={vi.fn()} disabled={false} />)
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '语音输入' })).toBeInTheDocument()
+  })
+
+  it('没配语音服务（或探测失败）就不放麦克风，不假装可用', async () => {
+    asrService.getAsrStatus.mockResolvedValue({ available: false, configured: false, reason: 'ASR_NOT_CONFIGURED' })
+    const { unmount } = render(<InputBar onSend={vi.fn()} disabled={false} />)
+    await waitFor(() => expect(asrService.getAsrStatus).toHaveBeenCalled())
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeInTheDocument()
+    unmount()
+
+    asrService.getAsrStatus.mockRejectedValue(new Error('network'))
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument()
   })
 
   it('shows an honest error when the voice service is unavailable', async () => {
@@ -164,10 +184,8 @@ describe('InputBar', () => {
     const user = userEvent.setup()
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    await waitFor(() => expect(asrService.getAsrStatus).toHaveBeenCalled())
-    // 等 mount 探测的 .then 落进 ref，再点麦克风
-    await new Promise((resolve) => { setTimeout(resolve, 0) })
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
+    // 配了但暂时连不上：麦克风在，点了如实说用不了
+    await user.click(await screen.findByRole('button', { name: '语音输入' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('语音转文字暂不可用')
   })
@@ -179,8 +197,7 @@ describe('InputBar', () => {
     const user = userEvent.setup()
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    await waitFor(() => expect(asrService.getAsrStatus).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
+    await user.click(await screen.findByRole('button', { name: '语音输入' }))
     expect(await screen.findByRole('button', { name: '停止录音' })).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(screen.getByRole('button', { name: '停止录音' }))
@@ -190,14 +207,99 @@ describe('InputBar', () => {
     expect(asrService.transcribeAudio).toHaveBeenCalledWith(expect.any(Blob), { signal: expect.any(AbortSignal) })
   })
 
+  it('长段转写填进来后书写行跟着长高，不抢焦点；几段中文直接接上，不加空格', async () => {
+    webmToWav16kMono.mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }))
+    asrService.transcribeAudio.mockResolvedValueOnce({ text: '今天好累。' }).mockResolvedValueOnce({ text: '明天还要早起。' })
+    stubMedia()
+    const user = userEvent.setup()
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    // jsdom 不排版，scrollHeight 恒为 0：按两行字的高度装一个
+    Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => 96 })
+
+    for (const expected of ['今天好累。', '今天好累。明天还要早起。']) {
+      await user.click(await screen.findByRole('button', { name: '语音输入' }))
+      await user.click(await screen.findByRole('button', { name: '停止录音' }))
+      await waitFor(() => expect(input).toHaveValue(expected))
+    }
+    expect(input.style.height).toBe('96px')
+    expect(input).not.toHaveFocus()
+  })
+
+  it('录音时给她看在听多久了和音量', async () => {
+    meter.createLevelMeter.mockReturnValue({ read: () => 0.4, close: vi.fn() })
+    stubMedia()
+    const user = userEvent.setup()
+    const { container } = render(<InputBar onSend={vi.fn()} disabled={false} />)
+
+    await user.click(await screen.findByRole('button', { name: '语音输入' }))
+    expect(await screen.findByText('在听 0:00')).toBeInTheDocument()
+    expect(container.querySelectorAll('.bg-action-primary.opacity-70')).toHaveLength(5)
+    // 停下后这一行收起
+    await user.click(screen.getByRole('button', { name: '停止录音' }))
+    await waitFor(() => expect(screen.queryByText(/在听/)).not.toBeInTheDocument())
+  })
+
+  it('一直没听到像说话的声音才提示靠近一点；听到了提示就收起', async () => {
+    let reading = 0
+    meter.createLevelMeter.mockReturnValue({ read: () => reading, close: vi.fn() })
+    stubMedia()
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+    const mic = await screen.findByRole('button', { name: '语音输入' })
+    const hint = '还没听到声音，可以靠近一点说'
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(mic)
+      await act(async () => {})
+      expect(screen.getByRole('button', { name: '停止录音' })).toBeInTheDocument()
+      act(() => { vi.advanceTimersByTime(2000) })
+      expect(screen.queryByText(hint)).not.toBeInTheDocument()
+      act(() => { vi.advanceTimersByTime(1200) })
+      expect(screen.getByRole('status')).toHaveTextContent(hint)
+      reading = 0.3
+      act(() => { vi.advanceTimersByTime(200) })
+      expect(screen.queryByText(hint)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('最后 10 秒倒数；到 90 秒自动停下转写，并告诉她先写下了这些', async () => {
+    webmToWav16kMono.mockResolvedValue(new Blob(['wav'], { type: 'audio/wav' }))
+    asrService.transcribeAudio.mockResolvedValue({ text: '今天好累。' })
+    stubMedia()
+    render(<InputBar onSend={vi.fn()} disabled={false} />)
+    const mic = await screen.findByRole('button', { name: '语音输入' })
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(mic)
+      await act(async () => {})
+      act(() => { vi.advanceTimersByTime(81_000) })
+      expect(screen.getByText('还能说 9 秒')).toBeInTheDocument()
+      act(() => { vi.advanceTimersByTime(9_000) })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const input = screen.getByRole('textbox', { name: '聊天消息' })
+    await waitFor(() => expect(input).toHaveValue('今天好累。'))
+    expect(screen.getByRole('status')).toHaveTextContent(AUTO_STOP_NOTICE)
+
+    // 书写行清空后提示收起；接着写下一句，旧提示不会再冒出来
+    fireEvent.change(input, { target: { value: '' } })
+    await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent(AUTO_STOP_NOTICE))
+    fireEvent.change(input, { target: { value: '新的一句' } })
+    expect(screen.getByRole('status')).not.toHaveTextContent(AUTO_STOP_NOTICE)
+  })
+
   it('reports microphone permission denial honestly', async () => {
     stubMedia({ getUserMedia: vi.fn().mockRejectedValue(Object.assign(new Error('denied'), { name: 'NotAllowedError' })) })
     const user = userEvent.setup()
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    await waitFor(() => expect(asrService.getAsrStatus).toHaveBeenCalled())
-    await new Promise((resolve) => { setTimeout(resolve, 0) })
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
+    await user.click(await screen.findByRole('button', { name: '语音输入' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('麦克风权限被拒绝')
   })
@@ -238,9 +340,7 @@ describe('InputBar', () => {
     const user = userEvent.setup()
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    await waitFor(() => expect(asrService.getAsrStatus).toHaveBeenCalled())
-    await new Promise((resolve) => { setTimeout(resolve, 0) })
-    await user.click(screen.getByRole('button', { name: '语音输入' }))
+    await user.click(await screen.findByRole('button', { name: '语音输入' }))
     expect(await screen.findByRole('button', { name: '停止录音' })).toHaveAttribute('aria-pressed', 'true')
 
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -250,16 +350,27 @@ describe('InputBar', () => {
     expect(asrService.transcribeAudio).not.toHaveBeenCalled()
   })
 
-  it('只有一种对话：语音、照片与附件同在一个输入胶囊里，占位文案只有一句', () => {
+  it('只有一种对话：语音、照片与附件同在一个输入胶囊里，占位文案只有一句', async () => {
     render(<InputBar onSend={vi.fn()} disabled={false} />)
 
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '语音输入' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '添加照片' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '添加文件' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '聊天消息' })).toHaveAttribute('placeholder', '写下想说的…')
   })
 })
     await new Promise((resolve) => { setTimeout(resolve, 0) })
+
+describe('appendTranscript', () => {
+  it('挨着中文或中文标点直接接上，只有英文、数字碰在一起才隔一个空格', () => {
+    expect(appendTranscript('', '今天好累。')).toBe('今天好累。')
+    expect(appendTranscript('今天好累。', '明天还要早起。')).toBe('今天好累。明天还要早起。')
+    expect(appendTranscript('我在改PPT', '好烦')).toBe('我在改PPT好烦')
+    expect(appendTranscript('明早9点', '要汇报')).toBe('明早9点要汇报')
+    expect(appendTranscript('see you', 'tomorrow')).toBe('see you tomorrow')
+    expect(appendTranscript('写了一半', '')).toBe('写了一半')
+  })
+})
 
 const resize = vi.hoisted(() => ({ prepareChatImage: vi.fn() }))
 vi.mock('../../features/chat/imageResize', () => resize)

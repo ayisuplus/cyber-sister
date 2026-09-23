@@ -544,6 +544,26 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 ---
 
+## 三·五、语音转文字 `/api/asr`
+
+你说、她写（路线图 C17）：书写行的麦克风把录音交给本机 FunASR 转写服务（`tools/asr-server`，模型 SenseVoiceSmall），转出来的字填进书写行，看过、改过再发。录音只在内存里经手，不落盘，不送外部服务；她那边只拿到你发出去的文字。设计与评测见[语音输入评测](语音输入评测.md)。
+
+### GET /api/asr/status
+
+返回 `{ available, configured, reason }`。没配 `ASR_BASE_URL`：`configured:false`、`reason:"ASR_NOT_CONFIGURED"`，界面不放麦克风。配了但转写服务连不上：`configured:true`、`available:false`、`reason:"ASR_UNAVAILABLE"`，点麦克风如实报不可用。
+
+### POST /api/asr/transcribe
+
+multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），≤ 4MB（16kHz 单声道约 2 分钟；浏览器负责转码）。成功返回 `{ text }`：只有文字——SenseVoice 听出来的情绪与事件标签不出这一层，也不以表情夹在文字里；没听到人声时 `text` 为空字符串。
+
+| 情况 | 状态码 |
+| --- | --- |
+| 没带音频、类型不对、超过 4MB，或转写服务判定不是 16kHz 单声道（原文透传） | 400 |
+| 没配 `ASR_BASE_URL` | 503 `ASR_NOT_CONFIGURED` |
+| 转写服务离线、超时（30 秒）或返回异常 | 503 `ASR_UNAVAILABLE` |
+
+---
+
 ## 四、记忆 `/api/memories`
 
 长期记忆仅使用**用户已确认的正式记忆**；AI 草稿只进「她的来信」的素材，进信即消费。所有创建、导入共用正式写入服务，版本历史与来源独立保存。
@@ -892,6 +912,8 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           POST   /api/chat/conversations/:id/messages
           POST   /api/chat/conversations/:id/messages/stream (SSE)
           DELETE /api/chat/conversations/:id
+语音      GET    /api/asr/status           (没配就不放麦克风)
+          POST   /api/asr/transcribe       (multipart WAV，只回文字)
 记忆      CRUD   /api/memories
           POST   /api/memories/suggestions (临时候选，不落库)
           POST   /api/memories/embeddings/rebuild (重建语义索引)

@@ -8,6 +8,9 @@ import { HttpError } from '../utils/dbHelpers.js'
 
 const STATUS_TIMEOUT_MS = 3000
 const TRANSCRIBE_TIMEOUT_MS = 30_000
+// 转写只把文字交给她：SenseVoice 听出来的情绪、事件标签由 sidecar 单独返回，不出这一层（路线图 C17）。
+// 旧版 sidecar 会把它们写成表情（😔😭😊）夹在文字里，这里兜底去掉。
+const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu
 
 export function unavailable(message = '语音转文字暂不可用，请稍后重试') {
   const error = new HttpError(message, 503)
@@ -85,5 +88,5 @@ export async function transcribeAudio({ audioBuffer, audioName, audioMime }, env
     throw unavailable('语音转文字服务处理音频失败')
   }
   if (typeof data?.text !== 'string') throw unavailable('语音转文字服务返回异常')
-  return { text: data.text }
+  return { text: data.text.replace(EMOJI, '').trim() }
 }

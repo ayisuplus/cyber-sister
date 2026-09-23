@@ -463,6 +463,8 @@ test('one conversation: no list and no new conversation, older messages load abo
   })
   await page.route('**/api/work/status', route => json(route, 200, { capabilities: { backgroundTasks: false } }))
   await page.route('**/api/work/tasks', route => json(route, 200, { tasks: [] }))
+  // 配了语音服务才放麦克风
+  await page.route('**/api/asr/status', route => json(route, 200, { available: true, configured: true, reason: null }))
   await page.goto('/chat')
 
   await expect(page.getByRole('heading', { name: 'Amie', exact: true })).toBeVisible()

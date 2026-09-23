@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { ImagePlus, Mic, Send, Square, X, Paperclip } from 'lucide-react'
 import Spinner from '../ui/Spinner'
-import { useVoiceInput } from './useVoiceInput'
+import { appendTranscript, MAX_RECORD_MS, useVoiceInput } from './useVoiceInput'
 import { prepareChatImage } from '../../features/chat/imageResize'
 import { isLocalWorkClient } from '../../features/distribution'
 
@@ -10,6 +10,49 @@ const fitHeight = (el) => {
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 120)}px`
   el.style.overflowY = el.scrollHeight > 120 ? 'auto' : 'hidden'
+}
+
+// 录音中的那一行字：在听多久了；最后 10 秒改成倒数
+const recordingLabel = (elapsedMs) => {
+  const remaining = Math.ceil((MAX_RECORD_MS - elapsedMs) / 1000)
+  if (remaining <= 10) return `还能说 ${Math.max(remaining, 0)} 秒`
+  const seconds = Math.floor(elapsedMs / 1000)
+  return `在听 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+// 五根细音量条，中间高两边低，跟着她的声音起伏
+const BAR_WEIGHTS = [0.55, 0.8, 1, 0.8, 0.55]
+function LevelBars({ level }) {
+  return (
+    <span className="flex h-4 items-center gap-[3px]">
+      {BAR_WEIGHTS.map((weight, index) => (
+        <span
+          key={index}
+          className="w-[3px] rounded-full bg-action-primary opacity-70 motion-safe:transition-[height] motion-safe:duration-100"
+          style={{ height: `${4 + Math.round(level * weight * 12)}px` }}
+        />
+      ))}
+    </span>
+  )
+}
+
+// 录音中那一行只给眼睛看（读屏靠按钮的「停止录音」）；小声提示与到点提示放在读屏会播报的 status 里
+function VoiceStatus({ voice, hasText }) {
+  const recording = voice.state === 'recording'
+  return (
+    <>
+      {recording && (
+        <div aria-hidden="true" className="mt-1.5 flex items-center gap-2 px-2 text-xs text-text-secondary">
+          {voice.level !== null && <LevelBars level={voice.level} />}
+          <span className="tabular-nums">{recordingLabel(voice.elapsedMs)}</span>
+        </div>
+      )}
+      <div role="status" className="px-2 text-xs text-text-secondary">
+        {recording && voice.quiet && <p className="mt-1.5">还没听到声音，可以靠近一点说</p>}
+        {voice.notice && hasText && <p className="mt-1.5">{voice.notice}</p>}
+      </div>
+    </>
+  )
 }
 
 // ref.fillDraft(text)：开场区的敏感话题只填成草稿——输入框已有文字或图片时不覆盖，也从不自动发送。
@@ -30,12 +73,25 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
   const fileInputRef = useRef(null)
   const documentInputRef = useRef(null)
   const canAttach = isLocalWorkClient()
+  const fitAfterVoiceRef = useRef(false)
   const voice = useVoiceInput((transcript) => {
-    setText(prev => (prev ? `${prev} ${transcript}` : transcript))
+    fitAfterVoiceRef.current = true
+    setText(prev => appendTranscript(prev, transcript))
   }, true)
 
   const hasDraft = Boolean(text.trim() || image)
   useEffect(() => { onDraftChange?.(hasDraft) }, [hasDraft, onDraftChange])
+
+  // 转写填进来后按内容长高，好让她看完再发；不自动聚焦，免得手机上弹出键盘挡住刚转出来的字
+  useEffect(() => {
+    if (!fitAfterVoiceRef.current || !textareaRef.current) return
+    fitAfterVoiceRef.current = false
+    fitHeight(textareaRef.current)
+  }, [text])
+
+  // 书写行清空了（发出去或删掉），到点提示跟着收起，不会在下一句话下面又冒出来
+  const { clearNotice } = voice
+  useEffect(() => { if (!text.trim()) clearNotice() }, [text, clearNotice])
 
   useImperativeHandle(ref, () => ({
     fillDraft(draft) {
@@ -150,16 +206,19 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             className="min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3.5 py-2.5 text-[15px] leading-6 text-text-primary outline-none placeholder:text-text-muted"
           />
 
-          <button
-            type="button"
-            aria-label={voice.state === 'recording' ? '停止录音' : '语音输入'}
-            aria-pressed={voice.state === 'recording'}
-            onClick={voice.toggle}
-            disabled={disabled || voice.state === 'transcribing'}
-            className={voice.state === 'recording' ? `${ghostButton} record-breath bg-pastel-blush text-danger hover:bg-pastel-blush` : ghostButton}
-          >
-            {voice.state === 'transcribing' ? <Spinner /> : voice.state === 'recording' ? <Square size={16} /> : <Mic size={18} />}
-          </button>
+          {/* 没配语音服务就不放麦克风，不假装可用 */}
+          {voice.configured === true && (
+            <button
+              type="button"
+              aria-label={voice.state === 'recording' ? '停止录音' : '语音输入'}
+              aria-pressed={voice.state === 'recording'}
+              onClick={voice.toggle}
+              disabled={disabled || voice.state === 'transcribing'}
+              className={voice.state === 'recording' ? `${ghostButton} record-breath bg-pastel-blush text-danger hover:bg-pastel-blush` : ghostButton}
+            >
+              {voice.state === 'transcribing' ? <Spinner /> : voice.state === 'recording' ? <Square size={16} /> : <Mic size={18} />}
+            </button>
+          )}
 
           {canAttach && <>
             <input ref={documentInputRef} type="file" multiple accept=".pdf,.xlsx,.docx,.pptx,.txt,.md,.csv,.json,.js,.py,.html,.png,.jpg" aria-label="选择工作文件" className="hidden" onChange={handleFilesPicked} />
@@ -193,6 +252,7 @@ const InputBar = forwardRef(/** @param {InputBarProps} props @param {import('rea
             <Send size={17} className="-ml-0.5 mt-0.5" />
           </button>
         </div>
+        <VoiceStatus voice={voice} hasText={Boolean(text.trim())} />
         {(voice.error || imageError || fileError) && <p role="alert" className="mt-1.5 px-2 text-xs text-danger">{voice.error || imageError || fileError}</p>}
       </div>
     </div>
