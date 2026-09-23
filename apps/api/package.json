@@ -22,6 +22,7 @@
     "db:migrate:plans": "node src/prisma/migratePlansToTasks.js",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
+    "eval:replies": "node scripts/eval-replies.mjs",
     "lint": "eslint src/ --max-warnings 146",
     "format": "prettier --write src/"
   },

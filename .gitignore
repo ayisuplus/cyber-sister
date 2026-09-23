@@ -51,5 +51,10 @@ data/analytics.jsonl
 # 测试覆盖率产物
 coverage/
 
+# 回复质量评测结果（含模型原始回复；哪次进论文由作者另行挑选）
+apps/api/eval-results/
+# CI 在网页版构建上跑 e2e 时的输出目录
+apps/web/test-results-web/
+
 # Agent 协调工具的机器本地瞬时状态（含机器特定路径），不入库
 .coordination/
