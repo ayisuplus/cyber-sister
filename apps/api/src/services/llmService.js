@@ -14,8 +14,7 @@ import { classifyToolPrefix, parseToolReply, MAX_TOOL_REPLY_CHARS } from './tool
 import logger from '../utils/logger.js'
 import { projectionMatches } from './embeddingConfig.js'
 import { detectEmotion } from './detection.js'
-import { buildBodyCareContext } from './bodyCareSkill.js'
-import { buildEmotionReflectionContext } from './emotionReflectionSkill.js'
+import { buildBookSkillContexts } from './bookSkills.js'
 import { buildModuleSkillContexts } from './moduleSkills.js'
 import { emit } from './extensionRuntime.js'
 import { memorySourceLabel } from './contextBlocks.js'
@@ -453,8 +452,7 @@ export async function generateResponse(
     const systemAppend = [
       ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
       ...extraSystem,
-      ...buildBodyCareContext(text, history, scene),
-      ...buildEmotionReflectionContext(text, history, scene),
+      ...buildBookSkillContexts(text, history, scene),
       ...buildModuleSkillContexts(text, history, scene),
     ]
     // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到
@@ -612,8 +610,7 @@ export async function* generateResponseStream(
   const systemAppend = [
     ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
     ...extraSystem,
-    ...buildBodyCareContext(text, history, scene),
-    ...buildEmotionReflectionContext(text, history, scene),
+    ...buildBookSkillContexts(text, history, scene),
     ...buildModuleSkillContexts(text, history, scene),
   ]
   // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到

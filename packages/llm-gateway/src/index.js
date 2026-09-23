@@ -34,7 +34,11 @@
  *   GATEWAY_<NAME>_SCOPE=local|external      供应商作用域
  *   GATEWAY_<NAME>_SCENES=chat,explain       供应商承接的场景
  *   GATEWAY_<NAME>_PRIORITY=1                优先级（数字小者优先）
+ *   GATEWAY_<NAME>_EXTRA_BODY={"thinking":{"type":"disabled"}}
+ *                                            追加进请求体的供应商专属参数（JSON 对象，
+ *                                            不许含 model/messages/stream/tools 这些网关自己管的字段）
  *   GATEWAY_SCENE_chat=llamacpp,qwen         场景路由顺序（本地优先）
+ *   GATEWAY_PERSONA_SHARED_PREAMBLE=off      只供回复质量评测做消融：人格提示词不带共用前言。生产不设。
  *
  * 约束：
  * - complete 非流式（stream:false），stream 流式（stream:true）；供应商失败最多重试 1 次，外部每次尝试均重新授权。
@@ -50,6 +54,34 @@ const DEFAULT_TIMEOUT_MS = 180_000
 const LOCAL_MAX_ATTEMPTS = 2
 // dots 等预览端点偶发超时/断流，多给一次重试机会
 const EXTERNAL_MAX_ATTEMPTS = 2
+
+const RESERVED_BODY_KEYS = new Set(['model', 'messages', 'stream', 'tools', 'tool_choice', 'parallel_tool_calls'])
+
+// 供应商专属参数（如 MiMo 的 thinking 开关）：只收 JSON 对象，不许改动网关自己管的字段
+function parseExtraBody(env, key) {
+  const raw = env[`GATEWAY_${key}_EXTRA_BODY`]
+  if (!raw) return null
+  let value
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    throw new Error(`GATEWAY_${key}_EXTRA_BODY 不是合法的 JSON`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`GATEWAY_${key}_EXTRA_BODY 必须是 JSON 对象`)
+  }
+  const reserved = Object.keys(value).filter((name) => RESERVED_BODY_KEYS.has(name))
+  if (reserved.length) throw new Error(`GATEWAY_${key}_EXTRA_BODY 不能包含 ${reserved.join('、')}`)
+  return value
+}
+
+function buildPayload(provider, messages, streaming, { tools, maxTokens, temperature }) {
+  const payload = { ...provider.extraBody, model: provider.model, messages, stream: streaming }
+  if (tools?.length) Object.assign(payload, { tools, tool_choice: 'auto', parallel_tool_calls: false })
+  if (Number.isFinite(maxTokens)) payload.max_tokens = maxTokens
+  if (Number.isFinite(temperature)) payload.temperature = temperature
+  return payload
+}
 
 function parseProviderConfig(env, name) {
   const key = name.toUpperCase()
@@ -67,13 +99,14 @@ function parseProviderConfig(env, name) {
     priority: Number.parseInt(env[`GATEWAY_${key}_PRIORITY`] || '99', 10) || 99,
     safeNetwork: env[`GATEWAY_${key}_SAFE_NETWORK`] === 'true',
     allowLoopback: env[`GATEWAY_${key}_ALLOW_LOOPBACK`] === 'true',
+    extraBody: parseExtraBody(env, key),
   }
 }
 
-function buildRequestMessages({ scene, persona, messages, systemAppend }) {
+function buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble = true }) {
   const systemMessages = []
   if (scene === 'chat') {
-    systemMessages.push({ role: 'system', content: getPersonaSystemPrompt(persona) })
+    systemMessages.push({ role: 'system', content: getPersonaSystemPrompt(persona, { shared: sharedPreamble }) })
   }
   if (Array.isArray(systemAppend)) {
     for (const item of systemAppend) {
@@ -236,6 +269,7 @@ function noopLogger() {
  */
 export async function createGateway(env = process.env, { logger } = {}) {
   const log = logger || noopLogger()
+  const sharedPreamble = env.GATEWAY_PERSONA_SHARED_PREAMBLE !== 'off'
   const enabledNames = String(env.GATEWAY_PROVIDERS || '')
     .split(',').map((s) => s.trim()).filter(Boolean)
   const providers = new Map()
@@ -279,14 +313,11 @@ export async function createGateway(env = process.env, { logger } = {}) {
     if (!scene || !Array.isArray(messages) || messages.length === 0) return null
 
     const candidates = routeForScene(scene)
-    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend })
+    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble })
 
     for (const provider of candidates) {
       const maxAttempts = provider.scope === 'external' ? EXTERNAL_MAX_ATTEMPTS : LOCAL_MAX_ATTEMPTS
-      const payload = { model: provider.model, messages: finalMessages, stream: false }
-      if (request.tools?.length) Object.assign(payload, { tools: request.tools, tool_choice: 'auto', parallel_tool_calls: false })
-      if (Number.isFinite(maxTokens)) payload.max_tokens = maxTokens
-      if (Number.isFinite(temperature)) payload.temperature = temperature
+      const payload = buildPayload(provider, finalMessages, false, { tools: request.tools, maxTokens, temperature })
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (signal?.aborted) return null
@@ -353,7 +384,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
     if (signal?.aborted) return
 
     const candidates = routeForScene(scene)
-    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend })
+    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble })
 
     // 不变量：一旦已产出任何 delta，禁止重试与切换供应商；
     // 此后任何上游异常都直接以 error 事件结束流。
@@ -362,10 +393,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
     for (const provider of candidates) {
       if (emitted) break
       const maxAttempts = provider.scope === 'external' ? EXTERNAL_MAX_ATTEMPTS : LOCAL_MAX_ATTEMPTS
-      const payload = { model: provider.model, messages: finalMessages, stream: true }
-      if (request.tools?.length) Object.assign(payload, { tools: request.tools, tool_choice: 'auto', parallel_tool_calls: false })
-      if (Number.isFinite(maxTokens)) payload.max_tokens = maxTokens
-      if (Number.isFinite(temperature)) payload.temperature = temperature
+      const payload = buildPayload(provider, finalMessages, true, { tools: request.tools, maxTokens, temperature })
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (emitted) break

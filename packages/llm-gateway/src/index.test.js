@@ -514,3 +514,56 @@ test('complete 调用方取消传导到 fetch，且不重试', async (t) => {
   assert.equal(calls, 1)
   assert.equal(observedSignal.aborted, true)
 })
+
+const okJsonResponse = (content) => new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), { status: 200 })
+
+test('provider extra body is merged into complete and stream payloads, per-request settings win', async (t) => {
+  const originalFetch = globalThis.fetch
+  const payloads = []
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body)
+    payloads.push(payload)
+    return payload.stream ? okStreamResponse([sseChunk(sseJson('好')), sseChunk('[DONE]')]) : okJsonResponse('好')
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  const gateway = await createGateway({
+    ...LOCAL_ENV,
+    GATEWAY_LLAMACPP_EXTRA_BODY: '{"thinking":{"type":"disabled"},"response_format":{"type":"json_object"},"temperature":1}',
+  })
+  assert.equal((await gateway.complete(baseRequest({ temperature: 0 }))).content, '好')
+  for await (const _event of gateway.stream(baseRequest())) { /* drain */ }
+  assert.deepEqual(payloads[0].thinking, { type: 'disabled' })
+  assert.deepEqual(payloads[0].response_format, { type: 'json_object' })
+  assert.equal(payloads[0].temperature, 0)
+  assert.equal(payloads[0].stream, false)
+  assert.equal(payloads[0].model, 'local-model')
+  assert.deepEqual(payloads[1].thinking, { type: 'disabled' })
+  assert.equal(payloads[1].stream, true)
+})
+
+test('provider extra body must be a JSON object that leaves the gateway fields alone', async () => {
+  for (const [raw, message] of [
+    ['not json', /不是合法的 JSON/],
+    ['[1,2]', /必须是 JSON 对象/],
+    ['{"model":"other","stream":true}', /不能包含 model、stream/],
+  ]) {
+    await assert.rejects(createGateway({ ...LOCAL_ENV, GATEWAY_LLAMACPP_EXTRA_BODY: raw }), message)
+  }
+})
+
+test('the shared preamble can be switched off only for the evaluation ablation', async (t) => {
+  const originalFetch = globalThis.fetch
+  const systems = []
+  globalThis.fetch = async (_url, options) => {
+    systems.push(JSON.parse(options.body).messages[0].content)
+    return okJsonResponse('好')
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  await (await createGateway(LOCAL_ENV)).complete(baseRequest({ persona: 'gentle' }))
+  await (await createGateway({ ...LOCAL_ENV, GATEWAY_PERSONA_SHARED_PREAMBLE: 'off' })).complete(baseRequest({ persona: 'gentle' }))
+  assert.match(systems[0], /你是 AI，不是真人/)
+  assert.match(systems[0], /她的决定永远归她/)
+  assert.match(systems[1], /你是 AI，不是真人/)
+  assert.doesNotMatch(systems[1], /她的决定永远归她/)
+  assert.match(systems[1], /人设：温柔姐姐/)
+})

@@ -54,3 +54,13 @@ test('the order is safety, then the shared layer, then the speaking style', () =
     assert.ok(safety >= 0 && shared > safety && style > shared, `${id} keeps the wrong order`)
   }
 })
+
+test('without the shared layer a style keeps its safety boundary and its own voice', () => {
+  for (const id of VALID_PERSONA_IDS) {
+    const full = getPersonaSystemPrompt(id)
+    const ablated = getPersonaSystemPrompt(id, { shared: false })
+    assert.ok(!ablated.includes('她的决定永远归她'), `${id} still carries the shared layer`)
+    assert.ok(ablated.startsWith('你是 Amie'), `${id} lost the safety boundary`)
+    assert.ok(full.endsWith(ablated.slice(ablated.indexOf('\n人设：'))), `${id} changed its own voice`)
+  }
+})
