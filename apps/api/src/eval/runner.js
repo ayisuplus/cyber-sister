@@ -60,7 +60,7 @@ export async function runEvaluation({ rubric, cases, arms, generate, judge, conc
       const reply = typeof result.reply === 'string' && result.reply.trim() ? result.reply : null
       generations.push({
         ...task, category: scenario.category, reply, source: result.source ?? null,
-        promptChars: result.promptChars ?? null, error: result.error ?? (reply ? null : '没有回复'),
+        promptChars: result.promptChars ?? null, raw: result.raw ?? null, error: result.error ?? (reply ? null : '没有回复'),
       })
       onProgress({ stage: 'generate', done: generations.length })
     }

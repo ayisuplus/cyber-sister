@@ -125,9 +125,37 @@ function stubFetch(url, init) {
   return Promise.resolve(body.stream ? sseResponse('嗯，我在。') : jsonResponse('嗯，我在。'))
 }
 
-const recording = (inner) => (url, init) => {
-  h.requests.push({ host: new URL(String(url)).host, body: JSON.parse(init?.body ?? '{}') })
-  return inner(url, init)
+// 模型的原话（过滤之前）：SSE 拼出增量文本，非流式取 message.content
+function rawContentOf(text) {
+  if (!text.includes('data:')) {
+    try {
+      return JSON.parse(text).choices?.[0]?.message?.content ?? ''
+    } catch {
+      return ''
+    }
+  }
+  let content = ''
+  for (const line of text.split('\n')) {
+    const data = line.startsWith('data:') ? line.slice(5).trim() : ''
+    if (!data || data === '[DONE]') continue
+    try {
+      content += JSON.parse(data).choices?.[0]?.delta?.content ?? ''
+    } catch {
+      // 半截的帧不影响其余部分
+    }
+  }
+  return content
+}
+
+// 记下每次请求；发给生成模型的那些顺手把原话存下来，好核对输出过滤到底换掉了什么
+const recording = (inner) => async (url, init) => {
+  const entry = { host: new URL(String(url)).host, body: JSON.parse(init?.body ?? '{}') }
+  h.requests.push(entry)
+  const response = await inner(url, init)
+  if (entry.host !== hostOf(config.gen.baseUrl)) return response
+  const text = await response.text()
+  entry.raw = rawContentOf(text)
+  return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers })
 }
 
 const contentChars = (content) => (typeof content === 'string' ? content.length : 0)
@@ -211,7 +239,7 @@ async function generate(task) {
   const before = h.requests.length
   const result = await generateReply(task)
   const sent = h.requests.slice(before).filter((request) => request.host === hostOf(config.gen.baseUrl))
-  return { ...result, promptChars: promptCharsOf(sent) }
+  return { ...result, promptChars: promptCharsOf(sent), raw: sent.map((request) => request.raw ?? '') }
 }
 
 async function generateReply({ scenario, armConfig, style }) {
@@ -364,6 +392,8 @@ describe.runIf(MODE === 'ci')('回复质量评测装置（离线：只看发出�
     const run = await runEvaluation({ rubric, cases, arms: ['A', 'B', 'C'], generate, judge })
     expect(run.generations).toHaveLength(2 * (1 + 3 + 3))
     expect(run.generations.every((item) => item.reply)).toBe(true)
+    // 过滤之前的原话也存下来了（桩的原话就是「嗯，我在。」）
+    expect(run.generations.every((item) => item.raw?.join('') === '嗯，我在。')).toBe(true)
     expect(run.judgements.every((item) => !item.error && !item.missing.length)).toBe(true)
     const markdown = renderMarkdown({
       meta: { mode: 'dry', startedAt: '-', finishedAt: '-', commit: '-', arms: ['A', 'B', 'C'], caseCount: 2, scenariosVersion: 1, scenariosStatus: 'draft', scenariosFrozenAt: null, rubricVersion: 1, rubricStatus: 'draft', generator: 'stub', judge: 'stub', calls: { generation: 0, judge: 0 }, promptChars: 0 },
