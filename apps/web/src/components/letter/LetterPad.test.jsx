@@ -314,3 +314,108 @@ describe('页码那一行的小贴纸', () => {
     expect(sticker()).not.toBeNull()
   })
 })
+
+describe('用手指翻', () => {
+  const leaf = () => host().querySelector('.letter-ghost--leaf')
+  const turn = () => Number.parseFloat(leaf()?.style.getPropertyValue('--turn'))
+  // 手指按下、移动、松开；时间戳自己给，速度才算得准
+  const finger = (type, x, y, time) => {
+    const event = new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerType: 'touch' })
+    Object.defineProperty(event, 'timeStamp', { value: time })
+    fireEvent(viewport(), event)
+  }
+
+  it('往右拖：上一页跟着手指从左边翻回来，边缘停在手指底下；拖过三分之一多页宽，松手就翻过去', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 120, 102, 50)
+    // 横着走够了：底下换成上一页，上面是眼前这一页的静影和跟手的那一页
+    expect(label()).toHaveTextContent('2 / 3')
+    expect(host().children).toHaveLength(2)
+    expect(turn()).toBeGreaterThan(0.45)
+
+    finger('pointermove', 260, 104, 250)
+    expect(turn()).toBeCloseTo(Math.acos(160 / 400) / Math.PI)
+    finger('pointerup', 260, 104, 260)
+    expect(label()).toHaveTextContent('2 / 3')
+    expect(host().children).toHaveLength(0)
+  })
+
+  it('拖得不够又慢，松手就落回原处：底下换回原来那一页，拓印撤掉', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 120, 100, 100)
+    finger('pointermove', 140, 100, 400)
+    finger('pointerup', 140, 100, 420)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(host().children).toHaveLength(0)
+  })
+
+  it('轻轻一甩也翻：走得不远，但够快', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 115, 100, 10)
+    finger('pointermove', 150, 100, 30)
+    finger('pointerup', 152, 100, 32)
+    expect(label()).toHaveTextContent('2 / 3')
+    expect(host().children).toHaveLength(0)
+  })
+
+  it('往左拖：眼前这一页跟着手指翻起来，翻到下一页', async () => {
+    const user = userEvent.setup()
+    render(<Letter items={['a', 'b', 'c']} />)
+    await user.click(screen.getByRole('button', { name: '上一页' }))
+    expect(label()).toHaveTextContent('2 / 3')
+
+    finger('pointerdown', 300, 100, 1000)
+    finger('pointermove', 280, 100, 1050)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(host().children).toHaveLength(1)
+    expect(turn()).toBeCloseTo(Math.acos(1 - 20 / 400) / Math.PI)
+    finger('pointermove', 140, 100, 1250)
+    finger('pointerup', 140, 100, 1260)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(host().children).toHaveLength(0)
+  })
+
+  it('快拖一段、停住再松手：不算甩，拖得不够就落回原处', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 120, 100, 10)
+    finger('pointermove', 160, 100, 30)
+    // 停了将近 0.4 秒才松手：停住之前那一下再快，也不能算甩
+    finger('pointerup', 160, 100, 400)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(host().children).toHaveLength(0)
+  })
+
+  it('竖着划是在滚动：不翻页，也不留拓印', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 112, 160, 50)
+    finger('pointerup', 112, 200, 60)
+    expect(label()).toHaveTextContent('3 / 3')
+    expect(leaf()).toBeNull()
+  })
+
+  it('减少动态效果：不跟手；滑一下松手照样换页', () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: query.includes('reduce'), media: query, addEventListener() {}, removeEventListener() {},
+    }))
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 160, 100, 50)
+    expect(leaf()).toBeNull()
+    finger('pointerup', 220, 100, 80)
+    expect(label()).toHaveTextContent('2 / 3')
+  })
+
+  it('最后一页再往左拖：翻不动，什么都不留', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    finger('pointerdown', 300, 100, 0)
+    finger('pointermove', 250, 100, 50)
+    expect(leaf()).toBeNull()
+    finger('pointerup', 150, 100, 100)
+    expect(label()).toHaveTextContent('3 / 3')
+  })
+})

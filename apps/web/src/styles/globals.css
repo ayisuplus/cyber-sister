@@ -1021,7 +1021,28 @@ h1, h2, h3 {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-/* 减少动态效果：不翻，只把旧页淡出、新页淡入 */
+/* 用手指翻（2026-09-24，路线图 C19）：拓印的那一页跟着手指绕左边封线转，--turn 从 0（平摊着）到 1（翻到左边去），
+ * 由 usePagedLetter 按手指位置写进来，纸的外边缘一直停在手指底下。翻过一半就看不到正面、露出纸的背面；
+ * 越往上翘，靠外那一边越暗一点，像纸被捻起来。松手后的落定也只改 --turn：只减速，不回弹 */
+.letter-ghost--leaf {
+  --turn: 0;
+  transform-origin: left center;
+  transform: rotateY(calc(var(--turn) * -180deg));
+  will-change: transform;
+}
+.letter-ghost--leaf > * { opacity: clamp(0, (0.5 - var(--turn)) * 1000, 1); }
+.letter-ghost--leaf::after { opacity: clamp(0, (var(--turn) - 0.5) * 1000, 1); }
+.letter-ghost--leaf::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(to left, color-mix(in srgb, var(--cs-ink-her) 16%, transparent), transparent 55%);
+  opacity: clamp(0, var(--turn) * 2, 1);
+}
+
+/* 减少动态效果：不翻，只把旧页淡出、新页淡入（也不跟手，滑一下松手再换页） */
 @media (prefers-reduced-motion: reduce) {
   .letter-ghost:not(.letter-ghost--back) { animation: letterFade 200ms linear forwards; transform: none; }
   .letter-ghost--back { animation: letterFadeIn 200ms linear forwards; transform: none; }

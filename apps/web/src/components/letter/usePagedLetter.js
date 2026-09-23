@@ -4,6 +4,12 @@ import { DEFAULT_LINE, MARGIN_X, RIGHT_PAD, SNAP_SELECTOR, TEXT_INSET, pageGeome
 // 翻一页用多久：700ms、减速、不回弹。CSS 里的 --flip-ms 要跟着改（globals.css「本子」一节）
 const FLIP_MS = 700
 const SWIPE_MIN = 48
+// 用手指翻：横着走够这么远才算开始翻（再短当成点按）；拖过这么多页宽、或甩得这么快（像素/毫秒），松手就翻过去
+const DRAG_LOCK = 10
+const DRAG_COMMIT = 0.35
+const FLICK = 0.45
+const SETTLE_MIN_MS = 160
+const SETTLE_MAX_MS = 520
 
 const isEditable = (target) => target instanceof HTMLElement
   && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
@@ -53,6 +59,51 @@ function copyPage(viewport, direction) {
 }
 
 const drop = (ghost, below) => () => { ghost.remove(); below?.remove() }
+
+const prefersReducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches)
+
+// 手指走过的比例 → 这一页转到哪（--turn：0 平摊着，1 翻到左边去）。纸的外边缘在「宽 × cos(π·turn)」，
+// 这样算，边缘始终停在手指底下：往左拖是 0 → 0.5（立起来），往右拖把上一页从 0.5 翻回 0
+const forwardTurn = (progress) => Math.acos(1 - progress) / Math.PI
+const backTurn = (progress) => Math.acos(progress) / Math.PI
+
+/** 跟着手指翻的那一页：拓印一份，转到哪由 --turn 决定（样式在 globals.css「用手指翻」）。 */
+function copyLeaf(viewport, turn) {
+  const leaf = copyPage(viewport)
+  leaf.classList.add('letter-ghost--leaf')
+  leaf.style.setProperty('--turn', String(turn))
+  return leaf
+}
+
+/**
+ * 松手后让这一页顺势翻完或落回去：只减速、不回弹。
+ * 最多 120 帧（标签页在后台、不跑 rAF 时由定时器收尾）。返回「立刻落定」的函数。
+ */
+function settleLeaf(leaf, from, to, done) {
+  const duration = Math.round(Math.min(SETTLE_MAX_MS, Math.max(SETTLE_MIN_MS, Math.abs(to - from) * 900)))
+  const start = performance.now()
+  let frames = 0
+  let finished = false
+  let timer = 0
+  const finish = () => {
+    if (finished) return
+    finished = true
+    clearTimeout(timer)
+    leaf?.style.setProperty('--turn', String(to))
+    done()
+  }
+  const step = () => {
+    if (finished) return
+    const k = Math.min(1, (performance.now() - start) / duration)
+    leaf?.style.setProperty('--turn', String(from + (to - from) * (1 - (1 - k) ** 3)))
+    frames += 1
+    if (k >= 1 || frames >= 120) finish()
+    else requestAnimationFrame(step)
+  }
+  timer = setTimeout(finish, duration + 120)
+  requestAnimationFrame(step)
+  return finish
+}
 
 /** 往后翻：眼前这一页绕左边封线翻过去，底下已经是新的一页。 */
 function turnForward(host, viewport) {
@@ -202,6 +253,24 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     return () => cancelAnimationFrame(frame)
   }, [index])
 
+  // 用手指往右拖：上一页画出来了，才把它拓印成跟着手指翻回来的那一页
+  const dragRef = useRef(null)
+  const settleRef = useRef(null)
+  const clearOnCommitRef = useRef(false)
+  useLayoutEffect(() => {
+    const drag = dragRef.current
+    if (!drag?.awaitingLeaf) return
+    drag.awaitingLeaf = false
+    drag.leaf = copyLeaf(viewportRef.current, backTurn(drag.progress))
+    ghostHostRef.current?.append(drag.leaf)
+  }, [index])
+  // 拖得不够、落回原处：底下已经换回原来那一页了，这时撤掉拓印才不会闪一下
+  useLayoutEffect(() => {
+    if (!clearOnCommitRef.current) return
+    clearOnCommitRef.current = false
+    ghostHostRef.current?.replaceChildren()
+  }, [index])
+
   // 封面压在上面时，底下的信纸不该再被点到或读到
   useEffect(() => {
     const strip = stripRef.current
@@ -285,12 +354,105 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     if (target !== indexRef.current) flipTo(target, false)
   }, [flipTo, firstIndex])
 
-  // 手机上左右滑；鼠标不算（留给选字）
+  // 用手指翻：往左拖，眼前这一页跟着手指翻起来；往右拖，上一页从左边翻回来。拓印那一页的外边缘一直停在手指底下
+  const beginDrag = useCallback((drag, direction) => {
+    const viewport = viewportRef.current
+    const host = ghostHostRef.current
+    if (!viewport?.clientWidth || !host) return false
+    const from = indexRef.current
+    let target
+    if (direction === 'forward') {
+      if (from >= lastIndexRef.current) return false
+      target = from + 1
+    } else if (from > firstIndex) {
+      target = from - 1
+    } else if (from === firstIndex && hasCover && !(hasOlder && onLoadOlder)) {
+      // 翻过最早的信就回到封面；还有更早的信时交给松手时的「往前翻」去取
+      target = 0
+    } else {
+      return false
+    }
+    Object.assign(drag, { direction, from, width: viewport.clientWidth })
+    if (direction === 'forward') {
+      drag.leaf = copyLeaf(viewport, 0)
+      host.replaceChildren(drag.leaf)
+    } else {
+      // 先铺一层眼前这一页的静影，底下换成上一页；上一页画出来后再拓印成跟手的那一页
+      host.replaceChildren(copyPage(viewport))
+      drag.awaitingLeaf = true
+    }
+    flipTo(target, false)
+    return true
+  }, [firstIndex, flipTo, hasCover, hasOlder, onLoadOlder])
+
+  // 松手：拖过三分之一多页宽、或者甩了一下，就顺势翻过去；不然落回原处
+  const finishDrag = useCallback((drag, cancelled = false) => {
+    const forward = drag.direction === 'forward'
+    const flick = forward ? -drag.velocity : drag.velocity
+    const commit = !cancelled && (drag.progress > DRAG_COMMIT || flick > FLICK)
+    const leaf = drag.leaf
+    const from = Number.parseFloat(leaf?.style.getPropertyValue('--turn') ?? '')
+    const current = Number.isFinite(from) ? from : (forward ? 0 : 0.5)
+    // 往左拖：翻过去是 1、落回来是 0；往右拖：翻回来是 0、退回去是 1
+    const to = forward ? (commit ? 1 : 0) : (commit ? 0 : 1)
+    drag.awaitingLeaf = false
+    settleRef.current = settleLeaf(leaf, current, to, () => {
+      settleRef.current = null
+      if (commit) {
+        ghostHostRef.current?.replaceChildren()
+        return
+      }
+      clearOnCommitRef.current = true
+      flipTo(drag.from, false)
+    })
+  }, [flipTo])
+
+  // 手机上左右滑；鼠标不算（留给选字）。横着拖就跟手翻；没来得及拖（一下就松手）的，照旧按滑动翻页
   const pointerRef = useRef(null)
   const onPointerDown = useCallback((event) => {
-    pointerRef.current = event.pointerType === 'mouse' ? null : { x: event.clientX, y: event.clientY }
+    // 上一次还在落定的途中：这一下不接，免得两页叠在一起
+    if (event.pointerType === 'mouse' || settleRef.current) {
+      pointerRef.current = null
+      dragRef.current = null
+      return
+    }
+    pointerRef.current = { x: event.clientX, y: event.clientY }
+    dragRef.current = {
+      id: event.pointerId, x: event.clientX, y: event.clientY,
+      lastX: event.clientX, lastT: event.timeStamp, velocity: 0, progress: 0, direction: null,
+    }
   }, [])
+  const onPointerMove = useCallback((event) => {
+    const drag = dragRef.current
+    if (!drag || event.pointerId !== drag.id) return
+    const elapsed = event.timeStamp - drag.lastT
+    if (elapsed > 0) drag.velocity = (event.clientX - drag.lastX) / elapsed
+    drag.lastX = event.clientX
+    drag.lastT = event.timeStamp
+    const dx = event.clientX - drag.x
+    const dy = event.clientY - drag.y
+    if (!drag.direction) {
+      // 横着走够一点才算开始翻；竖着走是在滚动，不归翻页管；减少动态效果时不跟手，松手再换页
+      if (Math.abs(dx) < DRAG_LOCK || prefersReducedMotion()) return
+      if (Math.abs(dx) < Math.abs(dy) * 1.2 || !beginDrag(drag, dx < 0 ? 'forward' : 'back')) {
+        dragRef.current = null
+        return
+      }
+      event.currentTarget?.setPointerCapture?.(event.pointerId)
+      pointerRef.current = null
+    }
+    drag.progress = Math.max(0, Math.min(1, (drag.direction === 'forward' ? -dx : dx) / drag.width))
+    drag.leaf?.style.setProperty('--turn', String(drag.direction === 'forward' ? forwardTurn(drag.progress) : backTurn(drag.progress)))
+  }, [beginDrag])
   const onPointerUp = useCallback((event) => {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (drag?.direction) {
+      // 手指停住了才松开：停住的那段时间没有移动事件，不能还按停住之前的速度算成「甩了一下」
+      if (event.timeStamp - drag.lastT > 80) drag.velocity = 0
+      finishDrag(drag)
+      return
+    }
     const start = pointerRef.current
     pointerRef.current = null
     if (!start) return
@@ -299,7 +461,14 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return
     if (dx < 0) goForward()
     else goBack()
-  }, [goBack, goForward])
+  }, [finishDrag, goBack, goForward])
+  // 被系统打断（来电、手势被浏览器接走）：拖到一半的那一页落回原处
+  const onPointerCancel = useCallback(() => {
+    const drag = dragRef.current
+    dragRef.current = null
+    pointerRef.current = null
+    if (drag?.direction) finishDrag(drag, true)
+  }, [finishDrag])
 
   return {
     refs: { viewportRef, stripRef, endRef, ghostHostRef },
@@ -307,6 +476,6 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     canGoBack: index > firstIndex || (index === firstIndex && ((hasOlder && Boolean(onLoadOlder)) || hasCover)),
     canGoForward: index < lastIndex,
     goBack, goForward, showLatest,
-    handlers: { onFocusCapture, onPointerDown, onPointerUp },
+    handlers: { onFocusCapture, onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
   }
 }
