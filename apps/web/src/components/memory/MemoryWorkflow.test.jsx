@@ -80,7 +80,8 @@ describe('来信建议的三个一键动作', () => {
         expect(within(section).getByRole('button', { name: action })).toBeInTheDocument()
       }
     }
-    expect(letterService.read).toHaveBeenCalledWith('l1')
+    // 「记下读过」在看信那一段渲染之后的副作用里发：等它到，别赶在副作用之前断言
+    await vi.waitFor(() => expect(letterService.read).toHaveBeenCalledWith('l1'))
   })
 
   it('「带去对话」把引导句带去 /chat 的输入框（一次性路由状态）', async () => {
