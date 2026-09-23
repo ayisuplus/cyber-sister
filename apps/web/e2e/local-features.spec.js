@@ -10,8 +10,7 @@ const LIFE_ENTRIES = [
   ['/tools/style?tab=makeup', '装扮'],
   ['/tools/style?tab=wardrobe', '装扮'],
 ]
-const insight = { id: 'saved-insight', kind: 'pattern', status: 'active', confidence: 'medium', content: '已有的理解草稿', evidence: [], createdAt: '2026-09-01T00:00:00.000Z' }
-const json = (route, status, data) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
+const json =(route, status, data) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -33,13 +32,16 @@ test.beforeEach(async ({ page }) => {
       '/api/diary': [], '/api/reading/notes': { notes: [] }, '/api/collection': { items: [] },
       // 模型供应商管理接口（2026-09-22）：普通用户看不到卡片，也就不会请求它，先登记着
       '/api/admin/model-providers': { providers: [] },
-      '/api/derived': { insights: [insight] }, '/api/derived/edges': { edges: [] }, '/api/derived/followups': { followUps: [] },
+      // 「她」页（2026-09-23）：来信与她记得的你；做梦、待确认与关系列表已收进来信，接口一并删除
+      '/api/letters': { letters: [] }, '/api/memories': { data: [], total: 0, page: 1, limit: 20 },
       '/api/user/companion': { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 3, learning: { brevity: 0.5, samples: 2 } } },
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat)$/.test(path)) return json(route, 404, {})
     if (method === 'GET' && /^\/api\/diary\/\d{4}-\d{2}-\d{2}$/.test(path)) return json(route, 404, { error: '没有当天日记' })
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) return json(route, 200, { minutes: 0, shouldRemind: false })
+    // 打开「她」页先幂等地问一句要不要写信；没开写信时什么也不写
+    if (method === 'POST' && path === '/api/letters/generate') return json(route, 200, { letter: null, created: false, reason: 'off' })
     expect(method, `Unexpected write to ${path}`).toBe('GET')
     expect(Object.hasOwn(responses, path), `Unmocked API request: ${path}`).toBe(true)
     return json(route, 200, responses[path])
@@ -52,39 +54,36 @@ async function accessible(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
-test('shared memory: pending understandings and relations sit in one list, confirmed and surviving reload', async ({ page }) => {
-  let drafts = [{ ...insight, revision: 1, sources: [{ type: 'memory', id: 'from', revision: 1, quote: '喜欢散步' }] }]
-  let edge = { id: 'edge-e2e', revision: 1, status: 'derived', relation: 'related',
-    from: { id: 'from', content: '喜欢散步', revision: 1 }, to: { id: 'to', content: '周末去公园', revision: 2 } }
-  await page.route('**/api/derived**', route => {
+test('shared memory: what she remembers is one quiet list, and a pin and an edit survive reload', async ({ page }) => {
+  let memory = { id: 'memory-e2e', type: 'semantic', content: '喜欢散步', importance: 5, tags: [], pinned: false, revision: 1 }
+  await page.route('**/api/memories**', route => {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
-    if (method === 'GET' && path === '/api/derived') return json(route, 200, { insights: drafts })
-    if (method === 'GET' && path === '/api/derived/edges') return json(route, 200, { edges: [edge] })
-    if (method === 'GET' && path === '/api/derived/followups') return json(route, 200, { followUps: [] })
-    expect(method).toBe('POST')
-    if (path === '/api/derived/saved-insight/promote') {
-      expect(route.request().postDataJSON()).toMatchObject({ expectedRevision: 1, asManual: false })
-      drafts = []
-      return json(route, 200, { memory: { id: 'confirmed-memory' } })
+    if (method === 'GET' && path === '/api/memories') return json(route, 200, { data: [memory], total: 1, page: 1, limit: 20 })
+    if (method === 'PUT' && path === '/api/memories/memory-e2e/pin') {
+      expect(route.request().postDataJSON()).toEqual({ pinned: true })
+      memory = { ...memory, pinned: true }
+      return json(route, 200, { memory })
     }
-    expect(path).toBe('/api/derived/edges/edge-e2e/promote')
-    expect(route.request().postDataJSON()).toEqual({ expectedRevision: 1, expectedFromRevision: 1, expectedToRevision: 2 })
-    edge = { ...edge, status: 'canonical', revision: 2 }
-    return json(route, 200, { edge })
+    expect(method).toBe('PUT')
+    expect(path).toBe('/api/memories/memory-e2e')
+    // 改的是她当时看到的那一版：别处先改过会 409，不会悄悄覆盖
+    expect(route.request().postDataJSON()).toMatchObject({ content: '喜欢傍晚散步', expectedRevision: 1 })
+    memory = { ...memory, content: '喜欢傍晚散步', revision: 2 }
+    return json(route, 200, memory)
   })
-  await page.goto('/her?tab=pending')
-  await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
-  // 同一处既有她的理解，也有记忆之间的关系
-  await expect(page.getByText('周末去公园', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '记住', exact: true }).first().click()
-  await expect(page.getByText('已有的理解草稿', { exact: true })).toHaveCount(0)
+  await page.goto('/her')
+  const remembered = page.getByRole('region', { name: '她记得的你' })
+  await expect(remembered.getByText('喜欢散步', { exact: true })).toBeVisible()
+  await remembered.getByRole('button', { name: '放在心上' }).click()
+  await expect(remembered.getByRole('button', { name: '放在心上' })).toHaveAttribute('aria-pressed', 'true')
+  await remembered.getByRole('button', { name: '改一改' }).click()
+  await remembered.getByLabel('记忆内容').fill('喜欢傍晚散步')
+  await remembered.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(remembered.getByRole('status').filter({ hasText: '改好了' })).toBeVisible()
   await page.reload()
-  await expect(page.getByText('已有的理解草稿', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '记住', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: '她记下这层关系了' })).toBeVisible()
-  await page.reload()
-  await expect(page.getByText(/她还没想到什么/)).toBeVisible()
+  await expect(remembered.getByText('喜欢傍晚散步', { exact: true })).toBeVisible()
+  await expect(remembered.getByRole('button', { name: '放在心上' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
@@ -155,12 +154,17 @@ test('life entries: the wardrobe keeps a photo compressed on this device, with n
   await page.screenshot({ path: testInfo.outputPath('cloud-wardrobe.png'), fullPage: true })
 })
 
-test('life entries: pending understandings show saved history only, with no mock buttons', async ({ page }, testInfo) => {
+test('life entries: the her page keeps four quiet sections, with no pending panel or mock buttons', async ({ page }, testInfo) => {
+  // 旧的「待确认」深链接也落在这一页；做梦、待确认与记忆整理已收进来信（2026-09-23）
   await page.goto('/her?tab=pending')
-  await expect(page.getByText('已有的理解草稿', { exact: true })).toBeVisible()
+  for (const name of ['她的说话方式', '她的状态', '她的来信', '她记得的你']) {
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  }
+  await expect(page.getByText('她还没写好第一封，到了日子她会写的。')).toBeVisible()
+  await expect(page.getByText(/做梦|待确认/)).toHaveCount(0)
   for (const name of ['预览整理', '预览重建']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0)
   await accessible(page)
-  await page.screenshot({ path: testInfo.outputPath('pending.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('her.png'), fullPage: true })
 })
 
 test('life entries: period asks for separate consent before anything can be recorded', async ({ page }) => {

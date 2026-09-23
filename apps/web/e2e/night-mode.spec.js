@@ -11,6 +11,13 @@ const conversation = {
   ],
 }
 
+// 「她」页的来信：夜间也要把信纸上的字和建议按钮一起过一遍对比度
+const letter = {
+  id: 'night-letter', periodStart: '2026-09-09T00:00:00.000Z', freqDays: 7, readAt: null, createdAt: '2026-09-12T12:00:00.000Z',
+  content: '这周你睡得早了一些。\n\n想听雨声的时候，我陪你。',
+  suggestions: [{ kind: 'plan', title: '周末早点睡，留一晚给自己', planDate: '2026-09-13' }],
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     // Seed this isolated browser tab once so reloads really test persisted preferences.
@@ -51,9 +58,7 @@ test.beforeEach(async ({ page }) => {
       '/api/user/companion': { revision: 2, state: { protection: { mode: 'open' }, experienceCount: 6, learning: { brevity: 0.5, samples: 3 } } },
       '/api/memories': { data: [{ id: 'night-memory', type: 'semantic', content: '睡前喜欢听雨声', importance: 6, tags: ['睡眠'], revision: 1, createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z' }], total: 1, page: 1, limit: 20 },
       '/api/memories/index-jobs/latest': null,
-      '/api/derived': { insights: [] },
-      '/api/derived/edges': { edges: [] },
-      '/api/derived/followups': { followUps: [] },
+      '/api/letters': { letters: [letter] },
       '/api/diary': [],
       '/api/reading/notes': { notes: [] },
       '/api/collection': { items: [] },
@@ -63,6 +68,13 @@ test.beforeEach(async ({ page }) => {
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) {
       expect(route.request().method()).toBe('POST')
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ minutes: 0, shouldRemind: false }) })
+    }
+    // 打开「她」页先幂等地问一句要不要写信（还没到日子），看信时记下读过
+    if (route.request().method() === 'POST' && path === '/api/letters/generate') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ letter, created: false, reason: 'not_due' }) })
+    }
+    if (route.request().method() === 'POST' && path === `/api/letters/${letter.id}/read`) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
     }
     expect(route.request().method(), `Unexpected write to ${path}`).toBe('GET')
     expect(Object.hasOwn(responses, path), `Unmocked API request: ${path}`).toBe(true)
@@ -146,6 +158,7 @@ test('night mode: settings, chat, her, schedule, notes, style, period and login 
   await page.goto('/her')
   await expect(page.getByRole('heading', { name: '她的说话方式', exact: true })).toBeVisible()
   await expect(page.getByText('睡前喜欢听雨声')).toBeVisible()
+  await expect(page.getByRole('article', { name: '她的来信' }).getByText('想听雨声的时候，我陪你。')).toBeVisible()
   await inspectSurface(page, testInfo, 'night-her')
 
   await page.goto('/tools/calendar')

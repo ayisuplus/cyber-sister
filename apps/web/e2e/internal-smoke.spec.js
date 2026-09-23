@@ -8,6 +8,12 @@ const json = (route, status, body) => route.fulfill({
   body: JSON.stringify(body),
 })
 
+// 没同意经期：日历仍会读旧记录（撤回后也能看、能删），记录列表是数组，其余经期接口回同意状态
+const routePeriodNotConsented = page => page.route('**/api/tools/period**', route => {
+  const { pathname } = new URL(route.request().url())
+  return json(route, 200, pathname === '/api/tools/period' ? [] : { accepted: false, updatedAt: null })
+})
+
 const expectNoSeriousAxeFindings = async page => {
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations.filter(item => ['critical', 'serious'].includes(item.impact))).toEqual([])
@@ -415,7 +421,7 @@ test('schedule: a one-off for tomorrow lands under upcoming, and handing it to h
     tasks.push(created)
     return json(route, 201, { reminder: created })
   })
-  await page.route('**/api/tools/period**', route => json(route, 200, { accepted: false, updatedAt: null }))
+  await routePeriodNotConsented(page)
   await page.goto('/tools/calendar')
 
   await expect(page.getByText('日历还是空的')).toBeVisible()
@@ -471,14 +477,19 @@ test('one conversation: no list and no new conversation, older messages load abo
   // 不再有「加载更早的消息」：翻到第一页再往前翻，就取更早的信
   await expect(page.getByRole('button', { name: '加载更早的消息' })).toHaveCount(0)
   await flipToFirstPage(page)
+  const beforeOlder = await letterPages(page)
   await page.getByRole('button', { name: '上一页' }).click()
   await expect(letter.getByText('更早的第0条')).toBeAttached()
+  // 更早的信插进来后要等重新分页（下一帧才量）、页码往后挪了再接着翻：
+  // 赶在重排之前翻到封面，会被重排按新增的页数挪回信纸上
+  await expect.poll(async () => (await letterPages(page)).total).toBeGreaterThan(beforeOlder.total)
   await expect(letter.getByText('较新的第59条')).toHaveCount(1)
   expect(pages).toContain('2')
   // 更早的已经取完：再往前就是封面，这本子是从封面开始的
   await flipToFirstPage(page)
   await page.getByRole('button', { name: '上一页' }).click()
-  expect((await letterPages(page)).cover).toBe(true)
+  // 翻页要等这一页落定：页码读一次就下结论，在并行跑满时会读到翻之前那一页
+  await expect.poll(async () => (await letterPages(page)).cover).toBe(true)
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
 
   if (isMobile) await page.getByRole('button', { name: '打开导航', exact: true }).click()
@@ -549,7 +560,7 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
   expect(faded.map(entry => entry.m11)).toEqual([1, 1])
   expect((await letterPages(page)).last).toBeLessThan(pages.total)
   await page.keyboard.press('ArrowRight')
-  expect((await letterPages(page)).last).toBe(pages.total)
+  await expect.poll(async () => (await letterPages(page)).last).toBe(pages.total)
 
   // 她写满这一页：自动翻到新的一页
   const reply = Array.from({ length: 12 }, (_, index) => `第${index + 1}句：${long}`).join('\n\n')
@@ -713,7 +724,7 @@ test('navigation: every entry lives in one list under the conversations, and old
   await seedAuth(page)
   await mockChatBootstrap(page, true)
   await page.route('**/api/reminders/scheduled', route => json(route, 200, { reminders: [] }))
-  await page.route('**/api/tools/period**', route => json(route, 200, { accepted: false, updatedAt: null }))
+  await routePeriodNotConsented(page)
   await page.goto('/chat')
 
   if (isMobile) await page.getByRole('button', { name: '打开导航', exact: true }).click()
