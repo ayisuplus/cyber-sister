@@ -67,6 +67,37 @@ describe('评测编排', () => {
     expect(run.validation.rubric.find((item) => item.which === 'common').verdicts.R1.pass).toBe(false)
   })
 
+  it('只重新打分：用上一轮存下的回复，不再生成，只留这次选中的组与场景', async () => {
+    const preset = [
+      { caseId: 'e01-tired', category: 'emotion', arm: 'B', style: 'gentle', reply: '【差】先列个计划', source: 'qwen' },
+      { caseId: 'e01-tired', category: 'emotion', arm: 'C', style: 'gentle', reply: '【好】我在', source: 'qwen' },
+      { caseId: 'e01-tired', category: 'emotion', arm: 'D', style: 'gentle', reply: '【好】也在', source: 'qwen' },
+      { caseId: 'x99-other', category: 'boundary', arm: 'C', style: 'gentle', reply: '【好】不在这次', source: 'qwen' },
+    ]
+    const run = await runEvaluation({
+      rubric,
+      cases,
+      arms: ['B', 'C'],
+      presetGenerations: preset,
+      generate: () => { throw new Error('不该再生成') },
+      judge: fakeJudge,
+    })
+    expect(run.generations.map((item) => item.arm)).toEqual(['B', 'C'])
+    expect(run.judgements).toHaveLength(2)
+    expect(run.comparisons.map((item) => item.outcome)).toEqual(['left'])
+  })
+
+  it('打分模型回了一段读不出来的东西，就再问一次', async () => {
+    let calls = 0
+    const flaky = (request) => {
+      calls += 1
+      return calls % 2 === 1 ? Promise.resolve('我觉得挺好的') : fakeJudge(request)
+    }
+    const run = await runEvaluation({ rubric, cases, arms: ['C'], generate: () => Promise.resolve({ reply: '【好】我在' }), judge: flaky })
+    expect(run.judgements[0]).toMatchObject({ verdicts: { R1: { pass: true } }, missing: [] })
+    expect(run.validation.pairwise[0].outcome).toBe('better')
+  })
+
   it('生成失败或打分出错都如实记下，不中断整次评测', async () => {
     const run = await runEvaluation({
       rubric,

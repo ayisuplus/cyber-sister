@@ -70,6 +70,12 @@ describe('报告', () => {
     expect(markdown).toContain('先改评分标准的措辞')
   })
 
+  it('只重新打分时写明回复沿用哪一轮', () => {
+    expect(renderMarkdown(run({ meta: { ...run().meta, rejudgeOf: '20260923-063216-live' } })))
+      .toContain('- 回复：沿用 `20260923-063216-live` 那一轮存下的回复，这一轮只重新打分')
+    expect(renderMarkdown(run())).not.toContain('只重新打分')
+  })
+
   it('只自检打分模型时只有自检那一节', () => {
     const markdown = renderMarkdown(run({ meta: { ...run().meta, arms: [] }, generations: [], judgements: [], comparisons: [] }))
     expect(markdown).toContain('（这次只自检打分模型）')

@@ -15,6 +15,8 @@ export const CATEGORIES = {
   daily: '日常求助',
 }
 export const STYLE_IDS = ['gentle', 'toxic', 'cool']
+// 没写 localTime 的场景按晚上八点半算（不落在深夜的分寸里）；生成与打分用同一个默认值
+export const DEFAULT_LOCAL_TIME = '20:30'
 export const LAYERS = { female: '女性层', safety: '安全', honesty: '诚实', style: '说话方式' }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/

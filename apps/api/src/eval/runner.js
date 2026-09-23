@@ -26,28 +26,38 @@ export async function mapPool(items, limit, fn) {
   return results
 }
 
-async function compare(judge, rubric, scenario, style, x, y) {
-  const first = parsePairwiseVerdict(await judge(buildPairwiseRequest({ rubric, scenario, style, first: x, second: y })))
-  const second = parsePairwiseVerdict(await judge(buildPairwiseRequest({ rubric, scenario, style, first: y, second: x })))
-  return combineOrders(first, second)
+// 打分模型偶尔回一段读不出来的东西（温度 0 也会）：读不出来就再问一次
+async function askUntilParsed(judge, request, parse, complete) {
+  let parsed = parse(await judge(request))
+  if (!complete(parsed)) parsed = parse(await judge(request))
+  return parsed
 }
 
-async function judgeRubric(judge, rubric, scenario, style, reply) {
+async function compare(judge, rubric, scenario, style, x, y) {
+  const ask = (first, second) => askUntilParsed(judge, buildPairwiseRequest({ rubric, scenario, style, first, second }), parsePairwiseVerdict, (winner) => winner !== null)
+  return combineOrders(await ask(x, y), await ask(y, x))
+}
+
+function judgeRubric(judge, rubric, scenario, style, reply) {
   const request = buildRubricRequest({ rubric, scenario, style, reply })
-  return parseRubricVerdict(await judge(request), request.ids)
+  return askUntilParsed(judge, request, (text) => parseRubricVerdict(text, request.ids), (result) => result.missing.length < request.ids.length)
 }
 
 /**
  * @param {{ rubric: object, cases: object[], arms: string[],
- *   generate: (task: { scenario: object, arm: string, armConfig: object, style: string | null }) => Promise<{ reply?: string, source?: string }>,
+ *   generate?: (task: { scenario: object, arm: string, armConfig: object, style: string | null }) => Promise<{ reply?: string, source?: string }>,
+ *   presetGenerations?: object[],
  *   judge: (request: { system: string, user: string }) => Promise<string>,
  *   concurrency?: number, onProgress?: (event: object) => void }} options
+ * presetGenerations：只重新打分时传入上一轮存下的回复，不再生成。
  */
-export async function runEvaluation({ rubric, cases, arms, generate, judge, concurrency = 4, onProgress = () => {} }) {
+export async function runEvaluation({ rubric, cases, arms, generate, presetGenerations, judge, concurrency = 4, onProgress = () => {} }) {
   const byId = new Map(cases.map((scenario) => [scenario.id, scenario]))
-  const generations = []
+  const generations = presetGenerations
+    ? presetGenerations.filter((item) => byId.has(item.caseId) && arms.includes(item.arm))
+    : []
   // 按组依次生成：切换一次组只重建一次网关；生成共用装置里的假数据库，不能并发
-  for (const arm of arms) {
+  for (const arm of presetGenerations ? [] : arms) {
     for (const task of planGenerations(cases, [arm], stylesOf)) {
       const scenario = byId.get(task.caseId)
       let result

@@ -84,7 +84,8 @@ import { sendMessageStream } from '../../src/services/chatService.js'
 import { getGateway, resetCloudProviders, resetGatewayCache } from '../../src/services/llmService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from '../../src/services/userService.js'
 import { ARMS, parseArms } from '../../src/eval/arms.js'
-import { loadDataset, validateRubric, validateScenarios } from '../../src/eval/dataset.js'
+import { DEFAULT_LOCAL_TIME, loadDataset, validateRubric, validateScenarios } from '../../src/eval/dataset.js'
+import { JUDGE_INSTRUCTION } from '../../src/eval/judge.js'
 import { renderMarkdown, summarize } from '../../src/eval/report.js'
 import { runEvaluation } from '../../src/eval/runner.js'
 
@@ -94,9 +95,8 @@ const RESULTS_ROOT = path.resolve(HERE, '../../eval-results')
 const STUB_GEN = 'https://gen.eval.invalid/v1'
 const STUB_JUDGE = 'https://judge.eval.invalid/v1'
 const MIMO_JUDGE_BODY = '{"thinking":{"type":"disabled"},"response_format":{"type":"json_object"}}'
-// 场景都放在同一天；没写 localTime 的按晚上八点半（不落在深夜的分寸里）
+// 场景都放在同一天；没写 localTime 的按 DEFAULT_LOCAL_TIME（晚上八点半，不落在深夜的分寸里）
 const EVAL_DAY = '2026-09-24'
-const DEFAULT_LOCAL_TIME = '20:30'
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const { rubric, scenarios } = loadDataset(HERE)
@@ -147,12 +147,16 @@ function rawContentOf(text) {
   return content
 }
 
+// 打分请求按内容认（生成与打分可能是同一家、同一个地址）
+const isJudgeRequest = (body) => (body.messages ?? []).some((message) => message.role === 'system' && message.content === JUDGE_INSTRUCTION)
+
 // 记下每次请求；发给生成模型的那些顺手把原话存下来，好核对输出过滤到底换掉了什么
 const recording = (inner) => async (url, init) => {
-  const entry = { host: new URL(String(url)).host, body: JSON.parse(init?.body ?? '{}') }
+  const body = JSON.parse(init?.body ?? '{}')
+  const entry = { host: new URL(String(url)).host, body, judge: isJudgeRequest(body) }
   h.requests.push(entry)
   const response = await inner(url, init)
-  if (entry.host !== hostOf(config.gen.baseUrl)) return response
+  if (entry.judge) return response
   const text = await response.text()
   entry.raw = rawContentOf(text)
   return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers })
@@ -238,7 +242,7 @@ function prepareScenario(scenario, style) {
 async function generate(task) {
   const before = h.requests.length
   const result = await generateReply(task)
-  const sent = h.requests.slice(before).filter((request) => request.host === hostOf(config.gen.baseUrl))
+  const sent = h.requests.slice(before).filter((request) => !request.judge)
   return { ...result, promptChars: promptCharsOf(sent), raw: sent.map((request) => request.raw ?? '') }
 }
 
@@ -285,19 +289,23 @@ async function createJudge(config) {
     ...(config.extraBody ? { GATEWAY_JUDGE_EXTRA_BODY: config.extraBody } : {}),
   })
   return async ({ system, user }) => {
-    const result = await gateway.complete({
-      scene: 'explain',
-      requestId: 'eval-judge',
-      messages: [{ role: 'user', content: user }],
-      systemAppend: [{ role: 'system', content: system }],
-      temperature: 0,
-      maxTokens: 1024,
-      timeoutMs: 120_000,
-      allowExternal: true,
-      authorizeExternal: async () => true,
-    })
-    if (!result?.content) throw new Error('打分模型没有回答')
-    return result.content
+    // 偶尔会回一段空内容（DeepSeek 实测）：再问一次
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await gateway.complete({
+        scene: 'explain',
+        requestId: 'eval-judge',
+        messages: [{ role: 'user', content: user }],
+        systemAppend: [{ role: 'system', content: system }],
+        temperature: 0,
+        maxTokens: 1024,
+        timeoutMs: 120_000,
+        allowExternal: true,
+        authorizeExternal: async () => true,
+      })
+      if (result?.content) return result.content
+    }
+    throw new Error('打分模型没有回答')
   }
 }
 
@@ -319,6 +327,7 @@ const gitCommit = () => {
   }
 }
 const stampOf = (date) => date.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+const readJsonl = (file) => readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
 const writeJsonl = (file, rows) => writeFileSync(file, rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''))
 
 // ---------- 装配与收尾 ----------
@@ -346,7 +355,7 @@ afterAll(() => {
   resetCloudProviders()
 })
 
-const generationRequests = () => h.requests.filter((request) => request.host === hostOf(config.gen.baseUrl))
+const generationRequests = () => h.requests.filter((request) => !request.judge)
 const systemText = (request) => request.body.messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n')
 
 async function lastRequestFor(caseId, armId, style = 'gentle') {
@@ -407,11 +416,18 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
   it('按冻结的数据集跑一遍并写出报告', async () => {
     const problems = [...validateRubric(rubric), ...validateScenarios(scenarios, rubric)]
     if (problems.length) throw new Error(`数据集有问题，先修好再跑：\n${problems.join('\n')}`)
+    // 只重新打分：沿用某一轮存下的回复，换打分模型或改打分提示后，前后几轮才能用同一个评委比
+    const source = process.env.EVAL_REJUDGE ? path.resolve(RESULTS_ROOT, process.env.EVAL_REJUDGE) : null
+    const preset = source ? readJsonl(path.join(source, 'replies.jsonl')) : null
+    const sourceMeta = source ? JSON.parse(readFileSync(path.join(source, 'run.json'), 'utf8')) : null
+    const available = preset ? [...new Set(preset.map((item) => item.arm))].sort() : null
     // 只自检打分模型时不生成、不比较，只拿手写的正反例考它
-    const arms = process.env.EVAL_VALIDATE_ONLY === '1' ? [] : parseArms(process.env.EVAL_ARMS)
-    const cases = selectCases()
+    let arms = process.env.EVAL_VALIDATE_ONLY === '1' ? [] : parseArms(process.env.EVAL_ARMS)
+    if (available) arms = process.env.EVAL_ARMS ? arms.filter((arm) => available.includes(arm)) : available
+    const cases = selectCases().filter((scenario) => !preset || preset.some((item) => item.caseId === scenario.id))
     const startedAt = new Date()
-    const dir = path.join(RESULTS_ROOT, `${stampOf(startedAt)}-${MODE}`)
+    // 启动器会定好目录（EVAL_OUTPUT_DIR）；直接跑 vitest 时按时间起名
+    const dir = process.env.EVAL_OUTPUT_DIR ?? path.join(RESULTS_ROOT, `${stampOf(startedAt)}-${MODE}${source ? '-rejudge' : ''}`)
     mkdirSync(dir, { recursive: true })
     h.requests.length = 0
     h.logs.length = 0
@@ -421,6 +437,7 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
       cases,
       arms,
       generate,
+      presetGenerations: preset ?? undefined,
       judge,
       onProgress: ({ stage, done }) => appendFileSync(path.join(dir, 'progress.log'), `${new Date().toISOString()} ${stage} ${done}\n`),
     })
@@ -437,9 +454,10 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
       scenariosFrozenAt: scenarios.frozenAt,
       rubricVersion: rubric.version,
       rubricStatus: rubric.status,
-      generator: `${genHost} · ${config.gen.model}`,
+      generator: sourceMeta?.generator ?? `${genHost} · ${config.gen.model}`,
+      rejudgeOf: source ? path.basename(source) : null,
       judge: `${hostOf(config.judge.baseUrl)} · ${config.judge.model}`,
-      calls: { generation: h.requests.filter((request) => request.host === genHost).length, judge: h.requests.filter((request) => request.host !== genHost).length },
+      calls: { generation: h.requests.filter((request) => !request.judge).length, judge: h.requests.filter((request) => request.judge).length },
       promptChars: promptCharsOf(h.requests),
     }
     const record = { meta, rubric, ...run }
@@ -454,5 +472,6 @@ describe.runIf(MODE !== 'ci')('回复质量评测（dry / live）', () => {
     writeFileSync(path.join(dir, 'run.json'), `${JSON.stringify({ ...meta, summary: summarize(record) }, null, 2)}\n`)
     writeFileSync(path.join(dir, 'report.md'), renderMarkdown(record))
     expect(arms.length ? run.generations.length : run.validation.pairwise.length).toBeGreaterThan(0)
+    if (source) expect(meta.calls.generation).toBe(0)
   }, 4 * 60 * 60 * 1000)
 })

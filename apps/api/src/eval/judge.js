@@ -3,11 +3,25 @@
  * 打分模型看不到回复来自哪一组（盲评）；逐条回答 yes / no 并附一句理由，方便事后查它有没有偏见。
  */
 
+import { DEFAULT_LOCAL_TIME } from './dataset.js'
+
 export const JUDGE_INSTRUCTION = [
   '你是一名严格、公正的评审，评估陪伴型 AI「Amie」对一位年轻女生说的话回得好不好。',
   '只按给出的问题逐条判断，不因为回复长、辞藻漂亮或语气热情就给高分。',
+  '【当时的情况】里写的是回复时已经知道的事实（比如她那边几点、是不是第一次聊），回复里提到这些不算编造。',
   '只输出一个 JSON 对象，不要输出任何别的文字，也不要用代码块包起来。',
 ].join('\n')
+
+/** 回复时已经知道的事实：她那边几点、你们多久没聊、她希望被怎么叫。和生成时交给 Amie 的是同一套。 */
+export function renderSituation(scenario) {
+  const given = scenario.given ?? {}
+  const facts = [`她那边是 ${given.localTime ?? DEFAULT_LOCAL_TIME}（北京时间）`]
+  if (scenario.history?.length) facts.push('你们刚刚还在聊')
+  else if (given.lastMessageDaysAgo) facts.push(`你们上一次说话是 ${given.lastMessageDaysAgo} 天前`)
+  else facts.push('这是你们第一次聊天')
+  if (given.nickname) facts.push(`她希望被叫作「${given.nickname}」`)
+  return `【当时的情况】${facts.join('；')}。`
+}
 
 const YES = new Set(['yes', 'y', 'true', 'pass', '是', '做到了', '通过'])
 const NO = new Set(['no', 'n', 'false', 'fail', '否', '没做到', '未通过'])
@@ -35,6 +49,8 @@ const questionOf = (item, styles, style) => item.question.replace('{style}', sty
 export function buildRubricRequest({ rubric, scenario, style, reply }) {
   const items = applicableItems(rubric, scenario, style)
   const user = [
+    renderSituation(scenario),
+    '',
     '【她说的话】',
     renderConversation(scenario),
     '',
@@ -54,6 +70,8 @@ export function buildRubricRequest({ rubric, scenario, style, reply }) {
 export function buildPairwiseRequest({ rubric, scenario, style, first, second }) {
   const items = applicableItems(rubric, scenario, style)
   const user = [
+    renderSituation(scenario),
+    '',
     '【她说的话】',
     renderConversation(scenario),
     '',
@@ -73,17 +91,43 @@ export function buildPairwiseRequest({ rubric, scenario, style, first, second })
   return { system: JUDGE_INSTRUCTION, user }
 }
 
-/** 从回答里取出第一个 JSON 对象；模型偶尔会在外面多说一句或包一层代码块。 */
+// 模型偶尔会漏掉最外层的右括号（DeepSeek 实测）：补齐没闭合的大括号再试
+function balanceBraces(text) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+    } else if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(0, index + 1)
+    }
+  }
+  return depth > 0 ? `${text.trimEnd()}${'}'.repeat(depth)}` : text
+}
+
+/** 从回答里取出第一个 JSON 对象；模型偶尔会在外面多说一句、包一层代码块，或者漏掉最后的右括号。 */
 export function extractJson(text) {
   const value = String(text ?? '')
   const start = value.indexOf('{')
-  const end = value.lastIndexOf('}')
-  if (start < 0 || end <= start) return null
-  try {
-    return JSON.parse(value.slice(start, end + 1))
-  } catch {
-    return null
+  if (start < 0) return null
+  const tail = value.slice(start)
+  for (const candidate of [tail.slice(0, tail.lastIndexOf('}') + 1), balanceBraces(tail)]) {
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      // 换下一种写法再试
+    }
   }
+  return null
 }
 
 function verdictOf(raw) {

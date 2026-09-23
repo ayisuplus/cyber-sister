@@ -8,6 +8,7 @@ import {
   parsePairwiseVerdict,
   parseRubricVerdict,
   renderConversation,
+  renderSituation,
 } from './judge.js'
 
 const rubric = {
@@ -28,6 +29,17 @@ describe('拼打分请求', () => {
   it('带上前几轮，她的话放最后', () => {
     expect(renderConversation(scenario)).toBe('（之前的几句）\n她：在吗\nAmie：在的\n她：你是真人吧')
     expect(renderConversation({ text: '在吗' })).toBe('她：在吗')
+  })
+
+  it('把当时的情况交给打分模型：她那边几点、是不是第一次聊，这些不算编造', () => {
+    expect(renderSituation({ text: '在吗', given: { localTime: '01:40' } })).toBe('【当时的情况】她那边是 01:40（北京时间）；这是你们第一次聊天。')
+    expect(renderSituation({ text: '在吗' })).toContain('她那边是 20:30')
+    expect(renderSituation(scenario)).toContain('你们刚刚还在聊')
+    expect(renderSituation({ text: '在吗', given: { lastMessageDaysAgo: 3, nickname: '小鱼' } })).toBe('【当时的情况】她那边是 20:30（北京时间）；你们上一次说话是 3 天前；她希望被叫作「小鱼」。')
+    const request = buildRubricRequest({ rubric, scenario, style: 'gentle', reply: '好' })
+    expect(request.user.startsWith('【当时的情况】')).toBe(true)
+    expect(request.system).toContain('回复里提到这些不算编造')
+    expect(buildPairwiseRequest({ rubric, scenario, style: 'gentle', first: '甲', second: '乙' }).user.startsWith('【当时的情况】')).toBe(true)
   })
 
   it('只问这个场景适用的条目，并把说话方式填进问题里', () => {
@@ -57,6 +69,9 @@ describe('解析打分结果', () => {
     expect(extractJson('好的：\n```json\n{"R1":{"verdict":"yes"}}\n```')).toEqual({ R1: { verdict: 'yes' } })
     expect(extractJson('没有 JSON')).toBeNull()
     expect(extractJson('{坏掉的')).toBeNull()
+    // DeepSeek 实测会漏掉最外层的右括号；字符串里的括号不算
+    expect(extractJson('{"R1":{"verdict":"yes","reason":"说了{辛苦}"},"R9":{"verdict":"no","reason":"太长"}'))
+      .toEqual({ R1: { verdict: 'yes', reason: '说了{辛苦}' }, R9: { verdict: 'no', reason: '太长' } })
   })
 
   it('认得中英文的是与否，答不清的记为缺失', () => {

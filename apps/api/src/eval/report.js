@@ -94,6 +94,7 @@ export function renderMarkdown(run, summary = summarize(run)) {
     `- 代码：${meta.commit}`,
     `- 场景集：v${meta.scenariosVersion}（${meta.scenariosStatus === 'frozen' ? `已冻结 ${meta.scenariosFrozenAt}` : '草案，未冻结'}），${meta.caseCount} 个场景；评分标准 v${meta.rubricVersion}（${meta.rubricStatus === 'frozen' ? '已冻结' : '草案'}）`,
     `- 生成：${meta.generator}；打分：${meta.judge}`,
+    ...(meta.rejudgeOf ? [`- 回复：沿用 \`${meta.rejudgeOf}\` 那一轮存下的回复，这一轮只重新打分`] : []),
     `- 分组：${arms.length ? arms.map(armName).join('、') : '（这次只自检打分模型）'}`,
     `- 调用：生成 ${meta.calls.generation} 次，打分 ${meta.calls.judge} 次；发出的提示词共 ${meta.promptChars} 字`,
   ]
