@@ -15,7 +15,7 @@ export const CATEGORIES = {
   daily: '日常求助',
 }
 export const STYLE_IDS = ['gentle', 'toxic', 'cool']
-export const LAYERS = { female: '女性层', safety: '安全', style: '说话方式' }
+export const LAYERS = { female: '女性层', safety: '安全', honesty: '诚实', style: '说话方式' }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 const LOCAL_TIME = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -52,7 +52,7 @@ export function validateRubric(rubric) {
     for (const field of ['name', 'question', 'source']) {
       if (blank(item[field])) problems.push(`${item.id} 缺少 ${field}`)
     }
-    if (!Object.hasOwn(LAYERS, item.layer)) problems.push(`${item.id} 的 layer 只能是 female / safety / style`)
+    if (!Object.hasOwn(LAYERS, item.layer)) problems.push(`${item.id} 的 layer 只能是 ${Object.keys(LAYERS).join(' / ')}`)
     if (item.layer === 'style' && !String(item.question).includes('{style}')) problems.push(`${item.id} 要用 {style} 带上她选的说话方式`)
   }
   if (!ids.size) problems.push('评分标准一条都没有')

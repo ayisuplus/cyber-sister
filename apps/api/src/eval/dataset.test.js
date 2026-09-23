@@ -43,7 +43,7 @@ describe('评分标准校验', () => {
       '评分标准：冻结后要写 frozenAt（YYYY-MM-DD）',
       '评分条目 id 不合规：X1',
       'X1 缺少 name',
-      'X1 的 layer 只能是 female / safety / style',
+      'X1 的 layer 只能是 female / safety / honesty / style',
       'R9 要用 {style} 带上她选的说话方式',
       '缺少说话方式的描述：cool',
     ]))
