@@ -22,6 +22,23 @@ export function projectionMatches(projection, revision, config = embeddingConfig
     && projection.vector.every(Number.isFinite) && projection.vector.some((value) => value !== 0))
 }
 
+/** 余弦相似度：长度不等或任一向量零范数 → 0（维度不一致的旧向量自然沉底）。 */
+export function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return 0
+  let dot = 0
+  let normA = 0
+  let normB = 0
+  for (let index = 0; index < a.length; index++) {
+    const x = a[index]
+    const y = b[index]
+    dot += x * y
+    normA += x * x
+    normB += y * y
+  }
+  if (normA === 0 || normB === 0) return 0
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
 export function embeddingStatus() {
   const config = embeddingConfig()
   return { configured: Boolean(config), model: config?.model ?? null,

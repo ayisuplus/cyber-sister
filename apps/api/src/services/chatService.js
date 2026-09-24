@@ -513,7 +513,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   const offerMemory = detectRememberIntent(content)
   const careful = crisisLevel === 'medium'
   const offerTools = !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
-  const bookSelection = selectTurnBooks(content, attachments, history, careful)
+  const bookSelection = selectTurnBooks(content, attachments, history, careful, modelOptions.queryEmbedding)
   for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, careful, context, offerMemory, offerTools, bookSelection })) {
     if (event.type === 'done') aiResponse = event
   }
@@ -544,9 +544,12 @@ const IMAGE_REVIEW_NUDGE = '用户这轮发来一张照片。如果她想听穿�
 /** 发给模型的这一句：她写的原文；只传了文件时换成读文件的请求。 */
 const turnPrompt = (content, attachments = []) => content || (attachments.length ? '请读取上传的文件，概述内容并说明可以进一步完成哪些任务。' : '')
 
-/** 这一轮翻哪几本书的哪几章，整轮只选一次。小心模式不翻书：先顾着她，不讲理论。 */
-function selectTurnBooks(content, attachments, history, careful) {
-  return careful ? [] : selectBookCards({ text: turnPrompt(content, attachments), history })
+/**
+ * 这一轮翻哪几本书的哪几章，整轮只选一次。小心模式不翻书：先顾着她，不讲理论。
+ * 为找记忆已经算好的这句话的向量顺带给书架用，不为找书多调一次云端。
+ */
+function selectTurnBooks(content, attachments, history, careful, queryEmbedding) {
+  return careful ? [] : selectBookCards({ text: turnPrompt(content, attachments), history, queryEmbedding })
 }
 
 /** 回复带上页边批注；退回本地模板时她没写这一段，也就没翻书。 */
@@ -645,7 +648,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   const careful = crisisLevel === 'medium'
   // 后台续跑的是交办的任务，照常给工具
   const offerTools = Boolean(durable) || !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
-  const bookSelection = selectTurnBooks(content, attachments, history, careful)
+  const bookSelection = selectTurnBooks(content, attachments, history, careful, modelOptions.queryEmbedding)
   for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, stream: true, durable, reading: readingContext, careful, context, offerMemory, offerTools, bookSelection })) {
     if (signal?.aborted) return
     if (event.type !== 'done') { yield event; continue }

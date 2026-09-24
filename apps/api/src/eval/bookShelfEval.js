@@ -1,0 +1,98 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { BOOKS } from '../services/bookSkills.js'
+import { selectCards } from '../services/bookShelf.js'
+
+/**
+ * 书架选章检验集（路线图 C21 第二步）：一句话该翻哪本书的哪一章，只用关键词和加上向量各对了多少。
+ * 不调模型、不联网：句子的向量事先由 scripts/index-book-cards.mjs 算好存成夹具。
+ */
+export const CASES_PATH = fileURLToPath(new URL('../../tests/book-shelf/cases.json', import.meta.url))
+export const QUERY_VECTORS_PATH = fileURLToPath(new URL('../../tests/book-shelf/query-vectors.json', import.meta.url))
+const SCENARIOS_PATH = fileURLToPath(new URL('../../tests/reply-eval/scenarios.json', import.meta.url))
+
+export const KINDS = { keyword: '评测原句', paraphrase: '换个说法', spoken: '说出来的', negative: '不该翻书' }
+
+/** 句子的哈希：夹具里的向量按它核对句子改没改过。 */
+export const textHashOf = (text) => createHash('sha256').update(String(text)).digest('hex').slice(0, 16)
+
+/** 读检验集；from 指向回复质量评测的场景，原句从那里取，只存一份。 */
+export function loadBookShelfCases(path = CASES_PATH) {
+  const set = JSON.parse(readFileSync(path, 'utf8'))
+  const scenarios = new Map(JSON.parse(readFileSync(SCENARIOS_PATH, 'utf8')).cases.map((scenario) => [scenario.id, scenario]))
+  return { ...set, cases: set.cases.map((item) => ({ ...item, text: item.from ? scenarios.get(item.from)?.text : item.text })) }
+}
+
+/** 格式与引用检查：返回问题列表，空数组表示没问题。 */
+export function validateBookShelfCases(set, books = BOOKS) {
+  const known = new Set(books.flatMap((book) => book.cards.map((card) => card.key)))
+  const problems = []
+  const seen = new Set()
+  for (const item of set.cases ?? []) {
+    if (seen.has(item.id)) problems.push(`${item.id}：id 重复`)
+    seen.add(item.id)
+    if (!KINDS[item.kind]) problems.push(`${item.id}：不认识的类别 ${item.kind}`)
+    if (typeof item.text !== 'string' || !item.text.trim()) problems.push(`${item.id}：没有句子${item.from ? `（找不到场景 ${item.from}）` : ''}`)
+    if (!Array.isArray(item.expect)) { problems.push(`${item.id}：expect 不是数组`); continue }
+    for (const key of item.expect) if (!known.has(key)) problems.push(`${item.id}：书架上没有 ${key}`)
+    if ((item.kind === 'negative') !== (item.expect.length === 0)) problems.push(`${item.id}：只有「不该翻书」的期望为空`)
+  }
+  return problems
+}
+
+/** 读句子向量的夹具；没有或格式不对返回 null。 */
+export function loadQueryVectors(path = QUERY_VECTORS_PATH) {
+  let raw
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!Array.isArray(raw?.queries)) return null
+  const identity = { providerHash: raw.providerHash, model: raw.model, dimensions: raw.dimensions, ruleVersion: raw.ruleVersion }
+  return { identity, byId: new Map(raw.queries.map(({ id, textHash, vector }) => [id, { textHash, vector }])) }
+}
+
+/** 这一句的查询向量：夹具里有、句子也没改过才给，否则 null（这一句只看关键词）。 */
+export function queryEmbeddingFor(item, vectors) {
+  const entry = vectors?.byId.get(item.id)
+  return entry && entry.textHash === textHashOf(item.text) ? { ...vectors.identity, vector: entry.vector } : null
+}
+
+/** 这一句翻到的章（<书>/<章>）。index 为 null 时只看关键词。 */
+export function predictCards(item, { vectors = null, index = null } = {}) {
+  const queryEmbedding = index ? queryEmbeddingFor(item, vectors) : null
+  return selectCards(BOOKS, { text: item.text, history: item.history ?? [], queryEmbedding, index })
+    .flatMap(({ cards }) => cards.map((card) => card.key))
+}
+
+const ratio = (part, whole) => (whole ? part / whole : null)
+
+/** 精确率、召回率（按章数算），不该翻书却翻了的句数，以及逐句的错漏。 */
+export function scoreBookShelf(cases, predict) {
+  const tally = () => ({ cases: 0, expected: 0, predicted: 0, correct: 0, exact: 0 })
+  const overall = tally()
+  const byKind = Object.fromEntries(Object.keys(KINDS).map((kind) => [kind, tally()]))
+  const mistakes = []
+  for (const item of cases) {
+    const predicted = predict(item)
+    const correct = predicted.filter((key) => item.expect.includes(key)).length
+    const exact = correct === item.expect.length && predicted.length === item.expect.length
+    for (const bucket of [overall, byKind[item.kind]]) {
+      bucket.cases += 1
+      bucket.expected += item.expect.length
+      bucket.predicted += predicted.length
+      bucket.correct += correct
+      bucket.exact += exact ? 1 : 0
+    }
+    if (!exact) mistakes.push({ id: item.id, kind: item.kind, expect: item.expect, predicted })
+  }
+  const finish = (bucket) => ({ ...bucket, precision: ratio(bucket.correct, bucket.predicted), recall: ratio(bucket.correct, bucket.expected) })
+  return {
+    overall: finish(overall),
+    byKind: Object.fromEntries(Object.entries(byKind).map(([kind, bucket]) => [kind, finish(bucket)])),
+    negativesWithBooks: byKind.negative.predicted ? mistakes.filter((mistake) => mistake.kind === 'negative').length : 0,
+    mistakes,
+  }
+}

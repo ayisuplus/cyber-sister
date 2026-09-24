@@ -12,7 +12,9 @@ import { isLocalWorkRuntime } from '../config/distribution.js'
 import { SCENES, gatewayProviderName, listProvidersForGateway } from './modelProviderService.js'
 import { classifyToolPrefix, parseToolReply, MAX_TOOL_REPLY_CHARS } from './toolProtocol.js'
 import logger from '../utils/logger.js'
-import { projectionMatches } from './embeddingConfig.js'
+import { cosineSimilarity, projectionMatches } from './embeddingConfig.js'
+// 余弦相似度放在没有依赖的 embeddingConfig.js（书架选章也要用，免得循环引用）；这里照旧导出
+export { cosineSimilarity }
 import { detectEmotion } from './detection.js'
 import { buildBookSkillContexts, selectBookCards } from './bookSkills.js'
 import { buildModuleSkillContexts } from './moduleSkills.js'
@@ -221,22 +223,6 @@ export function extractKeywords(value) {
   return keywords
 }
 
-/** 余弦相似度：长度不等或任一向量零范数 → 0（维度不一致的旧向量自然沉底）。 */
-export function cosineSimilarity(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return 0
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let index = 0; index < a.length; index++) {
-    const x = a[index]
-    const y = b[index]
-    dot += x * y
-    normA += x * x
-    normB += y * y
-  }
-  if (normA === 0 || normB === 0) return 0
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
-}
 
 export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null) {
   const queryText = String(currentText ?? '').normalize('NFKC').toLowerCase()

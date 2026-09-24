@@ -4,11 +4,14 @@ import { describeSelection, selectCards } from './bookShelf.js'
 
 // 由书改编的内置技能：登记在这里的书放在同一个书架上，一句话全局最多翻两章。
 // 加一本书就在这里登记一处；回复质量评测去掉「书」这一层，也只替换这一个模块。
-const BOOKS = [bodyCareBook, emotionReflectionBook]
+export const BOOKS = [bodyCareBook, emotionReflectionBook]
 
-/** 这一轮翻哪几本书的哪几章。聊天链路只算一次：提示词和页边批注都用这一份。 */
-export function selectBookCards({ text, history = [], scene = 'chat' } = {}) {
-  return selectCards(BOOKS, { text, history, scene })
+/**
+ * 这一轮翻哪几本书的哪几章。聊天链路只算一次：提示词和页边批注都用这一份。
+ * queryEmbedding：这一轮为找记忆已经算好的向量，有书架索引时用来补上关键词漏掉的说法。
+ */
+export function selectBookCards({ text, history = [], scene = 'chat', queryEmbedding = null } = {}) {
+  return selectCards(BOOKS, { text, history, scene, queryEmbedding })
 }
 
 /** 选好的章拼成 system 消息，顺序与登记顺序一致。 */
