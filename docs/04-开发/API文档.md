@@ -14,6 +14,8 @@
 > **2026-09-22 更新**：新增「模型供应商」——实例管理员可在设置页配多家 OpenAI 兼容的聊天模型（`/api/admin/model-providers`，见 §十·五），网关按优先级依次尝试，不再绑死单一家厂商；`GET /api/llm/status` 增加 `isInstanceAdmin` 与 `externalFallback.providers`。没有配置任何自定义供应商时，行为与以前完全一致（仍用 `GATEWAY_QWEN_*`）。
 > 同日还新增只读 `GET /api/chat/openers`（见「三、聊天」）：空白对话那一屏的开场话题从她自己的线索里来（她惦记的事 / 在读的书 / 最近的手记），只读、不发模型、不落库。
 
+> **2026-09-25 书架合并（路线图 C22）**：内置书与她上传的书放进同一个书架。新增 `POST/DELETE /api/reading/books/:id/content`（她确认后上传本机解析好的章节 / 撤回）与只读的 `GET /api/reading/shelf/builtin`、`GET /api/reading/shelf/builtin/:name`（见 §四·五）；书目多了 `serverIndex`、`indexedAt`、`indexProgress`；`bookNotes` 里可能出现她自己的书（见「页边批注」）；`/api/user/profile` 新增 `citeBooks`（回答里提不提书名，默认 `false`）。数据导出的 `books[]` 带上 `serverIndex`、`indexedAt` 和她上传的分段正文 `passages`（不含向量）。
+
 > **2026-09-23 她的来信更新**：「做梦 / 待确认 / 来信」收进一层「她的来信」——按用户设定的频率（`letterFreqDays` = 3/7 或空=不写）由服务器端根据记忆与近况写信，信里带 ≤3 条建议（改记忆 / 删记忆 / 安排一件事），看信时一键「同意采纳」或「带去对话」。`dreamEnabled`/`dreamt_at` 删除；`/api/derived*` 全部下线（派生草稿仍是内部层，写信前的回想产出、进信即消费）；记忆的版本恢复与整库清空接口（`GET /api/memories/:id/revisions`、`POST /api/memories/:id/restore`、`DELETE /api/memories`）一并删除；`/api/letters` 重新上线（见 §十四）。
 
 > **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)为准。
@@ -176,6 +178,8 @@ Authorization: Bearer <access_token>
 ### PUT /api/user/profile
 
 更新昵称、头像、生日、`careEnabled`（她来想你）与 `letterFreqDays`（她的来信频率：`3` 三天一封 / `7` 七天一封 / `null` 不写信，默认 `null`；其余值 400「letterFreqDays只能是3、7或空」）。GET 同样返回这两个开关。
+
+`citeBooks`（2026-09-25 起，路线图 C22）：「回答里提到书」，布尔值，默认 `false`；非布尔值 400「citeBooks必须是布尔值」。只影响翻到书时给模型的一行说明：`true` 时可以自然地提一句书名和章节，只许提这一轮给它的书；`false` 时不提书名、作者、章节，也不引原文。页边批注不受它影响（批注的开关在设备上）。
 
 ### PUT /api/user/persona — 切换人格
 
@@ -554,6 +558,12 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 - 选哪几章：先看章节卡的关键词；有书架索引、这一轮又为找记忆算过这句话的向量时，所有书的关键词都一章没认出时，再用向量从整个书架补最接近的一章；她明说要办事时不补（不另调云端）。所有书放在一起排，各书轮流出自己最靠前的一章，一轮最多两章；提示词里的章和 `bookNotes` 出自同一次选择。见 [书架选章评测](书架选章评测.md)。
 - `chapters` 为空：只点名了这本书（如问到克莱因的理论），没翻到具体章。
+- **她自己的书**（2026-09-25 起，路线图 C22）：她选了「让她聊天时也能翻」的书，每轮用同一个查询向量找最接近的一段（余弦 ≥ 0.55，一轮最多一段），排在内置书后面。格式不同：没有 `edition`、`setAside`、`boundary`、`use`，多了 `userBook` 和阅读器位置 `locator`，前端据此「翻到这一段」（`/tools/reading/:bookId?at=<locator>&from=margin`）。
+
+```json
+{ "book": "user:<bookId>", "userBook": true, "bookId": "<bookId>", "title": "被讨厌的勇气", "author": "岸见一郎",
+  "chapters": [{ "id": "<passageId>", "title": "课题分离", "origin": "第 2 章", "locator": "1:120" }] }
+```
 - 章节卡与书目信息：`apps/api/src/skills/<书>/chapters/*.md` 与 `SKILL.md` 的文首，选章在 `apps/api/src/services/bookShelf.js`。
 
 ---
@@ -662,7 +672,9 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 
 ## 四·五、读书 `/api/reading`
 
-**书本身存在用户自己的浏览器里（IndexedDB），从不上传。** 服务端只记书目、阅读进度和笔记；`locator` 是前端给的不透明进度串（`"<章序号>:<章内字符偏移>"`），服务端只存不解析。
+**书默认存在用户自己的浏览器里（IndexedDB），不上传。** 服务端只记书目、阅读进度和笔记；`locator` 是前端给的不透明进度串（`"<章序号>:<章内字符偏移>"`），服务端只存不解析。
+
+她确认「让她聊天时也能翻」的书（路线图 C22），前端才把本机解析好的章节传上来：服务端切段（约 600 字、重叠约 80 字，在句末断开），在后台用 `MEMORY_EMBEDDING_*` 配的向量模型分批算，整本一次写进 `book_passages`，中途失败不留半本。撤回上传、删书都会删掉这些段落。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -670,7 +682,11 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 | POST | `/api/reading/books` | `{title, author?, format?, fileName?, totalPages?, status?}`；`format` 为 `epub`/`txt`，留空表示聊天里随口记下的纸书 |
 | PUT | `/api/reading/books/:id` | 改书目；可带 `currentPage`、`percent`、`locator` |
 | PUT | `/api/reading/books/:id/progress` | `{locator?, percent?}` 阅读器一边读一边回存；只动进度，想读的书会转为在读，读到 100% 不自动标记读完 |
-| DELETE | `/api/reading/books/:id` | 删书（笔记级联删） |
+| DELETE | `/api/reading/books/:id` | 删书（笔记、上传的段落级联删） |
+| POST | `/api/reading/books/:id/content` | `{chapters: [{title, text}]}`：她确认后上传本机解析好的章节，全书最多 150 万字（超了 413），请求体上限 8MB。立即返回 202 和书目（`serverIndex: "indexing"`），后台整理。没同意当前版本的云端处理 → 503 `code: CLOUD_NOT_CONSENTED`；没配向量模型 → 503 `code: EMBEDDING_UNAVAILABLE`；纸书 400；正在整理 409 |
+| DELETE | `/api/reading/books/:id/content` | 「只留在设备上」：停掉整理，删掉服务器上的段落，`serverIndex` 回到 `null` |
+| GET | `/api/reading/shelf/builtin` | Amie 的藏书：`{books: [{name, title, author, edition, setAside, boundary, chapters: [{id, title, origin, use}]}]}`，不带正文 |
+| GET | `/api/reading/shelf/builtin/:name` | 点开一本藏书：同上，`chapters` 多了 `content`（Amie 的改编章节，不是原书）；没有这本 404 |
 | GET | `/api/reading/books/:id/notes` | 这本书下的笔记 |
 | POST | `/api/reading/books/:id/notes` | `{content, page?, quote?, locator?, aiComment?}`；给了 `aiComment`（从伴读问答里记下来的她的回答）时 `aiCommentSource` 记为 `chat` |
 | GET | `/api/reading/notes?limit=&before=` | 手记时间线：最近的读书笔记（新到旧，带书名），每页最多 100 条 |
@@ -678,6 +694,8 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 | DELETE | `/api/reading/notes/:noteId` | 删除一条笔记 |
 
 字段上限：书名 100、作者 50、感想 500、原文 `quote` 1000、她的回应 1000、文件名与 `locator` 各 200，`percent` 为 0–100 的整数。
+
+书目里的上传状态：`serverIndex` 为 `null`（只在她的设备上）、`indexing`（正在整理，`indexProgress: {done, total}` 按段计）、`ready`（聊天时能翻）或 `failed`（没整理成，可以重新上传）；`indexedAt` 是整理好的时间。进程重启时正在整理的书会被标成 `failed`。
 
 ## 五、日记 `/api/diary`（2026-09-04 起）
 
@@ -941,7 +959,9 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 安排      CRUD   /api/reminders/scheduled
 经期      CRUD   /api/tools/period        (含 /summary；/consent 单独同意)
 日记      CRUD   /api/diary/:day
-读书      CRUD   /api/reading/books       (书架；书本身在浏览器里)
+读书      CRUD   /api/reading/books       (书架；书默认在浏览器里)
+          POST   /api/reading/books/:id/content (她确认后上传章节；DELETE 撤回)
+          GET    /api/reading/shelf/builtin     (Amie 的藏书，只读)
           PUT    /api/reading/books/:id/progress (阅读进度)
           GET    /api/reading/notes       (手记时间线)
           POST   /api/reading/notes       (按书名记一笔)

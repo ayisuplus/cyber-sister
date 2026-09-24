@@ -26,6 +26,8 @@
     "eval:asr": "node scripts/eval-asr.mjs",
     "books:index": "node scripts/index-book-cards.mjs",
     "eval:books": "node scripts/eval-book-shelf.mjs",
+    "books:user-fixture": "node scripts/index-user-book-fixture.mjs",
+    "books:check-user": "node scripts/check-user-book.mjs",
     "memories:reindex": "node scripts/reindex-memories.mjs",
     "lint": "eslint src/ --max-warnings 146",
     "format": "prettier --write src/"

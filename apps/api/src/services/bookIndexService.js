@@ -27,7 +27,11 @@ export const MAX_BOOK_CHARS = 1_500_000
 const MAX_CHAPTERS = 3000
 const CHAPTER_TITLE_MAX = 200
 
-/** 她的书一段够不够「挨得近」：单独标定（见《书架选章评测》「她的书」一节），她点名的那本放低一档。 */
+/**
+ * 她的书一段够不够「挨得近」（见《书架选章评测》「她的书」一节，2026-09-25 标定）：
+ * 冒充书和本机三本真书上，0.55 是「不该翻书的句子一句都不翻」的最低一档；再低，闲聊也会翻出书来。
+ * 代价是召回低（真书上 20 句情绪类的句子翻到 2–7 句），她点了书名时放低一档。
+ */
 export const PASSAGE_MIN_SCORE = 0.55
 export const NAMED_BOOK_EASING = 0.1
 
@@ -294,7 +298,8 @@ function dot(a, b) {
   return sum
 }
 
-function toShelfBook({ id, title, author, indexIdentity, passages }) {
+/** 库里读出的一本书整理成查表用的样子：向量先归一化成 Float32Array，之后只做点积。评测夹具也用它。 */
+export function toShelfBook({ id, title, author, indexIdentity, passages }) {
   return {
     id, title, author, identity: indexIdentity,
     passages: passages.map(({ vector, ...passage }) => ({ ...passage, vector: unit(vector) })).filter(({ vector }) => vector),
@@ -368,12 +373,21 @@ function shelfEntry(book) {
 export async function searchUserBooks(userId, { text, queryEmbedding, namedOnly = false, excludeBookId = null, database = prisma } = {}) {
   if (!userId || typeof text !== 'string' || !Array.isArray(queryEmbedding?.vector)) return []
   const books = (await loadShelf(userId, database)).filter(({ id }) => id !== excludeBookId)
+  const best = pickPassage(books, { text, queryEmbedding, namedOnly })
+  return best ? [{ book: shelfEntry(best.book), cards: [best.passage] }] : []
+}
+
+/**
+ * 在已经读进来的书（toShelfBook）里挑一段：她点了书名就只看那本、阈值放低一档；
+ * 向量身份对不上的书不看。返回 { book, passage, score } 或 null。纯函数，离线评测也用它。
+ */
+export function pickPassage(books, { text, queryEmbedding, namedOnly = false, minScore = PASSAGE_MIN_SCORE }) {
+  if (typeof text !== 'string' || !Array.isArray(queryEmbedding?.vector)) return null
   const named = books.filter(({ title }) => mentions(text, title))
-  if (namedOnly && !named.length) return []
+  if (namedOnly && !named.length) return null
   const identity = identityOf(queryEmbedding)
   const pool = (named.length ? named : books).filter((book) => sameIdentity(book.identity, identity))
-  const best = pool.length ? closestPassage(pool, unit(queryEmbedding.vector), named.length ? PASSAGE_MIN_SCORE - NAMED_BOOK_EASING : PASSAGE_MIN_SCORE) : null
-  return best ? [{ book: shelfEntry(best.book), cards: [best.passage] }] : []
+  return pool.length ? closestPassage(pool, unit(queryEmbedding.vector), named.length ? minScore - NAMED_BOOK_EASING : minScore) : null
 }
 
 /** 这几本书里和查询向量最挨得近、又够得上阈值的一段；没有返回 null。 */

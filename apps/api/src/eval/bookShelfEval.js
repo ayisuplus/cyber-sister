@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { BOOKS, buildBookSkillContexts } from '../services/bookSkills.js'
+import { BOOKS, buildBookSkillContexts, userBookSearch } from '../services/bookSkills.js'
 import { selectCards } from '../services/bookShelf.js'
+import { chunkBook, passageEmbeddingText, pickPassage, PASSAGE_MIN_SCORE, toShelfBook } from '../services/bookIndexService.js'
 
 /**
  * 书架选章检验集（路线图 C21 第二步）：一句话该翻哪本书的哪一章，只用关键词和加上向量各对了多少。
@@ -10,6 +11,7 @@ import { selectCards } from '../services/bookShelf.js'
  */
 export const CASES_PATH = fileURLToPath(new URL('../../tests/book-shelf/cases.json', import.meta.url))
 export const QUERY_VECTORS_PATH = fileURLToPath(new URL('../../tests/book-shelf/query-vectors.json', import.meta.url))
+export const USER_BOOK_VECTORS_PATH = fileURLToPath(new URL('../../tests/book-shelf/user-book-vectors.json', import.meta.url))
 const SCENARIOS_PATH = fileURLToPath(new URL('../../tests/reply-eval/scenarios.json', import.meta.url))
 
 export const KINDS = { keyword: '评测原句', paraphrase: '换个说法', spoken: '说出来的', negative: '不该翻书' }
@@ -111,4 +113,76 @@ export function scoreBookShelf(cases, predict) {
     negativesWithBooks: byKind.negative.predicted ? mistakes.filter((mistake) => mistake.kind === 'negative').length : 0,
     mistakes,
   }
+}
+
+// ── 她的书（路线图 C22）：拿《情绪急救》的改编章节冒充一本她上传的书，标定 PASSAGE_MIN_SCORE ──
+// 这些是我们自己写的文字，能进仓库；原书全文不进。走和她上传时一样的切段，段落向量存成夹具，CI 离线核对。
+
+const STAND_IN = 'emotional-first-aid'
+
+/** 冒充的那本书：每张章节卡当一章，章名是卡片标题；段落按上传时的规则切。 */
+export function standInBook(books = BOOKS) {
+  const book = books.find(({ name }) => name === STAND_IN)
+  const chapters = book.cards.map((card) => ({ title: card.title, text: card.content }))
+  const passages = chunkBook(chapters)
+  return { book, chapterKeys: book.cards.map((card) => card.key), passages }
+}
+
+/** 读冒充书的段落向量夹具；段落改过（哈希对不上）的整本作废，返回 null。 */
+export function loadUserBookVectors(passages, path = USER_BOOK_VECTORS_PATH) {
+  let raw
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!Array.isArray(raw?.passages) || raw.passages.length !== passages.length) return null
+  const fresh = raw.passages.every((entry, at) => entry.textHash === textHashOf(passageEmbeddingText(passages[at])))
+  if (!fresh) return null
+  const identity = { providerHash: raw.providerHash, model: raw.model, dimensions: raw.dimensions, ruleVersion: raw.ruleVersion }
+  return { identity, vectors: raw.passages.map(({ vector }) => vector) }
+}
+
+/** 用夹具拼出和聊天时一样的「书架」（toShelfBook），交给 pickPassage 挑段。 */
+export function standInShelf({ book, passages }, fixture) {
+  return [toShelfBook({
+    id: 'stand-in', title: book.meta.title, author: book.meta.author, indexIdentity: fixture.identity,
+    passages: passages.map((passage, at) => ({ id: `p${passage.seq}`, ...passage, vector: fixture.vectors[at] })),
+  })]
+}
+
+/** 检验集里拿来标定她的书的句子：期望里有这本书某一章的（翻到其中一章就算对），和「不该翻书」的。 */
+export function userBookCases(cases) {
+  return cases
+    .map((item) => ({ ...item, want: item.expect.filter((key) => key.startsWith(`${STAND_IN}/`)) }))
+    .filter((item) => item.want.length || item.kind === 'negative')
+}
+
+/** 这一句在她的书里翻到哪一章（<书>/<章> 的 key），不翻返回 null；门槛和聊天时一样（userBookSearch）。 */
+export function predictUserPassage(item, { vectors, shelf, chapterKeys, minScore = PASSAGE_MIN_SCORE }) {
+  const search = userBookSearch(item.text)
+  const queryEmbedding = search ? queryEmbeddingFor(item, vectors) : null
+  const best = queryEmbedding && pickPassage(shelf, { text: item.text, queryEmbedding, namedOnly: search.namedOnly, minScore })
+  return best ? chapterKeys[best.passage.chapterIndex] : null
+}
+
+/** 翻对章、翻错章、漏翻、误翻（不该翻书却翻了）各几句。 */
+export function scoreUserBook(cases, predict) {
+  const score = { positives: 0, right: 0, wrong: 0, missed: 0, negatives: 0, falsePositives: 0, mistakes: [] }
+  for (const item of cases) {
+    const got = predict(item)
+    if (!item.want.length) {
+      score.negatives += 1
+      if (got) { score.falsePositives += 1; score.mistakes.push({ id: item.id, want: [], got }) }
+      continue
+    }
+    score.positives += 1
+    if (!got) { score.missed += 1; score.mistakes.push({ id: item.id, want: item.want, got: null }) } else if (item.want.includes(got)) {
+      score.right += 1
+    } else {
+      score.wrong += 1
+      score.mistakes.push({ id: item.id, want: item.want, got })
+    }
+  }
+  return score
 }

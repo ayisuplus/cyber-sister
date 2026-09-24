@@ -7,7 +7,11 @@
  * 不联网：在检验集上比「只用关键词」和「加上向量」两种做法各翻对了多少章。
  * 有书架索引和检验句的向量（books:index --live 生成）时，再把阈值从 0.30 扫到 0.85，看召回和误翻怎么此消彼长。
  */
-import { loadBookShelfCases, loadQueryVectors, KINDS, predictCards, promptBudget, scoreBookShelf, validateBookShelfCases } from '../src/eval/bookShelfEval.js'
+import {
+  loadBookShelfCases, loadQueryVectors, loadUserBookVectors, KINDS, predictCards, predictUserPassage, promptBudget,
+  scoreBookShelf, scoreUserBook, standInBook, standInShelf, userBookCases, validateBookShelfCases,
+} from '../src/eval/bookShelfEval.js'
+import { PASSAGE_MIN_SCORE } from '../src/services/bookIndexService.js'
 import { providerHashOf, shelfIndex } from '../src/services/bookShelf.js'
 
 const set = loadBookShelfCases()
@@ -64,4 +68,29 @@ for (let step = 30; step <= 85; step += 5) {
   const { paraphrase, spoken, keyword } = score.byKind
   const recall = (paraphrase.correct + spoken.correct) / (paraphrase.expected + spoken.expected)
   console.log(`| ${minScore.toFixed(2)} | ${keyword.exact}/${keyword.cases} | ${percent(recall)} | ${score.negativesWithBooks} | ${percent(score.overall.precision)} |`)
+}
+
+// 她的书（路线图 C22）：拿《情绪急救》的改编章节冒充一本她上传的书，看 PASSAGE_MIN_SCORE 定在哪儿
+const standIn = standInBook()
+const fixture = loadUserBookVectors(standIn.passages)
+if (!fixture || fixture.identity.providerHash !== vectors.identity.providerHash || fixture.identity.model !== vectors.identity.model) {
+  console.log('\n还没有她的书的段落向量（或不是同一个向量模型算的）：先跑 books:user-fixture -- --live。')
+  process.exit(0)
+}
+const shelf = standInShelf(standIn, fixture)
+const userCases = userBookCases(set.cases)
+const positives = userCases.filter(({ want }) => want.length).length
+console.log('\n## 她的书（拿《情绪急救》改编章节冒充她上传的书）\n')
+console.log(`切成 ${standIn.passages.length} 段；${positives} 句该翻到对应的章，${userCases.length - positives} 句不该翻书。当前阈值 ${PASSAGE_MIN_SCORE}。\n`)
+console.log('| 阈值 | 翻对章 | 翻错章 | 漏翻 | 误翻（不该翻书的句数） |')
+console.log('| --- | --- | --- | --- | --- |')
+for (let step = 30; step <= 85; step += 5) {
+  const minScore = step / 100
+  const score = scoreUserBook(userCases, (item) => predictUserPassage(item, { vectors, shelf, chapterKeys: standIn.chapterKeys, minScore }))
+  console.log(`| ${minScore.toFixed(2)} | ${score.right}/${score.positives} | ${score.wrong} | ${score.missed} | ${score.falsePositives} |`)
+}
+const current = scoreUserBook(userCases, (item) => predictUserPassage(item, { vectors, shelf, chapterKeys: standIn.chapterKeys }))
+if (current.mistakes.length) {
+  console.log(`\n阈值 ${PASSAGE_MIN_SCORE} 时没翻对的句子：`)
+  for (const { id, want, got } of current.mistakes) console.log(`- ${id}：该翻 ${want.join('、') || '（不翻）'}，翻了 ${got ?? '（没翻）'}`)
 }
