@@ -73,10 +73,10 @@ vi.mock('../../src/services/agentService.js', async (importOriginal) => {
   })
   return { ...(await importOriginal()), executeToolCall: offline, executeToolCallOnce: offline }
 })
-// 去掉「书」这一层只替换这一个模块（见 bookSkills.js）
+// 去掉「书」这一层只替换这一个模块（见 bookSkills.js）：一章都不选，提示词和页边批注里就都没有书
 vi.mock('../../src/services/bookSkills.js', async (importOriginal) => {
   const actual = await importOriginal()
-  return { buildBookSkillContexts: (...args) => (h.bookSkills ? actual.buildBookSkillContexts(...args) : []) }
+  return { ...actual, selectBookCards: (...args) => (h.bookSkills ? actual.selectBookCards(...args) : []) }
 })
 
 import { createGateway } from '@cyber-sister/llm-gateway'

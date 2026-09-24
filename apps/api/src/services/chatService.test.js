@@ -326,7 +326,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -342,7 +342,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -367,7 +367,7 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateResponse.mock.calls[0][5]).toEqual({
       allowExternal: true,
       authorizeExternal: expect.any(Function),
-      memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }],
+      bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }],
       scene: 'chat',
       agent: true,
       queryEmbedding: null,
@@ -789,7 +789,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
   })
 
@@ -890,7 +890,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
@@ -1536,6 +1536,78 @@ describe('危机小心模式：中级线索不拦她的回应', () => {
 
     expect(carefulBlock()).toBeUndefined()
     expect(mocks.crisisCreate).not.toHaveBeenCalled()
+  })
+
+  it('小心模式不翻书，也就没有页边批注', async () => {
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '我好孤独，活着好累', 'req-careful-books'))
+
+    expect(mocks.generateResponseStream.mock.calls[0][5].bookSelection).toEqual([])
+    expect(aiMessageData()).not.toHaveProperty('bookNotes')
+    expect(events.at(-1).aiMessage).not.toHaveProperty('bookNotes')
+  })
+})
+
+const aiMessageData = () => mocks.messageCreate.mock.calls.map(([args]) => args.data).find((data) => data.role === 'assistant')
+
+describe('页边批注：她写这一段时翻过的书', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.transaction.mockImplementation((callback) => callback({
+      user: { findUnique: mocks.companionFindUnique, update: mocks.companionUpdate },
+      $queryRaw: mocks.companionLock,
+      message: { create: mocks.messageCreate },
+      conversation: { update: mocks.conversationUpdate },
+    }))
+    mocks.conversationFindFirst.mockResolvedValue({ id: 'conversation-1', userId: 'user-1' })
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION })
+    mocks.detectCrisis.mockReturnValue(null)
+    mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.memoryFindMany.mockResolvedValue([])
+    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.embedQuery.mockResolvedValue(null)
+    mocks.derivedInsightFindMany.mockResolvedValue([])
+    mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
+    mocks.conversationUpdate.mockResolvedValue({})
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'done', content: '嫉妒和真心替她高兴，可以同时在。', emotion: 'calm', source: 'qwen', provider: 'qwen', model: 'm' },
+    ]))
+  })
+
+  it('翻了书：提示词里的章和落库的批注出自同一次选择', async () => {
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '同门拿了青基，我嫉妒得睡不着', 'req-books'))
+
+    const selection = mocks.generateResponseStream.mock.calls[0][5].bookSelection
+    expect(selection.map(({ book, cards }) => [book.name, cards.map(({ id }) => id)])).toEqual([['emotion-reflection', ['envy']]])
+    const notes = aiMessageData().bookNotes
+    expect(notes).toEqual([expect.objectContaining({ book: 'emotion-reflection', title: '嫉羡与感恩', chapters: [expect.objectContaining({ id: 'envy', origin: '第十章' })] })])
+    expect(events.at(-1).aiMessage.bookNotes).toEqual(notes)
+  })
+
+  it('非流式也一样落库', async () => {
+    mocks.generateResponse.mockResolvedValue({ content: '先说说那一刻？', emotion: 'calm', source: 'qwen', provider: 'qwen', model: 'm' })
+
+    const result = await sendMessage('conversation-1', 'user-1', '痛经痛得睡不着', 'req-books-json')
+
+    expect(result.aiMessage.bookNotes).toEqual([expect.objectContaining({ book: 'body-care', chapters: [expect.objectContaining({ id: 'ch02-period' })] })])
+  })
+
+  it('没翻书的一段不写批注', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '今天吃了火锅', 'req-no-books'))
+
+    expect(mocks.generateResponseStream.mock.calls[0][5].bookSelection).toEqual([])
+    expect(aiMessageData()).not.toHaveProperty('bookNotes')
+  })
+
+  it('退回本地模板时她没写这一段，不写批注', async () => {
+    mocks.generateResponseStream.mockReturnValue(streamOf([
+      { type: 'replace', content: '我在听。', source: 'local_template' },
+      { type: 'done', content: '我在听。', emotion: 'calm', source: 'local_template' },
+    ]))
+
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '我嫉妒她', 'req-books-template'))
+
+    expect(aiMessageData()).not.toHaveProperty('bookNotes')
   })
 })
 

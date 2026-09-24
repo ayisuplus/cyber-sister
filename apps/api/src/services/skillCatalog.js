@@ -179,22 +179,46 @@ function skillNames() {
   return [...loadSkillCatalog().keys()]
 }
 
-/**
- * 读技能内文件原文；relPath 省略 = SKILL.md（剥掉 frontmatter）。
- * relPath 解析后必须仍在技能目录内，否则 400「路径越界」。
- */
-export function readSkillResource(name, relPath) {
+/** 技能内一个文件的原文与路径；越界 400、不存在 404。 */
+function readSkillFile(name, relPath) {
   const skill = getSkill(name)
   if (!skill) throw new HttpError('没有这个技能', 404)
   const target = relPath === undefined || relPath === null ? skill.filePath : path.resolve(skill.baseDir, String(relPath))
   if (target !== skill.filePath && !target.startsWith(skill.baseDir + path.sep)) throw new HttpError('路径越界', 400)
-  let content
   try {
-    content = readFileSync(target, 'utf8')
+    return { target, content: readFileSync(target, 'utf8') }
   } catch {
     throw new HttpError('技能里没有这个文件', 404)
   }
-  return target === skill.filePath ? parseFrontmatter(content).body : content
+}
+
+/**
+ * 读技能内文件原文；relPath 省略 = SKILL.md。.md 文件剥掉 frontmatter（章节卡的元数据不给模型看）。
+ * relPath 解析后必须仍在技能目录内，否则 400「路径越界」。
+ */
+export function readSkillResource(name, relPath) {
+  const { target, content } = readSkillFile(name, relPath)
+  return target.endsWith('.md') ? parseFrontmatter(content).body : content
+}
+
+/** 读一张带 frontmatter 的 .md：{ fields, body }，body 与 readSkillResource 读到的一致。 */
+export function readSkillCard(name, relPath) {
+  const { content } = readSkillFile(name, relPath)
+  const { fields, body } = parseFrontmatter(content)
+  return { fields, body }
+}
+
+/** 技能目录下某个子目录里的 .md 文件（相对路径，按文件名排序）；目录不存在返回 []。 */
+export function listSkillFiles(name, subdir) {
+  const skill = getSkill(name)
+  if (!skill) throw new HttpError('没有这个技能', 404)
+  const dir = path.resolve(skill.baseDir, String(subdir))
+  if (!dir.startsWith(skill.baseDir + path.sep)) throw new HttpError('路径越界', 400)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => `${subdir}/${entry.name}`)
+    .sort()
 }
 
 /** SKILL.md 里 `## heading` 到下一个 `## ` 之间的正文（trim）；与旧 .split('## …')[1].split('## …')[0].trim() 等价。 */

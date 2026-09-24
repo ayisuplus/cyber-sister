@@ -790,6 +790,49 @@ h1, h2, h3 {
   transform: rotate(-3deg);
 }
 
+/* 页边铅笔批注：她写这一段时翻过的书（路线图 C21）。一行铅笔小字落在横格上；
+ * 点开是压在这一页上面的一张书签小卡，不挤动分页，收起后不留痕迹；静止、不播动效 */
+.letter-margin-note {
+  position: relative;
+  break-inside: avoid;
+  font-size: 0.78em;
+  color: var(--cs-ink-pencil);
+}
+.letter-margin-note__toggle {
+  position: relative;
+  /* 块级 flex：高度正好一行横格；inline-flex 会被基线对齐多撑出几像素，补齐后变成两行 */
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  line-height: var(--line);
+  text-align: left;
+  color: inherit;
+  text-decoration: underline dotted color-mix(in srgb, var(--cs-ink-pencil) 55%, transparent);
+  text-underline-offset: 4px;
+  transition: color var(--cs-dur-soft) var(--cs-ease-calm);
+}
+/* 点按范围上下各补一点凑够 44px，不多占一行横格 */
+.letter-margin-note__toggle::after { content: ''; position: absolute; inset: calc((var(--line) - 44px) / 2) 0; }
+.letter-margin-note__toggle:hover { color: var(--cs-ink-her); }
+.letter-margin-note__card {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 4;
+  overflow-y: auto;
+  padding: 6px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--cs-ink-pencil) 45%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cs-paper) 70%, var(--cs-pastel-mist));
+  box-shadow: var(--cs-paper-shadow);
+  line-height: 1.6;
+}
+.letter-margin-note__card[data-placement="below"] { top: calc(100% + 2px); }
+.letter-margin-note__card[data-placement="above"] { bottom: calc(100% + 2px); }
+.letter-margin-note__book + .letter-margin-note__book { margin-top: 6px; }
+
 /* 她的回复：Markdown 也落在横格上；每段首行空两格，像写信 */
 :is(.letter-strip, .letter-scroll) .message-markdown { font-size: inherit; line-height: var(--line); }
 :is(.letter-strip, .letter-scroll) .message-markdown > * + * { margin-top: 0; }

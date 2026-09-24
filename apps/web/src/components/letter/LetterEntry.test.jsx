@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '../../stores/authStore'
+import { useMarginNoteStore } from '../../stores/marginNoteStore'
 import LetterEntry from './LetterEntry'
 import { letterDateLabel, sameDay } from './letterDate'
 
@@ -162,5 +163,47 @@ describe('信纸上的小装饰', () => {
 
     rerender(<LetterEntry message={{ id: 'm2', role: 'assistant', content: '我在' }} />)
     expect(container.querySelector('article')).not.toHaveAttribute('data-quiet')
+  })
+})
+
+const BOOK_NOTES = [{
+  book: 'emotion-reflection',
+  title: '嫉羡与感恩',
+  author: '梅兰妮·克莱因',
+  edition: '九州出版社，2017',
+  setAside: '死本能等病因推论作为事实',
+  boundary: 'Amie 选择性改编，理论参考，不是诊断或治疗。',
+  chapters: [{ id: 'envy', title: '比较与嫉羡', origin: '第十章', use: '情绪与具体愿望、行为分开' }],
+}]
+
+describe('页边铅笔批注', () => {
+  afterEach(() => {
+    localStorage.clear()
+    useMarginNoteStore.setState({ marginNotes: 'on' })
+  })
+
+  it('她写完的一段下面写一行「翻过的书」', () => {
+    render(<LetterEntry message={{ id: 'a1', role: 'assistant', content: '嫉妒和高兴可以同时在。', bookNotes: BOOK_NOTES }} />)
+    expect(screen.getByRole('button', { name: /她写这段时翻过的书.*《嫉羡与感恩》第十章/ })).toBeInTheDocument()
+  })
+
+  it('还在写、危机干预那一段、你写的、设置里关掉，都不写', () => {
+    const { rerender } = render(<LetterEntry message={{ id: 'a1', role: 'assistant', content: '嫉妒', streaming: true, bookNotes: BOOK_NOTES }} />)
+    expect(screen.queryByRole('button', { name: /翻过的书/ })).not.toBeInTheDocument()
+
+    rerender(<LetterEntry message={{ id: 'intervention-1', role: 'assistant', content: '我在', bookNotes: BOOK_NOTES }} />)
+    expect(screen.queryByRole('button', { name: /翻过的书/ })).not.toBeInTheDocument()
+
+    rerender(<LetterEntry message={{ id: 'u1', role: 'user', content: '我嫉妒她', bookNotes: BOOK_NOTES }} />)
+    expect(screen.queryByRole('button', { name: /翻过的书/ })).not.toBeInTheDocument()
+
+    useMarginNoteStore.setState({ marginNotes: 'off' })
+    rerender(<LetterEntry message={{ id: 'a2', role: 'assistant', content: '嫉妒和高兴可以同时在。', bookNotes: BOOK_NOTES }} />)
+    expect(screen.queryByRole('button', { name: /翻过的书/ })).not.toBeInTheDocument()
+  })
+
+  it('没翻书的一段（bookNotes 为空）什么都不写', () => {
+    const { container } = render(<LetterEntry message={{ id: 'a1', role: 'assistant', content: '我在', bookNotes: null }} />)
+    expect(container.querySelector('.letter-margin-note')).toBeNull()
   })
 })

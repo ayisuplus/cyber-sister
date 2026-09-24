@@ -7,6 +7,8 @@ import WorkSources from '../work/WorkSources'
 import ToolTrail from '../chat/ToolTrail'
 import { dayPhase, letterDateLabel } from './letterDate'
 import { DayPartDoodle } from './Decor'
+import MarginNote from './MarginNote'
+import { useMarginNoteStore } from '../../stores/marginNoteStore'
 
 const WorkAnswer = lazy(() => import('../work/WorkAnswer'))
 
@@ -52,6 +54,9 @@ export default function LetterEntry({ message, isLast = false, showDate = false 
   // 照片：发送中用本地预览，持久化后按 messageId 走服务端取图（失败 null 不渲染）
   const authedImageUrl = useAuthedImageUrl(!message.imagePreviewUrl && message.imageExt ? `/chat/images/${message.id}` : null)
   const photoUrl = message.imagePreviewUrl || authedImageUrl
+  // 页边批注：她写完这一段才落笔；危机干预那一页什么都不写；设置里关掉就不写
+  const marginNotes = useMarginNoteStore((state) => state.marginNotes)
+  const showMarginNote = !isUser && !message.streaming && !String(message.id).startsWith('intervention-') && marginNotes === 'on'
 
   return (
     <article
@@ -79,6 +84,7 @@ export default function LetterEntry({ message, isLast = false, showDate = false 
       {!isUser && <WorkProgress progress={message.progress} toolRuns={toolRuns} />}
       {artifacts.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} />)}
       {!isUser && <WorkSources toolRuns={toolRuns} progress={message.progress} />}
+      {showMarginNote && <MarginNote notes={message.bookNotes} />}
       {/* 只标例外：退回本地安全模板时如实写明，像一枚小印章 */}
       {!isUser && message.source === 'local_template' && <p><span className="letter-stamp">本地安全模板</span></p>}
       <ToolTrail runs={toolRuns} />

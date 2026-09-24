@@ -83,7 +83,7 @@ export async function buildUserExport(userId) {
         updatedAt: true,
         messages: {
           orderBy: { createdAt: 'asc' },
-          select: { role: true, content: true, emotion: true, source: true, importance: true, toolRuns: true, companionExperience: true, imageExt: true, createdAt: true, workArtifacts: { select: { id: true, title: true, format: true, content: true, encoding: true, origin: true, sizeBytes: true, createdAt: true } } },
+          select: { role: true, content: true, emotion: true, source: true, importance: true, toolRuns: true, companionExperience: true, bookNotes: true, imageExt: true, createdAt: true, workArtifacts: { select: { id: true, title: true, format: true, content: true, encoding: true, origin: true, sizeBytes: true, createdAt: true } } },
         },
       },
     }),

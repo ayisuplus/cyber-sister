@@ -14,7 +14,7 @@ import { classifyToolPrefix, parseToolReply, MAX_TOOL_REPLY_CHARS } from './tool
 import logger from '../utils/logger.js'
 import { projectionMatches } from './embeddingConfig.js'
 import { detectEmotion } from './detection.js'
-import { buildBookSkillContexts } from './bookSkills.js'
+import { buildBookSkillContexts, selectBookCards } from './bookSkills.js'
 import { buildModuleSkillContexts } from './moduleSkills.js'
 import { emit } from './extensionRuntime.js'
 import { memorySourceLabel } from './contextBlocks.js'
@@ -450,7 +450,7 @@ export async function generateResponse(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null } = {},
 ) {
   signal?.throwIfAborted()
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
@@ -479,7 +479,8 @@ export async function generateResponse(
     const systemAppend = [
       ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
       ...extraSystem,
-      ...buildBookSkillContexts(text, history, scene),
+      // 聊天链路已选好这一轮翻哪几章（提示词与页边批注同一份）；没传就在这里现选
+      ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text),
       ...buildModuleSkillContexts(text, history, scene),
     ]
     // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到
@@ -557,7 +558,7 @@ export async function* generateResponseStream(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
   const emotion = detectEmotion(text)
@@ -636,7 +637,8 @@ export async function* generateResponseStream(
   const systemAppend = [
     ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
     ...extraSystem,
-    ...buildBookSkillContexts(text, history, scene),
+    // 聊天链路已选好这一轮翻哪几章（提示词与页边批注同一份）；没传就在这里现选
+    ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text),
     ...buildModuleSkillContexts(text, history, scene),
   ]
   // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到

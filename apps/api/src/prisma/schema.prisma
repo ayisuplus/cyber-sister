@@ -95,6 +95,7 @@ model Message {
   source         String?
   toolRuns       Json?    @map("tool_runs")
   companionExperience Json? @map("companion_experience")
+  bookNotes      Json?    @map("book_notes") // 她写这一段时翻过的书（页边铅笔批注）；没翻书为 NULL
   imageExt       String?  @map("image_ext") // .jpg/.png/.webp；存在即 data/chat-images/<userId>/<messageId><ext> 有文件
   importance     Int      @default(3)
   createdAt      DateTime @default(now()) @map("created_at")

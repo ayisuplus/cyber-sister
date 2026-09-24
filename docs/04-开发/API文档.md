@@ -542,6 +542,20 @@ data: {"event":"done","status":"ok","userMessage":{...},"aiMessage":{...},"sourc
 
 当轮执行过工具时，`done`/`POST /messages` 响应中的 `aiMessage` 携带 `toolRuns: [{tool, ok, summary}]`（未执行为 `null`），历史消息同样返回该字段；前端据此在回复下方渲染动作标签。
 
+**页边批注 `bookNotes`（2026-09-24 起，路线图 C21）**
+
+当轮带上了书籍技能的章节时，`aiMessage.bookNotes` 记下她写这一段时翻过的书；没翻书、小心模式、退回本地模板时为 `null`。历史消息与数据导出同样带这个字段。它是当时的快照，以后章节卡改了也不回写。
+
+```json
+[{ "book": "emotion-reflection", "title": "嫉羡与感恩", "author": "梅兰妮·克莱因", "edition": "九州出版社，2017",
+   "setAside": "死本能等病因推论作为事实、……", "boundary": "Amie 选择性改编，理论参考，不是诊断或治疗。",
+   "chapters": [{ "id": "envy", "title": "比较与嫉羡", "origin": "第十章", "use": "情绪与具体愿望、行为分开" }] }]
+```
+
+- 选哪几章：所有书放在一起排，各书轮流出自己最靠前的一章，一轮最多两章；提示词里的章和 `bookNotes` 出自同一次选择。
+- `chapters` 为空：只点名了这本书（如问到克莱因的理论），没翻到具体章。
+- 章节卡与书目信息：`apps/api/src/skills/<书>/chapters/*.md` 与 `SKILL.md` 的文首，选章在 `apps/api/src/services/bookShelf.js`。
+
 ---
 
 ## 三·五、语音转文字 `/api/asr`
