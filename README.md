@@ -63,6 +63,22 @@ TEST_DATABASE_URL='postgresql://测试用户:测试口令@127.0.0.1:5432/postgre
 
 ## 本地运行
 
+**一键启动**（`apps/api/.env` 配好之后，日常就用这个）：双击仓库根目录的 `start-amie.cmd`，或者运行下面这条命令：
+
+```bash
+pnpm start:local
+```
+
+它按顺序做这些事：
+
+1. 起 Docker 里的 PostgreSQL，跑迁移（`migrate deploy`）；
+2. 起本机向量服务 `tools/embedding-server`：记忆检索与书架选章都靠它，配了却起不来就整个不启动；
+3. 装了语音转写（`tools/asr-server`）就一起起；
+4. 给还没有向量的记忆补算；
+5. 起 API 与网页，打开浏览器。
+
+已经在跑的部分会直接沿用。按 Ctrl+C 停下这次起的服务，数据库容器留着。下面是第一次搭环境、或者要逐个手动起的做法。
+
 应用进程跑在宿主机，PostgreSQL 用仓库自带的开发容器（口令为公开占位值，仅限本机）：
 
 ```bash

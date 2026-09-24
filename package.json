@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter cyber-sister-server dev",
     "dev:web": "pnpm --filter cyber-sister-client dev",
+    "start:local": "node scripts/start-local.mjs",
     "build": "pnpm -r --filter \"./apps/*\" --filter \"./packages/*\" build",
     "test": "pnpm -r test",
     "test:deploy": "node --test deploy/scripts/release.test.mjs",
