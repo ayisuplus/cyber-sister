@@ -832,6 +832,8 @@ h1, h2, h3 {
 .letter-margin-note__card[data-placement="below"] { top: calc(100% + 2px); }
 .letter-margin-note__card[data-placement="above"] { bottom: calc(100% + 2px); }
 .letter-margin-note__book + .letter-margin-note__book { margin-top: 6px; }
+/* 「翻到这一段」：铅笔色小字链接，行内 44px 触控区靠上下透明内边距撑出，不挤动横格 */
+.letter-margin-note__jump { display: inline-block; margin-left: 8px; padding: 12px 0; margin-block: -12px; color: var(--cs-ink-her); text-decoration: underline; text-underline-offset: 3px; }
 
 /* 她的回复：Markdown 也落在横格上；每段首行空两格，像写信 */
 :is(.letter-strip, .letter-scroll) .message-markdown { font-size: inherit; line-height: var(--line); }

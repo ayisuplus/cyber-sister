@@ -11,7 +11,7 @@ import { chapterNotes, markChapter, noteChapter } from '../lib/bookNotes'
 
 // 读一本书：正文在这台设备上，滚动到哪儿就往服务端回存一下进度。
 // 选中一段可以问她或记一笔——问她走的是你和她唯一那段对话。
-// 从手记点「回到书里这一处」进来时是「回看」：看一眼不会把你当前的进度拖回去。
+// 从手记点「回到书里这一处」、或从页边批注点「翻到这一段」进来时是「回看」：看一眼不会把你当前的进度拖回去。
 const FONT_SIZES = [16, 18, 20]
 const FONT_KEY = 'amie-reader-font'
 const PASSAGE_AROUND = 700
@@ -97,6 +97,7 @@ export default function ReaderPage() {
   const { bookId } = useParams()
   const [params] = useSearchParams()
   const jumpTo = params.get('at')
+  const fromMargin = params.get('from') === 'margin'
   const navigate = useNavigate()
   const bodyRef = useRef(null)
   const restoreRef = useRef(null)
@@ -252,7 +253,7 @@ export default function ReaderPage() {
       {/* 轻提示用 blush：action-primary 在 pastel-mist 上只有 4.48，过不了 AA */}
       {peeking && (
         <p className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-pastel-blush px-4 py-2 text-xs text-text-secondary">
-          正在回看你记过的地方，读到哪儿不会被改掉
+          {fromMargin ? '这是她回你时翻到的那一段，读到哪儿不会被改掉' : '正在回看你记过的地方，读到哪儿不会被改掉'}
           <button type="button" onClick={() => { setPeeking(false); setSelection(null) }} className="ml-auto min-h-11 shrink-0 text-action-primary underline">
             从这儿接着读
           </button>

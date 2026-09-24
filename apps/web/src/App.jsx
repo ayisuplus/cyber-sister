@@ -12,6 +12,7 @@ const StylePage = lazy(() => import('./pages/StylePage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ReadingPage = lazy(() => import('./pages/ReadingPage'))
 const ReaderPage = lazy(() => import('./pages/ReaderPage'))
+const ShelfBookPage = lazy(() => import('./pages/ShelfBookPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ConversationArchivePage = lazy(() => import('./pages/ConversationArchivePage'))
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
           <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />
           <Route path="/tools/reading/:bookId" element={<ProtectedRoute><ReaderPage /></ProtectedRoute>} />
+          <Route path="/tools/reading/shelf/:name" element={<ProtectedRoute><ShelfBookPage /></ProtectedRoute>} />
           <Route path="/tools/style" element={<ProtectedRoute><StylePage /></ProtectedRoute>} />
           {/* 旧路径（含后端关怀卡 action.to 与外部深链）一律收拢到新入口 */}
           <Route path="/memories" element={<Moved to="/her" />} />

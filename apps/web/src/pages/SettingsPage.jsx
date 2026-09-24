@@ -18,6 +18,7 @@ import AboutYouSettings from '../components/profile/AboutYouSettings'
 import LetterFontSetting from '../components/profile/LetterFontSetting'
 import DecorSetting from '../components/profile/DecorSetting'
 import MarginNoteSetting from '../components/profile/MarginNoteSetting'
+import CiteBooksSetting from '../components/profile/CiteBooksSetting'
 
 const BACKGROUND_SLOTS = [
   { slot: 'bg-home', label: '主页背景', inputLabel: '选择主页背景图片' },
@@ -250,6 +251,7 @@ export default function SettingsPage() {
                 <LetterFontSetting />
                 <DecorSetting />
                 <MarginNoteSetting />
+                <CiteBooksSetting />
               </div>
             </fieldset>
           </Card>

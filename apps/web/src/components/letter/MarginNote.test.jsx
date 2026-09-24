@@ -1,9 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import MarginNote from './MarginNote'
 import MarginNoteSetting from '../profile/MarginNoteSetting'
 import { useMarginNoteStore } from '../../stores/marginNoteStore'
+import { bookStore } from '../../services/bookStore'
+
+vi.mock('../../services/bookStore', () => ({ bookStore: { listIds: vi.fn(() => Promise.resolve(new Set())) } }))
 
 const TWO_BOOKS = [
   {
@@ -77,6 +81,41 @@ describe('页边铅笔批注', () => {
     expect(container).toBeEmptyDOMElement()
     rerender(<MarginNote notes={[{ title: 42 }, 'x']} />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+const HER_BOOK = {
+  book: 'user:b1',
+  userBook: true,
+  bookId: 'b1',
+  title: '被讨厌的勇气',
+  author: '岸见一郎',
+  chapters: [{ id: 'p1', title: '课题分离', origin: '第 2 章', locator: '1:120' }],
+}
+
+describe('页边批注：她自己放进书架的书', () => {
+  it('写第几章、注明 Amie 没审校；没有用途和「没采纳」', async () => {
+    const user = userEvent.setup()
+    render(<MemoryRouter><MarginNote notes={[HER_BOOK]} /></MemoryRouter>)
+    const toggle = screen.getByRole('button', { name: '她写这段时翻过的书 · 《被讨厌的勇气》第 2 章' })
+
+    await user.click(toggle)
+    const card = document.getElementById(toggle.getAttribute('aria-controls'))
+    expect(card).toHaveTextContent('《被讨厌的勇气》 · 岸见一郎')
+    expect(card).toHaveTextContent('第 2 章 · 课题分离')
+    expect(card).toHaveTextContent('这是你放进书架的书，Amie 没有审校它的内容。')
+    expect(card).not.toHaveTextContent('没有采纳')
+    expect(screen.queryByRole('link', { name: '翻到这一段' })).not.toBeInTheDocument()
+  })
+
+  it('书在这台设备上时，可以翻到那一段', async () => {
+    const user = userEvent.setup()
+    bookStore.listIds.mockResolvedValueOnce(new Set(['b1']))
+    render(<MemoryRouter><MarginNote notes={[HER_BOOK]} /></MemoryRouter>)
+
+    await user.click(screen.getByRole('button', { name: /她写这段时翻过的书/ }))
+
+    expect(await screen.findByRole('link', { name: '翻到这一段' })).toHaveAttribute('href', '/tools/reading/b1?at=1%3A120&from=margin')
   })
 })
 

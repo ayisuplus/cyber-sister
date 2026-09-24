@@ -310,6 +310,13 @@ describe('从手记回看某一处', () => {
     }
   })
 
+  it('从页边批注「翻到这一段」进来：说明这是她翻到的那一段，也不改你读到哪儿', async () => {
+    renderReader('?at=1%3A5&from=margin')
+
+    expect(await screen.findByText(/那天傍晚下起了雨/)).toBeInTheDocument()
+    expect(screen.getByText('这是她回你时翻到的那一段，读到哪儿不会被改掉')).toBeInTheDocument()
+  })
+
   it('平常打开不是回看，照旧回存进度', async () => {
     renderReader()
 
