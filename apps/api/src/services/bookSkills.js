@@ -1,10 +1,11 @@
 import { bodyCareBook } from './bodyCareSkill.js'
 import { emotionReflectionBook } from './emotionReflectionSkill.js'
+import { emotionalFirstAidBook } from './emotionalFirstAidSkill.js'
 import { describeSelection, selectCards } from './bookShelf.js'
 
 // 由书改编的内置技能：登记在这里的书放在同一个书架上，一句话全局最多翻两章。
 // 加一本书就在这里登记一处；回复质量评测去掉「书」这一层，也只替换这一个模块。
-export const BOOKS = [bodyCareBook, emotionReflectionBook]
+export const BOOKS = [bodyCareBook, emotionReflectionBook, emotionalFirstAidBook]
 
 /**
  * 这一轮翻哪几本书的哪几章。聊天链路只算一次：提示词和页边批注都用这一份。

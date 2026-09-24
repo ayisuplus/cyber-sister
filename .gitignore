@@ -23,6 +23,8 @@ browser_data/
 xhs_results_*.json
 stealth_*results.json
 tools/data-pipeline/sources/raw-corpus/
+# 书籍技能的原书文本：只在本机读、改编成章节卡；全文不进仓库（见各书 skills/<书>/sources.md）
+book/
 
 # 依赖与构建产物
 node_modules/

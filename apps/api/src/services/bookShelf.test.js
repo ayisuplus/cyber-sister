@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { bodyCareBook } from './bodyCareSkill.js'
 import { emotionReflectionBook } from './emotionReflectionSkill.js'
+import { BOOKS } from './bookSkills.js'
 import { MAX_BOOK_CARDS, parseBookIndex, providerHashOf, selectCards } from './bookShelf.js'
 import { listSkillFiles, readSkillResource, skillSection } from './skillCatalog.js'
-
-const BOOKS = [bodyCareBook, emotionReflectionBook]
 
 describe('书架：章节卡', () => {
   it.each(BOOKS.map((book) => [book.name, book]))('%s 的每张章节卡都读全了文首元数据', (name, book) => {
@@ -46,9 +45,19 @@ describe('书架：选章', () => {
   it('只有明确的短追问才接着上一句她说的', () => {
     const pick = (text, history) => selectCards(BOOKS, { text, history }).flatMap(({ cards }) => cards.map(({ id }) => id))
     expect(pick('那怎么办？', [{ role: 'user', content: '痛经' }])).toEqual(['ch02-period'])
-    expect(pick('继续说', [{ role: 'user', content: '痛经又孤独' }])).toEqual(['ch02-period', 'loneliness'])
+    const keys = (text, history) => selectCards(BOOKS, { text, history }).flatMap(({ cards }) => cards.map(({ key }) => key))
+    expect(keys('继续说', [{ role: 'user', content: '痛经又孤独' }])).toEqual(['body-care/ch02-period', 'emotional-first-aid/loneliness'])
     expect(pick('继续说', [{ role: 'user', content: '孤独，但不要分析我' }])).toEqual([])
     expect(pick('那怎么办', [{ role: 'assistant', content: '你嫉妒她' }])).toEqual([])
+  })
+
+  it('克莱因和《情绪急救》的分工：没人懂 / 一个人都没有；伤了关系怎么修补 / 放不下的内疚', () => {
+    const keys = (text) => selectCards(BOOKS, { text }).flatMap(({ cards }) => cards.map(({ key }) => key))
+    expect(keys('身边没人懂我')).toEqual(['emotion-reflection/loneliness'])
+    expect(keys('周末一个人待在出租屋，好孤独')).toEqual(['emotional-first-aid/loneliness'])
+    expect(keys('昨天对闺蜜发了火，想和好')).toEqual(['emotion-reflection/repair'])
+    expect(keys('那件事过去很久了，我还是很自责')).toEqual(['emotional-first-aid/guilt'])
+    expect(keys('对闺蜜发了火，现在好内疚')).toEqual(['emotion-reflection/repair', 'emotional-first-aid/guilt'])
   })
 
   it('非聊天场景、不是文字时一章都不翻', () => {
@@ -82,23 +91,18 @@ describe('书架：向量补上关键词漏掉的说法', () => {
     expect(pick('看她过得那么好', { index: stale, queryEmbedding: query([1, 0, 0]) })).toEqual([])
   })
 
-  it('短追问不拿「那怎么办」本身的向量去比；她说了不要分析，向量也不翻', () => {
+  it('短追问、明说要办事都不拿向量去比；她说了不要分析，向量也不翻', () => {
     expect(pick('那怎么办', { queryEmbedding: query([1, 0, 0]) })).toEqual([])
+    expect(pick('帮我想想怎么回她，心里不是滋味', { queryEmbedding: query([1, 0, 0]) })).toEqual([])
     expect(pick('心里不是滋味，但不要分析我', { queryEmbedding: query([1, 0, 0]) })).toEqual([])
   })
 
-  it('这本书关键词已经认出了，就不再用向量往里补；没认出时只补最近的一章', () => {
+  it('哪本书的关键词认出来了，就不用向量；都没认出时，全书架只补最近的一章', () => {
     expect(pick('白带有变化', { queryEmbedding: query([0, 1, 0]) })).toEqual(['body-care/ch01-discharge'])
+    expect(pick('痛经', { queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch02-period'])
     const two = indexWith([{ key: envy.key, hash: envy.hash, vector: [1, 0, 0] }, { key: period.key, hash: period.hash, vector: [0.9, 0.1, 0] }])
-    expect(pick('心里说不出的滋味', { index: two, queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch02-period', 'emotion-reflection/envy'])
-    const sameBook = emotionReflectionBook.cards.find(({ id }) => id === 'loneliness')
-    const close = indexWith([{ key: envy.key, hash: envy.hash, vector: [1, 0, 0] }, { key: sameBook.key, hash: sameBook.hash, vector: [0.95, 0.05, 0] }])
-    expect(pick('心里说不出的滋味', { index: close, queryEmbedding: query([1, 0, 0]) })).toEqual(['emotion-reflection/envy'])
-  })
-
-  it('关键词命中的排在前面；几本书仍然轮流出一章，全局最多两章', () => {
-    expect(pick('痛经', { queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch02-period', 'emotion-reflection/envy'])
-    expect(pick('月经不规律，白带也多', { queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch01-discharge', 'emotion-reflection/envy'])
+    expect(pick('心里说不出的滋味', { index: two, queryEmbedding: query([1, 0, 0]) })).toEqual(['emotion-reflection/envy'])
+    expect(pick('心里说不出的滋味', { index: two, queryEmbedding: query([0.8, 0.6, 0]) })).toEqual(['body-care/ch02-period'])
   })
 
   it('索引格式不对就当没有', () => {

@@ -12,8 +12,9 @@ import logger from '../utils/logger.js'
  * 书名、作者、版本、没采纳的部分与边界写在这本书 SKILL.md 的文首。加一本书只放卡片，不改这里。
  * 各书自己的规则（拒绝分析、点名要理论、短追问怎么认、怎么拼 system 块）留在各书模块。
  *
- * 选章先看关键词；有书架索引（skills/book-index.json，scripts/index-book-cards.mjs 建）、
- * 这一轮又已经为找记忆算过这句话的向量时，关键词没认出的书再用向量补一章。不为找书多调一次云端。
+ * 选章先看关键词；关键词一章都没认出时，才用向量从整个书架补最挨得近的一章。
+ * 前提是有书架索引（skills/book-index.json，scripts/index-book-cards.mjs 建），这一轮又已经为找记忆算过这句话的向量。
+ * 不为找书多调一次云端。
  */
 
 /** 一轮最多翻几章：所有书放在一起排，书再多，提示词也不跟着涨。 */
@@ -98,32 +99,35 @@ function comparableQuery(query, index) {
 
 const matching = (book, text) => book.cards.filter((card) => card.keywords.test(text))
 
-/** 意思挨得近的章（按相似度从高到低）；卡片改过、索引没重建的不算。 */
-function closeCards(book, vector, index) {
-  return book.cards
-    .map((card) => {
-      const entry = index.vectors.get(card.key)
-      return { card, score: entry?.hash === card.hash ? cosineSimilarity(vector, entry.vector) : 0 }
-    })
-    .filter(({ score }) => score >= index.minScore)
-    .sort((a, b) => b.score - a.score)
-    .map(({ card }) => card)
+// 明说要办事（「帮我改一版」「帮我想几句狠话」）时不用向量补章：意思挨得近，多半只是字面上碰到了「拒绝」「丢脸」
+const TASK_REQUEST = /帮我|替我|麻烦你|请你/
+
+/** 这一本书关键词命中的章（按优先级）；她说了不要分析，整本不翻，返回 null。 */
+function hitsFor(book, { text, history }) {
+  if (book.declined?.(text)) return null
+  const hits = matching(book, text)
+  if (hits.length || !book.followUp?.test(text.trim())) return hits
+  // 只有明确的短追问才接着上一句她说的；助手的推测和更早的话题不算
+  const lastUser = history.slice().reverse().find((message) => message?.role === 'user')
+  return typeof lastUser?.content === 'string' && !book.declined?.(lastUser.content) ? matching(book, lastUser.content) : hits
 }
 
 /**
- * 这一本书命中的章：先按关键词（按优先级）；关键词一章都没认出时，才用向量补最挨得近的那一章。
- * 同一本书的几章彼此也像（妇科几章尤其），关键词已经认准了还往里补，多出来的多半是翻错。
- * 她说了不要分析，整本不翻，返回 null。
+ * 关键词一章都没认出时，从整个书架挑意思最挨得近的一章（余弦 ≥ 阈值）；没有就返回 null。
+ * 只补一章、全书架只挑一次：几本书各补一章，碰上误翻的机会就跟着书的数量涨；
+ * 同一本书的几章彼此也像（妇科几章尤其），补多了多半是翻错。卡片改过、索引没重建的不算。
  */
-function hitsFor(book, { text, history, vector, index }) {
-  if (book.declined?.(text)) return null
-  const hits = matching(book, text)
-  if (!hits.length && book.followUp?.test(text.trim())) {
-    // 只有明确的短追问才接着上一句她说的；助手的推测和更早的话题不算。「那怎么办」本身的向量没有意思，不拿来比
-    const lastUser = history.slice().reverse().find((message) => message?.role === 'user')
-    return typeof lastUser?.content === 'string' && !book.declined?.(lastUser.content) ? matching(book, lastUser.content) : hits
+function closestCard(perBook, vector, index) {
+  let best = null
+  for (const { book, hits } of perBook) {
+    if (!hits) continue
+    for (const card of book.cards) {
+      const entry = index.vectors.get(card.key)
+      const score = entry?.hash === card.hash ? cosineSimilarity(vector, entry.vector) : 0
+      if (score >= index.minScore && (!best || score > best.score)) best = { book, card, score }
+    }
   }
-  return hits.length || !vector ? hits : closeCards(book, vector, index).slice(0, 1)
+  return best
 }
 
 /**
@@ -131,16 +135,31 @@ function hitsFor(book, { text, history, vector, index }) {
  * queryEmbedding 是这一轮为找记忆已经算好的向量（没同意云端模型或没配向量时为 null，只看关键词）。
  * 返回 [{ book, cards }]，顺序与 books 一致；没翻到章、但被点名要这本书时 cards 为空。
  */
-export function selectCards(books, { text, history = [], scene = 'chat', queryEmbedding = null, index = shelfIndex() } = {}) {
-  if (scene !== 'chat' || typeof text !== 'string') return []
+/** 关键词一章都没认出时，用这一轮的向量补一章（「那怎么办」这类短追问、明说要办事时不补）。 */
+function fillFromVector(perBook, { text, queryEmbedding, index }) {
+  if (perBook.some(({ hits }) => hits?.length) || TASK_REQUEST.test(text)) return
+  if (perBook.some(({ book }) => book.followUp?.test(text.trim()))) return
   const vector = comparableQuery(queryEmbedding, index)
-  const perBook = books.map((book) => ({ book, hits: hitsFor(book, { text, history, vector, index }) }))
+  const best = vector && closestCard(perBook, vector, index)
+  if (best) perBook.find(({ book }) => book === best.book).hits.push(best.card)
+}
+
+/** 各书轮流出自己最靠前的一章，全局最多 MAX_BOOK_CARDS 章。 */
+function takeInTurns(perBook) {
   const chosen = new Set()
   for (let round = 0; chosen.size < MAX_BOOK_CARDS; round += 1) {
     const next = perBook.map(({ hits }) => hits?.[round]).filter(Boolean)
     if (!next.length) break
     for (const card of next) if (chosen.size < MAX_BOOK_CARDS) chosen.add(card)
   }
+  return chosen
+}
+
+export function selectCards(books, { text, history = [], scene = 'chat', queryEmbedding = null, index = shelfIndex() } = {}) {
+  if (scene !== 'chat' || typeof text !== 'string') return []
+  const perBook = books.map((book) => ({ book, hits: hitsFor(book, { text, history }) }))
+  fillFromVector(perBook, { text, queryEmbedding, index })
+  const chosen = takeInTurns(perBook)
   return perBook.flatMap(({ book, hits }) => {
     if (!hits) return []
     const cards = hits.filter((card) => chosen.has(card))
