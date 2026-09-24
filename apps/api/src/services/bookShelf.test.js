@@ -87,6 +87,15 @@ describe('书架：向量补上关键词漏掉的说法', () => {
     expect(pick('心里不是滋味，但不要分析我', { queryEmbedding: query([1, 0, 0]) })).toEqual([])
   })
 
+  it('这本书关键词已经认出了，就不再用向量往里补；没认出时只补最近的一章', () => {
+    expect(pick('白带有变化', { queryEmbedding: query([0, 1, 0]) })).toEqual(['body-care/ch01-discharge'])
+    const two = indexWith([{ key: envy.key, hash: envy.hash, vector: [1, 0, 0] }, { key: period.key, hash: period.hash, vector: [0.9, 0.1, 0] }])
+    expect(pick('心里说不出的滋味', { index: two, queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch02-period', 'emotion-reflection/envy'])
+    const sameBook = emotionReflectionBook.cards.find(({ id }) => id === 'loneliness')
+    const close = indexWith([{ key: envy.key, hash: envy.hash, vector: [1, 0, 0] }, { key: sameBook.key, hash: sameBook.hash, vector: [0.95, 0.05, 0] }])
+    expect(pick('心里说不出的滋味', { index: close, queryEmbedding: query([1, 0, 0]) })).toEqual(['emotion-reflection/envy'])
+  })
+
   it('关键词命中的排在前面；几本书仍然轮流出一章，全局最多两章', () => {
     expect(pick('痛经', { queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch02-period', 'emotion-reflection/envy'])
     expect(pick('月经不规律，白带也多', { queryEmbedding: query([1, 0, 0]) })).toEqual(['body-care/ch01-discharge', 'emotion-reflection/envy'])

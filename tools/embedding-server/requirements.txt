@@ -1,0 +1,15 @@
+# 本机向量服务的依赖（记忆检索与书架选章共用）。版本钉死，书架选章评测才能复现；装在本目录的独立环境里，不动全局 Python：
+#   python -m venv .venv
+#   .venv\Scripts\python -m pip install -r requirements.txt
+# Windows 上 PyPI 的 torch 是 CPU 版：Qwen3-Embedding-0.6B 在 CPU 上算一句话约 0.1 秒，够用。
+# torch / transformers / modelscope 与 tools/asr-server 同版本，pip 缓存里有就不再下载。
+# 首跑自动从 ModelScope 下载 Qwen/Qwen3-Embedding-0.6B（约 1.2GB）；设了 MODELSCOPE_CACHE 就读那里的缓存。
+torch==2.8.0
+transformers==5.17.0
+sentence-transformers==6.1.0
+tokenizers==0.23.2
+safetensors==0.8.0
+modelscope==1.37.0
+numpy==2.4.6
+fastapi==0.110.2
+uvicorn==0.29.0

@@ -13,7 +13,7 @@ import logger from '../utils/logger.js'
  * 各书自己的规则（拒绝分析、点名要理论、短追问怎么认、怎么拼 system 块）留在各书模块。
  *
  * 选章先看关键词；有书架索引（skills/book-index.json，scripts/index-book-cards.mjs 建）、
- * 这一轮又已经为找记忆算过这句话的向量时，再用向量补上关键词漏掉的说法。不为找书多调一次云端。
+ * 这一轮又已经为找记忆算过这句话的向量时，关键词没认出的书再用向量补一章。不为找书多调一次云端。
  */
 
 /** 一轮最多翻几章：所有书放在一起排，书再多，提示词也不跟着涨。 */
@@ -98,10 +98,9 @@ function comparableQuery(query, index) {
 
 const matching = (book, text) => book.cards.filter((card) => card.keywords.test(text))
 
-/** 关键词没认出、但意思挨得近的章（按相似度从高到低）；卡片改过、索引没重建的不算。 */
-function closeCards(book, vector, index, taken) {
+/** 意思挨得近的章（按相似度从高到低）；卡片改过、索引没重建的不算。 */
+function closeCards(book, vector, index) {
   return book.cards
-    .filter((card) => !taken.includes(card))
     .map((card) => {
       const entry = index.vectors.get(card.key)
       return { card, score: entry?.hash === card.hash ? cosineSimilarity(vector, entry.vector) : 0 }
@@ -111,7 +110,11 @@ function closeCards(book, vector, index, taken) {
     .map(({ card }) => card)
 }
 
-/** 这一本书命中的章：关键词命中的按优先级在前，向量补上的在后；她说了不要分析，整本不翻，返回 null。 */
+/**
+ * 这一本书命中的章：先按关键词（按优先级）；关键词一章都没认出时，才用向量补最挨得近的那一章。
+ * 同一本书的几章彼此也像（妇科几章尤其），关键词已经认准了还往里补，多出来的多半是翻错。
+ * 她说了不要分析，整本不翻，返回 null。
+ */
 function hitsFor(book, { text, history, vector, index }) {
   if (book.declined?.(text)) return null
   const hits = matching(book, text)
@@ -120,7 +123,7 @@ function hitsFor(book, { text, history, vector, index }) {
     const lastUser = history.slice().reverse().find((message) => message?.role === 'user')
     return typeof lastUser?.content === 'string' && !book.declined?.(lastUser.content) ? matching(book, lastUser.content) : hits
   }
-  return vector ? [...hits, ...closeCards(book, vector, index, hits)] : hits
+  return hits.length || !vector ? hits : closeCards(book, vector, index).slice(0, 1)
 }
 
 /**
