@@ -134,8 +134,11 @@ export async function buildUserExport(userId) {
         currentPage: true,
         percent: true,
         locator: true,
+        serverIndex: true,
+        indexedAt: true,
         createdAt: true,
         notes: { orderBy: { createdAt: 'asc' }, select: { content: true, page: true, quote: true, locator: true, aiComment: true, createdAt: true } },
+        passages: { orderBy: { seq: 'asc' }, select: { chapterIndex: true, chapter: true, locator: true, content: true } },
       },
     }),
     prisma.studySession.findMany({
@@ -292,7 +295,8 @@ export async function buildUserExport(userId) {
       createdAt: iso(h.createdAt),
       checkins: h.checkins.map((c) => ({ day: iso(c.day), createdAt: iso(c.createdAt) })),
     })),
-    // 书本身存在用户自己的浏览器里，导不出来；这里带走的是书目、进度与笔记
+    // 书本身存在用户自己的浏览器里，导不出来；这里带走的是书目、进度与笔记，
+    // 以及她选了「让她聊天时也能翻」而上传的分段正文（向量可以重算，不导）
     books: books.map((b) => ({
       title: b.title,
       author: b.author,
@@ -304,6 +308,9 @@ export async function buildUserExport(userId) {
       locator: b.locator,
       createdAt: iso(b.createdAt),
       notes: b.notes.map((n) => ({ content: n.content, page: n.page, quote: n.quote, locator: n.locator, aiComment: n.aiComment, createdAt: iso(n.createdAt) })),
+      serverIndex: b.serverIndex ?? null,
+      indexedAt: iso(b.indexedAt),
+      passages: (b.passages ?? []).map((p) => ({ chapterIndex: p.chapterIndex, chapter: p.chapter, locator: p.locator, content: p.content })),
     })),
     studySessions: studySessions.map((s) => ({
       subject: s.subject,

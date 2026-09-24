@@ -7,7 +7,7 @@
  * 不联网：在检验集上比「只用关键词」和「加上向量」两种做法各翻对了多少章。
  * 有书架索引和检验句的向量（books:index --live 生成）时，再把阈值从 0.30 扫到 0.85，看召回和误翻怎么此消彼长。
  */
-import { loadBookShelfCases, loadQueryVectors, KINDS, predictCards, scoreBookShelf, validateBookShelfCases } from '../src/eval/bookShelfEval.js'
+import { loadBookShelfCases, loadQueryVectors, KINDS, predictCards, promptBudget, scoreBookShelf, validateBookShelfCases } from '../src/eval/bookShelfEval.js'
 import { providerHashOf, shelfIndex } from '../src/services/bookShelf.js'
 
 const set = loadBookShelfCases()
@@ -15,6 +15,10 @@ const problems = validateBookShelfCases(set)
 if (problems.length) {
   console.error(`检验集有问题：\n${problems.join('\n')}`)
   process.exit(1)
+}
+
+function budget(title, result) {
+  console.log(`\n${title}：${result.cases} 句里 ${result.withBooks} 句带了书，这一轮提示词平均多 ${result.average} 字，最多多 ${result.max} 字。`)
 }
 
 const percent = (value) => (value === null ? '—' : `${Math.round(value * 100)}%`)
@@ -36,6 +40,7 @@ function table(title, score) {
 
 console.log(`# 书架选章评测\n\n检验集 v${set.version}（${set.status === 'frozen' ? `已冻结 ${set.frozenAt}` : '草案，未冻结'}），${set.cases.length} 句。`)
 table('只用关键词', scoreBookShelf(set.cases, (item) => predictCards(item)))
+budget('只用关键词时的字数', promptBudget(set.cases))
 
 const index = shelfIndex()
 const vectors = loadQueryVectors()
@@ -48,6 +53,7 @@ if (!comparable) {
 
 console.log(`\n向量模型 ${index.model}（${index.dimensions} 维），索引阈值 ${index.minScore}。`)
 table(`加上向量（阈值 ${index.minScore}）`, scoreBookShelf(set.cases, (item) => predictCards(item, { vectors, index })))
+budget('加上向量时的字数', promptBudget(set.cases, { vectors, index }))
 
 console.log('\n## 阈值扫描\n')
 console.log('| 阈值 | 评测原句全对 | 换说法 + 口语召回 | 误翻（不该翻书的句数） | 合计精确 |')

@@ -436,7 +436,7 @@ export async function generateResponse(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false } = {},
 ) {
   signal?.throwIfAborted()
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
@@ -466,7 +466,7 @@ export async function generateResponse(
       ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
       ...extraSystem,
       // 聊天链路已选好这一轮翻哪几章（提示词与页边批注同一份）；没传就在这里现选
-      ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text),
+      ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text, { citeBooks }),
       ...buildModuleSkillContexts(text, history, scene),
     ]
     // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到
@@ -544,7 +544,7 @@ export async function* generateResponseStream(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
   const emotion = detectEmotion(text)
@@ -624,7 +624,7 @@ export async function* generateResponseStream(
     ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
     ...extraSystem,
     // 聊天链路已选好这一轮翻哪几章（提示词与页边批注同一份）；没传就在这里现选
-    ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text),
+    ...buildBookSkillContexts(bookSelection ?? selectBookCards({ text, history, scene }), text, { citeBooks }),
     ...buildModuleSkillContexts(text, history, scene),
   ]
   // context 钩子：扩展的 appendSystem（string[]）按序拼成 system 消息附在末尾；人设与安全前言在网关内拼装，扩展够不到

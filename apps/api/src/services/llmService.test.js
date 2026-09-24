@@ -189,8 +189,9 @@ describe('llmService 数据最小化', () => {
     const regular = gatewayComplete.mock.calls[0][0]
     const streamed = gatewayStream.mock.calls[0][0]
     expect(regular.systemAppend).toEqual(streamed.systemAppend)
-    expect(regular.systemAppend[0].content).toContain('身体呵护 v1')
-    expect(regular.systemAppend[0].content).toContain('暂停')
+    expect(regular.systemAppend[0].content).toContain('[Amie 书架通用规则]')
+    expect(regular.systemAppend[1].content).toContain('身体呵护 v1')
+    expect(regular.systemAppend[1].content).toContain('暂停')
     expect(regular.persona).toBe('toxic')
     expect(regular.authorizeExternal).toBe(authorized)
   })
@@ -204,7 +205,7 @@ describe('llmService 数据最小化', () => {
     await generateResponse('我嫉妒朋友', 'gentle', [], [], 'emotion', { allowExternal: true, authorizeExternal: authorized })
     await collectEvents(generateResponseStream('我嫉妒朋友', 'gentle', [], [], 'emotion', { allowExternal: true, authorizeExternal: authorized }))
     expect(gatewayComplete.mock.calls[0][0].systemAppend).toEqual(gatewayStream.mock.calls[0][0].systemAppend)
-    expect(gatewayComplete.mock.calls[0][0].systemAppend[0].content).toContain('情绪与关系梳理 v1')
+    expect(gatewayComplete.mock.calls[0][0].systemAppend[1].content).toContain('情绪与关系梳理 v1')
     gatewayComplete.mockClear()
     gatewayStream.mockClear()
     await expect(generateResponse('我很孤独')).rejects.toBeInstanceOf(CloudConsentRequiredError)

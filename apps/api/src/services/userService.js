@@ -26,6 +26,7 @@ export async function getProfile(userId) {
       birthDate: true,
       careEnabled: true,
       letterFreqDays: true,
+      citeBooks: true,
       createdAt: true,
     },
   })
@@ -34,7 +35,14 @@ export async function getProfile(userId) {
   return user
 }
 
-export async function updateProfile(userId, { nickname, avatarUrl, birthDate, careEnabled, letterFreqDays }) {
+/** 开关类字段：没传不动，传了必须是布尔值。 */
+function setBoolean(updateData, name, value) {
+  if (value === undefined) return
+  if (typeof value !== 'boolean') throw new HttpError(`${name}必须是布尔值`, 400)
+  updateData[name] = value
+}
+
+export async function updateProfile(userId, { nickname, avatarUrl, birthDate, careEnabled, letterFreqDays, citeBooks }) {
   const updateData = {}
   if (nickname !== undefined) {
     if (typeof nickname !== 'string' || nickname.trim().length > 50) {
@@ -55,12 +63,9 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
     }
     updateData.birthDate = parsedDate
   }
-  if (careEnabled !== undefined) {
-    if (typeof careEnabled !== 'boolean') {
-      throw new HttpError('careEnabled必须是布尔值', 400)
-    }
-    updateData.careEnabled = careEnabled
-  }
+  setBoolean(updateData, 'careEnabled', careEnabled)
+  // 「回答里提到书」：跟着账户走，换设备也一样
+  setBoolean(updateData, 'citeBooks', citeBooks)
   if (letterFreqDays !== undefined) {
     if (letterFreqDays !== null && letterFreqDays !== 3 && letterFreqDays !== 7) {
       throw new HttpError('letterFreqDays只能是3、7或空', 400)
@@ -79,6 +84,7 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
       birthDate: true,
       careEnabled: true,
       letterFreqDays: true,
+      citeBooks: true,
       isVip: true,
       vipExpireAt: true,
       avatarUrl: true,

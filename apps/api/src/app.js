@@ -1,4 +1,5 @@
 import { startMemoryIndexWorker, stopMemoryIndexWorker } from './services/memoryIndexService.js'
+import { recoverInterruptedBookIndexing } from './services/bookIndexService.js'
 import { startWorkTaskWorker, stopWorkTaskWorker } from './services/workTaskService.js'
 import { isLocalWorkRuntime, localWorkOnly } from './config/distribution.js'
 import { startWorkContainerReaper, stopWorkContainerReaper } from './services/workExecutionService.js'
@@ -84,6 +85,8 @@ app.use(cors({
 }))
 // 迁移包与前端 10MB 上限一致；其他 JSON 请求维持原上限。
 app.use('/api/user/import', express.json({ limit: '10mb' }))
+// 她确认上传的书：本机解析好的章节，全书上限 150 万字（服务端另按字数卡）
+app.use('/api/reading/books/:id/content', express.json({ limit: '8mb' }))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 
@@ -238,6 +241,7 @@ if (!isTestEnv) {
   // 读不到就让快照保持空着（请求时会再试一次），不阻塞启动。
   await loadCloudProviders().catch(() => logger.warn('模型供应商配置尚未就绪，先用环境变量槽'))
   void startMemoryIndexWorker().catch(() => logger.warn('记忆索引任务尚未就绪'))
+  void recoverInterruptedBookIndexing().catch(() => logger.warn('书的整理状态暂时没能复位'))
   if (isLocalWorkRuntime()) {
     startWorkTaskWorker()
     startWorkContainerReaper()

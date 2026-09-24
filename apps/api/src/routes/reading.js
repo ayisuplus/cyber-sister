@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import * as readingService from '../services/readingService.js'
+import * as bookIndexService from '../services/bookIndexService.js'
+import { listShelfBooks, readShelfBook } from '../services/bookSkills.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -110,6 +112,42 @@ router.delete('/notes/:noteId', async (req, res) => {
     logger.error('删除笔记失败', { error: error.message })
     res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '删除笔记失败' })
   }
+})
+
+// 书架合并（路线图 C22）：她确认「让她聊天时也能翻」后上传本机解析好的章节，后台切段算向量；
+// 撤回（「只留在这台设备上」）即删服务器上的段落。没同意云端处理或没配向量模型时 503，书仍只在她的设备上。
+router.post('/books/:id/content', async (req, res) => {
+  try {
+    const book = await bookIndexService.uploadBookContent(req.user.userId, req.params.id, req.body)
+    res.status(202).json(readingService.serializeBook(book))
+  } catch (error) {
+    logger.error('上传书的正文失败', { error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '上传失败', ...(error.code ? { code: error.code } : {}) })
+  }
+})
+
+router.delete('/books/:id/content', async (req, res) => {
+  try {
+    const book = await bookIndexService.revokeBookContent(req.user.userId, req.params.id)
+    res.json(readingService.serializeBook(book))
+  } catch (error) {
+    logger.error('撤回书的正文失败', { error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : '撤回失败' })
+  }
+})
+
+// 「Amie 的藏书」：内置书的书目与改编章节（Amie 自己写的改编，不是原书），只读
+router.get('/shelf/builtin', (_req, res) => {
+  res.json({ books: listShelfBooks() })
+})
+
+router.get('/shelf/builtin/:name', (req, res) => {
+  const book = readShelfBook(req.params.name)
+  if (!book) {
+    res.status(404).json({ error: '没有这本书' })
+    return
+  }
+  res.json(book)
 })
 
 export default router

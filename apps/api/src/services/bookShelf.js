@@ -100,7 +100,7 @@ function comparableQuery(query, index) {
 const matching = (book, text) => book.cards.filter((card) => card.keywords.test(text))
 
 // 明说要办事（「帮我改一版」「帮我想几句狠话」）时不用向量补章：意思挨得近，多半只是字面上碰到了「拒绝」「丢脸」
-const TASK_REQUEST = /帮我|替我|麻烦你|请你/
+export const TASK_REQUEST = /帮我|替我|麻烦你|请你/
 
 /** 这一本书关键词命中的章（按优先级）；她说了不要分析，整本不翻，返回 null。 */
 function hitsFor(book, { text, history }) {
@@ -167,11 +167,14 @@ export function selectCards(books, { text, history = [], scene = 'chat', queryEm
   })
 }
 
-/** 选好的章写成页边批注：纯数据，随她那一段落库，以后卡片改了也照实留着当时翻的是什么。 */
+/**
+ * 选好的章写成页边批注：纯数据，随她那一段落库，以后卡片改了也照实留着当时翻的是什么。
+ * 她自己的书由它自己的 describe 写（带书的 id 和阅读器位置，没有「用途」和「没采纳」）。
+ */
 export function describeSelection(selection = []) {
-  return selection.map(({ book, cards }) => ({
+  return selection.map(({ book, cards }) => book.describe?.(cards) ?? {
     book: book.name,
     ...book.meta,
     chapters: cards.map(({ id, title, origin, use }) => ({ id, title, origin, use })),
-  }))
+  })
 }

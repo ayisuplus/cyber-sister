@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { BOOKS } from '../services/bookSkills.js'
+import { BOOKS, buildBookSkillContexts } from '../services/bookSkills.js'
 import { selectCards } from '../services/bookShelf.js'
 
 /**
@@ -61,10 +61,26 @@ export function queryEmbeddingFor(item, vectors) {
 }
 
 /** 这一句翻到的章（<书>/<章>）。index 为 null 时只看关键词。 */
-export function predictCards(item, { vectors = null, index = null } = {}) {
+export function predictCards(item, options = {}) {
+  return selectFor(item, options).flatMap(({ cards }) => cards.map((card) => card.key))
+}
+
+function selectFor(item, { vectors = null, index = null } = {}) {
   const queryEmbedding = index ? queryEmbeddingFor(item, vectors) : null
   return selectCards(BOOKS, { text: item.text, history: item.history ?? [], queryEmbedding, index })
-    .flatMap(({ cards }) => cards.map((card) => card.key))
+}
+
+/**
+ * 翻到书时这一轮的提示词多出多少字（路线图 C22 的 token 预算）：带书的句数、平均、最多。
+ * 按「回答里可以提到书」算，多一行说明，取偏大的那个。
+ */
+export function promptBudget(cases, options = {}) {
+  const sizes = cases
+    .map((item) => buildBookSkillContexts(selectFor(item, options), item.text, { citeBooks: true }))
+    .filter((blocks) => blocks.length)
+    .map((blocks) => blocks.reduce((sum, { content }) => sum + content.length, 0))
+  const average = sizes.length ? Math.round(sizes.reduce((sum, size) => sum + size, 0) / sizes.length) : 0
+  return { cases: cases.length, withBooks: sizes.length, average, max: Math.max(0, ...sizes) }
 }
 
 const ratio = (part, whole) => (whole ? part / whole : null)

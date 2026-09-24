@@ -3,8 +3,9 @@ import { loadBook, selectCards } from './bookShelf.js'
 
 const read = (file) => readSkillResource('body-care', file)
 const core = read('SKILL.md').split('## 核心行为')[1].split('## 方法取舍')[0].trim()
-const sources = read('sources.md').split('## 一般健康信息复核')[1].split('## 不进入执行规则')[0].trim()
 const appointment = read('patterns.md')
+// 来源清单（sources.md「一般健康信息复核」）压成一句带进提示词：模型要知道出处和「按所在地为准」，不需要每轮带一串网址
+const SOURCES = '一般健康信息已对照 NHS（阴道分泌物、盆腔疼痛、宫颈筛查中的自主权）与 WHO（紧急避孕、处女检测没有科学依据）的公开资料复核；英国的就医号码、筛查项目和年龄不照搬，具体安排以所在地当前官方资料和医护为准。'
 
 // 章节与关键词在 skills/body-care/chapters/*.md 的文首；这里只留这本书自己的规则。
 // Static, reviewed product guidance. No database, cloud call or user-derived skill text.
@@ -18,7 +19,7 @@ export const bodyCareBook = loadBook('body-care', {
     if (/就诊|看医生|检查|报告/.test(text)) references.push(appointment)
     return [{
       role: 'system',
-      content: `[Amie 内置技能：身体呵护 v1]\n选择性改编自六层楼《女生呵护指南》(2019)，不是作者本人或医疗服务。\n${core}\n\n${references.join('\n\n')}\n\n一般信息来源与复核 ${sources}`,
+      content: `[Amie 内置技能：身体呵护 v1]\n选择性改编自六层楼《女生呵护指南》(2019)，不是作者本人或医疗服务。\n${core}\n\n${references.join('\n\n')}\n\n${SOURCES}`,
     }]
   },
 })

@@ -14,9 +14,12 @@ const service = vi.hoisted(() => ({
   listRecentNotes: vi.fn(),
   listNotesBetween: vi.fn(),
   updateProgress: vi.fn(),
+  serializeBook: vi.fn((book) => ({ ...book, serialized: true })),
 }))
+const bookIndex = vi.hoisted(() => ({ uploadBookContent: vi.fn(), revokeBookContent: vi.fn() }))
 
 vi.mock('../services/readingService.js', () => service)
+vi.mock('../services/bookIndexService.js', () => bookIndex)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -156,5 +159,46 @@ describe('阅读进度接口', () => {
     const bad = await request(app).put('/books/b1/progress').send({ percent: 999 })
     expect(bad.status).toBe(400)
     expect(bad.body).toEqual({ error: '进度必须是0到100之间的整数' })
+  })
+})
+
+describe('书架合并：她的书上传给 Amie、Amie 的藏书', () => {
+  it('POST /books/:id/content：202 返回整理中的书；没同意或没配向量模型时带上原因码', async () => {
+    bookIndex.uploadBookContent.mockResolvedValue({ id: 'b1', serverIndex: 'indexing' })
+    const chapters = [{ title: '第一章', text: '正文' }]
+    const ok = await request(app).post('/books/b1/content').send({ chapters })
+    expect(ok.status).toBe(202)
+    expect(ok.body).toEqual({ id: 'b1', serverIndex: 'indexing', serialized: true })
+    expect(bookIndex.uploadBookContent).toHaveBeenCalledWith('user-1', 'b1', { chapters })
+
+    bookIndex.uploadBookContent.mockRejectedValue(httpError('需要先同意云端处理', 503, 'CLOUD_NOT_CONSENTED'))
+    const refused = await request(app).post('/books/b1/content').send({ chapters })
+    expect(refused.status).toBe(503)
+    expect(refused.body).toEqual({ error: '需要先同意云端处理', code: 'CLOUD_NOT_CONSENTED' })
+
+    bookIndex.uploadBookContent.mockRejectedValue(new Error('db down'))
+    const failed = await request(app).post('/books/b1/content').send({ chapters })
+    expect(failed.status).toBe(500)
+    expect(failed.body).toEqual({ error: '上传失败' })
+  })
+
+  it('DELETE /books/:id/content：撤回后书回到只在她的设备上', async () => {
+    bookIndex.revokeBookContent.mockResolvedValue({ id: 'b1', serverIndex: null })
+    const ok = await request(app).delete('/books/b1/content')
+    expect(ok.status).toBe(200)
+    expect(ok.body.serverIndex).toBeNull()
+    expect(bookIndex.revokeBookContent).toHaveBeenCalledWith('user-1', 'b1')
+  })
+
+  it('GET /shelf/builtin 列出藏书；点开一本给改编章节，没有这本 404', async () => {
+    const list = await request(app).get('/shelf/builtin')
+    expect(list.status).toBe(200)
+    expect(list.body.books.map(({ name }) => name)).toContain('emotional-first-aid')
+    expect(list.body.books[0].chapters[0]).not.toHaveProperty('content')
+
+    const opened = await request(app).get('/shelf/builtin/emotional-first-aid')
+    expect(opened.status).toBe(200)
+    expect(opened.body.chapters[0].content.length).toBeGreaterThan(100)
+    expect((await request(app).get('/shelf/builtin/nope')).status).toBe(404)
   })
 })

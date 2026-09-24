@@ -319,6 +319,25 @@ describe('exportService.buildUserExport', () => {
 
     expect(bundle.habits[0].checkins).toHaveLength(1)
     expect(bundle.books[0].notes[0]).toMatchObject({ content: '有庆那段看得心里发紧' })
+    expect(bundle.books[0]).toMatchObject({ serverIndex: null, passages: [] })
+  })
+
+  it('她上传给 Amie 的书：分段正文随导出带走，向量不导', async () => {
+    db.bookFindMany.mockResolvedValue([{
+      title: '被讨厌的勇气',
+      status: 'reading',
+      serverIndex: 'ready',
+      indexedAt: new Date('2026-09-25T00:00:00.000Z'),
+      createdAt: new Date('2026-09-20T00:00:00.000Z'),
+      notes: [],
+      passages: [{ chapterIndex: 1, chapter: '课题分离', locator: '1:0', content: '这是第一段。' }],
+    }])
+
+    const bundle = await buildUserExport('user-1')
+
+    expect(bundle.books[0]).toMatchObject({ serverIndex: 'ready', indexedAt: '2026-09-25T00:00:00.000Z' })
+    expect(bundle.books[0].passages).toEqual([{ chapterIndex: 1, chapter: '课题分离', locator: '1:0', content: '这是第一段。' }])
+    expect(db.bookFindMany.mock.calls[0][0].select.passages.select).not.toHaveProperty('vector')
   })
 
   it('用户不存在时 user 段为 null 但包仍完整', async () => {

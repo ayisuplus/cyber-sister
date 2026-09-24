@@ -31,6 +31,7 @@ model User {
   periodConsentAt             DateTime? @map("period_consent_at") // 经期记录单独同意时间（敏感个人信息）；撤回置空
   periodToneAt                DateTime? @map("period_tone_at") // 「聊天时让她顾及你的周期」的单独同意时间；撤回记录同意时一并置空
   letterFreqDays              Int?      @map("letter_freq_days") // 「她的来信」频率（3 或 7 天一封）；空 = 不写信
+  citeBooks                   Boolean   @default(false) @map("cite_books") // 「回答里提到书」：翻到书时回答里可以提书名；默认不提
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -44,6 +45,7 @@ model User {
   habits            Habit[]
   crisisLogs        CrisisLog[]
   books             Book[]
+  bookPassages      BookPassage[]
   readingNotes      ReadingNote[]
   studySessions     StudySession[]
   refreshTokens     RefreshToken[]
@@ -435,14 +437,42 @@ model Book {
   /// 前端给的进度串（"<spine 序号>:<字符偏移>"），服务端只存不解析
   locator     String?
   percent     Int?          // 0-100，显示用
+  /// 她选了「让她聊天时也能翻」才上传分段：null = 只在这台设备；indexing | ready | failed
+  serverIndex   String?     @map("server_index")
+  /// 算段落向量时的身份（供应商哈希、模型、维度、规则版本）；和这一轮的查询向量对得上才翻
+  indexIdentity Json?       @map("index_identity")
+  indexedAt     DateTime?   @map("indexed_at")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  notes ReadingNote[]
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes    ReadingNote[]
+  passages BookPassage[]
 
   @@index([userId])
   @@map("books")
+}
+
+/// 她上传的书切成的段（约 600 字，相邻重叠约 80 字），聊天时按向量翻；撤回上传或删书即删
+model BookPassage {
+  id           String   @id @default(uuid())
+  bookId       String   @map("book_id")
+  userId       String   @map("user_id")
+  seq          Int
+  chapterIndex Int      @map("chapter_index")
+  chapter      String?
+  /// 与阅读器同格式的位置串（"<章序>:<字符偏移>"），批注里「翻到这一段」用
+  locator      String
+  content      String
+  vector       Float[]
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([bookId, seq])
+  @@map("book_passages")
 }
 
 model ReadingNote {

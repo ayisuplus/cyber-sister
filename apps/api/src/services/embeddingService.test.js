@@ -15,7 +15,7 @@ vi.mock('../prisma/client.js', () => {
   return { default: client }
 })
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
-import { embedMemory, embedQuery, embedText, embeddingModelName, rebuildEmbeddings } from './embeddingService.js'
+import { embedMemory, embedQuery, embedText, embedTexts, embeddingModelName, rebuildEmbeddings } from './embeddingService.js'
 import logger from '../utils/logger.js'
 
 const USER_ID = 'user-1'
@@ -84,6 +84,31 @@ describe('independent embedding provider', () => {
     expect(await embedText('synthetic')).toBeNull()
     fetch.mockRejectedValue(new Error('network failure'))
     expect(await embedText('synthetic')).toBeNull()
+  })
+})
+
+describe('batch embedding for uploaded book passages', () => {
+  it('sends one request for the batch and returns vectors in input order', async () => {
+    configure()
+    fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [{ index: 1, embedding: [0, 1] }, { index: 0, embedding: [1, 0] }] }) })
+    expect(await embedTexts(['first', 'second'])).toEqual([[1, 0], [0, 1]])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ model: identity.model, input: ['first', 'second'] })
+  })
+  it('drops the whole batch when any vector is missing or malformed', async () => {
+    configure()
+    fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [{ embedding: [1, 0] }] }) })
+    expect(await embedTexts(['first', 'second'])).toBeNull()
+    fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [{ embedding: [1, 0] }, { embedding: [0, 0] }] }) })
+    expect(await embedTexts(['first', 'second'])).toBeNull()
+    fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ model: 'different', data: [{ embedding: [1, 0] }] }) })
+    expect(await embedTexts(['first'])).toBeNull()
+  })
+  it('does nothing without configuration or input', async () => {
+    expect(await embedTexts(['first'])).toBeNull()
+    configure()
+    expect(await embedTexts([])).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
 

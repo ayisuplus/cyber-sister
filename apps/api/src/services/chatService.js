@@ -22,7 +22,8 @@ import { prepareCompanionTurn, commitCompanionTurn, loadCompanionInputs } from '
 import { commitWorkArtifacts, prepareWorkAttachments, artifactMetadata, artifactMetadataFields } from './workArtifactService.js'
 import { createCrisisLog } from './crisisService.js'
 import { embedQuery } from './embeddingService.js'
-import { describeBookNotes, selectBookCards } from './bookSkills.js'
+import { describeBookNotes, selectBookCards, userBookSearch } from './bookSkills.js'
+import { searchUserBooks } from './bookIndexService.js'
 import { assertWorkCloudConnected } from './workCloudService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import logger from '../utils/logger.js'
@@ -288,13 +289,15 @@ async function loadUserModelOptions(userId) {
       externalLlmConsentVersion: true,
       companionState: true,
       companionRevision: true,
+      citeBooks: true,
     },
   })
   if (!user) throw new HttpError('用户不存在', 404)
 
   const allowExternal = user.externalLlmConsent === true
     && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-  const modelOptions = { allowExternal }
+  // citeBooks：「回答里提到书」，翻到书时回答里可以提书名（默认不提）
+  const modelOptions = { allowExternal, citeBooks: user.citeBooks === true }
   if (allowExternal) {
     modelOptions.authorizeExternal = async () => {
       const currentConsent = await prisma.user.findUnique({
@@ -513,7 +516,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   const offerMemory = detectRememberIntent(content)
   const careful = crisisLevel === 'medium'
   const offerTools = !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
-  const bookSelection = selectTurnBooks(content, attachments, history, careful, modelOptions.queryEmbedding)
+  const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding })
   for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, careful, context, offerMemory, offerTools, bookSelection })) {
     if (event.type === 'done') aiResponse = event
   }
@@ -547,9 +550,22 @@ const turnPrompt = (content, attachments = []) => content || (attachments.length
 /**
  * 这一轮翻哪几本书的哪几章，整轮只选一次。小心模式不翻书：先顾着她，不讲理论。
  * 为找记忆已经算好的这句话的向量顺带给书架用，不为找书多调一次云端。
+ * 内置书之外，再从她上传的书里找最挨得近的一段；伴读时正在读的那本不找，那一段原文已经带着了。
+ * 她的书没翻成（读库出错）就只用内置书，不耽误这一轮。
  */
-function selectTurnBooks(content, attachments, history, careful, queryEmbedding) {
-  return careful ? [] : selectBookCards({ text: turnPrompt(content, attachments), history, queryEmbedding })
+async function selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding, reading = null }) {
+  if (careful) return []
+  const text = turnPrompt(content, attachments)
+  const builtIn = selectBookCards({ text, history, queryEmbedding })
+  const search = userBookSearch(text)
+  if (!search || !queryEmbedding) return builtIn
+  try {
+    const passages = await searchUserBooks(userId, { text, queryEmbedding, namedOnly: search.namedOnly, excludeBookId: reading?.book?.id ?? null })
+    return [...builtIn, ...passages]
+  } catch (error) {
+    logger.warn('她的书这一轮没翻成', { userId, code: error?.code || 'SEARCH_FAILED' })
+    return builtIn
+  }
 }
 
 /** 回复带上页边批注；退回本地模板时她没写这一段，也就没翻书。 */
@@ -648,7 +664,8 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   const careful = crisisLevel === 'medium'
   // 后台续跑的是交办的任务，照常给工具
   const offerTools = Boolean(durable) || !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
-  const bookSelection = selectTurnBooks(content, attachments, history, careful, modelOptions.queryEmbedding)
+  const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding, reading: readingContext })
+  if (signal?.aborted) return
   for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, stream: true, durable, reading: readingContext, careful, context, offerMemory, offerTools, bookSelection })) {
     if (signal?.aborted) return
     if (event.type !== 'done') { yield event; continue }

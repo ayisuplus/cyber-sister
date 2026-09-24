@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   noteDelete: vi.fn(),
   userFindUnique: vi.fn(),
   generateCompanionNote: vi.fn(),
+  forgetBook: vi.fn(),
+  indexProgress: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => ({
@@ -38,6 +40,8 @@ vi.mock('../prisma/client.js', () => ({
 vi.mock('./llmService.js', () => ({
   generateCompanionNote: mocks.generateCompanionNote,
 }))
+
+vi.mock('./bookIndexService.js', () => ({ forgetBook: mocks.forgetBook, indexProgress: mocks.indexProgress }))
 
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -185,7 +189,21 @@ describe('readingService', () => {
     const books = await listBooks('u1')
 
     expect(books).toHaveLength(1)
-    expect(books[0]).toMatchObject({ id: 'b1', title: '活着', noteCount: 2, currentPage: 30 })
+    expect(books[0]).toMatchObject({ id: 'b1', title: '活着', noteCount: 2, currentPage: 30, serverIndex: null, indexProgress: null })
+  })
+
+  it('上传给 Amie 的书带上整理状态，整理中带进度', async () => {
+    mocks.indexProgress.mockReturnValue({ done: 32, total: 90 })
+    mocks.bookFindMany.mockResolvedValue([
+      { ...BOOK, id: 'b1', serverIndex: 'indexing' },
+      { ...BOOK, id: 'b2', serverIndex: 'ready', indexedAt: new Date('2026-09-25T00:00:00Z') },
+    ])
+
+    const [indexing, ready] = await listBooks('u1')
+
+    expect(indexing).toMatchObject({ serverIndex: 'indexing', indexProgress: { done: 32, total: 90 } })
+    expect(ready).toMatchObject({ serverIndex: 'ready', indexProgress: null, indexedAt: new Date('2026-09-25T00:00:00Z') })
+    expect(mocks.indexProgress).toHaveBeenCalledTimes(1)
   })
 
   it('addBook stores author, totalPages and explicit status', async () => {
@@ -231,6 +249,8 @@ describe('readingService', () => {
     mocks.bookFindFirst.mockResolvedValue(BOOK)
     await deleteBook('u1', 'b1')
     expect(mocks.bookDelete).toHaveBeenCalledWith({ where: { id: 'b1' } })
+    // 上传过的段落随书级联删除；还在跑的整理停掉、聊天用的缓存清掉
+    expect(mocks.forgetBook).toHaveBeenCalledWith('u1', 'b1')
 
     mocks.bookFindFirst.mockResolvedValue(null)
     await expect(deleteBook('u1', 'b1')).rejects.toMatchObject({ statusCode: 404 })

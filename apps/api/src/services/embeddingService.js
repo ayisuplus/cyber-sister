@@ -25,10 +25,38 @@ export async function embedText(text, { signal, config = embeddingConfig() } = {
     if (!response.ok || signal?.aborted) return null
     const body = await response.json()
     const vector = body?.data?.[0]?.embedding
-    if (!Array.isArray(vector) || vector.length !== config.dimensions || !vector.every(Number.isFinite)
-      || !vector.some((value) => value !== 0) || (body.model && body.model !== config.model)) return null
+    if (!validVector(vector, config) || (body.model && body.model !== config.model)) return null
     return vector
   } catch { return null }
+}
+
+const validVector = (vector, config) => Array.isArray(vector) && vector.length === config.dimensions
+  && vector.every(Number.isFinite) && vector.some((value) => value !== 0)
+
+/**
+ * 一次算一批（她上传的书切成的段）：顺序与 texts 一致，有一条不合格整批作废返回 null。
+ * 本机向量服务一批最多 64 条；书的段落长，给的时间也比单句长。调用方负责用户授权。
+ */
+export async function embedTexts(texts, { signal, config = embeddingConfig(), timeoutMs = 120000 } = {}) {
+  if (!config || signal?.aborted || !Array.isArray(texts) || !texts.length) return null
+  try {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const response = await fetch(`${config.provider}/embeddings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model: config.model, input: texts.map((text) => redactSensitiveText(text)) }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    })
+    if (!response.ok || signal?.aborted) return null
+    return vectorsFrom(await response.json(), texts.length, config)
+  } catch { return null }
+}
+
+/** 一批的返回：条数对得上、模型对得上、每条都合格，才按 index 排好返回。 */
+function vectorsFrom(body, count, config) {
+  if (!Array.isArray(body?.data) || body.data.length !== count || (body.model && body.model !== config.model)) return null
+  const vectors = body.data.map((item, position) => ({ at: Number.isInteger(item?.index) ? item.index : position, vector: item?.embedding }))
+    .sort((a, b) => a.at - b.at).map(({ vector }) => vector)
+  return vectors.every((vector) => validVector(vector, config)) ? vectors : null
 }
 
 export async function embedQuery(text, { allowExternal = false, authorizeExternal, signal } = {}) {

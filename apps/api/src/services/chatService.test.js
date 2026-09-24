@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   saveChatImage: vi.fn(),
   deleteChatImages: vi.fn(),
   embedQuery: vi.fn(() => Promise.resolve(null)),
+  searchUserBooks: vi.fn(() => Promise.resolve([])),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -90,6 +91,8 @@ vi.mock('./nudgeService.js', () => ({
 vi.mock('./embeddingService.js', () => ({
   embedQuery: mocks.embedQuery,
 }))
+
+vi.mock('./bookIndexService.js', async (importOriginal) => ({ ...await importOriginal(), searchUserBooks: mocks.searchUserBooks }))
 
 vi.mock('./agentService.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -326,7 +329,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -342,7 +345,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -366,6 +369,7 @@ describe('chatService.sendMessage', () => {
     expect(memories).toHaveLength(1)
     expect(mocks.generateResponse.mock.calls[0][5]).toEqual({
       allowExternal: true,
+      citeBooks: false,
       authorizeExternal: expect.any(Function),
       bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }],
       scene: 'chat',
@@ -789,7 +793,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
   })
 
@@ -890,7 +894,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, queryEmbedding: null, memoryEdges: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
@@ -1597,6 +1601,42 @@ describe('页边批注：她写这一段时翻过的书', () => {
 
     expect(mocks.generateResponseStream.mock.calls[0][5].bookSelection).toEqual([])
     expect(aiMessageData()).not.toHaveProperty('bookNotes')
+  })
+
+  it('她上传的书：有这一轮的查询向量才找，翻到的一段排在内置书后面，也写进批注', async () => {
+    const queryEmbedding = { provider: 'http://127.0.0.1:5006/v1', model: 'm', dimensions: 2, ruleVersion: 1, vector: [1, 0] }
+    mocks.embedQuery.mockResolvedValue(queryEmbedding)
+    const note = { book: 'user:book-1', userBook: true, bookId: 'book-1', title: '被讨厌的勇气', author: null, chapters: [{ id: 'p1', title: '课题分离', origin: '第 2 章', locator: '1:120' }] }
+    const userBook = { name: 'user:book-1', render: () => [], describe: () => note }
+    mocks.searchUserBooks.mockResolvedValue([{ book: userBook, cards: [{ id: 'p1' }] }])
+
+    const events = await collectEvents(sendMessageStream('conversation-1', 'user-1', '同门拿了青基，我嫉妒得睡不着', 'req-user-books'))
+
+    expect(mocks.searchUserBooks).toHaveBeenCalledWith('user-1', { text: '同门拿了青基，我嫉妒得睡不着', queryEmbedding, namedOnly: false, excludeBookId: null })
+    const selection = mocks.generateResponseStream.mock.calls[0][5].bookSelection
+    expect(selection.map(({ book }) => book.name)).toEqual(['emotion-reflection', 'user:book-1'])
+    expect(aiMessageData().bookNotes.map(({ book }) => book)).toEqual(['emotion-reflection', 'user:book-1'])
+    expect(events.at(-1).aiMessage.bookNotes[1]).toEqual(note)
+  })
+
+  it('她的书：没有查询向量、短追问时不找；找的时候出错只用内置书，这一轮照常', async () => {
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '同门拿了青基，我嫉妒得睡不着', 'req-no-vector'))
+    expect(mocks.searchUserBooks).not.toHaveBeenCalled()
+
+    mocks.embedQuery.mockResolvedValue({ provider: 'p', model: 'm', dimensions: 2, ruleVersion: 1, vector: [1, 0] })
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '那怎么办', 'req-follow-up'))
+    expect(mocks.searchUserBooks).not.toHaveBeenCalled()
+
+    mocks.searchUserBooks.mockRejectedValue(new Error('db down'))
+    mocks.generateResponseStream.mockClear()
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '同门拿了青基，我嫉妒得睡不着', 'req-search-failed'))
+    expect(mocks.generateResponseStream.mock.calls[0][5].bookSelection.map(({ book }) => book.name)).toEqual(['emotion-reflection'])
+  })
+
+  it('「回答里提到书」开关随账户传给模型', async () => {
+    mocks.userFindUnique.mockResolvedValue({ persona: 'gentle', externalLlmConsent: true, externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION, citeBooks: true })
+    await collectEvents(sendMessageStream('conversation-1', 'user-1', '同门拿了青基，我嫉妒得睡不着', 'req-cite'))
+    expect(mocks.generateResponseStream.mock.calls[0][5].citeBooks).toBe(true)
   })
 
   it('退回本地模板时她没写这一段，不写批注', async () => {

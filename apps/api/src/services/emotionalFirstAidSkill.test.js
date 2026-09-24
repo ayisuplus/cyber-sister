@@ -31,9 +31,12 @@ describe('情绪急救', () => {
 
   it('没采纳的做法写在规则里：不把痛归咎于她、不重构施害者的好意、不布置练习', () => {
     const context = buildEmotionalFirstAidContext('被甩了，好丢人')[0].content
-    for (const rule of ['不把痛归咎于她', '不重构对方的「好意」', '不布置给她', '不给「多久该走出来」的时间表']) {
+    for (const rule of ['不把痛归咎于她', '不重构对方的「好意」', '不布置给她']) {
       expect(context).toContain(rule)
     }
+    // 伤心的节奏、反复回想这类只和某一章有关的规则，写在那一章的卡片里
+    expect(buildEmotionalFirstAidContext('分手第三天了')[0].content).toContain('不给「多久该好起来」的时间表')
+    expect(buildEmotionalFirstAidContext('他那句话我一直在想')[0].content).toContain('不再追问细节')
     expect(context.match(/^# /gm)).toHaveLength(2)
     expect(context.length).toBeLessThan(6000)
   })

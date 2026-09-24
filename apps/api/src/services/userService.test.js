@@ -64,6 +64,21 @@ describe('userService.updateProfile：letterFreqDays 写信频率', () => {
   })
 })
 
+describe('userService.updateProfile：citeBooks 回答里提到书', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('布尔值落库并随资料返回；非布尔值 400 不落库', async () => {
+    mocks.userUpdate.mockImplementation(({ data }) => Promise.resolve(data))
+    expect(await updateProfile('user-1', { citeBooks: true })).toEqual({ citeBooks: true })
+    expect(mocks.userUpdate.mock.calls[0][0]).toMatchObject({ where: { id: 'user-1' }, data: { citeBooks: true } })
+    expect(mocks.userUpdate.mock.calls[0][0].select).toHaveProperty('citeBooks', true)
+
+    mocks.userUpdate.mockClear()
+    await expect(updateProfile('user-1', { citeBooks: 'on' })).rejects.toMatchObject({ statusCode: 400, message: 'citeBooks必须是布尔值' })
+    expect(mocks.userUpdate).not.toHaveBeenCalled()
+  })
+})
+
 describe('userService.updateProfile：careEnabled 关怀开关', () => {
   beforeEach(() => vi.clearAllMocks())
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { loadBookShelfCases, loadQueryVectors, predictCards, validateBookShelfCases } from '../../src/eval/bookShelfEval.js'
+import { loadBookShelfCases, loadQueryVectors, predictCards, promptBudget, validateBookShelfCases } from '../../src/eval/bookShelfEval.js'
 import { providerHashOf, shelfIndex } from '../../src/services/bookShelf.js'
 
 // 书架选章检验集（路线图 C21 第二步）：不调模型、不联网，进 CI。
@@ -25,5 +25,12 @@ describe('书架选章检验集', () => {
     for (const item of set.cases.filter(({ kind }) => kind === 'keyword' || kind === 'negative')) {
       expect(predictCards(item, { vectors, index }), item.id).toEqual(item.expect)
     }
+  })
+
+  it('翻到书时这一轮多出来的字数守住预算：不该翻书的句子一个字不加，最多不超过 3,500 字', () => {
+    expect(promptBudget(set.cases.filter(({ kind }) => kind === 'negative')).withBooks).toBe(0)
+    const budget = promptBudget(set.cases, withVectors ? { vectors, index } : {})
+    expect(budget.withBooks).toBeGreaterThan(0)
+    expect(budget.max).toBeLessThanOrEqual(3500)
   })
 })

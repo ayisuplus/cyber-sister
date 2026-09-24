@@ -1,12 +1,14 @@
 /**
  * 陪伴阅读服务：书架（想读/在读/读完）、阅读进度、一句话感想笔记。
  * 书本身留在用户自己的浏览器里（IndexedDB），这里只记她在读什么、读到哪儿、记了什么；
+ * 她选了「让她聊天时也能翻」的书，分段另存在 book_passages（见 bookIndexService），这里只报状态；
  * locator 是前端给的不透明进度串，服务端只存不解析。笔记不可编辑只可删。
  */
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
 import { parseUtcDay } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
+import { forgetBook, indexProgress } from './bookIndexService.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -67,7 +69,7 @@ function validatePercent(percent) {
   return percent
 }
 
-function serializeBook(b) {
+export function serializeBook(b) {
   return {
     id: b.id,
     title: b.title,
@@ -80,6 +82,10 @@ function serializeBook(b) {
     totalPages: b.totalPages,
     currentPage: b.currentPage,
     noteCount: b._count?.notes ?? 0,
+    // null = 只在她的设备上；indexing | ready | failed；整理中带进度
+    serverIndex: b.serverIndex ?? null,
+    indexedAt: b.indexedAt ?? null,
+    indexProgress: b.serverIndex === 'indexing' ? indexProgress(b.id) : null,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
   }
@@ -183,6 +189,8 @@ export async function updateProgress(userId, bookId, { locator, percent }) {
 export async function deleteBook(userId, bookId) {
   const book = await findOwned('book', bookId, userId, '书籍')
   await prisma.book.delete({ where: { id: book.id } })
+  // 上传过的段落随书级联删除；这里停掉还在跑的整理、清掉聊天时用的缓存
+  forgetBook(userId, book.id)
   logger.info('删除书籍', { userId })
 }
 
