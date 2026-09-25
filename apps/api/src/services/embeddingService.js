@@ -1,16 +1,13 @@
-import prisma from '../prisma/client.js'
 import { redactSensitiveText } from './llmService.js'
-import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import { hasCloudConsent } from './consents.js'
 import { withMemoryTransaction } from './memoryGovernance.js'
 import { embeddingConfig } from './embeddingConfig.js'
 import logger from '../utils/logger.js'
 
 export function embeddingModelName() { return embeddingConfig()?.model ?? null }
 
-export async function hasEmbeddingConsent(userId, database = prisma) {
-  const user = await database.user.findUnique({ where: { id: userId }, select: { externalLlmConsent: true, externalLlmConsentVersion: true } })
-  return user?.externalLlmConsent === true && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-}
+// 向量（即使在本机算）同样要云端模型同意 v4：同意说明里写明覆盖记忆向量（路线图 C23 待裁定项之一）
+export const hasEmbeddingConsent = hasCloudConsent
 
 /** 仅使用显式配置的向量能力；调用方负责用户授权。 */
 export async function embedText(text, { signal, config = embeddingConfig() } = {}) {

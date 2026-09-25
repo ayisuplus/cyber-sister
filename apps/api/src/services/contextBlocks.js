@@ -8,7 +8,7 @@ export const APP_TIME_ZONE = 'Asia/Shanghai'
 export const READING_PASSAGE_MAX = 1500
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-const NUDGE_LABELS = { reminder: '到点提醒', care: '关心', letter: '这周写给她的信', followup: '问她' }
+const NUDGE_LABELS = { reminder: '到点提醒', care: '关心', letter: '今天写给她的信', letter_earlier: '前几天写给她的信', followup: '问她' }
 
 // 记忆来源的提示词文案唯一来源：聊天、手记、读书、日历、收藏与记忆之间互相引用都用这组词
 export const MEMORY_SOURCE_LABELS = { message: '你说过的', memory: '她记着的', diary: '你的手记', reading_note: '你读书时记的', task: '日历上的事', collection: '你的收藏' }

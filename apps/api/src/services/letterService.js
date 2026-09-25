@@ -18,6 +18,7 @@ import { assertCloudCallable, getGateway } from './llmService.js'
 import { loadExternalConsent } from './userService.js'
 import { localClock } from './contextBlocks.js'
 import { runAnalysis } from './derivedService.js'
+import { liveMemoryWhere } from './memory/scopes.js'
 
 export const LETTER_FREQ_OPTIONS = [3, 7]
 export const MAX_LETTER_CHARS = 1200
@@ -88,12 +89,12 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
   ] = await Promise.all([
     prisma.message.count({ where: { conversation: { userId }, role: 'user', createdAt: { gte: since } } }),
     prisma.memory.findMany({
-      where: { userId, createdAt: { gte: since } },
+      where: { ...liveMemoryWhere(userId, now), createdAt: { gte: since } },
       orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }],
       take: MAX_QUOTED_ITEMS,
       select: { content: true },
     }),
-    prisma.memory.count({ where: { userId, createdAt: { gte: since } } }),
+    prisma.memory.count({ where: { ...liveMemoryWhere(userId, now), createdAt: { gte: since } } }),
     prisma.derivedInsight.count({
       where: { userId, status: { in: ['promoted', 'resolved'] }, updatedAt: { gte: since } },
     }),
@@ -211,7 +212,7 @@ export async function collectDrafts(userId) {
 /** 记忆摘要：最重要的几条未过期记忆，是修改/删除建议唯一允许指向的对象。 */
 export function collectMemorySummary(userId, now = new Date()) {
   return prisma.memory.findMany({
-    where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+    where: liveMemoryWhere(userId, now),
     orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
     take: MEMORY_SUMMARY_LIMIT,
     select: { id: true, revision: true, content: true },
@@ -550,12 +551,29 @@ export async function generateDueLetter(userId, { now = new Date() } = {}) {
   }
 }
 
+// 同一个人同时只写一封：回想、推关系、写信最多三次云端调用，前一次没写完，后来的请求等同一次结果
+const lettersInFlight = new Map()
+
+/**
+ * 到期就写一封的单飞入口：对话页每分钟拉一次便签、「她」页打开时也会要，
+ * 都走这里，同一个人同一时间只跑一条写信流水线（路线图 C23）。失败只记日志，调用方拿到的仍是 rejected。
+ */
+export function scheduleDueLetter(userId, { now = new Date() } = {}) {
+  const running = lettersInFlight.get(userId)
+  if (running) return running
+  const run = generateDueLetter(userId, { now }).finally(() => lettersInFlight.delete(userId))
+  lettersInFlight.set(userId, run)
+  // 调用方可能不等它跑完（便签只等一小会儿）：这里接住，免得变成没人处理的 rejection
+  run.catch((error) => logger.warn('写信没写成', { userId, error: error.message }))
+  return run
+}
+
 /** 最新一封来信（读没读都算）。只读：不生成。 */
 export function findLatestLetter(userId) {
   return prisma.letter.findFirst({
     where: { userId },
     orderBy: { periodStart: 'desc' },
-    select: { id: true, content: true, readAt: true, suggestions: true },
+    select: { id: true, content: true, readAt: true, suggestions: true, createdAt: true },
   })
 }
 

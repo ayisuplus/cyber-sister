@@ -5,7 +5,7 @@ import request from 'supertest'
 const letters = vi.hoisted(() => ({
   listLetters: vi.fn(),
   getLetter: vi.fn(),
-  generateDueLetter: vi.fn(),
+  scheduleDueLetter: vi.fn(),
   markLetterRead: vi.fn(),
   saveSuggestions: vi.fn(),
 }))
@@ -57,11 +57,11 @@ describe('来信读取与生成', () => {
     letters.listLetters.mockResolvedValue([{ id: 'l1' }])
     expect((await request(app).get('/')).body).toEqual({ letters: [{ id: 'l1' }] })
     expect(letters.listLetters).toHaveBeenCalledWith('user-1')
-    expect(letters.generateDueLetter).not.toHaveBeenCalled()
+    expect(letters.scheduleDueLetter).not.toHaveBeenCalled()
 
-    letters.generateDueLetter.mockResolvedValue({ letter: null, created: false, reason: 'quiet' })
+    letters.scheduleDueLetter.mockResolvedValue({ letter: null, created: false, reason: 'quiet' })
     expect((await request(app).post('/generate')).body).toEqual({ letter: null, created: false, reason: 'quiet' })
-    expect(letters.generateDueLetter).toHaveBeenCalledWith('user-1')
+    expect(letters.scheduleDueLetter).toHaveBeenCalledWith('user-1')
   })
 
   it('非本人的信一律 404', async () => {

@@ -15,7 +15,7 @@ export const MEMORY_SKILL = {
     list_memories: {
       description: '{"tool":"list_memories","args":{}} 看「她记得的你」：她记着的事实列表（只读）',
       run: async (userId) => {
-        const { data, total } = await listMemories(userId, { page: 1, limit: 20 })
+        const { data, total } = await listMemories(userId, { page: 1, limit: 20, liveOnly: true })
         return {
           summary: `她记着 ${total} 条`,
           result: { total, items: data.map(({ id, type, content, importance, tags, pinned }) => ({ id, type, content, importance, tags, pinned })) },

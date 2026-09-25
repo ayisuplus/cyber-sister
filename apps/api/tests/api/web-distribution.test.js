@@ -3,7 +3,7 @@ import request from 'supertest'
 
 const db = vi.hoisted(() => ({ create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() }))
 vi.mock('../../src/prisma/client.js', () => ({ default: { conversation: db } }))
-const letters = vi.hoisted(() => ({ listLetters: vi.fn(), getLetter: vi.fn(), generateDueLetter: vi.fn(), markLetterRead: vi.fn(), saveSuggestions: vi.fn(), findLatestLetter: vi.fn() }))
+const letters = vi.hoisted(() => ({ listLetters: vi.fn(), getLetter: vi.fn(), scheduleDueLetter: vi.fn(), markLetterRead: vi.fn(), saveSuggestions: vi.fn(), findLatestLetter: vi.fn() }))
 const memoryService = vi.hoisted(() => ({ createMemory: vi.fn(), updateMemory: vi.fn(), deleteMemory: vi.fn(), validateMemoryInput: vi.fn(), MEMORY_TYPES: ['semantic', 'episodic', 'procedural'] }))
 const reminderService = vi.hoisted(() => ({ createScheduledReminder: vi.fn(), ackDelivery: vi.fn(), listDueReminders: vi.fn(), listTodaysDeliveries: vi.fn(), buildTaskFields: vi.fn() }))
 vi.mock('../../src/services/letterService.js', () => letters)

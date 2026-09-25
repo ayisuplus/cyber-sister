@@ -4,6 +4,7 @@ import logger from '../utils/logger.js'
 import { advanceCompanionState, companionStatePrompt, createCompanionState } from './companionState.js'
 import { localClock } from './contextBlocks.js'
 import { detectEmotion } from './detection.js'
+import { periodConsentsOf } from './consents.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const SESSION_GAP_MS = 30 * 60 * 1000
@@ -130,7 +131,7 @@ const quietly = async (label, userId, task, fallback) => {
  */
 export async function loadCompanionInputs(userId, user, now = new Date()) {
   const today = localClock(now).dayKey
-  const cycleAllowed = Boolean(user?.periodConsentAt && user?.periodToneAt)
+  const cycleAllowed = periodConsentsOf(user).tone
   const [moods, period] = await Promise.all([
     quietly('diary', userId, () => prisma.diaryEntry.findMany({ where: { userId, day: { gte: new Date(today - DAY_MS) } }, select: { mood: true } }), []),
     cycleAllowed

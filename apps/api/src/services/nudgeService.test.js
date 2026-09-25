@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const reminders = vi.hoisted(() => ({
   listDueReminders: vi.fn(),
@@ -9,7 +9,7 @@ const reminders = vi.hoisted(() => ({
   failTaskDelivery: vi.fn(),
 }))
 const care = vi.hoisted(() => ({ listTodaysCare: vi.fn(), dismissTouchpoint: vi.fn() }))
-const letters = vi.hoisted(() => ({ generateDueLetter: vi.fn(), findLatestLetter: vi.fn() }))
+const letters = vi.hoisted(() => ({ scheduleDueLetter: vi.fn(), findLatestLetter: vi.fn() }))
 
 const followUps = vi.hoisted(() => ({ listDueFollowUps: vi.fn(), listAskedToday: vi.fn(), markFollowUpAsked: vi.fn() }))
 
@@ -31,7 +31,7 @@ beforeEach(() => {
   followUps.markFollowUpAsked.mockResolvedValue({ success: true })
   reminders.listDueReminders.mockResolvedValue([])
   care.listTodaysCare.mockResolvedValue([])
-  letters.generateDueLetter.mockResolvedValue({ letter: null, created: false })
+  letters.scheduleDueLetter.mockResolvedValue({ letter: null, created: false })
   letters.findLatestLetter.mockResolvedValue(null)
 })
 
@@ -47,7 +47,7 @@ describe('她主动说的话', () => {
     expect(nudges[0]).toMatchObject({ kind: 'reminder', content: '喝水', reason: '你在日历上定的（每天 10:00）' })
     expect(nudges[1]).toMatchObject({ kind: 'care', content: '今天是你生日\n生日快乐。', reason: '你在资料里填的生日', action: { to: '/chat', label: '去找她聊聊' } })
     expect(nudges[2]).toMatchObject({ kind: 'letter', content: '见信好。', reason: '她写给你的信' })
-    expect(letters.generateDueLetter).toHaveBeenCalledWith('user-1', { now: NOW })
+    expect(letters.scheduleDueLetter).toHaveBeenCalledWith('user-1', { now: NOW })
   })
 
   it('最新那封读过就不再出便签', async () => {
@@ -94,7 +94,7 @@ describe('她主动说的话', () => {
   it('一处取不到不影响其它几处，也不让对话打不开', async () => {
     reminders.listDueReminders.mockRejectedValue(new Error('db down'))
     care.listTodaysCare.mockResolvedValue([{ key: 'mood:2026-09-20', body: '昨天不太好过', reason: '昨天的心情', dismissed: false }])
-    letters.generateDueLetter.mockRejectedValue(new Error('db down'))
+    letters.scheduleDueLetter.mockRejectedValue(new Error('db down'))
 
     const nudges = await listNudges('user-1', NOW)
 
@@ -122,11 +122,26 @@ describe('她主动说的话', () => {
   })
 })
 
+describe('写信不挡提醒', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('写信要等云端的时候，只等一小会儿，到点提醒照常出来', async () => {
+    vi.useFakeTimers()
+    reminders.listDueReminders.mockResolvedValue([{ id: 'd9', status: 'pending', result: null, reminder: { content: '喝水', freq: 'daily', time: '10:00', instruction: null } }])
+    letters.scheduleDueLetter.mockReturnValue(new Promise(() => {}))
+
+    const pending = listNudges('user-1', NOW)
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect((await pending).map((nudge) => nudge.id)).toEqual(['reminder:d9'])
+  })
+})
+
 describe('她今天说过的话（给她自己的上下文）', () => {
   beforeEach(() => {
     reminders.listTodaysDeliveries.mockResolvedValue([{ id: 'd1', status: 'acked', reminder: { content: '该喝水啦' } }])
     care.listTodaysCare.mockResolvedValue([{ key: 'mood:x', title: '', body: '昨天好像不太开心', reason: '你昨天的心情', dismissed: true }])
-    letters.findLatestLetter.mockResolvedValue({ id: 'l1', content: '你们聊了 23 轮', readAt: new Date() })
+    letters.findLatestLetter.mockResolvedValue({ id: 'l1', content: '你们聊了 23 轮', readAt: NOW, createdAt: NOW })
   })
 
   it('点过「知道了」的也算，信读没读都算', async () => {
@@ -139,11 +154,35 @@ describe('她今天说过的话（给她自己的上下文）', () => {
     ])
   })
 
+  it('几天前写的、早读过的信照样带着，但标成前几天的，不冒充今天说的', async () => {
+    const earlier = new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1000)
+    letters.findLatestLetter.mockResolvedValue({ id: 'l1', content: '你们聊了 23 轮', readAt: earlier, createdAt: earlier })
+
+    const said = await describeRecentNudges('u1', NOW)
+
+    expect(said.at(-1)).toEqual({ kind: 'letter_earlier', content: '你们聊了 23 轮' })
+  })
+
+  it('还没读的旧信正压在对话末尾，算今天的', async () => {
+    const earlier = new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1000)
+    letters.findLatestLetter.mockResolvedValue({ id: 'l1', content: '你们聊了 23 轮', readAt: null, createdAt: earlier })
+
+    expect((await describeRecentNudges('u1', NOW)).at(-1)).toEqual({ kind: 'letter', content: '你们聊了 23 轮' })
+  })
+
+  it('经期卡片带着敏感类别交出去，交不交给模型由读取闸口定', async () => {
+    care.listTodaysCare.mockResolvedValue([{ key: 'period:r1:2026-09-20', title: '比预计晚了 3 天', body: '晚几天很常见', sensitive: 'period', dismissed: false }])
+
+    const said = await describeRecentNudges('u1', NOW)
+
+    expect(said).toContainEqual({ kind: 'care', content: '比预计晚了 3 天\n晚几天很常见', sensitive: 'period' })
+  })
+
   it('只读：不建投递、不顺手写信', async () => {
     await describeRecentNudges('u1', NOW)
 
     expect(reminders.listDueReminders).not.toHaveBeenCalled()
-    expect(letters.generateDueLetter).not.toHaveBeenCalled()
+    expect(letters.scheduleDueLetter).not.toHaveBeenCalled()
     expect(care.dismissTouchpoint).not.toHaveBeenCalled()
   })
 

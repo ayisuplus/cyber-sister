@@ -8,13 +8,13 @@
 import prisma from '../prisma/client.js'
 import { findOwned } from '../utils/dbHelpers.js'
 import { localClock } from './contextBlocks.js'
+import { normalizeKey } from '../utils/normalizeKey.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 export const FOLLOW_UP_WINDOW_DAYS = 3
 export const MAX_FOLLOW_UPS_PER_DREAM = 2
 export const FOLLOW_UP_LEAD_DAYS = 30
 
-const normalize = (text) => String(text ?? '').normalize('NFKC').trim().replace(/\s+/g, '').toLowerCase()
 
 /** 北京时间「今天」的 UTC 零点。 */
 export const todayKey = (now = new Date()) => localClock(now).dayKey
@@ -30,10 +30,10 @@ export async function saveFollowUps(userId, items = []) {
     where: { userId, status: 'active' },
     select: { about: true, askOn: true },
   })
-  const seen = new Set(existing.map((item) => `${item.askOn.getTime()}|${normalize(item.about)}`))
+  const seen = new Set(existing.map((item) => `${item.askOn.getTime()}|${normalizeKey(item.about)}`))
   const data = []
   for (const item of incoming) {
-    const key = `${item.askOn.getTime()}|${normalize(item.about)}`
+    const key = `${item.askOn.getTime()}|${normalizeKey(item.about)}`
     if (seen.has(key)) continue
     seen.add(key)
     data.push({ userId, about: item.about, ask: item.ask, askOn: item.askOn })

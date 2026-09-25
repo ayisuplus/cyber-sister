@@ -9,6 +9,7 @@ import prisma from '../prisma/client.js'
 import logger from '../utils/logger.js'
 import { assertCloudCallable, getGateway } from './llmService.js'
 import { withMemoryTransaction } from './memoryGovernance.js'
+import { liveMemoryWhere } from './memory/scopes.js'
 
 export const EDGE_RELATIONS = ['similar', 'related', 'contradicts']
 const EDGE_CONFIDENCES = ['low', 'medium', 'high']
@@ -54,7 +55,7 @@ export async function deriveEdges(userId, requestId, consent) {
   assertCloudCallable(allowExternal)
   const generation = await prisma.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
   const memories = await prisma.memory.findMany({
-    where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    where: liveMemoryWhere(userId),
     orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
     take: EDGE_MEMORY_LIMIT,
     select: { id: true, content: true, revision: true },

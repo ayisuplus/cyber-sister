@@ -72,6 +72,7 @@ import {
   markLetterRead,
   periodStartOf,
   sanitizeSuggestions,
+  scheduleDueLetter,
 } from './letterService.js'
 
 const USER_ID = 'user-1'
@@ -147,6 +148,28 @@ describe('periodStartOf', () => {
     expect(periodStartOf(NOW)).toEqual(PERIOD_START)
     expect(periodStartOf(new Date(2026, 8, 9, 23, 59))).toEqual(PERIOD_START)
     expect(periodStartOf(new Date(2026, 8, 10, 0, 1))).toEqual(new Date('2026-09-10T00:00:00.000Z'))
+  })
+})
+
+describe('scheduleDueLetter：同一个人同时只写一封', () => {
+  it('还没写完时再要，拿到的是同一次；写完了再要才重新判断', async () => {
+    let finish
+    mocks.userFindUnique.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    mocks.letterFindFirst.mockResolvedValue(null)
+
+    const first = scheduleDueLetter(USER_ID, { now: NOW })
+    const second = scheduleDueLetter(USER_ID, { now: NOW })
+    expect(second).toBe(first)
+
+    finish({ letterFreqDays: null })
+    expect(await first).toMatchObject({ reason: 'off' })
+    mocks.userFindUnique.mockResolvedValue({ letterFreqDays: null })
+    expect(scheduleDueLetter(USER_ID, { now: NOW })).not.toBe(first)
+  })
+
+  it('写信失败：等着的人拿到失败，没人等也不会变成没人处理的 rejection', async () => {
+    mocks.userFindUnique.mockRejectedValueOnce(new Error('db down'))
+    await expect(scheduleDueLetter(USER_ID, { now: NOW })).rejects.toThrow('db down')
   })
 })
 
@@ -462,7 +485,7 @@ describe('listLetters / findLatestLetter / getLetter / markLetterRead', () => {
     mocks.letterFindFirst.mockResolvedValue({ id: 'l1', content: '信', readAt: null })
     expect(await findLatestLetter(USER_ID)).toMatchObject({ id: 'l1' })
     expect(mocks.letterFindFirst).toHaveBeenCalledWith({
-      where: { userId: USER_ID }, orderBy: { periodStart: 'desc' }, select: { id: true, content: true, readAt: true, suggestions: true },
+      where: { userId: USER_ID }, orderBy: { periodStart: 'desc' }, select: { id: true, content: true, readAt: true, suggestions: true, createdAt: true },
     })
     expect(mocks.letterCreate).not.toHaveBeenCalled()
   })

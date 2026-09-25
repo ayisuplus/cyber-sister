@@ -14,22 +14,22 @@ import {
 } from './llmService.js'
 import { getCrisisIntervention } from './detection.js'
 import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock } from './contextBlocks.js'
-import { describeRecentNudges } from './nudgeService.js'
+import { HISTORY_MESSAGES, loadChatSources } from './memory/contextSources.js'
 import { createAgentTurn, runAgentLoop } from './agentTurn.js'
 import { emit } from './extensionRuntime.js'
 import { getSkill, readSkillResource } from './skillCatalog.js'
-import { prepareCompanionTurn, commitCompanionTurn, loadCompanionInputs } from './companionService.js'
+import { prepareCompanionTurn, commitCompanionTurn } from './companionService.js'
 import { commitWorkArtifacts, prepareWorkAttachments, artifactMetadata, artifactMetadataFields } from './workArtifactService.js'
 import { createCrisisLog } from './crisisService.js'
 import { embedQuery } from './embeddingService.js'
 import { describeBookNotes, selectBookCards, userBookSearch } from './bookSkills.js'
 import { searchUserBooks } from './bookIndexService.js'
 import { assertWorkCloudConnected } from './workCloudService.js'
-import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
+import { CONSENT_FIELDS, consentsOf } from './consents.js'
 import logger from '../utils/logger.js'
 import { saveChatImage, deleteChatImages } from './chatImageService.js'
 
-const MAX_HISTORY_MESSAGES = 19
+const MAX_HISTORY_MESSAGES = HISTORY_MESSAGES
 // 滚动摘要：最近 19 条永远原样进上下文；更早的消息在未摘要积压满 10 条后压缩进会话级摘要
 const SUMMARY_RECENT_KEEP = MAX_HISTORY_MESSAGES
 const SUMMARY_COMPRESS_THRESHOLD = 10
@@ -275,7 +275,7 @@ async function persistBlockedCrisis(conversationId, userId, content, level, dura
   }
 }
 
-/** 用户同意装配：persona + 云端调用授权闭包。定时任务执行与聊天上下文共用。 */
+/** 用户同意装配：persona + 云端调用授权闭包 + 经期两项同意（同意门的唯一来源在 consents.js）。 */
 async function loadUserModelOptions(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -283,10 +283,7 @@ async function loadUserModelOptions(userId) {
       persona: true,
       nickname: true,
       birthDate: true,
-      periodConsentAt: true,
-      periodToneAt: true,
-      externalLlmConsent: true,
-      externalLlmConsentVersion: true,
+      ...CONSENT_FIELDS,
       companionState: true,
       companionRevision: true,
       citeBooks: true,
@@ -294,69 +291,23 @@ async function loadUserModelOptions(userId) {
   })
   if (!user) throw new HttpError('用户不存在', 404)
 
-  const allowExternal = user.externalLlmConsent === true
-    && user.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
+  const consents = consentsOf(userId, user)
   // citeBooks：「回答里提到书」，翻到书时回答里可以提书名（默认不提）
-  const modelOptions = { allowExternal, citeBooks: user.citeBooks === true }
-  if (allowExternal) {
-    modelOptions.authorizeExternal = async () => {
-      const currentConsent = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-      })
-      return currentConsent?.externalLlmConsent === true
-        && currentConsent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-    }
-  }
-  return { user, modelOptions }
+  const modelOptions = { allowExternal: consents.cloud.allowExternal, citeBooks: user.citeBooks === true }
+  if (consents.cloud.authorizeExternal) modelOptions.authorizeExternal = consents.cloud.authorizeExternal
+  return { user, modelOptions, consents }
 }
 
 /** 用户同意装配 + 历史/记忆查询，JSON 与流式路径共用同一套语义。 */
 async function loadModelContext(conversationId, userId, now = new Date()) {
-  const { user, modelOptions } = await loadUserModelOptions(userId)
+  const { user, modelOptions, consents } = await loadUserModelOptions(userId)
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: { summary: true },
   })
-  // 数据库按倒序只取最近 19 条，之后恢复成旧到新；当前消息由 llmService 追加一次。
-  const [descendingHistory, allMemories, canonicalEdges, recentNudges, companionInputs] = await Promise.all([
-    prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'desc' },
-      take: MAX_HISTORY_MESSAGES,
-      select: { role: true, content: true, createdAt: true, workArtifacts: { select: artifactMetadataFields } },
-    }),
-    prisma.memory.findMany({
-      where: {
-        userId,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      },
-      orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
-      select: { id: true, revision: true, content: true, type: true, importance: true, tags: true, pinned: true, projection: true, sources: true },
-    }),
-    prisma.memoryEdge.findMany({
-      where: { userId, status: 'canonical' },
-      select: { fromMemoryId: true, toMemoryId: true, fromRevision: true, toRevision: true, relation: true },
-    }),
-    describeRecentNudges(userId, now),
-    // 这一轮分寸要用的：最近的日记心情，以及（两个经期同意都开时）是否在经期
-    loadCompanionInputs(userId, user, now),
-  ])
-  // 放在心上的每轮都在「关于她」里；其余的聊到才想起，不重复出现在相关记忆里
-  const pinned = allMemories.filter((memory) => memory.pinned)
-  const memories = allMemories.filter((memory) => !memory.pinned)
-
-  // 一跳联想：canonical 边 join 上记忆内容；边引用已过期/未入选记忆即丢弃——只联想必填上下文内的内容
-  const contentById = new Map(allMemories.map((memory) => [memory.id, memory.content]))
-  const revisionById = new Map(allMemories.map((memory) => [memory.id, memory.revision]))
-  const memoryEdges = []
-  for (const edge of canonicalEdges) {
-    const fromContent = contentById.get(edge.fromMemoryId)
-    const toContent = contentById.get(edge.toMemoryId)
-    if (fromContent === undefined || toContent === undefined || revisionById.get(edge.fromMemoryId) !== edge.fromRevision || revisionById.get(edge.toMemoryId) !== edge.toRevision) continue
-    memoryEdges.push({ fromMemoryId: edge.fromMemoryId, toMemoryId: edge.toMemoryId, fromContent, toContent, relation: edge.relation })
-  }
+  // 读取闸口：同意、过期与敏感类别都在那里判断一次（路线图 C23）
+  const { descendingHistory, pinned, memories, memoryEdges, recentNudges, companionInputs } = await loadChatSources({ userId, user, consents, conversationId, now })
 
   const history = [...descendingHistory].reverse().map(({ workArtifacts, createdAt: _createdAt, ...message }) => ({
     ...message,

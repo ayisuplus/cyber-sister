@@ -17,6 +17,8 @@ import { assertCloudCallable, getGateway } from './llmService.js'
 import { deriveEdges } from './edgeService.js'
 import { loadExternalConsent } from './userService.js'
 import { isSensitiveContent } from '../utils/sensitivePatterns.js'
+import { liveMemoryWhere } from './memory/scopes.js'
+import { normalizeKey } from '../utils/normalizeKey.js'
 
 export const INSIGHT_KINDS = ['pattern', 'hypothesis', 'conflict', 'summary']
 const INSIGHT_CONFIDENCES = ['low', 'medium', 'high']
@@ -37,8 +39,6 @@ const MAX_FOLLOW_UP_ABOUT = 40
 const MAX_FOLLOW_UP_ASK = 40
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 
-/** 与 importService 同口径的规范化去重键：NFKC + trim + 小写。 */
-const normalizeKey = (text) => String(text ?? '').normalize('NFKC').trim().toLowerCase()
 
 /** 与 memorySuggestionService 同款解析口径：提取首个 JSON 数组，失败返回 null。 */
 function extractJsonArray(output) {
@@ -224,7 +224,8 @@ export async function runAnalysis(userId, requestId, { consent, now = new Date()
       select: { id: true, role: true, content: true },
     }),
     prisma.memory.findMany({
-      where: { userId },
+      // 过期的记忆不再拿来回想（与聊天同一个口径）
+      where: liveMemoryWhere(userId, now),
       orderBy: { importance: 'desc' },
       take: MEMORY_CONTEXT_LIMIT,
       select: { id: true, revision: true, content: true },

@@ -7,6 +7,7 @@ import prisma from '../prisma/client.js'
 import { findOwned, deleteOwned, HttpError } from '../utils/dbHelpers.js'
 import { localTodayUtc, parseUtcDay, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
+import { periodConsentsOf } from './consents.js'
 
 const MIN_CYCLE_DAYS = 20
 const MAX_CYCLE_DAYS = 45
@@ -34,7 +35,7 @@ export async function setPeriodConsent(userId, accepted) {
 export async function getPeriodTone(userId) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { periodConsentAt: true, periodToneAt: true } })
   if (!user) throw new HttpError('用户不存在', 404)
-  const enabled = Boolean(user.periodConsentAt && user.periodToneAt)
+  const enabled = periodConsentsOf(user).tone
   return { enabled, updatedAt: enabled ? user.periodToneAt : null }
 }
 

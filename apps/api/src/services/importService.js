@@ -17,6 +17,7 @@ import { EXPORT_VERSION } from './exportService.js'
 import { previewMemoryImport, applyMemoryImport } from './memoryTransferService.js'
 import { conflict, withMemoryTransaction } from './memoryGovernance.js'
 import logger from '../utils/logger.js'
+import { normalizeKey } from '../utils/normalizeKey.js'
 
 const MAX_IMPORT_CANDIDATES = 100
 const MAX_CONTENT_CHARS = 2000
@@ -28,8 +29,6 @@ const isBundle = (payload) => payload && typeof payload === 'object'
   && [1, EXPORT_VERSION].includes(payload.version)
   && payload.product === 'Amie cyber-sister'
 
-/** 与记忆建议一致口径的规范化去重键：NFKC + trim + 小写。 */
-const normalizeKey = (text) => String(text ?? '').normalize('NFKC').trim().toLowerCase()
 
 function validateMemoryShape(item) {
   if (!item || typeof item !== 'object') return null

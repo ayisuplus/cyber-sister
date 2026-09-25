@@ -40,7 +40,7 @@ router.get('/', async (req, res) => {
 // 到期就写一封：幂等，没开写信/没到期/沉默期都不写，返回值带 reason 说明为什么没写
 router.post('/generate', async (req, res) => {
   try {
-    res.json(await letterService.generateDueLetter(req.user.userId))
+    res.json(await letterService.scheduleDueLetter(req.user.userId))
   } catch (error) {
     logger.error('生成来信失败', { errorCode: error.code || error.name, userId: req.user.userId })
     sendError(res, error, '生成来信失败')

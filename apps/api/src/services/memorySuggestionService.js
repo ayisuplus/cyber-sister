@@ -21,6 +21,7 @@ import {
 } from './llmService.js'
 import { loadExternalConsent } from './userService.js'
 import { isSensitiveContent, REDACTION_PLACEHOLDER_PATTERN } from '../utils/sensitivePatterns.js'
+import { normalizeKey } from '../utils/normalizeKey.js'
 
 const MAX_CANDIDATES = 2
 const SUGGESTION_TIMEOUT_MS = 60000
@@ -93,11 +94,6 @@ function normalizeCandidate(item) {
   if (!tags) return null
 
   return { type: item.type, content, importance, tags }
-}
-
-/** 规范化精确去重：NFKC、忽略大小写与首尾/连续空白差异后做精确比较。 */
-function normalizeForDedup(value) {
-  return String(value).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 function containsSensitiveContent(value) {
@@ -177,10 +173,10 @@ export async function getMemorySuggestions(userId, messageId, requestId) {
     select: { content: true },
     take: MAX_DEDUP_MEMORIES,
   })
-  const seen = new Set(existing.map((memory) => normalizeForDedup(memory.content)))
+  const seen = new Set(existing.map((memory) => normalizeKey(memory.content)))
   const candidates = []
   for (const candidate of validated) {
-    const key = normalizeForDedup(candidate.content)
+    const key = normalizeKey(candidate.content)
     if (seen.has(key)) continue
     seen.add(key)
     candidates.push(candidate)

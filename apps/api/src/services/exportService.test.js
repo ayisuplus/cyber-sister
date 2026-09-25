@@ -20,6 +20,7 @@ const db = vi.hoisted(() => ({
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
   scheduledTaskFindMany: vi.fn(),
+  followUpFindMany: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -46,6 +47,7 @@ vi.mock('../prisma/client.js', () => {
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
     scheduledReminder: { findMany: db.scheduledTaskFindMany },
+    followUp: { findMany: db.followUpFindMany },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -77,7 +79,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'followUpFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -104,7 +106,7 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([])
   })
 
-  it('全部 18 张表按当前用户过滤查询', async () => {
+  it('全部 19 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
@@ -112,7 +114,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'followUpFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: { userId: 'user-1' },
@@ -174,7 +176,10 @@ describe('exportService.buildUserExport', () => {
       { relation: 'related', confidence: 'low', status: 'derived', createdAt: new Date('2026-09-09T01:00:00.000Z'), fromMemory: { content: '甲' }, toMemory: { content: '乙' } },
     ])
     db.letterFindMany.mockResolvedValue([
-      { periodStart: new Date('2026-09-07T00:00:00.000Z'), freqDays: 7, content: '信的内容', createdAt: new Date('2026-09-09T08:00:00.000Z') },
+      {
+        periodStart: new Date('2026-09-07T00:00:00.000Z'), freqDays: 7, content: '信的内容', createdAt: new Date('2026-09-09T08:00:00.000Z'),
+        suggestions: [{ kind: 'delete_memory', title: '这条过时了', decided: 'accepted' }], readAt: new Date('2026-09-09T09:00:00.000Z'),
+      },
     ])
 
     const bundle = await buildUserExport('user-1')
@@ -183,9 +188,31 @@ describe('exportService.buildUserExport', () => {
       { from: '喜欢火锅', to: '每周五吃火锅', relation: 'similar', confidence: 'high', status: 'canonical', createdAt: '2026-09-09T00:00:00.000Z' },
       { from: '甲', to: '乙', relation: 'related', confidence: 'low', status: 'derived', createdAt: '2026-09-09T01:00:00.000Z' },
     ])
+    // 来信连同她的建议和你怎么处理的一起带走
     expect(bundle.letters).toEqual([
-      { periodStart: '2026-09-07T00:00:00.000Z', freqDays: 7, content: '信的内容', createdAt: '2026-09-09T08:00:00.000Z' },
+      {
+        periodStart: '2026-09-07T00:00:00.000Z', freqDays: 7, content: '信的内容', createdAt: '2026-09-09T08:00:00.000Z',
+        suggestions: [{ kind: 'delete_memory', title: '这条过时了', decided: 'accepted' }], readAt: '2026-09-09T09:00:00.000Z',
+      },
     ])
+  })
+
+  it('她整理的也归你：惦记的事、前情摘要与页边批注随包导出（路线图 C23）', async () => {
+    db.followUpFindMany.mockResolvedValue([
+      { about: '周五面试', ask: '面试顺利吗？', askOn: new Date('2026-09-26T00:00:00.000Z'), status: 'active', createdAt: new Date('2026-09-20T00:00:00.000Z') },
+    ])
+    db.conversationFindMany.mockResolvedValue([{
+      title: 'Amie', mode: 'chat', summary: '她最近在准备面试', summaryUpToAt: new Date('2026-09-19T00:00:00.000Z'),
+      messages: [{ role: 'assistant', content: '先接住你', bookNotes: [{ book: '情绪急救', chapter: '被拒绝' }] }],
+    }])
+
+    const bundle = await buildUserExport('user-1')
+
+    expect(bundle.followUps).toEqual([
+      { about: '周五面试', ask: '面试顺利吗？', askOn: '2026-09-26T00:00:00.000Z', status: 'active', createdAt: '2026-09-20T00:00:00.000Z' },
+    ])
+    expect(bundle.conversations[0]).toMatchObject({ summary: '她最近在准备面试', summaryUpToAt: '2026-09-19T00:00:00.000Z' })
+    expect(bundle.conversations[0].messages[0].bookNotes).toEqual([{ book: '情绪急救', chapter: '被拒绝' }])
   })
 
   it('记忆 tags 由 JSON 字符串还原为数组，日期序列化为 ISO 字符串', async () => {

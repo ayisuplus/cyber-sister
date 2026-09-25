@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
-import { createMemory, validateMemoryInput } from './memoryService.js'
+import { createMemory, MAX_PINNED_MEMORIES, validateMemoryInput } from './memoryService.js'
 import { conflict, withMemoryTransaction } from './memoryGovernance.js'
 
 const list = (value) => Array.isArray(value) ? value : []
@@ -27,7 +27,8 @@ async function buildMemoryBundle(userId, database) {
     tags: tags(memory.tags), expiresAt: memory.expiresAt, origin: memory.origin, sources: sources(memory.sources), revision: memory.revision })
   return {
     version: 2,
-    memories: memories.map((memory) => ({ id: memory.portableId, importedAt: memory.importedAt, ...snapshot(memory),
+    // 「放在心上」不是内容的一部分（不升版本），但要随包带走
+    memories: memories.map((memory) => ({ id: memory.portableId, importedAt: memory.importedAt, pinned: memory.pinned === true, ...snapshot(memory),
       revisions: memory.revisions.map((revision) => ({ ...snapshot(revision), action: revision.action,
         confirmedAt: revision.confirmedAt, restoredFrom: revision.restoredFrom, imported: revision.imported })),
     })),
@@ -69,7 +70,7 @@ function normalizeBundle(bundle) {
       || JSON.stringify(revisions.at(-1)?.sources) !== JSON.stringify(memory.sources)) {
       throw new HttpError('历史版本不连续或与当前内容不一致', 400)
     }
-    return { id: item.id, ...memory, revisions }
+    return { id: item.id, ...memory, pinned: item.pinned === true, revisions }
   })
   const edgeIds = new Set()
   for (const edge of bundle.edges) {
@@ -134,8 +135,12 @@ export async function applyMemoryImport(userId, { bundle, selectedIds, selectedE
         mapping.set(memory.id, existing.id)
       } else mapping.set(memory.id, randomUUID())
     }
+    // 放在心上的最多 5 条：包里带着的按顺序放回，放满为止
+    let pinRoom = MAX_PINNED_MEMORIES - await tx.memory.count({ where: { userId, pinned: true } })
     for (const memory of memories.filter((item) => item.state === 'new')) {
       const memoryId = mapping.get(memory.id)
+      const pinned = memory.pinned === true && pinRoom > 0
+      if (pinned) pinRoom--
       const sources = remapSources(memory.sources, mapping, memories)
       // 所有正式写入先经过共同的校验与版本记录入口，再恢复包内历史。
       // eslint-disable-next-line no-await-in-loop
@@ -143,7 +148,7 @@ export async function applyMemoryImport(userId, { bundle, selectedIds, selectedE
         tx, memoryId, portableId: memory.id, action: 'import', trustedSources: true, projectEmbedding: false,
       })
       // eslint-disable-next-line no-await-in-loop
-      await tx.memory.update({ where: { id: memoryId }, data: { revision: memory.revision, origin: memory.origin, expiresAt: memory.expiresAt, importedAt: new Date() } })
+      await tx.memory.update({ where: { id: memoryId }, data: { revision: memory.revision, origin: memory.origin, expiresAt: memory.expiresAt, importedAt: new Date(), ...(pinned ? { pinned: true } : {}) } })
       // eslint-disable-next-line no-await-in-loop
       await tx.memoryRevision.deleteMany({ where: { memoryId } })
       // eslint-disable-next-line no-await-in-loop

@@ -78,10 +78,13 @@ describe('你今天主动对她说过', () => {
     const block = recentNudgesBlock([
       { kind: 'reminder', content: '该喝水啦' },
       { kind: 'letter', content: '这周你们聊了 23 轮……' },
+      { kind: 'letter_earlier', content: '上周那封信' },
     ])
 
     expect(block.content).toContain('到点提醒：该喝水啦')
-    expect(block.content).toContain('这周写给她的信：这周你们聊了 23 轮')
+    expect(block.content).toContain('今天写给她的信：这周你们聊了 23 轮')
+    // 几天前写的信如实说是几天前的，不冒充今天说的
+    expect(block.content).toContain('前几天写给她的信：上周那封信')
   })
 
   it('今天什么都没说就不占上下文', () => {

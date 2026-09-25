@@ -116,6 +116,7 @@ function pushPeriodCard(push, latestPeriod, todayUtc, voice) {
   const action = { to: '/tools/calendar', label: '看看日历' }
   if (until >= 0 && until <= SOON_DAYS) {
     push(10, 'period', latestPeriod.id, {
+      sensitive: 'period',
       title: until === 0 ? '大姨妈可能今天到' : `预计 ${until} 天后来大姨妈`,
       body: voice.periodSoon,
       reason: `${basis}，前后浮动一两天很正常`,
@@ -123,6 +124,7 @@ function pushPeriodCard(push, latestPeriod, todayUtc, voice) {
     })
   } else if (until < 0 && -until <= LATE_DAYS) {
     push(10, 'period-late', latestPeriod.id, {
+      sensitive: 'period',
       title: `比预计晚了 ${-until} 天`,
       body: voice.periodLate,
       reason: `${basis}，还没有新的记录`,

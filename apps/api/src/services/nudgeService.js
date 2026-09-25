@@ -8,13 +8,16 @@
  */
 import { ackDelivery, listDueReminders, listTodaysDeliveries } from './reminderService.js'
 import { dismissTouchpoint, listTodaysCare } from './careService.js'
-import { findLatestLetter, generateDueLetter } from './letterService.js'
+import { findLatestLetter, scheduleDueLetter } from './letterService.js'
 import { listAskedToday, listDueFollowUps, markFollowUpAsked } from './followUpService.js'
+import { localClock } from './contextBlocks.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
 
 const FREQ_LABELS = { once: '一次', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' }
 const MAX_UNPROMPTED_PER_DAY = 3
+// 到日子的信：本地模板一下就写好，这次就能带上；要等云端回想和写信的，不让提醒和便签跟着等
+const LETTER_WAIT_MS = 1500
 
 // task 可以是 promise，也可以是返回 promise 的函数（函数里同步抛出的错误也兜得住）
 const settled = async (label, userId, task, fallback) => {
@@ -44,6 +47,8 @@ const careNudge = (card) => ({
   content: card.title ? `${card.title}\n${card.body}` : card.body,
   reason: card.reason,
   action: card.action ?? null,
+  // 敏感类别（经期）：便签照常给她看；交不交给模型由读取闸口按同意判断
+  ...(card.sensitive ? { sensitive: card.sensitive } : {}),
 })
 
 // 她惦记的事：你之前提过的日子到了，她问一句（只在写信开着时，由 followUpService 判断）
@@ -85,8 +90,9 @@ export async function listNudges(userId, now = new Date()) {
     settled('followup', userId, () => listAskedToday(userId, now), []),
     settled('care', userId, () => listTodaysCare(userId), []),
   ])
-  // 她的来信：到日子才写（沉默期不写），然后取最新那封，没读过才说
-  await settled('letter', userId, generateDueLetter(userId, { now }), null)
+  // 她的来信：到日子才写（沉默期不写），同一个人同时只写一封；只等一小会儿，写不完就下次再说。
+  // 这是只读的拉取：写信在后台跑完，不让到点提醒排在云端调用后面（路线图 C23）
+  await settled('letter', userId, () => waitBriefly(scheduleDueLetter(userId, { now }), LETTER_WAIT_MS), null)
   const letter = await settled('letter', userId, findLatestLetter(userId), null)
 
   return [
@@ -96,9 +102,25 @@ export async function listNudges(userId, now = new Date()) {
   ]
 }
 
+/** 等 task 至多 ms 毫秒：到时还没好就先不等了（task 自己照常跑完）。 */
+function waitBriefly(task, ms) {
+  let timer
+  return Promise.race([task, new Promise((resolve) => { timer = setTimeout(resolve, ms, null) })])
+    .finally(() => clearTimeout(timer))
+}
+
+/** 这封信算不算今天对话里的：今天写的，或者还没读（正压在对话末尾），或者今天才读。 */
+function letterInToday(letter, now) {
+  if (!letter) return false
+  const today = localClock(now).dayKey
+  const sameDay = (value) => value != null && localClock(new Date(value)).dayKey === today
+  return sameDay(letter.createdAt) || letter.readAt == null || sameDay(letter.readAt)
+}
+
 /**
- * 她今天在对话末尾主动说过的话（含已点「知道了」的）和最新那封信——给她自己的上下文用：
- * 你回一句「好的」，她知道你在回哪句。只读：不建投递、不生成信。
+ * 她今天在对话末尾主动说过的话（含已点「知道了」的）和最新那封信，给她自己的上下文用：
+ * 你回一句「好的」，她知道你在回哪句。几天前写的、早就读过的信照样带着，但如实标成「前几天写的」。
+ * 只读：不建投递、不生成信。敏感类别原样带出，交不交给模型由读取闸口判断。
  */
 export async function describeRecentNudges(userId, now = new Date()) {
   const [deliveries, dueFollowUps, askedFollowUps, care, letter] = await Promise.all([
@@ -108,10 +130,13 @@ export async function describeRecentNudges(userId, now = new Date()) {
     settled('care', userId, () => listTodaysCare(userId), []),
     settled('letter', userId, () => findLatestLetter(userId), null),
   ])
+  const letterKind = letterInToday(letter, now) ? 'letter' : 'letter_earlier'
   return [
     ...deliveries.map((delivery) => ({ kind: 'reminder', content: delivery.reminder?.content ?? '到点啦' })),
     // 与对话末尾同一个口径：一天至多三条
-    ...todaysUnprompted({ askedFollowUps, dueFollowUps, care, letter }).map(({ nudge }) => ({ kind: nudge.kind, content: nudge.content })),
+    ...todaysUnprompted({ askedFollowUps, dueFollowUps, care, letter }).map(({ nudge }) => ({
+      kind: nudge.kind === 'letter' ? letterKind : nudge.kind, content: nudge.content, ...(nudge.sensitive ? { sensitive: nudge.sensitive } : {}),
+    })),
   ]
 }
 

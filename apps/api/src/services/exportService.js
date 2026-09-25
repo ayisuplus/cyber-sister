@@ -2,7 +2,8 @@
  * 用户数据导出服务：GET /api/export 的执行体。
  *
  * 「你的记忆归你」的可携带实现：单 JSON 包，含说话方式/显式记忆/对话与消息/日记/安排（含到点记录）/
- * 经期/阅读/工作台派生理解/记忆关系边/每周来信/妆容预设/衣柜单品元数据，全部限当前用户。
+ * 经期/阅读/她整理的理解草稿、记忆关系与惦记的事/前情摘要/页边批注/来信（含建议与处理结果）/妆容预设/衣柜单品元数据，全部限当前用户。
+ * 向量不导出：它们只是派生物，换个地方可以重算（路线图 C23）。
  * 已停用功能的历史照旧导出：角色扮演设定、日程、倒数日、旧提醒开关、手帐打卡、自习记录。
  * 不导出：refresh token（凭据，绝不外发）、危机日志（安全运维数据，非用户内容）、
  * 头像/背景等二进制资产（v1 边界，见用户手册）。
@@ -49,6 +50,7 @@ export async function buildUserExport(userId) {
     letters,
     workTasks,
     scheduledTasks,
+    followUps,
   ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -81,6 +83,8 @@ export async function buildUserExport(userId) {
         archivedAt: true,
         createdAt: true,
         updatedAt: true,
+        summary: true,
+        summaryUpToAt: true,
         messages: {
           orderBy: { createdAt: 'asc' },
           select: { role: true, content: true, emotion: true, source: true, importance: true, toolRuns: true, companionExperience: true, bookNotes: true, imageExt: true, createdAt: true, workArtifacts: { select: { id: true, title: true, format: true, content: true, encoding: true, origin: true, sizeBytes: true, createdAt: true } } },
@@ -181,7 +185,7 @@ export async function buildUserExport(userId) {
     prisma.letter.findMany({
       where: { userId },
       orderBy: { periodStart: 'asc' },
-      select: { periodStart: true, freqDays: true, content: true, createdAt: true },
+      select: { periodStart: true, freqDays: true, content: true, suggestions: true, readAt: true, createdAt: true },
     }),
     prisma.workTask.findMany({
       where: { userId }, orderBy: { createdAt: 'asc' },
@@ -196,6 +200,11 @@ export async function buildUserExport(userId) {
         nextFireAt: true, status: true, createdAt: true, updatedAt: true,
         deliveries: { orderBy: { fireAt: 'asc' }, select: { fireAt: true, status: true, result: true, createdAt: true } },
       },
+    }),
+    prisma.followUp.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { about: true, ask: true, askOn: true, status: true, createdAt: true },
     }),
   ])
 
@@ -237,6 +246,9 @@ export async function buildUserExport(userId) {
       createdAt: iso(c.createdAt),
       updatedAt: iso(c.updatedAt),
       archivedAt: iso(c.archivedAt ?? null),
+      // 前情摘要是她整理的，不是你说的原话
+      summary: c.summary ?? null,
+      summaryUpToAt: iso(c.summaryUpToAt ?? null),
       messages: c.messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -245,6 +257,8 @@ export async function buildUserExport(userId) {
         importance: m.importance,
         toolRuns: m.toolRuns ?? null,
         companionExperience: m.companionExperience ?? null,
+        // 这一段写的时候翻过的书（页边批注）
+        bookNotes: m.bookNotes ?? null,
         workArtifacts: (m.workArtifacts || []).map((artifact) => ({ ...artifact, createdAt: iso(artifact.createdAt) })),
         hasImage: Boolean(m.imageExt),
         createdAt: iso(m.createdAt),
@@ -363,7 +377,12 @@ export async function buildUserExport(userId) {
       status: e.status,
       createdAt: iso(e.createdAt),
     })),
-    letters: letters.map((l) => ({ periodStart: iso(l.periodStart), freqDays: l.freqDays, content: l.content, createdAt: iso(l.createdAt) })),
+    letters: letters.map((l) => ({
+      periodStart: iso(l.periodStart), freqDays: l.freqDays, content: l.content,
+      suggestions: Array.isArray(l.suggestions) ? l.suggestions : [], readAt: iso(l.readAt ?? null), createdAt: iso(l.createdAt),
+    })),
+    // 她惦记的事：她回想时记下、到日子问一句的（她整理的，没经你确认）
+    followUps: followUps.map((f) => ({ about: f.about, ask: f.ask, askOn: iso(f.askOn), status: f.status, createdAt: iso(f.createdAt) })),
   }
 
   logger.info('用户数据导出', {
@@ -383,6 +402,7 @@ export async function buildUserExport(userId) {
     derivedInsights: bundle.derivedInsights.length,
     memoryEdges: bundle.memoryEdges.length,
     letters: bundle.letters.length,
+    followUps: bundle.followUps.length,
   })
   return bundle
 }

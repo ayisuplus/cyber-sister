@@ -9,8 +9,11 @@ import logger from '../utils/logger.js'
 // 本服务只消费 id 集合，无附加 UI 文案字段。
 import { VALID_PERSONA_IDS } from '../../../../packages/llm-gateway/src/personas.js'
 
+import { EXTERNAL_LLM_CONSENT_VERSION } from './consents.js'
+
+// 同意门的唯一来源在 consents.js；这里转出，老调用方不用改
+export { EXTERNAL_LLM_CONSENT_VERSION, loadExternalConsent } from './consents.js'
 export const PERSONAS = [...VALID_PERSONA_IDS]
-export const EXTERNAL_LLM_CONSENT_VERSION = 'cloud-primary-v4'
 
 export async function getProfile(userId) {
   const user = await prisma.user.findUnique({
@@ -148,26 +151,4 @@ export async function updateExternalLlmConsent(userId, accepted) {
 
   logger.info('外部模型同意状态更新', { userId, accepted, version: EXTERNAL_LLM_CONSENT_VERSION })
   return { accepted, version: EXTERNAL_LLM_CONSENT_VERSION, updatedAt }
-}
-
-/** 与记忆候选/写信同款的同意装配：allowExternal + authorizeExternal 动态复查（同意门是所有云端调用的前置）。 */
-export async function loadExternalConsent(userId) {
-  const consent = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-  })
-  const allowExternal = consent?.externalLlmConsent === true
-    && consent.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-  let authorizeExternal
-  if (allowExternal) {
-    authorizeExternal = async () => {
-      const current = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { externalLlmConsent: true, externalLlmConsentVersion: true },
-      })
-      return current?.externalLlmConsent === true
-        && current.externalLlmConsentVersion === EXTERNAL_LLM_CONSENT_VERSION
-    }
-  }
-  return { allowExternal, authorizeExternal }
 }

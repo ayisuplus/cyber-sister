@@ -5,6 +5,8 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
+import { liveMemoryWhere } from './memory/scopes.js'
+import { normalizeKey } from '../utils/normalizeKey.js'
 import { embedMemory } from './embeddingService.js'
 import { assertRevision, withMemoryTransaction, ownedMemory, validateSources, recordRevision, invalidateMemoryDependencies } from './memoryGovernance.js'
 
@@ -118,10 +120,9 @@ export async function createMemory(userId, {
       references = [{ type: 'message', id: source.id, quote: source.content.slice(0, 2000) }]
     }
     references = trustedSources ? references : await validateSources(database, userId, references)
-    const normalize = (value) => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
     if (deduplicate) {
       const candidates = await database.memory.findMany({ where: { userId } })
-      const existing = candidates.find((candidate) => candidate.type === type && normalize(candidate.content) === normalize(content)
+      const existing = candidates.find((candidate) => candidate.type === type && normalizeKey(candidate.content) === normalizeKey(content)
         && (!candidate.expiresAt || new Date(candidate.expiresAt) > new Date()))
       if (existing) {
         const updated = await database.memory.update({ where: { id: existing.id }, data: {
@@ -161,10 +162,11 @@ export async function createMemory(userId, {
   return formatMemory(memory)
 }
 
-export async function listMemories(userId, { type, page = 1, limit = 20 } = {}) {
+/** liveOnly：只列未过期的（给她的工具用，与聊天同一个口径）；界面上列全部，那是你自己的数据。 */
+export async function listMemories(userId, { type, page = 1, limit = 20, liveOnly = false } = {}) {
   const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1
   const normalizedLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20
-  const where = { userId }
+  const where = liveOnly ? liveMemoryWhere(userId) : { userId }
 
   if (type !== undefined && type !== '') {
     where.type = validateType(type)
