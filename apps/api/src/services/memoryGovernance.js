@@ -1,5 +1,6 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
+import { markStaleForMemory } from './memory/inferenceService.js'
 
 export function conflict(message = '内容已经变化，请刷新后核对再保存') {
   const error = new HttpError(message, 409)
@@ -66,14 +67,11 @@ export function recordRevision(tx, memory, action, restoredFrom = null) {
   } })
 }
 
+/**
+ * 这条根的意思变了：向量作废待重算；她靠旧说法整理出的关系与理解一并作废（路线图 C23：
+ * 你已经纠正过了，旧推断不再进聊天、也不再进信）。
+ */
 export async function invalidateMemoryDependencies(tx, userId, memoryId) {
   await tx.memoryProjection.deleteMany({ where: { memoryId } })
-  await tx.memoryEdge.updateMany({
-    where: { userId, status: { in: ['canonical', 'derived'] }, OR: [{ fromMemoryId: memoryId }, { toMemoryId: memoryId }] },
-    data: { status: 'needs_review', revision: { increment: 1 } },
-  })
-  await tx.derivedInsight.updateMany({
-    where: { userId, status: 'active', sourceMemoryIds: { has: memoryId } },
-    data: { status: 'needs_review', revision: { increment: 1 } },
-  })
+  await markStaleForMemory(tx, userId, memoryId)
 }

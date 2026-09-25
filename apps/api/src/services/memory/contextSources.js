@@ -9,6 +9,7 @@ import { describeRecentNudges } from '../nudgeService.js'
 import { loadCompanionInputs } from '../companionService.js'
 import { artifactMetadataFields } from '../workArtifactService.js'
 import { liveMemoryWhere } from './scopes.js'
+import { listActiveInferences } from './inferenceService.js'
 
 /** 聊天历史原样带多少条；更早的并进前情摘要。 */
 export const HISTORY_MESSAGES = 19
@@ -21,7 +22,7 @@ export const HISTORY_MESSAGES = 19
 export const CONTEXT_SOURCES = Object.freeze({
   pinnedMemories: { layer: 'root', purposes: ['chat'], consent: ['cloud'], cap: '最多 5 条，未过期', label: '【关于她】她希望你一直记着' },
   relevantMemories: { layer: 'root', purposes: ['chat', 'reflection', 'letter'], consent: ['cloud'], cap: '相关的最多 5 条，未过期', label: '【不可信用户记忆数据】' },
-  memoryRelations: { layer: 'organization', purposes: ['chat'], consent: ['cloud'], cap: '每条根最多 2 条', label: '一跳联想' },
+  associations: { layer: 'organization', purposes: ['chat', 'letter'], consent: ['cloud'], cap: '只取有效的；挂在本轮选中的根上，每条根最多 2 条关系，理解最多 2 条', label: '【她自己的联想】没经她确认，不当事实' },
   summary: { layer: 'organization', purposes: ['chat'], consent: ['cloud'], cap: '1200 字', label: '【前情摘要】以用户当前陈述为准' },
   recentNudges: { layer: 'organization', purposes: ['chat'], consent: ['cloud'], sensitive: { period: ['periodTone'] }, cap: '主动说的至多 3 条；信只在今天写的、还没读或今天读的才算', label: '【你今天主动对她说过】' },
   companionInputs: { layer: 'record', purposes: ['chat'], consent: ['cloud'], sensitive: { period: ['periodTone'] }, cap: '最近两天的手记心情；经期只给阶段', label: '只调分寸，不写原文' },
@@ -49,11 +50,11 @@ export async function loadRecentNudges(userId, consents, now = new Date()) {
 }
 
 /**
- * 聊天这一轮要读的全部来源。memories 是全部未过期的记忆（检索在 llmService 里做），
- * pinned 另行每轮都带；关系只取两端都还在、版本都对得上的。
+ * 聊天这一轮要读的全部来源。memories 是全部未过期的记忆（检索在 llmService 里做），pinned 另行每轮都带。
+ * 她的组织层只取有效的：关系要两端的根都还在；理解只带以根为依据的（挂在本轮选中的根上，由 llmService 挑）。
  */
 export async function loadChatSources({ userId, user, consents, conversationId, now = new Date() }) {
-  const [descendingHistory, allMemories, canonicalEdges, recentNudges, companionInputs] = await Promise.all([
+  const [descendingHistory, allMemories, inferences, recentNudges, companionInputs] = await Promise.all([
     // 数据库按倒序只取最近几条，调用方再恢复成旧到新；当前消息由 llmService 追加一次
     prisma.message.findMany({
       where: { conversationId },
@@ -66,10 +67,7 @@ export async function loadChatSources({ userId, user, consents, conversationId, 
       orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
       select: { id: true, revision: true, content: true, type: true, importance: true, tags: true, pinned: true, projection: true, sources: true },
     }),
-    prisma.memoryEdge.findMany({
-      where: { userId, status: 'canonical' },
-      select: { fromMemoryId: true, toMemoryId: true, fromRevision: true, toRevision: true, relation: true },
-    }),
+    listActiveInferences(userId, { kinds: ['relation', 'insight'], now }),
     loadRecentNudges(userId, consents, now),
     // 这一轮分寸要用的：最近的手记心情，以及（两项经期同意都开时）是否在经期
     loadCompanionInputs(userId, user, now),
@@ -78,14 +76,19 @@ export async function loadChatSources({ userId, user, consents, conversationId, 
   const pinned = allMemories.filter((memory) => memory.pinned)
   const memories = allMemories.filter((memory) => !memory.pinned)
 
-  // 一跳联想：边 join 上记忆内容；边引用已过期或版本对不上的记忆即丢弃
+  // 一跳联想：关系 join 上两端记忆的内容；任一端已过期就不带（作废的关系已经不在有效里）
   const byId = new Map(allMemories.map((memory) => [memory.id, memory]))
   const memoryEdges = []
-  for (const edge of canonicalEdges) {
-    const from = byId.get(edge.fromMemoryId)
-    const to = byId.get(edge.toMemoryId)
-    if (!from || !to || from.revision !== edge.fromRevision || to.revision !== edge.toRevision) continue
-    memoryEdges.push({ fromMemoryId: edge.fromMemoryId, toMemoryId: edge.toMemoryId, fromContent: from.content, toContent: to.content, relation: edge.relation })
+  const herInsights = []
+  for (const row of inferences) {
+    if (row.kind === 'relation') {
+      const from = byId.get(row.payload?.fromMemoryId)
+      const to = byId.get(row.payload?.toMemoryId)
+      if (!from || !to) continue
+      memoryEdges.push({ fromMemoryId: from.id, toMemoryId: to.id, fromContent: from.content, toContent: to.content, relation: row.payload.relation })
+    } else if (row.basisMemoryIds?.some((id) => byId.has(id))) {
+      herInsights.push({ content: row.content, memoryIds: row.basisMemoryIds.filter((id) => byId.has(id)) })
+    }
   }
-  return { descendingHistory, pinned, memories, memoryEdges, recentNudges, companionInputs }
+  return { descendingHistory, pinned, memories, memoryEdges, herInsights, recentNudges, companionInputs }
 }

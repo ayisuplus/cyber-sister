@@ -4,8 +4,7 @@ const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   messageFindMany: vi.fn(),
   memoryFindMany: vi.fn(),
-  derivedFindMany: vi.fn(),
-  derivedCreateMany: vi.fn(),
+  saveInferences: vi.fn(),
   getGateway: vi.fn(),
   gatewayComplete: vi.fn(),
   deriveEdges: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock('../prisma/client.js', () => {
     message: { findMany: mocks.messageFindMany,
       findFirst: vi.fn(async () => ({ id: 'msg-source', role: 'user', content: 'synthetic source' })) },
     memory: { findMany: mocks.memoryFindMany },
-    derivedInsight: { findMany: mocks.derivedFindMany, createMany: mocks.derivedCreateMany },
     diaryEntry: { findMany: mocks.diaryFindMany, findFirst: mocks.diaryFindFirst },
     readingNote: { findMany: mocks.readingNoteFindMany },
     scheduledReminder: { findMany: mocks.reminderFindMany },
@@ -49,6 +47,7 @@ vi.mock('./llmService.js', async (importOriginal) => {
   }
 })
 vi.mock('./edgeService.js', () => ({ deriveEdges: mocks.deriveEdges }))
+vi.mock('./memory/inferenceService.js', () => ({ INSIGHT_TTL_DAYS: 30, saveInferences: mocks.saveInferences }))
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -81,8 +80,7 @@ beforeEach(() => {
   mocks.userFindUnique.mockResolvedValue({ memoryEpoch: 0, persona: 'gentle' })
   mocks.messageFindMany.mockResolvedValue([])
   mocks.memoryFindMany.mockResolvedValue([])
-  mocks.derivedFindMany.mockResolvedValue([])
-  mocks.derivedCreateMany.mockResolvedValue({ count: 1 })
+  mocks.saveInferences.mockImplementation((_userId, items) => Promise.resolve({ created: items.length, revived: 0, skipped: 0 }))
   mocks.diaryFindMany.mockResolvedValue([])
   mocks.diaryFindFirst.mockResolvedValue(null)
   mocks.readingNoteFindMany.mockResolvedValue([])
@@ -93,14 +91,17 @@ beforeEach(() => {
   mocks.deriveEdges.mockResolvedValue({ created: 2, skipped: 0 })
 })
 
-describe('工作台：解析与候选校验', () => {
+/** 这次存进她组织层的理解（第 1 次调用的第 2 个参数）。 */
+const savedInsights = () => mocks.saveInferences.mock.calls[0]?.[1] ?? []
+
+describe('回想：解析与候选校验', () => {
   it('模型输出非 JSON 时按无候选处理（created 0 / skipped 0）', async () => {
     mocks.gatewayComplete.mockResolvedValue({ content: '这不是 JSON，抱歉', provider: 'qwen', model: 'm' })
 
     const result = await think()
 
     expect(result).toEqual({ created: 0, skipped: 0 })
-    expect(mocks.derivedCreateMany).not.toHaveBeenCalled()
+    expect(mocks.saveInferences).not.toHaveBeenCalled()
   })
 
   it('空数组输出时不落库', async () => {
@@ -109,7 +110,7 @@ describe('工作台：解析与候选校验', () => {
     const result = await think()
 
     expect(result).toEqual({ created: 0, skipped: 0, edgesCreated: 2, followUpsCreated: 0 })
-    expect(mocks.derivedCreateMany).not.toHaveBeenCalled()
+    expect(mocks.saveInferences).not.toHaveBeenCalled()
   })
 
   it('非法 kind/confidence/超长 content 计入 skipped，合法项落库且非法 evidence 置空', async () => {
@@ -123,16 +124,14 @@ describe('工作台：解析与候选校验', () => {
     const result = await think()
 
     expect(result).toEqual({ created: 1, skipped: 3, edgesCreated: 2, followUpsCreated: 0 })
-    expect(mocks.derivedCreateMany).toHaveBeenCalledWith({
-      data: [{
-        userId: USER_ID,
-        kind: 'summary',
-        content: '她最近在准备面试',
-        evidence: '[]',
-        sources: [], sourceMemoryIds: [],
-        confidence: 'high',
-      }],
-    })
+    // 存进她的组织层（不是记忆）：30 天后过期，依据为空的也照存，只是不会挂到根上
+    expect(mocks.saveInferences).toHaveBeenCalledWith(USER_ID, [{
+      kind: 'insight',
+      content: '她最近在准备面试',
+      payload: { category: 'summary', confidence: 'high' },
+      basis: [], basisMemoryIds: [],
+      expiresAt: expect.any(Date),
+    }], { producedBy: expect.stringMatching(/^reflection:/), database: expect.anything() })
   })
 
   it('命中敏感占位符或医疗模式的候选被丢弃', async () => {
@@ -147,20 +146,19 @@ describe('工作台：解析与候选校验', () => {
     expect(result).toEqual({ created: 1, skipped: 2, edgesCreated: 2, followUpsCreated: 0 })
   })
 
-  it('与 active 既有条目规范化去重，批量内重复同样计入 skipped', async () => {
-    mocks.derivedFindMany.mockResolvedValue([{ content: '她习惯深夜学习' }])
+  it('同一批里规范化去重；和已有条目（包括你删掉的）的去重交给组织层的去重键', async () => {
     modelOutput([
       { kind: 'pattern', content: '  她习惯深夜学习 ', confidence: 'medium' },
       { kind: 'summary', content: '她习惯深夜学习', confidence: 'high' },
       { kind: 'summary', content: '她这周睡得不错', confidence: 'medium' },
     ])
+    // 组织层说：「她习惯深夜学习」已经有了（或被你删过），只新存了一条
+    mocks.saveInferences.mockResolvedValue({ created: 1, revived: 0, skipped: 1 })
 
     const result = await think()
 
-    expect(result).toEqual({ created: 1, skipped: 2, edgesCreated: 2, followUpsCreated: 0 })
-    expect(mocks.derivedCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ content: '她这周睡得不错' })],
-    })
+    expect(savedInsights().map((item) => item.content)).toEqual(['她习惯深夜学习', '她这周睡得不错'])
+    expect(result).toEqual({ created: 1, skipped: 1, edgesCreated: 2, followUpsCreated: 0 })
   })
 
   it('危机消息不进入分析输入', async () => {
@@ -189,13 +187,10 @@ describe('工作台：解析与候选校验', () => {
 
     expect(result.created).toBe(1)
     expect(mocks.gatewayComplete.mock.calls[0][0].messages[0].content).toContain('【手记 2026-09-20】')
-    expect(mocks.derivedCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({
-        evidence: '["把展览方案定了下来"]',
-        sources: [{ type: 'diary', id: 'd1', quote: '把展览方案定了下来', status: 'verified' }],
-        sourceMemoryIds: [],
-      })],
-    })
+    expect(savedInsights()).toEqual([expect.objectContaining({
+      basis: [{ type: 'diary', id: 'd1', quote: '把展览方案定了下来', status: 'verified' }],
+      basisMemoryIds: [],
+    })])
   })
 
   it('含医疗内容的痕迹不进回想素材', async () => {
@@ -212,7 +207,7 @@ describe('工作台：解析与候选校验', () => {
   })
 })
 
-describe('工作台：记忆关系派生挂接', () => {
+describe('回想：顺带整理记忆之间的关系', () => {
   it('分析成功后以同款同意装配调用 deriveEdges，返回带 edgesCreated', async () => {
     const result = await think()
 
@@ -268,36 +263,55 @@ describe('回想写得像她，并记下惦记的事', () => {
     expect(prompt).toContain('用她选的说话方式写（安静')
   })
 
-  it('惦记的事单独交给 followUpService，不进草稿', async () => {
+  it('惦记的事单独交给 followUpService，依据是她说过的原话', async () => {
+    mocks.messageFindMany.mockResolvedValue([{ id: 'msg-9', role: 'user', content: '周三要答辩了，好紧张' }])
     modelOutput([
       VALID_INSIGHT,
-      { kind: 'followup', about: '周三答辩', ask: '答辩怎么样了？', askOn: '2026-09-24' },
+      { kind: 'followup', about: '周三答辩', ask: '答辩怎么样了？', askOn: '2026-09-24', evidence: '周三要答辩了' },
     ])
 
     const result = await thinkOn()
 
     expect(mocks.saveFollowUps).toHaveBeenCalledWith(USER_ID, [
-      { about: '周三答辩', ask: '答辩怎么样了？', askOn: new Date('2026-09-24T00:00:00.000Z') },
-    ])
-    expect(mocks.derivedCreateMany.mock.calls[0][0].data.map((item) => item.kind)).toEqual(['pattern'])
+      { about: '周三答辩', ask: '答辩怎么样了？', askOn: new Date('2026-09-24T00:00:00.000Z'), basis: [{ type: 'message', id: 'msg-9', quote: '周三要答辩了' }] },
+    ], { producedBy: expect.stringMatching(/^reflection:/), database: expect.anything() })
+    expect(savedInsights().map((item) => item.payload.category)).toEqual(['pattern'])
     expect(result).toMatchObject({ created: 1, followUpsCreated: 1 })
   })
 
-  it('日子不在明天到 30 天内、格式不对、太长或含敏感内容的都丢掉', async () => {
+  it('Amie 自己提的事、找不到原话的，都不能变成她惦记的事（路线图 C23）', async () => {
+    mocks.messageFindMany.mockResolvedValue([
+      { id: 'msg-2', role: 'assistant', content: '要不周五去医院看看？' },
+      { id: 'msg-1', role: 'user', content: '最近总是睡不好' },
+    ])
     modelOutput([
-      { kind: 'followup', about: '今天的事', ask: '怎么样了？', askOn: '2026-09-21' },
-      { kind: 'followup', about: '明年的事', ask: '怎么样了？', askOn: '2026-12-31' },
-      { kind: 'followup', about: '日期写错', ask: '怎么样了？', askOn: '下周三' },
-      { kind: 'followup', about: '长'.repeat(41), ask: '怎么样了？', askOn: '2026-09-24' },
-      { kind: 'followup', about: '去医院复查抑郁症', ask: '复查怎么样？', askOn: '2026-09-24' },
-      { kind: 'followup', about: '周五面试', ask: '面试顺利吗？', askOn: '2026-09-26' },
+      { kind: 'followup', about: '周五看医生', ask: '去看了吗？', askOn: '2026-09-26', evidence: '周五去医院看看' },
+      { kind: 'followup', about: '周六见面', ask: '见到了吗？', askOn: '2026-09-27', evidence: '周六要见朋友' },
+      { kind: 'followup', about: '周日搬家', ask: '搬完了吗？', askOn: '2026-09-28' },
+    ])
+
+    await thinkOn()
+
+    expect(mocks.saveFollowUps).not.toHaveBeenCalled()
+  })
+
+  it('日子不在明天到 30 天内、格式不对、太长或含敏感内容的都丢掉', async () => {
+    mocks.messageFindMany.mockResolvedValue([{ id: 'msg-1', role: 'user', content: '这周事好多：周五面试' }])
+    const said = { evidence: '周五面试' }
+    modelOutput([
+      { kind: 'followup', about: '今天的事', ask: '怎么样了？', askOn: '2026-09-21', ...said },
+      { kind: 'followup', about: '明年的事', ask: '怎么样了？', askOn: '2026-12-31', ...said },
+      { kind: 'followup', about: '日期写错', ask: '怎么样了？', askOn: '下周三', ...said },
+      { kind: 'followup', about: '长'.repeat(41), ask: '怎么样了？', askOn: '2026-09-24', ...said },
+      { kind: 'followup', about: '去医院复查抑郁症', ask: '复查怎么样？', askOn: '2026-09-24', ...said },
+      { kind: 'followup', about: '周五面试', ask: '面试顺利吗？', askOn: '2026-09-26', ...said },
     ])
 
     await thinkOn()
 
     expect(mocks.saveFollowUps).toHaveBeenCalledWith(USER_ID, [
-      { about: '周五面试', ask: '面试顺利吗？', askOn: new Date('2026-09-26T00:00:00.000Z') },
-    ])
+      { about: '周五面试', ask: '面试顺利吗？', askOn: new Date('2026-09-26T00:00:00.000Z'), basis: [{ type: 'message', id: 'msg-1', quote: '周五面试' }] },
+    ], expect.anything())
   })
 
   it('没有惦记的事就不去碰存储', async () => {

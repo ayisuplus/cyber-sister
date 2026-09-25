@@ -16,7 +16,7 @@ vi.mock('../../src/prisma/client.js', () => {
   const client = {
     memoryRevision: { create: async () => ({}), findMany: async () => [] },
     memoryProjection: { deleteMany: async () => ({}), updateMany: async () => ({}) },
-    memoryEdge: { updateMany: async () => ({}) },
+    inference: { updateMany: async () => ({}), deleteMany: async () => ({}) },
     memoryIndexJob: { updateMany: async () => ({}) },
     derivedInsight: { updateMany: async () => ({}), deleteMany: async () => ({}) },
     user: {

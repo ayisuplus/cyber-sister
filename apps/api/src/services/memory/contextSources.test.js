@@ -16,7 +16,7 @@ vi.mock('../../prisma/client.js', () => ({
     careDismissal: { findMany: vi.fn(() => Promise.resolve([])) },
     message: { findMany: vi.fn(() => Promise.resolve([])) },
     memory: { findMany: vi.fn(() => Promise.resolve([])) },
-    memoryEdge: { findMany: vi.fn(() => Promise.resolve([])) },
+    inference: { findMany: vi.fn(() => Promise.resolve([])) },
   },
 }))
 // 其余几处来源与这里无关：到点提醒、惦记的事、来信都当作今天没有

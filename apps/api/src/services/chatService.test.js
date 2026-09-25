@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
   periodFindFirst: vi.fn(() => Promise.resolve(null)),
   describeRecentNudges: vi.fn(() => Promise.resolve([])),
   memoryFindMany: vi.fn(),
-  memoryEdgeFindMany: vi.fn(),
+  inferenceFindMany: vi.fn(() => Promise.resolve([])),
   derivedInsightFindMany: vi.fn(),
   crisisCreate: vi.fn(),
   transaction: vi.fn(),
@@ -66,7 +66,7 @@ vi.mock('../prisma/client.js', () => {
       periodRecord: { findFirst: mocks.periodFindFirst },
       crisisLog: { create: mocks.crisisCreate },
       memory: { findMany: mocks.memoryFindMany },
-      memoryEdge: { findMany: mocks.memoryEdgeFindMany },
+      inference: { findMany: mocks.inferenceFindMany },
       derivedInsight: { findMany: mocks.derivedInsightFindMany },
       $transaction: mocks.transaction.mockImplementation((callback) => callback(tx)),
     },
@@ -300,7 +300,7 @@ describe('chatService.sendMessage', () => {
     mocks.detectCrisis.mockReturnValue(null)
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
@@ -329,7 +329,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -345,7 +345,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -376,6 +376,7 @@ describe('chatService.sendMessage', () => {
       agent: true,
       queryEmbedding: null,
       memoryEdges: [],
+      herInsights: [],
     })
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -640,25 +641,29 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateResponse.mock.calls[0][5].queryEmbedding).toEqual([0.1, 0.2, 0.3])
   })
 
-  it('canonical 边 join 当前记忆集内容注入 memoryEdges；引用集外记忆的边丢弃', async () => {
+  it('她的组织层：有效的关系 join 当前记忆内容，一端不在的丢弃；理解只带以根为依据的（路线图 C23）', async () => {
     mocks.memoryFindMany.mockResolvedValue([
       { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', revision: 1, projection: null },
       { id: 'm2', content: '每周五吃火锅', type: 'episodic', importance: 4, tags: '[]', revision: 1, projection: null },
     ])
-    mocks.memoryEdgeFindMany.mockResolvedValue([
-      { fromMemoryId: 'm1', toMemoryId: 'm2', fromRevision: 1, toRevision: 1, relation: 'related' },
-      { fromMemoryId: 'm1', toMemoryId: 'gone' },
+    mocks.inferenceFindMany.mockResolvedValue([
+      { id: 'r1', kind: 'relation', content: '「喜欢火锅」与「每周五吃火锅」有关', payload: { fromMemoryId: 'm1', toMemoryId: 'm2', relation: 'related' }, basisMemoryIds: ['m1', 'm2'] },
+      { id: 'r2', kind: 'relation', content: '一端已经不在', payload: { fromMemoryId: 'm1', toMemoryId: 'gone', relation: 'similar' }, basisMemoryIds: ['m1', 'gone'] },
+      { id: 'i1', kind: 'insight', content: '你一累就想吃火锅', payload: { category: 'pattern' }, basisMemoryIds: ['m1'] },
+      { id: 'i2', kind: 'insight', content: '只靠聊天推出来的', payload: { category: 'summary' }, basisMemoryIds: [] },
     ])
 
     await sendMessage('conversation-1', 'user-1', '你好')
 
-    expect(mocks.memoryEdgeFindMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', status: 'canonical' },
-      select: { fromMemoryId: true, toMemoryId: true, fromRevision: true, toRevision: true, relation: true },
-    })
-    expect(mocks.generateResponse.mock.calls[0][5].memoryEdges).toEqual([
+    // 只读有效、没过期的关系与理解
+    expect(mocks.inferenceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: 'user-1', status: 'active', kind: { in: ['relation', 'insight'] } }),
+    }))
+    const options = mocks.generateResponse.mock.calls[0][5]
+    expect(options.memoryEdges).toEqual([
       { fromMemoryId: 'm1', toMemoryId: 'm2', fromContent: '喜欢火锅', toContent: '每周五吃火锅', relation: 'related' },
     ])
+    expect(options.herInsights).toEqual([{ content: '你一累就想吃火锅', memoryIds: ['m1'] }])
   })
 })
 
@@ -694,7 +699,7 @@ describe('chatService.sendMessageStream', () => {
     mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
@@ -793,7 +798,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], herInsights: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
   })
 
@@ -894,7 +899,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })
@@ -922,7 +927,7 @@ describe('chatService 智能体工具回路', () => {
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.derivedInsightFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.detectCrisis.mockReturnValue(null)
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
@@ -1059,7 +1064,7 @@ describe('chatService 图片消息', () => {
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.derivedInsightFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
       id: data.role === 'user' ? 'user-message' : 'ai-message',
@@ -1180,7 +1185,7 @@ describe('chatService 滚动摘要', () => {
     })
     mocks.detectCrisis.mockReturnValue(null)
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
@@ -1395,7 +1400,7 @@ describe('伴读问答：书里的原文作为资料进上下文', () => {
     mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
@@ -1471,7 +1476,7 @@ describe('危机小心模式：中级线索不拦她的回应', () => {
     mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
@@ -1568,7 +1573,7 @@ describe('页边批注：她写这一段时翻过的书', () => {
     mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
@@ -1675,7 +1680,7 @@ describe('她认得你：每轮都在的上下文', () => {
       { id: 'pinned-1', revision: 1, content: '我对芒果过敏', type: 'semantic', importance: 5, tags: null, pinned: true },
       { id: 'plain-1', revision: 1, content: '喜欢下雨天', type: 'semantic', importance: 5, tags: null, pinned: false },
     ])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.retrieveRelevantMemories.mockReturnValue([])
     mocks.describeRecentNudges.mockResolvedValue([{ kind: 'reminder', content: '该喝水啦' }])
@@ -1772,7 +1777,7 @@ describe('「懂你」检验集（冻结）', () => {
     mocks.detectCrisis.mockReturnValue(null)
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.memoryEdgeFindMany.mockResolvedValue([])
+    mocks.inferenceFindMany.mockResolvedValue([])
     mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.retrieveRelevantMemories.mockReturnValue([])

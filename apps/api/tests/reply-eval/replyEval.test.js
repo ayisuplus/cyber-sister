@@ -43,7 +43,8 @@ vi.mock('../../src/prisma/client.js', () => {
       },
       message: { findMany: async () => h.messages, count: async () => 0 },
       memory: { findMany: async () => h.memories },
-      memoryEdge: { findMany: async () => [] },
+      // 她的组织层：评测场景里没有她自己整理的联想，上下文与以前没有关系时逐字一致
+      inference: { findMany: async () => [] },
       // 评测里她没往书架上传过书（也没有查询向量），聊天时只翻内置书
       book: { findMany: async () => [], findFirst: async () => null },
       bookPassage: { findMany: async () => [] },

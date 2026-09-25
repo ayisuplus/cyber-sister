@@ -22,7 +22,8 @@ vi.mock('../prisma/client.js', () => {
     user: { update: vi.fn() },
     memoryRevision: { create: vi.fn(), findMany: vi.fn(async () => []) },
     memoryProjection: { updateMany: vi.fn(), deleteMany: vi.fn() },
-    memoryEdge: { updateMany: vi.fn() },
+    // 她的组织层：根被改就作废、被删就一起删（路线图 C23）
+    inference: { updateMany: vi.fn(), deleteMany: vi.fn() },
     memoryIndexJob: { updateMany: vi.fn() },
     derivedInsight: { updateMany: vi.fn(), deleteMany: vi.fn() },
     diaryEntry: { findFirst: db.diaryEntryFindFirst },

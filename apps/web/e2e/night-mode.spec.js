@@ -57,6 +57,8 @@ test.beforeEach(async ({ page }) => {
       '/api/work/tasks': { tasks: [] },
       '/api/user/companion': { revision: 2, state: { protection: { mode: 'open' }, experienceCount: 6, learning: { brevity: 0.5, samples: 3 } } },
       '/api/memories': { data: [{ id: 'night-memory', type: 'semantic', content: '睡前喜欢听雨声', importance: 6, tags: ['睡眠'], revision: 1, createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z' }], total: 1, page: 1, limit: 20 },
+      // 「她猜的」在夜里也要看得清（虚线卡片、依据小字）
+      '/api/memories/inferences': { items: [{ id: 'night-guess', kind: 'followup', content: '答辩怎么样了？', because: ['周三要答辩了'], dueOn: '2026-09-24', createdAt: '2026-09-20T00:00:00.000Z' }] },
       '/api/memories/index-jobs/latest': null,
       '/api/letters': { letters: [letter] },
       '/api/diary': [],

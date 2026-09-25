@@ -336,7 +336,7 @@ describe('llmService 数据最小化', () => {
     expect(retrieveRelevantMemories('火锅好吃吗', keywordMemories, [1, 0]).map((m) => m.id)).toEqual(['1'])
   })
 
-  it('buildMemoryContext：canonical 边带出最多 2 条一跳关联并截断，无邻居不加 related 键', () => {
+  it('buildMemoryContext：她自己的联想单独成块、标明不当事实，一跳关系每条根最多 2 条并截断（路线图 C23）', () => {
     const longNeighbor = '邻'.repeat(300)
     const context = buildMemoryContext(
       [
@@ -348,16 +348,29 @@ describe('llmService 数据最小化', () => {
         { fromMemoryId: 'x', toMemoryId: 'a', fromContent: longNeighbor, toContent: '喜欢火锅', relation: 'contradicts' },
         { fromMemoryId: 'y', toMemoryId: 'z', fromContent: '无关一', toContent: '无关二' },
       ],
+      [
+        { content: '你一累就想吃火锅', memoryIds: ['a'] },
+        { content: '挂在没选中的根上', memoryIds: ['q'] },
+      ],
     )
-    expect(context).toContain('"related":[{"relation":"similar","content":"周五聚餐"}')
-    expect(context).toContain('"relation":"contradicts"')
+    const [roots, associations] = context.split('【她自己的联想】')
+    // 根里只有她确认过的记忆，不混进她的联想
+    expect(roots).toContain('"content":"喜欢火锅"')
+    expect(roots).not.toContain('related')
+    expect(roots).not.toContain('你一累就想吃火锅')
+    // 她的联想单独一块，标明没经她确认、不是事实
+    expect(associations).toContain('没经她确认，不是事实')
+    expect(associations).toContain('- 关系：「喜欢火锅」与「周五聚餐」说的可能是一回事')
+    expect(associations).toContain('好像互相矛盾（请并列说明并求证')
+    expect(associations).toContain('- 你的猜测：你一累就想吃火锅')
+    expect(associations).not.toContain('挂在没选中的根上')
+    expect(associations).not.toContain('无关一')
     // 每条关联按 MAX_MEMORY_CHARS=240 截断
     expect(context).not.toContain(longNeighbor)
-    // b 通过 a 的边反向带出 fromContent
-    expect(context).toContain('"related":[{"relation":"similar","content":"喜欢火锅"}]')
+    expect(context).toContain('【她自己的联想结束】')
 
-    const noEdges = buildMemoryContext([{ id: 'a', type: 'semantic', content: '喜欢火锅' }])
-    expect(noEdges).not.toContain('related')
+    const noAssociations = buildMemoryContext([{ id: 'a', type: 'semantic', content: '喜欢火锅' }])
+    expect(noAssociations).not.toContain('她自己的联想')
   })
 })
 

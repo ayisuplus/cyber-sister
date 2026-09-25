@@ -2,7 +2,7 @@
  * 用户数据导出服务：GET /api/export 的执行体。
  *
  * 「你的记忆归你」的可携带实现：单 JSON 包，含说话方式/显式记忆/对话与消息/日记/安排（含到点记录）/
- * 经期/阅读/她整理的理解草稿、记忆关系与惦记的事/前情摘要/页边批注/来信（含建议与处理结果）/妆容预设/衣柜单品元数据，全部限当前用户。
+ * 经期/阅读/她整理的（记忆之间的关系、对你的理解、惦记的事）/前情摘要/页边批注/来信（含建议与处理结果）/妆容预设/衣柜单品元数据，全部限当前用户。
  * 向量不导出：它们只是派生物，换个地方可以重算（路线图 C23）。
  * 已停用功能的历史照旧导出：角色扮演设定、日程、倒数日、旧提醒开关、手帐打卡、自习记录。
  * 不导出：refresh token（凭据，绝不外发）、危机日志（安全运维数据，非用户内容）、
@@ -29,6 +29,14 @@ function parseTags(tags) {
   }
 }
 
+/** 组织层各类的细节（去掉内部 id）：关系是哪一种、理解属于哪一类、惦记的是哪件事。 */
+function inferenceDetail({ kind, payload }) {
+  const detail = payload && typeof payload === 'object' ? payload : {}
+  if (kind === 'relation') return { relation: detail.relation ?? null, confidence: detail.confidence ?? null }
+  if (kind === 'followup') return { about: detail.about ?? null, ask: detail.ask ?? null }
+  return { category: detail.category ?? null, confidence: detail.confidence ?? null }
+}
+
 export async function buildUserExport(userId) {
   const [
     user,
@@ -42,15 +50,13 @@ export async function buildUserExport(userId) {
     habits,
     books,
     studySessions,
-    derivedInsights,
+    inferences,
     makeupPresets,
     wardrobeItems,
     collectionItems,
-    memoryEdges,
     letters,
     workTasks,
     scheduledTasks,
-    followUps,
   ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -150,10 +156,11 @@ export async function buildUserExport(userId) {
       orderBy: { createdAt: 'asc' },
       select: { subject: true, plannedMinutes: true, actualMinutes: true, note: true, aiComment: true, aiCommentSource: true, startedAt: true, createdAt: true },
     }),
-    prisma.derivedInsight.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'asc' },
-      select: { kind: true, content: true, evidence: true, confidence: true, status: true, resolution: true, createdAt: true },
+    // 她整理的（组织层，路线图 C23）：你删掉的只剩去重键，不导出
+    prisma.inference.findMany({
+      where: { userId, status: { not: 'vetoed' } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { kind: true, content: true, payload: true, basis: true, status: true, outcome: true, dueOn: true, expiresAt: true, letteredAt: true, createdAt: true },
     }),
     prisma.makeupPreset.findMany({
       where: { userId },
@@ -169,18 +176,6 @@ export async function buildUserExport(userId) {
       where: { userId },
       orderBy: { createdAt: 'asc' },
       select: { shelf: true, category: true, name: true, note: true, status: true, link: true, imageExt: true, createdAt: true, updatedAt: true },
-    }),
-    prisma.memoryEdge.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        relation: true,
-        confidence: true,
-        status: true,
-        createdAt: true,
-        fromMemory: { select: { content: true } },
-        toMemory: { select: { content: true } },
-      },
     }),
     prisma.letter.findMany({
       where: { userId },
@@ -200,11 +195,6 @@ export async function buildUserExport(userId) {
         nextFireAt: true, status: true, createdAt: true, updatedAt: true,
         deliveries: { orderBy: { fireAt: 'asc' }, select: { fireAt: true, status: true, result: true, createdAt: true } },
       },
-    }),
-    prisma.followUp.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'asc' },
-      select: { about: true, ask: true, askOn: true, status: true, createdAt: true },
     }),
   ])
 
@@ -359,30 +349,23 @@ export async function buildUserExport(userId) {
       createdAt: iso(item.createdAt),
       updatedAt: iso(item.updatedAt),
     })),
-    derivedInsights: derivedInsights.map((d) => ({
-      kind: d.kind,
-      content: d.content,
-      evidence: parseTags(d.evidence),
-      confidence: d.confidence,
-      status: d.status,
-      resolution: d.resolution ?? null,
-      createdAt: iso(d.createdAt),
-    })),
-    // 关系边按内容引用导出（id 不可携带）；derived/dismissed 草稿一并如实导出，状态字段自证
-    memoryEdges: memoryEdges.map((e) => ({
-      from: e.fromMemory.content,
-      to: e.toMemory.content,
-      relation: e.relation,
-      confidence: e.confidence,
-      status: e.status,
-      createdAt: iso(e.createdAt),
+    // 她整理的：关系、理解、惦记的事。按内容导出，不带内部 id；依据只留原话
+    inferences: inferences.map((row) => ({
+      kind: row.kind,
+      content: row.content,
+      ...inferenceDetail(row),
+      because: (Array.isArray(row.basis) ? row.basis : []).map((source) => source?.quote).filter((quote) => typeof quote === 'string' && quote),
+      status: row.status,
+      outcome: row.outcome ?? null,
+      dueOn: iso(row.dueOn ?? null),
+      expiresAt: iso(row.expiresAt ?? null),
+      letteredAt: iso(row.letteredAt ?? null),
+      createdAt: iso(row.createdAt),
     })),
     letters: letters.map((l) => ({
       periodStart: iso(l.periodStart), freqDays: l.freqDays, content: l.content,
       suggestions: Array.isArray(l.suggestions) ? l.suggestions : [], readAt: iso(l.readAt ?? null), createdAt: iso(l.createdAt),
     })),
-    // 她惦记的事：她回想时记下、到日子问一句的（她整理的，没经你确认）
-    followUps: followUps.map((f) => ({ about: f.about, ask: f.ask, askOn: iso(f.askOn), status: f.status, createdAt: iso(f.createdAt) })),
   }
 
   logger.info('用户数据导出', {
@@ -399,10 +382,8 @@ export async function buildUserExport(userId) {
     wardrobeItems: bundle.wardrobeItems.length,
     collection: bundle.collection.length,
     studySessions: bundle.studySessions.length,
-    derivedInsights: bundle.derivedInsights.length,
-    memoryEdges: bundle.memoryEdges.length,
+    inferences: bundle.inferences.length,
     letters: bundle.letters.length,
-    followUps: bundle.followUps.length,
   })
   return bundle
 }

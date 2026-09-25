@@ -307,7 +307,7 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     select: { summary: true },
   })
   // 读取闸口：同意、过期与敏感类别都在那里判断一次（路线图 C23）
-  const { descendingHistory, pinned, memories, memoryEdges, recentNudges, companionInputs } = await loadChatSources({ userId, user, consents, conversationId, now })
+  const { descendingHistory, pinned, memories, memoryEdges, herInsights, recentNudges, companionInputs } = await loadChatSources({ userId, user, consents, conversationId, now })
 
   const history = [...descendingHistory].reverse().map(({ workArtifacts, createdAt: _createdAt, ...message }) => ({
     ...message,
@@ -319,7 +319,7 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     momentBlock({ now, lastMessageAt: descendingHistory[0]?.createdAt ?? null }),
     recentNudgesBlock(recentNudges),
   ]
-  return { user, modelOptions, history, memories, memoryEdges, context, companionInputs, summary: conversation?.summary ?? null }
+  return { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary: conversation?.summary ?? null }
 }
 
 const SUMMARY_INSTRUCTION = '你是对话归档员。把给定对话压缩成一段前情摘要，供后续聊天延续上下文。区分用户明确陈述与助手推测，不得把助手推测改写成用户事实。保留：用户的约定与承诺、重要事实（称呼/喜好/禁忌）、情绪线索、未决事项；丢弃寒暄与重复。若提供已有摘要，将其与新对话合并为一段更新的摘要。只输出摘要正文，不超过 400 字。'
@@ -451,7 +451,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   }
   const modelText = await buildModelText(content, { userId, conversationId, signal })
 
-  const { user, modelOptions, history, memories, memoryEdges, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
   signal?.throwIfAborted()
   if (await blocksMediumCrisis(crisisLevel, modelOptions, userId, conversationId)) {
     return persistBlockedCrisis(conversationId, userId, content, crisisLevel)
@@ -460,6 +460,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   // 查询向量与正式记忆先完成检索，再由角色注意力预算选择进入本轮的线索。
   modelOptions.queryEmbedding = await embedQuery(content, modelOptions)
   modelOptions.memoryEdges = memoryEdges
+  modelOptions.herInsights = herInsights
 
   signal?.throwIfAborted()
   const companion = prepareCompanionTurn(userId, user, content, retrieveRelevantMemories(content, memories, modelOptions.queryEmbedding), { inputs: companionInputs })
@@ -591,7 +592,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   }
   const modelText = await buildModelText(content, { userId, conversationId, signal })
 
-  const { user, modelOptions, history, memories, memoryEdges, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
+  const { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
   if (signal?.aborted) return
   if (await blocksMediumCrisis(crisisLevel, modelOptions, userId, conversationId, durable)) {
     const blocked = await persistBlockedCrisis(conversationId, userId, content, crisisLevel, durable)
@@ -609,6 +610,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   modelOptions.queryEmbedding = await embedQuery(content, modelOptions)
   if (signal?.aborted) return
   modelOptions.memoryEdges = memoryEdges
+  modelOptions.herInsights = herInsights
   const companion = prepareCompanionTurn(userId, user, content, retrieveRelevantMemories(content, memories, modelOptions.queryEmbedding), { inputs: companionInputs })
 
   const offerMemory = detectRememberIntent(content)

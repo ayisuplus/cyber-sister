@@ -14,6 +14,15 @@
 > **2026-09-22 更新**：新增「模型供应商」——实例管理员可在设置页配多家 OpenAI 兼容的聊天模型（`/api/admin/model-providers`，见 §十·五），网关按优先级依次尝试，不再绑死单一家厂商；`GET /api/llm/status` 增加 `isInstanceAdmin` 与 `externalFallback.providers`。没有配置任何自定义供应商时，行为与以前完全一致（仍用 `GATEWAY_QWEN_*`）。
 > 同日还新增只读 `GET /api/chat/openers`（见「三、聊天」）：空白对话那一屏的开场话题从她自己的线索里来（她惦记的事 / 在读的书 / 最近的手记），只读、不发模型、不落库。
 
+> **2026-09-25 非对称记忆架构（路线图 C23，见[非对称记忆架构](../architecture/非对称记忆架构.md)）**：她自己整理的东西——记忆之间的关系、对你的理解、惦记的事——合进一张表 `inferences`（她的组织层），旧表 `memory_edges`、`derived_insights`、`follow_ups` 只读、不再有写入方。新增 `GET /api/memories/inferences`（「她猜的」）与 `DELETE /api/memories/inferences/:id`（删掉即否决，她不会再推出同一条），见 §四。行为变化：
+> - **根一改就作废**：记忆的正文或类型一变，以它为依据的关系与理解作废，不再进聊天、不再进信（以前是转「待重审」后进信）；删记忆时连同引文一起删。
+> - **聊天里标成她自己的联想**：有效的关系与理解挂在本轮选中的记忆上，单独成块、标明没经她确认，不再混在记忆数据里；关系不再只读「已确认」的。
+> - **进过信的不再是「消费掉」**：记下 `letteredAt`，下一封不再重复，但仍是她的联想。
+> - **写信移出只读接口**：`GET /api/chat/nudges` 只等写信 1.5 秒，写不完下次再说；同一个人同时只写一封（`POST /api/letters/generate` 走同一个入口）。
+> - **经期卡片只经两项同意进模型**：「记录经期」与「聊天时顾及周期」都开着，关心卡片里的经期才作为「她今天说过的话」交给模型；便签照常显示。
+> - **惦记的事要有原话作依据**：必须逐字出自你说过的话（她自己说的不算）。
+> - **导出**：`derivedInsights`、`memoryEdges`、`followUps` 三节合成 `inferences`（不含你删掉的、不带内部 id），并补上会话的前情摘要 `summary`、消息的页边批注 `bookNotes`、来信的 `suggestions` 与 `readAt`；`memoryBundle` 带 `pinned`，关系改从组织层取（有效 → `canonical`，作废 → `needs_review`，v2 格式不变）。
+
 > **2026-09-25 书架合并（路线图 C22）**：内置书与她上传的书放进同一个书架。新增 `POST/DELETE /api/reading/books/:id/content`（她确认后上传本机解析好的章节 / 撤回）与只读的 `GET /api/reading/shelf/builtin`、`GET /api/reading/shelf/builtin/:name`（见 §四·五）；书目多了 `serverIndex`、`indexedAt`、`indexProgress`；`bookNotes` 里可能出现她自己的书（见「页边批注」）；`/api/user/profile` 新增 `citeBooks`（回答里提不提书名，默认 `false`）。数据导出的 `books[]` 带上 `serverIndex`、`indexedAt` 和她上传的分段正文 `passages`（不含向量）。
 
 > **2026-09-23 她的来信更新**：「做梦 / 待确认 / 来信」收进一层「她的来信」——按用户设定的频率（`letterFreqDays` = 3/7 或空=不写）由服务器端根据记忆与近况写信，信里带 ≤3 条建议（改记忆 / 删记忆 / 安排一件事），看信时一键「同意采纳」或「带去对话」。`dreamEnabled`/`dreamt_at` 删除；`/api/derived*` 全部下线（派生草稿仍是内部层，写信前的回想产出、进信即消费）；记忆的版本恢复与整库清空接口（`GET /api/memories/:id/revisions`、`POST /api/memories/:id/restore`、`DELETE /api/memories`）一并删除；`/api/letters` 重新上线（见 §十四）。
@@ -270,7 +279,9 @@ Authorization: Bearer <access_token>
 
 - `user` 段**不含** id、phone 与任何凭据
 - **不导出**：refresh token（凭据，绝不外发）、危机日志（安全运维数据）、机器向量、头像/背景等二进制资产。
-- v2 另含 `memoryBundle`（正式记忆、完整版本、来源、确认记录及已确认/待重审关系）；上面保留的业务段只示意原有字段。v2 导入以 `memoryBundle` 为准，缺失时拒绝降级，不能丢弃历史后静默导入。
+- v2 另含 `memoryBundle`（正式记忆、完整版本、来源、`pinned` 与关系）；上面保留的业务段只示意原有字段。v2 导入以 `memoryBundle` 为准，缺失时拒绝降级，不能丢弃历史后静默导入。关系取自她的组织层：有效的写作 `canonical`、作废的写作 `needs_review`，导入后进对方她的组织层（2026-09-25 起）。
+- `inferences`（2026-09-25 起，取代 `derivedInsights` / `memoryEdges` / `followUps`）：她整理的关系、理解与惦记的事，按内容导出、依据只留原话（`because`），不含你删掉的，不带内部 id。
+- `conversations[].summary` / `summaryUpToAt`：她整理的前情摘要；`messages[].bookNotes`：页边批注；`letters[].suggestions` / `readAt`：来信里的建议与处理结果（2026-09-25 起）。
 
 ### POST /api/user/import/preview — 迁移预览（不落库）
 
@@ -590,16 +601,18 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 
 ## 四、记忆 `/api/memories`
 
-长期记忆仅使用**用户已确认的正式记忆**；AI 草稿只进「她的来信」的素材，进信即消费。所有创建、导入共用正式写入服务，版本历史与来源独立保存。
+长期记忆仅使用**用户已确认的正式记忆**（根）；她自己整理的关系、理解与惦记的事是她的组织层（`inferences`），永远不是记忆：聊天时标成「她自己的联想」，进根只能经来信建议、你点同意（路线图 C23）。所有创建、导入共用正式写入服务，版本历史与来源独立保存。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/memories` | 创建 |
 | GET | `/api/memories` | 列表（带当前用户归属检查） |
-| PUT | `/api/memories/:id` | 编辑，必须携带 expectedRevision；冲突 409，正文/类型变化触发关系重审 |
+| PUT | `/api/memories/:id` | 编辑，必须携带 expectedRevision；冲突 409；正文/类型变化时，她以这条为依据的关系与理解作废 |
 | PUT | `/api/memories/:id/pin` | `{pinned: boolean}` 放在心上 / 拿下来（2026-09-21 起）。每轮都带给她、不参与相关检索；每人最多 5 条，满了 400「最多放 5 件在心上，先拿下一件再放」。不改内容、不升版本、不写修订记录 |
 | GET | `/api/memories/:id` | 详情，包含 revision、sources、origin 与 importedAt |
-| DELETE | `/api/memories/:id` | 删除正式内容、历史、投影与依赖；原始聊天单独管理 |
+| DELETE | `/api/memories/:id` | 删除正式内容、历史、投影与依赖（她以这条为依据的整理连同引文一起删）；原始聊天单独管理 |
+| GET | `/api/memories/inferences` | 「她猜的」（2026-09-25 起）：有效、没过期的组织层条目 `{items:[{id, kind:'relation'\|'insight'\|'followup', content, because:[原话≤2], dueOn, createdAt}]}`，没经你确认 |
+| DELETE | `/api/memories/inferences/:id` | 删掉她的一个猜测 = 否决：内容与依据清空、只留去重键，她不会再推出同一条；不在或不是自己的 404「这一条已经不在了」 |
 
 **字段**
 
@@ -856,7 +869,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 
 ## 十二、~~「她」的待确认记忆 `/api/derived`~~ — 已下线（2026-09-23）
 
-派生理解层（`derived_insights` / `memory_edges`）现在只是内部草稿池：写信前的回想产出草稿，进「她的来信」的素材后即消费（不再出现在下一封）；关系草稿同理。记忆仍只能由用户创建和维护——草稿永远不是记忆，信里的建议也要用户点「同意采纳」才动记忆。原来的条目/关系/惦记的事接口（`/api/derived*`）全部删除；「她惦记的事」不需要确认，到日子进对话末尾那条时间线（`followup:` 来源），没有独立管理接口。
+2026-09-25 起（路线图 C23）：回想产出的理解、记忆之间的关系与惦记的事都在她的组织层 `inferences` 里，旧表 `derived_insights` / `memory_edges` / `follow_ups` 只读。组织层永远不是记忆，信里的建议也要用户点「同意采纳」才动记忆；你能在 `GET /api/memories/inferences`（「她猜的」）看到、删掉（§四）。「她惦记的事」到日子进对话末尾那条时间线（`followup:` 来源），依据必须是你说过的原话。原来的 `/api/derived*` 接口不再恢复。
 
 ## 十三、主动关怀 `/api/care`（2026-09-09 起）
 
@@ -877,7 +890,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 - `chatText`：用户视角可以直接发给她的一句话（空则前端用模板句）
 - `decided`：`null`（未处理）· `accepted` · `dismissed`
 
-生成双路：同意云端时先回想一次（产出草稿进本封信素材，用过即消费）再交给模型组信（服务端逐条校验建议，不信模型）；未同意或模型失败降级本地模板（`suggestions: []`）。沉默期（窗口内没有聊天/记忆/日记/读书/做完的安排，也没有草稿）宁缺毋滥，不写也不留空信。
+生成双路：同意云端时先回想一次（整理进她的组织层；有效、没进过信的理解与关系是本封信的素材，进过信的记下 `letteredAt`、不再进下一封，作废的不进）再交给模型组信（服务端逐条校验建议，不信模型）；未同意或模型失败降级本地模板（`suggestions: []`）。沉默期（窗口内没有聊天/记忆/日记/读书/做完的安排，也没有草稿）宁缺毋滥，不写也不留空信。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -949,6 +962,8 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 记忆      CRUD   /api/memories
           POST   /api/memories/suggestions (临时候选，不落库)
           POST   /api/memories/embeddings/rebuild (重建语义索引)
+          GET    /api/memories/inferences  (「她猜的」：她自己整理的，没经你确认)
+          DELETE /api/memories/inferences/:id (删掉即否决，她不会再这样猜)
 来信      GET    /api/letters            (历史列表，新到旧)
           GET    /api/letters/:id
           POST   /api/letters/generate   (到期就写一封，幂等)

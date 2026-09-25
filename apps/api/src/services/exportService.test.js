@@ -12,15 +12,13 @@ const db = vi.hoisted(() => ({
   habitFindMany: vi.fn(),
   bookFindMany: vi.fn(),
   studyFindMany: vi.fn(),
-  derivedFindMany: vi.fn(),
+  inferenceFindMany: vi.fn(),
   makeupPresetFindMany: vi.fn(),
   wardrobeItemFindMany: vi.fn(),
   collectionFindMany: vi.fn(),
-  edgeFindMany: vi.fn(),
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
   scheduledTaskFindMany: vi.fn(),
-  followUpFindMany: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -39,15 +37,13 @@ vi.mock('../prisma/client.js', () => {
     habit: { findMany: db.habitFindMany },
     book: { findMany: db.bookFindMany },
     studySession: { findMany: db.studyFindMany },
-    derivedInsight: { findMany: db.derivedFindMany },
+    inference: { findMany: db.inferenceFindMany },
     makeupPreset: { findMany: db.makeupPresetFindMany },
     wardrobeItem: { findMany: db.wardrobeItemFindMany },
     collectionItem: { findMany: db.collectionFindMany },
-    memoryEdge: { findMany: db.edgeFindMany },
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
     scheduledReminder: { findMany: db.scheduledTaskFindMany },
-    followUp: { findMany: db.followUpFindMany },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -77,9 +73,9 @@ describe('exportService.buildUserExport', () => {
     for (const key of [
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
-      'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany', 'followUpFindMany',
+      'bookFindMany', 'studyFindMany', 'inferenceFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'letterFindMany', 'workTaskFindMany',
+      'scheduledTaskFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -106,18 +102,18 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([])
   })
 
-  it('全部 19 张表按当前用户过滤查询', async () => {
+  it('全部 17 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
-      'bookFindMany', 'studyFindMany', 'derivedFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany', 'followUpFindMany',
+      'bookFindMany', 'studyFindMany', 'inferenceFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'letterFindMany', 'workTaskFindMany',
+      'scheduledTaskFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
-        where: { userId: 'user-1' },
+        where: expect.objectContaining({ userId: 'user-1' }),
       }))
     }
   })
@@ -170,11 +166,7 @@ describe('exportService.buildUserExport', () => {
     expect(JSON.stringify(bundle.collection)).not.toContain('imageExt')
   })
 
-  it('关系边按内容引用导出（含草稿状态），来信随包导出', async () => {
-    db.edgeFindMany.mockResolvedValue([
-      { relation: 'similar', confidence: 'high', status: 'canonical', createdAt: new Date('2026-09-09T00:00:00.000Z'), fromMemory: { content: '喜欢火锅' }, toMemory: { content: '每周五吃火锅' } },
-      { relation: 'related', confidence: 'low', status: 'derived', createdAt: new Date('2026-09-09T01:00:00.000Z'), fromMemory: { content: '甲' }, toMemory: { content: '乙' } },
-    ])
+  it('来信随包导出，连同她的建议和你怎么处理的', async () => {
     db.letterFindMany.mockResolvedValue([
       {
         periodStart: new Date('2026-09-07T00:00:00.000Z'), freqDays: 7, content: '信的内容', createdAt: new Date('2026-09-09T08:00:00.000Z'),
@@ -184,10 +176,6 @@ describe('exportService.buildUserExport', () => {
 
     const bundle = await buildUserExport('user-1')
 
-    expect(bundle.memoryEdges).toEqual([
-      { from: '喜欢火锅', to: '每周五吃火锅', relation: 'similar', confidence: 'high', status: 'canonical', createdAt: '2026-09-09T00:00:00.000Z' },
-      { from: '甲', to: '乙', relation: 'related', confidence: 'low', status: 'derived', createdAt: '2026-09-09T01:00:00.000Z' },
-    ])
     // 来信连同她的建议和你怎么处理的一起带走
     expect(bundle.letters).toEqual([
       {
@@ -197,10 +185,21 @@ describe('exportService.buildUserExport', () => {
     ])
   })
 
-  it('她整理的也归你：惦记的事、前情摘要与页边批注随包导出（路线图 C23）', async () => {
-    db.followUpFindMany.mockResolvedValue([
-      { about: '周五面试', ask: '面试顺利吗？', askOn: new Date('2026-09-26T00:00:00.000Z'), status: 'active', createdAt: new Date('2026-09-20T00:00:00.000Z') },
-    ])
+  it('她整理的也归你：关系、理解、惦记的事、前情摘要与页边批注随包导出，不带内部 id（路线图 C23）', async () => {
+    db.inferenceFindMany.mockImplementation((args) => Promise.resolve(args?.where?.kind === 'relation' ? [] : [
+      {
+        kind: 'relation', content: '「喜欢火锅」与「每周五吃火锅」有关', status: 'active', outcome: null,
+        payload: { fromMemoryId: 'm1', toMemoryId: 'm2', relation: 'related', confidence: 'high' },
+        basis: [{ type: 'memory', id: 'm1', revision: 1, quote: '喜欢火锅' }],
+        dueOn: null, expiresAt: null, letteredAt: null, createdAt: new Date('2026-09-09T00:00:00.000Z'),
+      },
+      {
+        kind: 'followup', content: '面试顺利吗？', status: 'active', outcome: null,
+        payload: { about: '周五面试', ask: '面试顺利吗？' },
+        basis: [{ type: 'message', id: 'msg-1', quote: '周五要面试了' }],
+        dueOn: new Date('2026-09-26T00:00:00.000Z'), expiresAt: new Date('2026-09-29T00:00:00.000Z'), letteredAt: null, createdAt: new Date('2026-09-20T00:00:00.000Z'),
+      },
+    ]))
     db.conversationFindMany.mockResolvedValue([{
       title: 'Amie', mode: 'chat', summary: '她最近在准备面试', summaryUpToAt: new Date('2026-09-19T00:00:00.000Z'),
       messages: [{ role: 'assistant', content: '先接住你', bookNotes: [{ book: '情绪急救', chapter: '被拒绝' }] }],
@@ -208,9 +207,19 @@ describe('exportService.buildUserExport', () => {
 
     const bundle = await buildUserExport('user-1')
 
-    expect(bundle.followUps).toEqual([
-      { about: '周五面试', ask: '面试顺利吗？', askOn: '2026-09-26T00:00:00.000Z', status: 'active', createdAt: '2026-09-20T00:00:00.000Z' },
+    // 你删掉的（否决）不导出
+    expect(db.inferenceFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'user-1', status: { not: 'vetoed' } } }))
+    expect(bundle.inferences).toEqual([
+      {
+        kind: 'relation', content: '「喜欢火锅」与「每周五吃火锅」有关', relation: 'related', confidence: 'high', because: ['喜欢火锅'],
+        status: 'active', outcome: null, dueOn: null, expiresAt: null, letteredAt: null, createdAt: '2026-09-09T00:00:00.000Z',
+      },
+      {
+        kind: 'followup', content: '面试顺利吗？', about: '周五面试', ask: '面试顺利吗？', because: ['周五要面试了'],
+        status: 'active', outcome: null, dueOn: '2026-09-26T00:00:00.000Z', expiresAt: '2026-09-29T00:00:00.000Z', letteredAt: null, createdAt: '2026-09-20T00:00:00.000Z',
+      },
     ])
+    expect(JSON.stringify(bundle.inferences)).not.toMatch(/msg-1|"m1"|"m2"/)
     expect(bundle.conversations[0]).toMatchObject({ summary: '她最近在准备面试', summaryUpToAt: '2026-09-19T00:00:00.000Z' })
     expect(bundle.conversations[0].messages[0].bookNotes).toEqual([{ book: '情绪急救', chapter: '被拒绝' }])
   })
@@ -226,52 +235,6 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([
       { type: 'semantic', content: '喜欢火锅', importance: 8, tags: ['饮食', '周末'], origin: 'promoted', pinned: true, createdAt: '2026-09-01T00:00:00.000Z' },
       { type: 'episodic', content: '无标签', importance: 5, tags: [], origin: 'manual', pinned: false, createdAt: '2026-09-02T00:00:00.000Z' },
-    ])
-  })
-
-  it('工作台派生理解纳入导出，evidence 由 JSON 字符串还原为数组', async () => {
-    db.derivedFindMany.mockResolvedValue([
-      {
-        kind: 'pattern',
-        content: '她习惯深夜学习',
-        evidence: '["最近都学到凌晨","她说晚上效率高"]',
-        confidence: 'medium',
-        status: 'active',
-        resolution: null,
-        createdAt: new Date('2026-09-05T00:00:00.000Z'),
-      },
-      {
-        kind: 'conflict',
-        content: '她既想独居又想合住',
-        evidence: null,
-        confidence: 'low',
-        status: 'resolved',
-        resolution: '她想要的是独立书房',
-        createdAt: new Date('2026-09-06T00:00:00.000Z'),
-      },
-    ])
-
-    const bundle = await buildUserExport('user-1')
-
-    expect(bundle.derivedInsights).toEqual([
-      {
-        kind: 'pattern',
-        content: '她习惯深夜学习',
-        evidence: ['最近都学到凌晨', '她说晚上效率高'],
-        confidence: 'medium',
-        status: 'active',
-        resolution: null,
-        createdAt: '2026-09-05T00:00:00.000Z',
-      },
-      {
-        kind: 'conflict',
-        content: '她既想独居又想合住',
-        evidence: [],
-        confidence: 'low',
-        status: 'resolved',
-        resolution: '她想要的是独立书房',
-        createdAt: '2026-09-06T00:00:00.000Z',
-      },
     ])
   })
 

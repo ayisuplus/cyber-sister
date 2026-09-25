@@ -3,6 +3,7 @@ import * as memoryService from '../services/memoryService.js'
 import * as memorySuggestionService from '../services/memorySuggestionService.js'
 import * as embeddingService from '../services/embeddingService.js'
 import * as indexService from '../services/memoryIndexService.js'
+import * as inferenceService from '../services/memory/inferenceService.js'
 import logger from '../utils/logger.js'
 
 const router = Router()
@@ -83,6 +84,16 @@ router.post('/index-jobs/:id/cancel', async (req, res) => {
   try { res.json(await indexService.cancelIndexJob(req.user.userId, req.params.id)) }
   catch (error) { sendError(res, error, '取消索引任务失败') }
 })
+// 「她猜的」（路线图 C23）：她自己整理出来、没经你确认的关系、理解与惦记的事；可以删，删掉的她不会再推出同一条
+router.get('/inferences', async (req, res) => {
+  try { res.json({ items: await inferenceService.listForHer(req.user.userId) }) }
+  catch (error) { sendError(res, error, '读取她猜的失败') }
+})
+router.delete('/inferences/:id', async (req, res) => {
+  try { res.json(await inferenceService.vetoInference(req.user.userId, req.params.id)) }
+  catch (error) { sendError(res, error, '删除失败') }
+})
+
 router.get('/:id', async (req, res) => {
   try { res.json(await memoryService.getMemory(req.user.userId, req.params.id)) }
   catch (error) { sendError(res, error, '读取记忆失败') }

@@ -3,6 +3,7 @@ import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { createMemory, MAX_PINNED_MEMORIES, validateMemoryInput } from './memoryService.js'
 import { conflict, withMemoryTransaction } from './memoryGovernance.js'
+import { relationContent, saveInferences } from './memory/inferenceService.js'
 
 const list = (value) => Array.isArray(value) ? value : []
 const tags = (value) => { try { return typeof value === 'string' ? JSON.parse(value) : list(value) } catch { return [] } }
@@ -16,10 +17,12 @@ export async function exportMemoryBundle(userId) {
 }
 
 async function buildMemoryBundle(userId, database) {
-  const [memories, edges] = await Promise.all([
+  // 关系是她的组织层（路线图 C23）：有效的按「canonical」、作废的按「needs_review」写进包，v2 格式不变
+  const [memories, relations] = await Promise.all([
     database.memory.findMany({ where: { userId }, include: { revisions: { orderBy: { revision: 'asc' } } }, orderBy: { id: 'asc' } }),
-    database.memoryEdge.findMany({ where: { userId, status: { in: ['canonical', 'needs_review'] } } }),
+    database.inference.findMany({ where: { userId, kind: 'relation', status: { in: ['active', 'stale'] } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
   ])
+  const revisionOf = new Map(memories.map((memory) => [memory.id, memory.revision]))
   const ids = new Map(memories.map((memory) => [memory.id, memory.portableId]))
   const sources = (items) => list(items).map((source) => source.type === 'memory'
     ? { ...source, id: ids.get(source.id) ?? null, status: ids.has(source.id) ? source.status : 'missing' } : source)
@@ -32,10 +35,12 @@ async function buildMemoryBundle(userId, database) {
       revisions: memory.revisions.map((revision) => ({ ...snapshot(revision), action: revision.action,
         confirmedAt: revision.confirmedAt, restoredFrom: revision.restoredFrom, imported: revision.imported })),
     })),
-    edges: edges.filter((edge) => ids.has(edge.fromMemoryId) && ids.has(edge.toMemoryId)).map((edge) => ({
-      id: edge.id, from: ids.get(edge.fromMemoryId), to: ids.get(edge.toMemoryId), relation: edge.relation,
-      status: edge.status, fromRevision: edge.fromRevision, toRevision: edge.toRevision, decisions: list(edge.decisions),
-      evidence: sources(evidenceList(edge.evidence)),
+    edges: relations.filter((row) => ids.has(row.payload?.fromMemoryId) && ids.has(row.payload?.toMemoryId)).map((row) => ({
+      id: row.id, from: ids.get(row.payload.fromMemoryId), to: ids.get(row.payload.toMemoryId), relation: row.payload.relation,
+      status: row.status === 'active' ? 'canonical' : 'needs_review',
+      // 有效与否看状态，不看版本号：两端都按当前版本写
+      fromRevision: revisionOf.get(row.payload.fromMemoryId), toRevision: revisionOf.get(row.payload.toMemoryId), decisions: [],
+      evidence: sources(evidenceList(row.basis)),
     })),
   }
 }
@@ -159,27 +164,26 @@ export async function applyMemoryImport(userId, { bundle, selectedIds, selectedE
     }
     const edgeSelection = new Set(selectedEdgeIds)
     if (edgeSelection.size !== selectedEdgeIds.length || selectedEdgeIds.some((id) => !preview.edges.some((edge) => edge.id === id))) throw new HttpError('选择的关系不在迁移包中', 400)
-    let edgesApplied = 0
-    for (const edge of preview.edges.filter((item) => edgeSelection.has(item.id))) {
-      if (!mapping.has(edge.from) || !mapping.has(edge.to)) throw new HttpError('导入关系前需要同时选择两端记忆', 400)
+    const selectedEdges = preview.edges.filter((item) => edgeSelection.has(item.id))
+    if (selectedEdges.some((edge) => !mapping.has(edge.from) || !mapping.has(edge.to))) throw new HttpError('导入关系前需要同时选择两端记忆', 400)
+    // 包里的关系进她的组织层：canonical → 有效，needs_review → 作废；已经有的同一条不重复
+    const endpointIds = [...new Set(selectedEdges.flatMap((edge) => [mapping.get(edge.from), mapping.get(edge.to)]))]
+    const endpoints = endpointIds.length ? await tx.memory.findMany({ where: { userId, id: { in: endpointIds } }, select: { id: true, content: true } }) : []
+    const contentOf = new Map(endpoints.map((memory) => [memory.id, memory.content]))
+    const relations = selectedEdges.map((edge) => {
       const fromMemoryId = mapping.get(edge.from)
       const toMemoryId = mapping.get(edge.to)
-      // eslint-disable-next-line no-await-in-loop
-      const existing = await tx.memoryEdge.findFirst({ where: { userId, relation: edge.relation,
-        OR: [{ fromMemoryId, toMemoryId }, { fromMemoryId: toMemoryId, toMemoryId: fromMemoryId }] } })
-      if (existing) continue
-      // eslint-disable-next-line no-await-in-loop
-      await tx.memoryEdge.create({ data: { userId, fromMemoryId, toMemoryId, relation: edge.relation,
-        status: edge.status, fromRevision: edge.fromRevision, toRevision: edge.toRevision,
-        evidence: JSON.stringify(remapSources(edge.evidence, mapping, memories)),
-        decisions: [...list(edge.decisions).filter((decision) => decision && typeof decision === 'object').map((decision) => ({ action: String(decision.action || 'confirm').slice(0, 40),
-          at: String(decision.at || '').slice(0, 40), fromRevision: Number.isInteger(decision.fromRevision) ? decision.fromRevision : null,
-          toRevision: Number.isInteger(decision.toRevision) ? decision.toRevision : null, imported: true })),
-        { action: 'import', at: new Date().toISOString(), fromRevision: edge.fromRevision, toRevision: edge.toRevision }],
-      } })
-      edgesApplied++
-    }
-    return { memoriesApplied, memoriesSkipped: memories.length - memoriesApplied, edgesApplied }
+      return {
+        kind: 'relation',
+        content: relationContent(contentOf.get(fromMemoryId) ?? '', contentOf.get(toMemoryId) ?? '', edge.relation),
+        payload: { fromMemoryId, toMemoryId, relation: edge.relation, confidence: 'medium' },
+        basis: remapSources(edge.evidence, mapping, memories),
+        basisMemoryIds: [fromMemoryId, toMemoryId],
+        status: edge.status === 'canonical' ? 'active' : 'stale',
+      }
+    })
+    const saved = relations.length ? await saveInferences(userId, relations, { producedBy: 'import', database: tx }) : { created: 0 }
+    return { memoriesApplied, memoriesSkipped: memories.length - memoriesApplied, edgesApplied: saved.created }
   }
   return database ? apply(database) : withMemoryTransaction(userId, apply)
 }

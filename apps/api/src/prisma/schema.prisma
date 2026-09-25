@@ -62,6 +62,7 @@ model User {
   workTasks WorkTask[]
   localBridges       LocalBridge[]
   followUps          FollowUp[]
+  inferences         Inference[]
 
   @@map("users")
 }
@@ -225,6 +226,7 @@ model Memory {
   @@map("memories")
 }
 
+/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=relation），不再有写入方；删记忆时仍随外键级联删除。下一周期另批删除。
 model MemoryEdge {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
@@ -515,6 +517,7 @@ model StudySession {
   @@map("study_sessions")
 }
 
+/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=insight），不再有写入方；下一周期另批删除。
 model DerivedInsight {
   id               String   @id @default(uuid())
   userId           String   @map("user_id")
@@ -681,8 +684,7 @@ model LocalBridge {
   @@map("local_bridges")
 }
 
-/// 「她惦记的事」：做梦时从聊天里记下的、过几天该问问你的事（「周三答辩」）。
-/// 只在做梦开着时产生与出现；不需要确认，但在「她」页可看可删，过了三天自己不再出现。
+/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=followup），不再有写入方；下一周期另批删除。
 model FollowUp {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
@@ -697,6 +699,36 @@ model FollowUp {
 
   @@index([userId, status, askOn])
   @@map("follow_ups")
+}
+
+/// 她的组织层（路线图 C23，见 docs/architecture/非对称记忆架构.md）：她用你的记忆自行推断、自行整理的东西。
+/// 永远不是记忆：聊天时标成「她自己的联想」、不当事实；进入根（memories）只能经来信建议、你点同意。
+/// 依据的根被改就作废（stale），被删就连同引文删除；你在「她猜的」里删掉的只留去重键（vetoed），不再推出同一条。
+model Inference {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  kind           String // relation | insight | followup
+  content        String // 给她看的一句
+  payload        Json      @default("{}") // relation: {fromMemoryId,toMemoryId,relation,confidence}；insight: {category,confidence}；followup: {about,ask}
+  basis          Json      @default("[]") // 与 Memory.sources 同形：[{ type, id, revision?, quote, status }]
+  basisMemoryIds String[]  @default([]) @map("basis_memory_ids")
+  status         String    @default("active") // active | stale | vetoed | closed
+  outcome        String? // closed 时：asked | accepted | declined
+  letteredAt     DateTime? @map("lettered_at") // 进过哪封信（写信素材只取没进过信的）
+  proposedIn     Json?     @map("proposed_in") // 变成来信建议时：{ letterId, index }
+  dedupeKey      String    @map("dedupe_key")
+  producedBy     String    @map("produced_by") // reflection:<时间> | import | migration
+  dueOn          DateTime? @map("due_on") // 惦记的事哪天问（北京时间日历日，UTC 零点存储）
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, status, kind])
+  @@index([userId, kind, dueOn])
+  @@map("inferences")
 }
 
 /// 「装扮」里的收藏：衣柜与化妆间共用一张表。照片存在 data/collection/<userId>/，行内只记 imageExt。

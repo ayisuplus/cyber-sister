@@ -1,8 +1,9 @@
 /**
- * 她的回想（派生理解层）：写信前把最近的对话与生活痕迹交给云端模型回想一遍，产出草稿。
+ * 她的回想：写信前把最近的对话与生活痕迹交给云端模型回想一遍，整理出对你的理解与惦记的事。
  *
- * - 派生层永远不是记忆：草稿只进「她的来信」的素材，用过即消费（letterService）；
- *   记忆只能由用户创建和维护，这里绝不直接写记忆。
+ * - 产出进她的组织层（inferences，路线图 C23），永远不是记忆：聊天时标成「她自己的联想」，
+ *   写信时是素材；记忆只能由你创建和维护，进根只能经来信建议、你点同意。这里绝不直接写记忆。
+ * - 每一条都要有依据：理解逐字引用对话、记忆或生活痕迹；惦记的事必须引用你说过的原话（Amie 说的不算）。
  * - 生成走与记忆候选同款的云端同意门：未同意不得调用云端模型；入口由写信触发，失败由调用方降级。
  * - 危机消息不进入分析输入；候选命中敏感正则即丢弃。
  * - 日志只记 userId/requestId/created/skipped，不记内容。
@@ -13,6 +14,7 @@ import { detectCrisis } from './detection.js'
 import { localClock } from './contextBlocks.js'
 import { FOLLOW_UP_LEAD_DAYS, saveFollowUps } from './followUpService.js'
 import { conflict, validateSources, withMemoryTransaction } from './memoryGovernance.js'
+import { INSIGHT_TTL_DAYS, saveInferences } from './memory/inferenceService.js'
 import { assertCloudCallable, getGateway } from './llmService.js'
 import { deriveEdges } from './edgeService.js'
 import { loadExternalConsent } from './userService.js'
@@ -111,8 +113,8 @@ function buildAnalysisPrompt(messages, memories, traces, today, persona) {
 - kind 含义：pattern=反复出现的模式或习惯，hypothesis=推测但待确认，conflict=与已有记忆或先前说法冲突，summary=近期状态小结。
 - content 不超过 60 字，用第二人称（"你"）写给她看，比如"你最近总是很晚才睡"；不得包含联系方式、证件号、精确地址或医疗细节。
 - 这些是草稿，不是事实；拿不准就标 hypothesis + low。
-- 惦记的事，最多 2 条：她提到的、有具体日子的事（考试、答辩、面试、见面、搬家……），到那天前后值得关心地问一句。格式：{"kind":"followup","about":"周三答辩","ask":"答辩怎么样了？","askOn":"YYYY-MM-DD"}
-  about 不超过 20 字；ask 是到时候你要问她的一句话，不超过 30 字，用她选的说话方式写（${ASK_STYLES[persona] ?? ASK_STYLES.gentle}），自然，不替她下结论；askOn 是最适合问的那一天（通常是事情当天或第二天），必须在明天到 ${FOLLOW_UP_LEAD_DAYS} 天之内；没有具体日子、或和身体健康有关的不要写。
+- 惦记的事，最多 2 条：她提到的、有具体日子的事（考试、答辩、面试、见面、搬家……），到那天前后值得关心地问一句。格式：{"kind":"followup","about":"周三答辩","ask":"答辩怎么样了？","askOn":"YYYY-MM-DD","evidence":"她说起这件事的原话片段"}
+  evidence 必须逐字引用对话里 user 说过的话（assistant 说的不算，没有原话就不要写这一条）；about 不超过 20 字；ask 是到时候你要问她的一句话，不超过 30 字，用她选的说话方式写（${ASK_STYLES[persona] ?? ASK_STYLES.gentle}），自然，不替她下结论；askOn 是最适合问的那一天（通常是事情当天或第二天），必须在明天到 ${FOLLOW_UP_LEAD_DAYS} 天之内；没有具体日子、或和身体健康有关的不要写。
 最近对话：
 """
 ${messageLines}
@@ -144,27 +146,15 @@ function normalizeCandidate(item) {
   return { kind: item.kind, confidence: item.confidence, content, evidence }
 }
 
-/** 逐条校验、敏感排除、与 active 既有条目双向规范化去重。 */
-async function selectValidCandidates(userId, items) {
+/** 逐条校验、敏感排除、同一批里去重；与已有条目的去重（含你删掉的）交给组织层的去重键。 */
+function selectValidCandidates(items) {
   let skipped = 0
-  const candidates = []
+  const seen = new Set()
+  const valid = []
   for (const item of items) {
     const candidate = normalizeCandidate(item)
-    if (!candidate || isSensitiveContent(candidate.content)) {
-      skipped += 1
-      continue
-    }
-    candidates.push(candidate)
-  }
-  const existing = await prisma.derivedInsight.findMany({
-    where: { userId, status: 'active' },
-    select: { content: true },
-  })
-  const seen = new Set(existing.map((record) => normalizeKey(record.content)))
-  const valid = []
-  for (const candidate of candidates) {
-    const key = normalizeKey(candidate.content)
-    if (seen.has(key)) {
+    const key = candidate ? normalizeKey(candidate.content) : ''
+    if (!candidate || isSensitiveContent(candidate.content) || seen.has(key)) {
       skipped += 1
       continue
     }
@@ -196,15 +186,18 @@ function cleanText(value, max) {
 }
 
 /**
- * 从回想的输出里挑出「惦记的事」：字段齐、长度合规、日子在明天到 30 天内、不含敏感内容。
- * @returns {{ about: string, ask: string, askOn: Date } | null}
+ * 从回想的输出里挑出「惦记的事」：字段齐、长度合规、日子在明天到 30 天内、不含敏感内容，
+ * 而且依据是她说过的原话——Amie 自己提的（「要不周五去看看医生」）不能变成「她说过的日子」。
+ * @returns {{ about: string, ask: string, askOn: Date, basis: object[] } | null}
  */
-function normalizeFollowUp(item, now) {
+function normalizeFollowUp(item, now, messages) {
   if (item?.kind !== 'followup') return null
   const about = cleanText(item.about, MAX_FOLLOW_UP_ABOUT)
   const ask = cleanText(item.ask, MAX_FOLLOW_UP_ASK)
   const askOn = parseAskOn(item.askOn, now)
-  return about && ask && askOn ? { about, ask, askOn } : null
+  const quote = cleanText(item.evidence, MAX_EVIDENCE_CHARS)
+  const said = quote ? messages.find((message) => message.role === 'user' && message.content.includes(quote)) : null
+  return about && ask && askOn && said ? { about, ask, askOn, basis: [{ type: 'message', id: said.id, quote }] } : null
 }
 
 /**
@@ -248,15 +241,18 @@ export async function runAnalysis(userId, requestId, { consent, now = new Date()
   if (!result?.content) return { created: 0, skipped: 0 }
   const parsed = extractJsonArray(result.content)
   if (!parsed) return { created: 0, skipped: 0 }
-  // 惦记的事不是关于你的理解：不进草稿，单独存，到日子她在对话里问一句
-  const followUps = parsed.map((item) => normalizeFollowUp(item, now)).filter(Boolean)
-  const followUpsSaved = followUps.length ? await saveFollowUps(userId, followUps) : { created: 0 }
-  const { valid, skipped } = await selectValidCandidates(userId, parsed.filter((item) => item?.kind !== 'followup'))
-  if (valid.length > 0) {
+  // 惦记的事不是关于你的理解：另存一类，到日子她在对话里问一句
+  const followUps = parsed.map((item) => normalizeFollowUp(item, now, messages)).filter(Boolean)
+  const { valid, skipped } = selectValidCandidates(parsed.filter((item) => item?.kind !== 'followup'))
+  const producedBy = `reflection:${now.toISOString()}`
+  let created = 0
+  let followUpsCreated = 0
+  if (valid.length > 0 || followUps.length > 0) {
     await withMemoryTransaction(userId, async (tx) => {
+      // 回想期间你改过或删过记忆：这次整理靠的是旧说法，整批丢掉
       const current = await tx.user.findUnique({ where: { id: userId }, select: { memoryEpoch: true } })
       if (current?.memoryEpoch !== generation?.memoryEpoch) throw conflict('记忆已经变化，旧分析结果已丢弃')
-      const data = []
+      const insights = []
       for (const candidate of valid) {
         const sources = candidate.evidence.flatMap((quote) => {
           const message = messages.find((item) => item.role === 'user' && item.content.includes(quote))
@@ -268,20 +264,20 @@ export async function runAnalysis(userId, requestId, { consent, now = new Date()
         })
         // eslint-disable-next-line no-await-in-loop
         const verified = await validateSources(tx, userId, sources)
-        data.push({
-        userId,
-        kind: candidate.kind,
-        content: candidate.content,
-        evidence: JSON.stringify(verified.map((source) => source.quote)),
-        sources: verified,
-        sourceMemoryIds: verified.filter((source) => source.type === 'memory').map((source) => source.id),
-        confidence: candidate.confidence,
+        insights.push({
+          kind: 'insight',
+          content: candidate.content,
+          payload: { category: candidate.kind, confidence: candidate.confidence },
+          basis: verified,
+          basisMemoryIds: verified.filter((source) => source.type === 'memory').map((source) => source.id),
+          expiresAt: new Date(now.getTime() + INSIGHT_TTL_DAYS * DAY_MS),
         })
       }
-      await tx.derivedInsight.createMany({ data })
+      created = insights.length ? (await saveInferences(userId, insights, { producedBy, database: tx })).created : 0
+      followUpsCreated = followUps.length ? (await saveFollowUps(userId, followUps, { producedBy, database: tx })).created : 0
     })
   }
-  logger.info('回想完成', { userId, requestId, created: valid.length, skipped })
+  logger.info('回想完成', { userId, requestId, created, skipped, followUpsCreated })
   let edgesCreated = 0
   try {
     edgesCreated = (await deriveEdges(userId, requestId, { allowExternal, authorizeExternal })).created
@@ -289,5 +285,5 @@ export async function runAnalysis(userId, requestId, { consent, now = new Date()
     // 边派生是附加投影：失败不拖垮条目分析
     logger.warn('记忆关系派生失败', { userId, requestId, error: error.message })
   }
-  return { created: valid.length, skipped, edgesCreated, followUpsCreated: followUpsSaved.created }
+  return { created, skipped, edgesCreated, followUpsCreated }
 }

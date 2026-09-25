@@ -17,11 +17,13 @@ const suggestionService = vi.hoisted(() => ({
 
 const embedding = vi.hoisted(() => ({ rebuildEmbeddings: vi.fn() }))
 const indexing = vi.hoisted(() => ({ createIndexJob: vi.fn(), latestIndexJob: vi.fn(), getIndexJob: vi.fn(), cancelIndexJob: vi.fn() }))
+const inferences = vi.hoisted(() => ({ listForHer: vi.fn(), vetoInference: vi.fn() }))
 
 vi.mock('../services/memoryService.js', () => service)
 vi.mock('../services/memorySuggestionService.js', () => suggestionService)
 vi.mock('../services/embeddingService.js', () => embedding)
 vi.mock('../services/memoryIndexService.js', () => indexing)
+vi.mock('../services/memory/inferenceService.js', () => inferences)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -39,6 +41,25 @@ app.use('/', memoriesRoutes)
 beforeEach(() => vi.clearAllMocks())
 
 describe('记忆路由', () => {
+  it('「她猜的」：列出她整理的、删掉就是否决；不会被当成记忆 id（路线图 C23）', async () => {
+    inferences.listForHer.mockResolvedValue([{ id: 'i1', kind: 'insight', content: '你常熬夜', because: [] }])
+    const listed = await request(app).get('/inferences')
+    expect(listed.status).toBe(200)
+    expect(listed.body).toEqual({ items: [{ id: 'i1', kind: 'insight', content: '你常熬夜', because: [] }] })
+    expect(service.getMemory).not.toHaveBeenCalled()
+
+    inferences.vetoInference.mockResolvedValue({ success: true })
+    const removed = await request(app).delete('/inferences/i1')
+    expect(removed.status).toBe(200)
+    expect(inferences.vetoInference).toHaveBeenCalledWith('user-1', 'i1')
+    expect(service.deleteMemory).not.toHaveBeenCalled()
+
+    inferences.vetoInference.mockRejectedValue(Object.assign(new Error('这一条已经不在了'), { statusCode: 404 }))
+    const gone = await request(app).delete('/inferences/i1')
+    expect(gone.status).toBe(404)
+    expect(gone.body.error).toBe('这一条已经不在了')
+  })
+
   it('创建记忆返回 201，错误透传状态码与 code', async () => {
     service.createMemory.mockResolvedValue({ id: 'm1' })
     const ok = await request(app).post('/').send({ type: 'semantic', content: '喜欢火锅' })

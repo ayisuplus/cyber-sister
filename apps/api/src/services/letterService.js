@@ -3,8 +3,9 @@
  * 信里是三类东西：修改建议、一些看法、打趣；看信时可以一键把信带去对话、一键同意采纳建议。
  *
  * - 周期起点幂等唯一（用户 + 周期起点）：并发生成撞唯一约束时回读，不留两封。
- * - 回想（原「做梦」）并入写信：同意云端时，生成前先回想一次最近的对话与痕迹，产出的草稿进本封信素材；
- *   未同意或回想失败照常写信，只是没有新草稿。草稿永远不是记忆：用过即消费，不重复出现在下一封。
+ * - 回想（原「做梦」）并入写信：同意云端时，生成前先回想一次最近的对话与痕迹，整理进她的组织层（inferences）；
+ *   未同意或回想失败照常写信，只是没有新整理。组织层永远不是记忆：进过信的不再进下一封，
+ *   但仍是她的联想；靠旧说法推出、已经作废的不进信（路线图 C23）。
  * - 组信双路：同意云端时交给模型写（服务端逐条校验建议），失败或未同意降级本地模板；模板不发明建议。
  * - 素材与成信文本一律过敏感排除（isSensitiveContent）；沉默期宁缺毋滥，不留空信。
  * - 记忆只能由用户创建和维护：信里的「修改建议」只是建议，用户点「同意采纳」才动记忆。
@@ -19,6 +20,7 @@ import { loadExternalConsent } from './userService.js'
 import { localClock } from './contextBlocks.js'
 import { runAnalysis } from './derivedService.js'
 import { liveMemoryWhere } from './memory/scopes.js'
+import { listActiveInferences, markLettered } from './memory/inferenceService.js'
 
 export const LETTER_FREQ_OPTIONS = [3, 7]
 export const MAX_LETTER_CHARS = 1200
@@ -27,7 +29,6 @@ export const SUGGESTION_KINDS = ['edit_memory', 'delete_memory', 'plan']
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_QUOTED_ITEMS = 3
-const MAX_QUOTED_EDGES = 2
 const MOOD_LABELS = { happy: '开心', neutral: '平静', sad: '难过', angry: '生气', anxious: '焦虑' }
 const HEAVY_MOODS = ['sad', 'angry', 'anxious']
 const UPCOMING_DAYS = 14
@@ -61,15 +62,6 @@ export function periodStartOf(now = new Date()) {
 
 const quoteList = (items) => items.map((item) => `「${item}」`).join('')
 
-const parseJsonArray = (value) => {
-  try {
-    const parsed = JSON.parse(value ?? '[]')
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
 /** 收集窗口内的近况统计：聊天与记忆、日记心情、读书笔记、做完的安排、最近的一个日子。 */
 export async function collectPeriodStats(userId, since, now = new Date()) {
   const doneInPeriod = { userId, status: 'done', updatedAt: { gte: since } }
@@ -77,9 +69,6 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
     messageCount,
     newMemories,
     memoryCount,
-    promotedCount,
-    canonicalEdges,
-    edgeCount,
     diaryEntries,
     readingNoteCount,
     readingBook,
@@ -95,16 +84,6 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
       select: { content: true },
     }),
     prisma.memory.count({ where: { ...liveMemoryWhere(userId, now), createdAt: { gte: since } } }),
-    prisma.derivedInsight.count({
-      where: { userId, status: { in: ['promoted', 'resolved'] }, updatedAt: { gte: since } },
-    }),
-    prisma.memoryEdge.findMany({
-      where: { userId, status: 'canonical', updatedAt: { gte: since } },
-      orderBy: { updatedAt: 'desc' },
-      take: MAX_QUOTED_EDGES,
-      select: { fromMemoryId: true, toMemoryId: true, relation: true },
-    }),
-    prisma.memoryEdge.count({ where: { userId, status: 'canonical', updatedAt: { gte: since } } }),
     prisma.diaryEntry.findMany({ where: { userId, day: { gte: since } }, select: { mood: true } }),
     prisma.readingNote.count({ where: { userId, createdAt: { gte: since } } }),
     prisma.book.findFirst({ where: { userId, status: 'reading' }, orderBy: { updatedAt: 'desc' }, select: { title: true } }),
@@ -126,20 +105,6 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
     }),
   ])
 
-  const edgeMemoryIds = [...new Set(canonicalEdges.flatMap((edge) => [edge.fromMemoryId, edge.toMemoryId]))]
-  const edgeMemories = edgeMemoryIds.length > 0
-    ? await prisma.memory.findMany({ where: { id: { in: edgeMemoryIds }, userId }, select: { id: true, content: true } })
-    : []
-  const contentById = new Map(edgeMemories.map((memory) => [memory.id, memory.content]))
-  const edges = canonicalEdges
-    .filter((edge) => contentById.has(edge.fromMemoryId) && contentById.has(edge.toMemoryId))
-    .map((edge) => ({
-      from: contentById.get(edge.fromMemoryId),
-      to: contentById.get(edge.toMemoryId),
-      relation: edge.relation,
-    }))
-    .filter((edge) => !isSensitiveContent(edge.from) && !isSensitiveContent(edge.to))
-
   const moodCounts = {}
   for (const entry of diaryEntries) {
     moodCounts[entry.mood] = (moodCounts[entry.mood] || 0) + 1
@@ -149,9 +114,6 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
     messageCount,
     memoryCount,
     memoryContents: newMemories.map((memory) => memory.content).filter((content) => !isSensitiveContent(content)),
-    promotedCount,
-    edgeCount,
-    edges,
     moodCounts,
     diaryDays: diaryEntries.length,
     readingNoteCount,
@@ -162,50 +124,45 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
   }
 }
 
-/** 草稿素材（原「待确认」）：她的理解草稿与关系草稿，命中敏感内容的整条丢弃。 */
-export async function collectDrafts(userId) {
-  const [insightRows, edgeRows] = await Promise.all([
-    prisma.derivedInsight.findMany({
-      where: { userId, status: { in: ['active', 'needs_review'] } },
-      orderBy: { createdAt: 'desc' },
-      take: MAX_DRAFT_INSIGHTS,
-      select: { id: true, kind: true, content: true, evidence: true, sources: true },
-    }),
-    prisma.memoryEdge.findMany({
-      where: { userId, status: 'needs_review' },
-      orderBy: { createdAt: 'desc' },
-      take: MAX_DRAFT_EDGES,
-      select: { id: true, relation: true, fromMemoryId: true, toMemoryId: true },
-    }),
+/**
+ * 写信的素材：她的组织层里有效、没进过信的理解与关系（路线图 C23）。
+ * 作废的（依据的根被你改过）与被你删掉的都不在有效里；命中敏感内容的整条丢弃。
+ */
+export async function collectDrafts(userId, now = new Date()) {
+  const [insightRows, relationRows] = await Promise.all([
+    listActiveInferences(userId, { kinds: ['insight'], now, where: { letteredAt: null } }),
+    listActiveInferences(userId, { kinds: ['relation'], now, where: { letteredAt: null } }),
   ])
-
-  const memoryIds = [...new Set(edgeRows.flatMap((edge) => [edge.fromMemoryId, edge.toMemoryId]))]
-  const edgeMemories = memoryIds.length > 0
-    ? await prisma.memory.findMany({ where: { id: { in: memoryIds }, userId }, select: { id: true, content: true } })
+  const memoryIds = [...new Set(relationRows.flatMap((row) => [row.payload?.fromMemoryId, row.payload?.toMemoryId]).filter(Boolean))]
+  const relationMemories = memoryIds.length > 0
+    ? await prisma.memory.findMany({ where: { ...liveMemoryWhere(userId, now), id: { in: memoryIds } }, select: { id: true, revision: true, content: true } })
     : []
-  const contentById = new Map(edgeMemories.map((memory) => [memory.id, memory.content]))
-  // 缺一端的边整条丢掉：只剩一端说不出关系
-  const edges = edgeRows
-    .filter((edge) => contentById.has(edge.fromMemoryId) && contentById.has(edge.toMemoryId))
-    .map((edge) => ({
-      id: edge.id,
-      relation: edge.relation,
-      from: contentById.get(edge.fromMemoryId),
-      to: contentById.get(edge.toMemoryId),
-    }))
-    .filter((edge) => !isSensitiveContent(edge.from) && !isSensitiveContent(edge.to))
-
-  const insights = insightRows
+  const byId = new Map(relationMemories.map((memory) => [memory.id, memory]))
+  // 两端缺一条（过期或不在了）就整条不用：只剩一端说不出关系
+  const edges = relationRows
+    .filter((row) => byId.has(row.payload?.fromMemoryId) && byId.has(row.payload?.toMemoryId))
+    .slice(0, MAX_DRAFT_EDGES)
     .map((row) => ({
       id: row.id,
-      kind: row.kind,
+      relation: row.payload.relation,
+      fromMemoryId: row.payload.fromMemoryId,
+      toMemoryId: row.payload.toMemoryId,
+      from: byId.get(row.payload.fromMemoryId).content,
+      to: byId.get(row.payload.toMemoryId).content,
+    }))
+    .filter((edge) => !isSensitiveContent(edge.from) && !isSensitiveContent(edge.to))
+  const insights = insightRows
+    .slice(0, MAX_DRAFT_INSIGHTS)
+    .map((row) => ({
+      id: row.id,
+      kind: row.payload?.category ?? 'summary',
       content: row.content,
-      evidence: parseJsonArray(row.evidence)
+      evidence: (Array.isArray(row.basis) ? row.basis : [])
+        .map((source) => source?.quote)
         .filter((quote) => typeof quote === 'string' && quote && !isSensitiveContent(quote))
         .slice(0, 2),
     }))
     .filter((row) => !isSensitiveContent(row.content))
-
   return { insights, edges }
 }
 
@@ -458,22 +415,9 @@ export async function composeLetterWithModel({ nickname, persona, stats, drafts,
   return { content: parsed.letter, suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [] }
 }
 
-/** 草稿消耗：进过这封信的草稿不再出现在下一封（不新设状态值，沿用 dismissed）。 */
-async function consumeDrafts(userId, drafts, periodStart) {
-  const insightIds = drafts.insights.map((draft) => draft.id)
-  const edgeIds = drafts.edges.map((edge) => edge.id)
-  if (insightIds.length > 0) {
-    await prisma.derivedInsight.updateMany({
-      where: { userId, id: { in: insightIds } },
-      data: { status: 'dismissed', resolution: `lettered:${periodStart.toISOString()}` },
-    })
-  }
-  if (edgeIds.length > 0) {
-    await prisma.memoryEdge.updateMany({
-      where: { userId, id: { in: edgeIds } },
-      data: { status: 'dismissed', revision: { increment: 1 } },
-    })
-  }
+/** 进过这封信的素材记一笔：下一封不再重复，但仍是她的联想（聊天里照样可以用）。 */
+function consumeDrafts(userId, drafts, at) {
+  return markLettered(prisma, userId, [...drafts.insights.map((draft) => draft.id), ...drafts.edges.map((edge) => edge.id)], at)
 }
 
 /**
@@ -508,7 +452,7 @@ export async function generateDueLetter(userId, { now = new Date() } = {}) {
 
   const [stats, drafts, memories] = await Promise.all([
     collectPeriodStats(userId, since, now),
-    collectDrafts(userId),
+    collectDrafts(userId, now),
     collectMemorySummary(userId, now),
   ])
   if (isQuietPeriod(stats, drafts)) return { letter: null, created: false, reason: 'quiet' }
@@ -540,7 +484,7 @@ export async function generateDueLetter(userId, { now = new Date() } = {}) {
         suggestions: suggestions.map((suggestion) => ({ ...suggestion, decided: null })),
       },
     })
-    await consumeDrafts(userId, drafts, periodStart)
+    await consumeDrafts(userId, drafts, now)
     logger.info('生成来信', { userId, freqDays, suggestions: suggestions.length })
     return { letter, created: true }
   } catch (error) {

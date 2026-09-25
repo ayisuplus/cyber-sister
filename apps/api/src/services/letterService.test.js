@@ -4,12 +4,8 @@ const mocks = vi.hoisted(() => ({
   messageCount: vi.fn(),
   memoryFindMany: vi.fn(),
   memoryCount: vi.fn(),
-  derivedCount: vi.fn(),
-  derivedFindMany: vi.fn(),
-  derivedUpdateMany: vi.fn(),
-  edgeFindMany: vi.fn(),
-  edgeCount: vi.fn(),
-  edgeUpdateMany: vi.fn(),
+  inferenceFindMany: vi.fn(),
+  inferenceUpdateMany: vi.fn(),
   diaryFindMany: vi.fn(),
   readingNoteCount: vi.fn(),
   bookFindFirst: vi.fn(),
@@ -29,8 +25,8 @@ vi.mock('../prisma/client.js', () => ({
   default: {
     message: { count: mocks.messageCount },
     memory: { findMany: mocks.memoryFindMany, count: mocks.memoryCount },
-    derivedInsight: { count: mocks.derivedCount, findMany: mocks.derivedFindMany, updateMany: mocks.derivedUpdateMany },
-    memoryEdge: { findMany: mocks.edgeFindMany, count: mocks.edgeCount, updateMany: mocks.edgeUpdateMany },
+    // 写信素材来自她的组织层（路线图 C23）
+    inference: { findMany: mocks.inferenceFindMany, updateMany: mocks.inferenceUpdateMany },
     diaryEntry: { findMany: mocks.diaryFindMany },
     readingNote: { count: mocks.readingNoteCount },
     book: { findFirst: mocks.bookFindFirst },
@@ -87,9 +83,6 @@ const FULL_STATS = {
   messageCount: 23,
   memoryCount: 4,
   memoryContents: ['喜欢火锅', '准备英语面试', '周五聚餐'],
-  promotedCount: 2,
-  edgeCount: 1,
-  edges: [{ from: '喜欢火锅', to: '每周五吃火锅', relation: 'similar' }],
   moodCounts: { happy: 3, sad: 1 },
   diaryDays: 4,
   readingNoteCount: 5,
@@ -99,7 +92,7 @@ const FULL_STATS = {
   upcomingTask: { content: '英语面试', nextFireAt: new Date(2026, 8, 13, 9, 0) },
 }
 const QUIET_STATS = {
-  messageCount: 0, memoryCount: 0, memoryContents: [], promotedCount: 0, edgeCount: 0, edges: [],
+  messageCount: 0, memoryCount: 0, memoryContents: [],
   moodCounts: {}, diaryDays: 0, readingNoteCount: 0, readingBookTitle: '', doneTaskCount: 0,
   doneTaskContents: [], upcomingTask: null,
 }
@@ -111,12 +104,8 @@ beforeEach(() => {
   mocks.messageCount.mockResolvedValue(0)
   mocks.memoryFindMany.mockResolvedValue([])
   mocks.memoryCount.mockResolvedValue(0)
-  mocks.derivedCount.mockResolvedValue(0)
-  mocks.derivedFindMany.mockResolvedValue([])
-  mocks.derivedUpdateMany.mockResolvedValue({ count: 0 })
-  mocks.edgeFindMany.mockResolvedValue([])
-  mocks.edgeCount.mockResolvedValue(0)
-  mocks.edgeUpdateMany.mockResolvedValue({ count: 0 })
+  mocks.inferenceFindMany.mockResolvedValue([])
+  mocks.inferenceUpdateMany.mockResolvedValue({ count: 0 })
   mocks.diaryFindMany.mockResolvedValue([])
   mocks.readingNoteCount.mockResolvedValue(0)
   mocks.bookFindFirst.mockResolvedValue(null)
@@ -218,7 +207,7 @@ describe('generateDueLetter：到期判定', () => {
     expect(await generateDueLetter(USER_ID, { now: NOW })).toEqual({
       letter: { id: 'l-winner', periodStart: PERIOD_START, content: '别的请求刚写好的' }, created: false,
     })
-    expect(mocks.derivedUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.inferenceUpdateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -241,9 +230,11 @@ describe('generateDueLetter：云端组信与服务端校验', () => {
     mocks.memoryFindMany.mockImplementation(({ take }) => Promise.resolve(
       take === 5 ? [MEMORY] : FULL_STATS.memoryContents.map((content) => ({ content })),
     ))
-    mocks.derivedFindMany.mockResolvedValue([{
-      id: 'd1', kind: 'pattern', content: '你常在周末爬山', evidence: JSON.stringify(['周末去爬山']), sources: [],
-    }])
+    // 组织层里有效、没进过信的一条理解
+    mocks.inferenceFindMany.mockImplementation(({ where }) => Promise.resolve(where.kind.in.includes('insight') ? [{
+      id: 'd1', kind: 'insight', content: '你常在周末爬山', payload: { category: 'pattern', confidence: 'medium' },
+      basis: [{ type: 'message', id: 'msg-1', quote: '周末去爬山' }],
+    }] : []))
   })
 
   it('同意云端 → 先回想，模型建议过校验后落库，草稿消费掉', async () => {
@@ -263,10 +254,13 @@ describe('generateDueLetter：云端组信与服务端校验', () => {
       }),
     })
     expect(letter.suggestions[0].decided).toBeNull()
-    // 素材草稿用完即消费，不重复出现在下一封
-    expect(mocks.derivedUpdateMany).toHaveBeenCalledWith({
+    // 只取有效、没进过信的素材；进过这封信的记一笔，下一封不再重复，但仍是她的联想（不结束、不作废）
+    expect(mocks.inferenceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: USER_ID, status: 'active', letteredAt: null }),
+    }))
+    expect(mocks.inferenceUpdateMany).toHaveBeenCalledWith({
       where: { userId: USER_ID, id: { in: ['d1'] } },
-      data: { status: 'dismissed', resolution: `lettered:${PERIOD_START.toISOString()}` },
+      data: { letteredAt: NOW },
     })
   })
 

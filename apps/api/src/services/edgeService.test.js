@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   memoryFindMany: vi.fn(),
-  edgeFindMany: vi.fn(),
-  edgeCreateMany: vi.fn(),
+  inferenceFindMany: vi.fn(),
+  inferenceCreateMany: vi.fn(),
+  inferenceUpdateMany: vi.fn(),
   getGateway: vi.fn(),
   gatewayComplete: vi.fn(),
 }))
@@ -13,9 +14,11 @@ vi.mock('../prisma/client.js', () => {
     $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
     user: { findUnique: vi.fn(async () => ({ memoryEpoch: 0 })), update: vi.fn() },
     memory: { findMany: mocks.memoryFindMany },
-    memoryEdge: {
-      findMany: mocks.edgeFindMany,
-      createMany: mocks.edgeCreateMany,
+    // 关系存进她的组织层（路线图 C23）：用真实的 inferenceService，只 mock 数据库
+    inference: {
+      findMany: mocks.inferenceFindMany,
+      createMany: mocks.inferenceCreateMany,
+      updateMany: mocks.inferenceUpdateMany,
     },
   }
   client.$transaction = vi.fn((operation) => operation(client))
@@ -54,8 +57,9 @@ function modelOutput(items) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.memoryFindMany.mockResolvedValue(MEMORIES)
-  mocks.edgeFindMany.mockResolvedValue([])
-  mocks.edgeCreateMany.mockResolvedValue({ count: 1 })
+  mocks.inferenceFindMany.mockResolvedValue([])
+  mocks.inferenceCreateMany.mockImplementation(({ data }) => Promise.resolve({ count: data.length }))
+  mocks.inferenceUpdateMany.mockResolvedValue({ count: 1 })
   mocks.getGateway.mockResolvedValue({ complete: mocks.gatewayComplete })
   modelOutput([])
 })
@@ -101,12 +105,12 @@ describe('deriveEdges：同意门与前置', () => {
 
     mocks.gatewayComplete.mockResolvedValue({ content: '没有 JSON', provider: 'qwen', model: 'm' })
     expect(await deriveEdges(USER_ID, REQUEST_ID, CONSENT)).toEqual({ created: 0, skipped: 0 })
-    expect(mocks.edgeCreateMany).not.toHaveBeenCalled()
+    expect(mocks.inferenceCreateMany).not.toHaveBeenCalled()
   })
 })
 
 describe('deriveEdges：校验与去重', () => {
-  it('合法输出建边：1-based 编号映射回记忆 id，evidence 截断到 2 条', async () => {
+  it('合法输出存成她的一条关系：1-based 编号映射回记忆 id，依据是两端的根（带版本）', async () => {
     modelOutput([
       { from: 1, to: 2, relation: 'similar', confidence: 'high', evidence: ['喜欢火锅', '每周五', '片段三'] },
     ])
@@ -114,16 +118,24 @@ describe('deriveEdges：校验与去重', () => {
     const result = await deriveEdges(USER_ID, REQUEST_ID, CONSENT)
 
     expect(result).toEqual({ created: 1, skipped: 0 })
-    expect(mocks.edgeCreateMany).toHaveBeenCalledWith({
+    expect(mocks.inferenceCreateMany).toHaveBeenCalledWith({
       data: [{
         userId: USER_ID,
-        fromMemoryId: 'm1',
-        toMemoryId: 'm2',
-        fromRevision: 1, toRevision: 1,
-        relation: 'similar',
-        confidence: 'high',
-        evidence: JSON.stringify([{ type: 'memory', id: 'm1', revision: 1, quote: '喜欢火锅' }, { type: 'memory', id: 'm2', revision: 1, quote: '每周五' }]),
+        status: 'active',
+        kind: 'relation',
+        content: '「喜欢火锅」与「每周五吃火锅」说的可能是一回事',
+        payload: { fromMemoryId: 'm1', toMemoryId: 'm2', relation: 'similar', confidence: 'high' },
+        basis: [
+          { type: 'memory', id: 'm1', revision: 1, quote: '喜欢火锅', status: 'verified' },
+          { type: 'memory', id: 'm2', revision: 1, quote: '每周五', status: 'verified' },
+        ],
+        basisMemoryIds: ['m1', 'm2'],
+        dueOn: null,
+        expiresAt: null,
+        dedupeKey: 'relation:m1:m2:similar',
+        producedBy: expect.stringMatching(/^reflection:/),
       }],
+      skipDuplicates: true,
     })
   })
 
@@ -139,30 +151,35 @@ describe('deriveEdges：校验与去重', () => {
     const result = await deriveEdges(USER_ID, REQUEST_ID, CONSENT)
 
     expect(result).toEqual({ created: 1, skipped: 4 })
-    expect(mocks.edgeCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ fromMemoryId: 'm2', toMemoryId: 'm3', relation: 'related' })],
+    expect(mocks.inferenceCreateMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ payload: expect.objectContaining({ fromMemoryId: 'm2', toMemoryId: 'm3', relation: 'related' }) })],
+      skipDuplicates: true,
     })
   })
 
-  it('既有边按无向对去重，重审和已有用户决定的关系不会被后台覆盖', async () => {
-    mocks.edgeFindMany.mockResolvedValue([
-      { fromMemoryId: 'm2', toMemoryId: 'm1', relation: 'similar' },
+  it('按无向对去重：已经有的、你删掉过的都不再存；作废过的同一条按新依据复活', async () => {
+    mocks.inferenceFindMany.mockResolvedValue([
+      { id: 'x1', dedupeKey: 'relation:m1:m2:similar', status: 'vetoed' },
+      { id: 'x2', dedupeKey: 'relation:m2:m3:related', status: 'stale' },
     ])
     modelOutput([
       { from: 1, to: 2, relation: 'similar', confidence: 'low' },
       { from: 2, to: 1, relation: 'similar', confidence: 'medium' },
       { from: 1, to: 2, relation: 'related', confidence: 'low' },
+      { from: 3, to: 2, relation: 'related', confidence: 'high' },
     ])
 
     const result = await deriveEdges(USER_ID, REQUEST_ID, CONSENT)
 
+    // 你删掉过的「相似」不再推出；同一批里反过来的那条也算重复
+    expect(mocks.inferenceCreateMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ dedupeKey: 'relation:m1:m2:related' })],
+      skipDuplicates: true,
+    })
+    expect(mocks.inferenceUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'x2', userId: USER_ID, status: 'stale' },
+      data: expect.objectContaining({ status: 'active', letteredAt: null }),
+    })
     expect(result).toEqual({ created: 1, skipped: 2 })
-    expect(mocks.edgeFindMany).toHaveBeenCalledWith({
-      where: { userId: USER_ID, OR: [{ status: { in: ['derived', 'canonical', 'needs_review'] } }, { NOT: { decisions: { equals: [] } } }] },
-      select: { fromMemoryId: true, toMemoryId: true, relation: true },
-    })
-    expect(mocks.edgeCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ relation: 'related' })],
-    })
   })
 })

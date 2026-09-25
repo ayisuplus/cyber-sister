@@ -33,7 +33,7 @@ test.beforeEach(async ({ page }) => {
       // 模型供应商管理接口（2026-09-22）：普通用户看不到卡片，也就不会请求它，先登记着
       '/api/admin/model-providers': { providers: [] },
       // 「她」页（2026-09-23）：来信与她记得的你；做梦、待确认与关系列表已收进来信，接口一并删除
-      '/api/letters': { letters: [] }, '/api/memories': { data: [], total: 0, page: 1, limit: 20 },
+      '/api/letters': { letters: [] }, '/api/memories': { data: [], total: 0, page: 1, limit: 20 }, '/api/memories/inferences': { items: [] },
       '/api/user/companion': { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 3, learning: { brevity: 0.5, samples: 2 } } },
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
     }
@@ -56,10 +56,17 @@ async function accessible(page) {
 
 test('shared memory: what she remembers is one quiet list, and a pin and an edit survive reload', async ({ page }) => {
   let memory = { id: 'memory-e2e', type: 'semantic', content: '喜欢散步', importance: 5, tags: [], pinned: false, revision: 1 }
+  // 「她猜的」（路线图 C23）：她自己整理的，没经你确认；删掉就是否决
+  let guesses = [{ id: 'guess-e2e', kind: 'insight', content: '你一有心事就想出门走走', because: ['喜欢散步'], dueOn: null, createdAt: '2026-09-20T00:00:00.000Z' }]
   await page.route('**/api/memories**', route => {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
     if (method === 'GET' && path === '/api/memories') return json(route, 200, { data: [memory], total: 1, page: 1, limit: 20 })
+    if (method === 'GET' && path === '/api/memories/inferences') return json(route, 200, { items: guesses })
+    if (method === 'DELETE' && path === '/api/memories/inferences/guess-e2e') {
+      guesses = []
+      return json(route, 200, { success: true })
+    }
     if (method === 'PUT' && path === '/api/memories/memory-e2e/pin') {
       expect(route.request().postDataJSON()).toEqual({ pinned: true })
       memory = { ...memory, pinned: true }
@@ -85,6 +92,17 @@ test('shared memory: what she remembers is one quiet list, and a pin and an edit
   await expect(remembered.getByText('喜欢傍晚散步', { exact: true })).toBeVisible()
   await expect(remembered.getByRole('button', { name: '放在心上' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('alert')).toHaveCount(0)
+
+  // 她猜的：和「她记得的你」分开写明没经你确认，带着依据；删掉就不再出现
+  const guessed = page.getByRole('region', { name: '她猜的' })
+  await expect(guessed.getByText('你一有心事就想出门走走')).toBeVisible()
+  await expect(guessed.getByText('依据：「喜欢散步」')).toBeVisible()
+  await guessed.getByRole('button', { name: /删掉她的这个猜测/ }).click()
+  await expect(guessed.getByRole('status')).toHaveText('删掉了，她不会再这样猜')
+  await expect(page.getByText('你一有心事就想出门走走')).toHaveCount(0)
+  await page.reload()
+  await expect(remembered.getByText('喜欢傍晚散步', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '她猜的' })).toHaveCount(0)
 })
 
 test('local schedule: ending a recurring series keeps it completed after reload', async ({ page }) => {

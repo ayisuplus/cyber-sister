@@ -3,6 +3,7 @@ import { Brain, Heart, Plus, Trash2 } from 'lucide-react'
 import Header from '../components/layout/Header'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
+import HerGuesses from '../components/profile/HerGuesses'
 import { memoryService } from '../services/memoryService'
 
 // 她记得的你：一句一条，能改能删。类型、重要度、标签这些机器用的字段不摆在眼前，
@@ -39,6 +40,8 @@ export default function MemoriesPage({ embedded = false }) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
+  // 记忆一变，靠旧说法的猜测可能已经作废：让「她猜的」跟着重读
+  const [guessesVersion, setGuessesVersion] = useState(0)
 
   const load = useCallback(async () => {
     const request = ++sequence.current
@@ -46,7 +49,7 @@ export default function MemoriesPage({ embedded = false }) {
     try {
       const result = await memoryService.listPage({ page, limit: PAGE_SIZE })
       if (request === sequence.current) {
-        setMemories(result.data || []); setTotal(result.total || 0)
+        setMemories(result.data || []); setTotal(result.total || 0); setGuessesVersion((version) => version + 1)
         if (page > 1 && !result.data?.length) setPage(Math.max(1, page - 1))
       }
     } catch { if (request === sequence.current) setMessage('记忆加载失败，请重试') }
@@ -145,6 +148,8 @@ export default function MemoriesPage({ embedded = false }) {
         <span>第 {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页</span>
         <button type="button" disabled={page * PAGE_SIZE >= total || loading} className="min-h-11 px-3 disabled:opacity-30" onClick={() => setPage(page + 1)}>下一页</button>
       </nav>}
+
+      <HerGuesses refreshKey={guessesVersion} />
     </div>
     <ConfirmDialog open={Boolean(pendingDelete)} title="删掉这条"
       description="连同它的历史和索引一起删除，找不回来；原来的聊天保留。"

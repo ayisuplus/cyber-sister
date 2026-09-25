@@ -7,6 +7,7 @@ import { HttpError } from '../utils/dbHelpers.js'
 import logger from '../utils/logger.js'
 import { liveMemoryWhere } from './memory/scopes.js'
 import { normalizeKey } from '../utils/normalizeKey.js'
+import { deleteForMemories } from './memory/inferenceService.js'
 import { embedMemory } from './embeddingService.js'
 import { assertRevision, withMemoryTransaction, ownedMemory, validateSources, recordRevision, invalidateMemoryDependencies } from './memoryGovernance.js'
 
@@ -129,8 +130,6 @@ export async function createMemory(userId, {
           revision: { increment: 1 }, sources: [...existing.sources, ...references].slice(-20),
         } })
         await database.memoryProjection.updateMany({ where: { memoryId: existing.id, memoryRevision: existing.revision }, data: { memoryRevision: updated.revision } })
-        await database.memoryEdge.updateMany({ where: { userId, fromMemoryId: existing.id, fromRevision: existing.revision }, data: { fromRevision: updated.revision } })
-        await database.memoryEdge.updateMany({ where: { userId, toMemoryId: existing.id, toRevision: existing.revision }, data: { toRevision: updated.revision } })
         await recordRevision(database, updated, action)
         return updated
       }
@@ -239,11 +238,8 @@ async function changeMemory(userId, memoryId, updates) {
       || (updateData.type !== undefined && updateData.type !== current.type)
     const updated = await tx.memory.update({ where: { id: memoryId }, data: { ...updateData, revision: { increment: 1 } } })
     if (changedMeaning) await invalidateMemoryDependencies(tx, userId, memoryId)
-    else {
-      await tx.memoryProjection.updateMany({ where: { memoryId, memoryRevision: current.revision }, data: { memoryRevision: updated.revision } })
-      await tx.memoryEdge.updateMany({ where: { userId, fromMemoryId: memoryId, fromRevision: current.revision }, data: { fromRevision: updated.revision } })
-      await tx.memoryEdge.updateMany({ where: { userId, toMemoryId: memoryId, toRevision: current.revision }, data: { toRevision: updated.revision } })
-    }
+    // 意思没变（只改了重要度或标签）：向量跟上新版本号；她的组织层靠状态判断有效，不跟版本号
+    else await tx.memoryProjection.updateMany({ where: { memoryId, memoryRevision: current.revision }, data: { memoryRevision: updated.revision } })
     await recordRevision(tx, updated, 'edit')
     return updated
   })
@@ -263,6 +259,8 @@ export async function getMemory(userId, memoryId) {
 async function eraseMemories(tx, userId, ids) {
   await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
   await tx.memoryIndexJob.updateMany({ where: { userId, status: { in: ['queued', 'running'] } }, data: { status: 'cancelled' } })
+  // 以这些根为依据的组织层条目连同引文一起删；只读的旧草稿表也一并清掉（旧关系表随外键级联删除）
+  await deleteForMemories(tx, userId, ids)
   await tx.derivedInsight.deleteMany({ where: { userId, OR: [{ promotedMemoryId: { in: ids } }, { sourceMemoryIds: { hasSome: ids } }] } })
   // 删除来源时只擦除依赖副本中的引用，其他用户已确认的正文仍由其自身生命周期管理。
   const scrub = (sources) => (Array.isArray(sources) ? sources : []).filter((source) => !(source.type === 'memory' && ids.includes(source.id)))

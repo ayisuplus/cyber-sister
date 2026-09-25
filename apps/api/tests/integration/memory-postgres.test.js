@@ -17,6 +17,9 @@ import { retrieveRelevantMemories, buildMemoryContext } from '../../src/services
 import * as llm from '../../src/services/llmService.js'
 import { migrateUserPlans } from '../../src/services/planMigrationService.js'
 import { listDueReminders, updateScheduledReminder } from '../../src/services/reminderService.js'
+import { dedupeKeyOf, saveInferences } from '../../src/services/memory/inferenceService.js'
+import { collectDrafts } from '../../src/services/letterService.js'
+import { readFileSync } from 'node:fs'
 
 const withDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip
 const databaseName = `cyber_sister_memory_test_${Date.now()}`
@@ -137,18 +140,38 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     }
   })
 
-  it('requires reviewing a changed relation and retains its earlier confirmation', async () => {
+  /** 她整理出的一条关系（组织层，路线图 C23）。 */
+  async function relationBetween(a, b, relation = 'related') {
+    await saveInferences(user.id, [{
+      kind: 'relation', content: `「${a.content}」与「${b.content}」有关`,
+      payload: { fromMemoryId: a.id, toMemoryId: b.id, relation, confidence: 'high' },
+      basis: [{ type: 'memory', id: a.id, revision: a.revision, quote: a.content, status: 'verified' }],
+      basisMemoryIds: [a.id, b.id],
+    }], { producedBy: 'test' })
+    return db.inference.findFirst({ where: { userId: user.id, kind: 'relation' }, orderBy: { createdAt: 'desc' } })
+  }
+
+  it('根的意思被改，靠它的关系作废；只改重要度不作废（路线图 C23）', async () => {
     const a = await create('喜欢爬山')
     const b = await create('周末外出')
-    const edge = await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'related' } })
-    await db.memoryEdge.update({ where: { id: edge.id }, data: {
-      status: 'canonical', revision: 2, fromRevision: 1, toRevision: 1,
-      decisions: [{ action: 'confirm', at: new Date().toISOString(), fromRevision: 1, toRevision: 1 }],
-    } })
-    await updateMemory(user.id, a.id, { content: '最近更喜欢室内阅读', expectedRevision: 1 })
-    const reviewed = await db.memoryEdge.findUnique({ where: { id: edge.id } })
-    expect(reviewed).toMatchObject({ status: 'needs_review', revision: 3 })
-    expect(reviewed.decisions).toHaveLength(1)
+    const relation = await relationBetween(a, b)
+    await updateMemory(user.id, a.id, { importance: 9, expectedRevision: 1 })
+    expect(await db.inference.findUnique({ where: { id: relation.id } })).toMatchObject({ status: 'active' })
+    await updateMemory(user.id, a.id, { content: '最近更喜欢室内阅读', expectedRevision: 2 })
+    expect(await db.inference.findUnique({ where: { id: relation.id } })).toMatchObject({ status: 'stale' })
+    // 旧关系表已只读：不再有写入
+    expect(await db.memoryEdge.count()).toBe(0)
+  })
+
+  it('同一条关系只存一行：换个方向、并发两次都一样（唯一约束兜底）', async () => {
+    const a = await create('喜欢爬山')
+    const b = await create('周末外出')
+    const item = (from, to) => ({
+      kind: 'relation', content: '有关', payload: { fromMemoryId: from.id, toMemoryId: to.id, relation: 'related' }, basisMemoryIds: [from.id, to.id],
+    })
+    const results = await Promise.all([saveInferences(user.id, [item(a, b)], { producedBy: 'test' }), saveInferences(user.id, [item(b, a)], { producedBy: 'test' })])
+    expect(results.reduce((sum, result) => sum + result.created, 0)).toBe(1)
+    expect(await db.inference.count({ where: { userId: user.id } })).toBe(1)
   })
 
   function enableEmbeddings() {
@@ -191,13 +214,8 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
   it('round-trips formal revisions and confirmed relations, without projections or duplicate imports', async () => {
     const a = await create('偏爱蓝色')
     const b = await create('常穿蓝色外套')
-    await updateMemory(user.id, a.id, { importance: 8, expectedRevision: 1 })
-    const edge = await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'related', fromRevision: 2,
-      evidence: JSON.stringify([{ type: 'memory', id: a.id, revision: 2, quote: a.content, status: 'verified' }]) } })
-    await db.memoryEdge.update({ where: { id: edge.id }, data: {
-      status: 'canonical', revision: 2,
-      decisions: [{ action: 'confirm', at: new Date().toISOString(), fromRevision: 2, toRevision: 1 }],
-    } })
+    const updated = await updateMemory(user.id, a.id, { importance: 8, expectedRevision: 1 })
+    await relationBetween({ ...a, revision: updated.revision }, b)
     const bundle = await exportMemoryBundle(user.id)
     expect(JSON.stringify(bundle)).not.toContain('embedding')
     expect(JSON.stringify(bundle)).not.toContain('vector')
@@ -209,7 +227,9 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const restored = await exportMemoryBundle(recipient.id)
     expect(restored.memories.map((item) => [item.id, item.content, item.revision]).sort()).toEqual(bundle.memories.map((item) => [item.id, item.content, item.revision]).sort())
     expect(restored.memories.flatMap((item) => item.revisions.map((revision) => revision.content))).toHaveLength(3)
+    // 有效的关系在包里写作 canonical（v2 格式不变），导入后进对方她的组织层
     expect(restored.edges[0]).toMatchObject({ from: bundle.edges[0].from, to: bundle.edges[0].to, relation: 'related', status: 'canonical' })
+    expect(await db.inference.count({ where: { userId: recipient.id, kind: 'relation', status: 'active', producedBy: 'import' } })).toBe(1)
     expect(restored.edges[0].evidence).toEqual([{ type: 'memory', id: a.portableId, revision: 2, quote: a.content, status: 'imported' }])
     expect((await db.user.findUnique({ where: { id: recipient.id } })).externalLlmConsent).toBeNull()
     const imported = await db.memory.findFirst({ where: { userId: recipient.id } })
@@ -303,7 +323,11 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const dependent = await createMemory(user.id, { type: 'semantic', content: '用户另外确认的内容', sources }, { projectEmbedding: false })
     await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '靠这条来源的草稿', sources, sourceMemoryIds: [source.id] } })
     await db.memoryEdge.create({ data: { userId: user.id, fromMemoryId: source.id, toMemoryId: dependent.id, relation: 'related' } })
+    await relationBetween(source, dependent)
+    await saveInferences(user.id, [{ kind: 'insight', content: '靠这条来源的猜测', basis: sources, basisMemoryIds: [source.id] }], { producedBy: 'test' })
     await deleteMemory(user.id, source.id)
+    // 她的组织层连同引文一起删；只读的旧表也照样清掉
+    expect(await db.inference.count()).toBe(0)
     expect(await db.derivedInsight.count()).toBe(0)
     expect(await db.memoryEdge.count()).toBe(0)
     const preserved = await db.memory.findUnique({ where: { id: dependent.id }, include: { revisions: true } })
@@ -312,13 +336,49 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(preserved.revisions[0].sources).toEqual([])
   })
 
-  it('改了来源记忆，靠它的草稿自动转 needs_review（等她在信里提）', async () => {
+  it('改了来源记忆，靠它推出的理解作废，不再进信（路线图 C23，改变 09-23「待重审进信」的做法）', async () => {
     const source = await create('喜欢去图书馆')
-    const insight = await db.derivedInsight.create({ data: { userId: user.id, kind: 'pattern', content: '爱读书',
-      sourceMemoryIds: [source.id], sources: [{ type: 'memory', id: source.id, revision: 1, quote: source.content }] } })
+    await saveInferences(user.id, [{ kind: 'insight', content: '爱读书', payload: { category: 'pattern' },
+      basis: [{ type: 'memory', id: source.id, revision: 1, quote: source.content }], basisMemoryIds: [source.id] }], { producedBy: 'test' })
+    expect((await collectDrafts(user.id)).insights.map((item) => item.content)).toEqual(['爱读书'])
     await updateMemory(user.id, source.id, { type: 'episodic', expectedRevision: 1 })
-    expect(await db.derivedInsight.findUnique({ where: { id: insight.id } })).toMatchObject({ status: 'needs_review' })
+    expect(await db.inference.findFirst({ where: { userId: user.id, kind: 'insight' } })).toMatchObject({ status: 'stale' })
+    expect((await collectDrafts(user.id)).insights).toEqual([])
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('迁移把三张旧表搬进组织层：状态对应、去重键与 JS 同一口径、重复执行不重复（路线图 C23）', async () => {
+    const a = await create('喜欢  火锅')
+    const b = await create('每周五吃火锅')
+    await db.memoryEdge.createMany({ data: [
+      { userId: user.id, fromMemoryId: b.id, toMemoryId: a.id, relation: 'similar', status: 'canonical' },
+      { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'similar', status: 'derived' },
+      { userId: user.id, fromMemoryId: a.id, toMemoryId: b.id, relation: 'contradicts', status: 'needs_review' },
+    ] })
+    await db.derivedInsight.createMany({ data: [
+      { userId: user.id, kind: 'pattern', content: '你 常熬夜', status: 'active', sourceMemoryIds: [a.id] },
+      { userId: user.id, kind: 'summary', content: '被你忽略过的', status: 'dismissed' },
+      { userId: user.id, kind: 'summary', content: '进过信的', status: 'dismissed', resolution: 'lettered:2026-09-20T00:00:00.000Z' },
+    ] })
+    await db.followUp.createMany({ data: [
+      { userId: user.id, about: '周三 答辩', ask: '答辩怎么样了？', askOn: new Date('2026-09-24T00:00:00.000Z'), status: 'asked' },
+    ] })
+    const sql = readFileSync(new URL('../../src/prisma/migrations/20260925150000_inferences/migration.sql', import.meta.url), 'utf8')
+    const copy = sql.slice(sql.indexOf('-- 数据迁移')).split(/;\s*\n/).map((statement) => statement.trim()).filter((statement) => statement.includes('INSERT'))
+    for (const statement of [...copy, ...copy]) await db.$executeRawUnsafe(statement)
+
+    const rows = await db.inference.findMany({ where: { userId: user.id }, orderBy: { dedupeKey: 'asc' } })
+    const byKey = Object.fromEntries(rows.map((row) => [row.dedupeKey, row]))
+    // 同一对、同一种关系只留已确认那条；反方向也是同一条
+    const similar = dedupeKeyOf({ kind: 'relation', payload: { fromMemoryId: a.id, toMemoryId: b.id, relation: 'similar' } })
+    expect(byKey[similar]).toMatchObject({ kind: 'relation', status: 'active', payload: expect.objectContaining({ confirmed: true }), basisMemoryIds: [b.id, a.id] })
+    expect(byKey[dedupeKeyOf({ kind: 'relation', payload: { fromMemoryId: a.id, toMemoryId: b.id, relation: 'contradicts' } })]).toMatchObject({ status: 'stale' })
+    expect(byKey[dedupeKeyOf({ kind: 'insight', content: '你常熬夜' })]).toMatchObject({ status: 'active', basisMemoryIds: [a.id], expiresAt: expect.any(Date) })
+    expect(byKey[dedupeKeyOf({ kind: 'insight', content: '被你忽略过的' })]).toMatchObject({ status: 'vetoed' })
+    expect(byKey[dedupeKeyOf({ kind: 'insight', content: '进过信的' })]).toMatchObject({ status: 'active', letteredAt: expect.any(Date) })
+    expect(byKey[dedupeKeyOf({ kind: 'followup', payload: { about: '周三答辩' }, dueOn: new Date('2026-09-24T00:00:00.000Z') })])
+      .toMatchObject({ status: 'closed', outcome: 'asked', content: '答辩怎么样了？' })
+    expect(rows).toHaveLength(6)
   })
 
   it('finds relevant memory beyond 200 records and keeps conflict semantics in context', async () => {
@@ -329,7 +389,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     const selected = retrieveRelevantMemories('一起观星', all)
     expect(selected.map((item) => item.id)).toContain(memory.id)
     const context = buildMemoryContext(selected, [{ fromMemoryId: memory.id, toMemoryId: 'b', toContent: '周末要在家', relation: 'contradicts' }])
-    expect(context).toContain('"relation":"contradicts"')
+    expect(context).toContain('「周末想去观星」与「周末要在家」好像互相矛盾')
     expect(context).not.toContain('vector')
   })
 
@@ -344,7 +404,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     else await deleteMemory(user.id, memory.id)
     finish({ content: JSON.stringify([{ from: 1, to: 2, relation: 'related', confidence: 'high', evidence: ['散步'] }]) })
     expect(await pending).toMatchObject({ created: 0, skipped: 1 })
-    expect(await db.memoryEdge.count()).toBe(0)
+    expect(await db.inference.count()).toBe(0)
     expect(fetch).not.toHaveBeenCalled()
   })
 
