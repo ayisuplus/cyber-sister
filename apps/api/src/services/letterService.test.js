@@ -237,6 +237,20 @@ describe('generateDueLetter：云端组信与服务端校验', () => {
     }] : []))
   })
 
+  it('她的理解有原话作证：可以建议「记下来」，提示词里给出草稿 id，存进信里的建议指向那条理解', async () => {
+    mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify({
+      letter: '见信好。\n\n你周末总爱往山里跑。',
+      suggestions: [{ kind: 'promote_inference', title: '记下来吧', inferenceId: 'd1', suggestText: '我周末常去爬山' }],
+    }) })
+
+    await generateDueLetter(USER_ID, { now: NOW })
+
+    expect(mocks.gatewayComplete.mock.calls[0][0].messages[0].content).toContain('理解草稿 id=d1：你常在周末爬山（原文：『周末去爬山』）')
+    expect(mocks.letterCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
+      suggestions: [expect.objectContaining({ kind: 'promote_inference', inferenceIds: ['d1'], quote: '周末去爬山', suggestText: '我周末常去爬山', decided: null })],
+    }) })
+  })
+
   it('同意云端 → 先回想，模型建议过校验后落库，草稿消费掉', async () => {
     mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify(modelOutput) })
 
@@ -463,6 +477,39 @@ describe('sanitizeSuggestions 字段校验', () => {
 
     expect(sanitizeSuggestions([{ kind: 'plan', title: '事', suggestText: '事', chatText: '啊'.repeat(61) }], memoryById)).toEqual([])
     expect(sanitizeSuggestions([{ kind: 'plan', title: '事', suggestText: '事', instruction: '嗯'.repeat(201) }], memoryById)).toEqual([])
+  })
+})
+
+describe('sanitizeSuggestions：从她的整理来的三种建议（路线图 C23）', () => {
+  const SIMILAR = { id: 'r1', type: 'relation', relation: 'similar', fromMemoryId: 'a', toMemoryId: 'b', fromRevision: 2, toRevision: 1, from: '喜欢火锅', to: '爱吃火锅' }
+  const CONTRA = { ...SIMILAR, id: 'r2', relation: 'contradicts', from: '想独居', to: '想合住' }
+  const INSIGHT = { id: 'i1', type: 'insight', content: '你一紧张就睡不着', evidence: ['又是凌晨三点还醒着'] }
+  const drafts = new Map([SIMILAR, CONTRA, INSIGHT, { ...INSIGHT, id: 'i2', evidence: [] }].map((draft) => [draft.id, draft]))
+  const one = (item) => sanitizeSuggestions([item], new Map(), drafts)
+
+  it('合并：指向相似的那条关系，两端与版本以素材为准，模型给的 memoryId 不算数', () => {
+    expect(one({ kind: 'merge_memories', title: '是一回事', inferenceId: 'r1', memoryId: 'forged', suggestText: '我喜欢吃火锅' })).toEqual([expect.objectContaining({
+      kind: 'merge_memories', inferenceIds: ['r1'], memoryId: null, suggestText: '我喜欢吃火锅',
+      pair: [{ id: 'a', revision: 2, content: '喜欢火锅' }, { id: 'b', revision: 1, content: '爱吃火锅' }],
+    })])
+    // 没写合并后的一句、指向矛盾关系、指向不在素材里的草稿：整条丢
+    expect(one({ kind: 'merge_memories', title: '是一回事', inferenceId: 'r1' })).toEqual([])
+    expect(one({ kind: 'merge_memories', title: '是一回事', inferenceId: 'r2', suggestText: '合' })).toEqual([])
+    expect(one({ kind: 'merge_memories', title: '是一回事', inferenceId: 'nope', suggestText: '合' })).toEqual([])
+  })
+
+  it('定夺：指向矛盾的那条关系；统一的说法可有可无', () => {
+    expect(one({ kind: 'resolve_conflict', title: '对不上', inferenceId: 'r2' })).toEqual([expect.objectContaining({ kind: 'resolve_conflict', inferenceIds: ['r2'], suggestText: '' })])
+    expect(one({ kind: 'resolve_conflict', title: '对不上', inferenceId: 'r1' })).toEqual([])
+  })
+
+  it('记下来：理解必须有原话作证，引文用素材里的原话', () => {
+    expect(one({ kind: 'promote_inference', title: '记下来', inferenceId: 'i1', quote: '模型编的', suggestText: '我一紧张就睡不着' }))
+      .toEqual([expect.objectContaining({ kind: 'promote_inference', inferenceIds: ['i1'], quote: '又是凌晨三点还醒着', suggestText: '我一紧张就睡不着' })])
+    expect(one({ kind: 'promote_inference', title: '记下来', inferenceId: 'i2', suggestText: '我' })).toEqual([])
+    expect(one({ kind: 'promote_inference', title: '记下来', inferenceId: 'r1', suggestText: '我' })).toEqual([])
+    // 要记下的那句含敏感内容：整条丢
+    expect(one({ kind: 'promote_inference', title: '记下来', inferenceId: 'i1', suggestText: '我在经期会失眠' })).toEqual([])
   })
 })
 

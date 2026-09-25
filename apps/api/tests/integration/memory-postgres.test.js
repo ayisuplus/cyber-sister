@@ -19,6 +19,7 @@ import { migrateUserPlans } from '../../src/services/planMigrationService.js'
 import { listDueReminders, updateScheduledReminder } from '../../src/services/reminderService.js'
 import { dedupeKeyOf, saveInferences } from '../../src/services/memory/inferenceService.js'
 import { collectDrafts } from '../../src/services/letterService.js'
+import { decideSuggestion } from '../../src/services/memory/proposalService.js'
 import { readFileSync } from 'node:fs'
 
 const withDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip
@@ -345,6 +346,80 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(await db.inference.findFirst({ where: { userId: user.id, kind: 'insight' } })).toMatchObject({ status: 'stale' })
     expect((await collectDrafts(user.id)).insights).toEqual([])
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  /** 一封带一条建议的信。 */
+  const letterWith = (suggestion) => db.letter.create({ data: {
+    userId: user.id, periodStart: new Date('2026-09-20T00:00:00.000Z'), freqDays: 7, content: '见信好。', suggestions: [{ decided: null, ...suggestion }],
+  } })
+  const mergeOf = (a, b, relation) => ({ kind: 'merge_memories', title: '是一回事', suggestText: '我喜欢吃火锅', inferenceIds: [relation.id],
+    pair: [{ id: a.id, revision: a.revision, content: a.content }, { id: b.id, revision: b.revision, content: b.content }] })
+
+  it('采纳合并：一个事务里改第一条、删第二条，写根的那一版带来源链（路线图 C23）', async () => {
+    const a = await create('喜欢火锅')
+    const b = await create('爱吃火锅')
+    const relation = await relationBetween(a, b, 'similar')
+    const letter = await letterWith(mergeOf(a, b, relation))
+
+    const result = await decideSuggestion(user.id, letter.id, '0', { decision: 'accept' })
+
+    expect(result.letter.suggestions[0].decided).toBe('accepted')
+    const merged = await db.memory.findUnique({ where: { id: a.id }, include: { revisions: { orderBy: { revision: 'asc' } } } })
+    expect(merged).toMatchObject({ content: '我喜欢吃火锅', revision: 2 })
+    expect(merged.revisions[1]).toMatchObject({
+      action: 'accept_suggestion', proposal: { letterId: letter.id, index: 0, kind: 'merge_memories', inferenceIds: [relation.id] },
+    })
+    expect(merged.revisions[0].proposal).toBeNull()
+    expect(await db.memory.findUnique({ where: { id: b.id } })).toBeNull()
+  })
+
+  it('采纳中途失败整体回滚：第二条在别处改过，第一条不改、建议不写回、依据的关系仍有效', async () => {
+    const a = await create('喜欢火锅')
+    const b = await create('爱吃火锅')
+    const relation = await relationBetween(a, b, 'similar')
+    const letter = await letterWith(mergeOf(a, b, relation))
+    // 信写好之后你在别处给第二条改了重要度：意思没变，关系仍有效，但版本变了
+    await updateMemory(user.id, b.id, { importance: 9, expectedRevision: 1 })
+
+    await expect(decideSuggestion(user.id, letter.id, '0', { decision: 'accept' })).rejects.toMatchObject({ statusCode: 409 })
+
+    expect(await db.memory.findUnique({ where: { id: a.id } })).toMatchObject({ content: '喜欢火锅', revision: 1 })
+    expect(await db.memoryRevision.count({ where: { memoryId: a.id } })).toBe(1)
+    expect(await db.memory.findUnique({ where: { id: b.id } })).toMatchObject({ revision: 2 })
+    expect((await db.letter.findUnique({ where: { id: letter.id } })).suggestions[0].decided).toBeNull()
+    expect(await db.inference.findUnique({ where: { id: relation.id } })).toMatchObject({ status: 'active', outcome: null })
+  })
+
+  it('把她猜的记下来：新建一条根，来源是她当时引的原话，那条理解结束为采纳', async () => {
+    const conversation = await db.conversation.create({ data: { userId: user.id, title: 'Amie' } })
+    const message = await db.message.create({ data: { conversationId: conversation.id, role: 'user', content: '又是凌晨三点还醒着，明天还要考试' } })
+    await saveInferences(user.id, [{ kind: 'insight', content: '你一紧张就睡不着', payload: { category: 'pattern' },
+      basis: [{ type: 'message', id: message.id, quote: '又是凌晨三点还醒着', status: 'verified' }] }], { producedBy: 'test' })
+    const insight = await db.inference.findFirst({ where: { userId: user.id, kind: 'insight' } })
+    const letter = await letterWith({ kind: 'promote_inference', title: '记下来吧', quote: '又是凌晨三点还醒着', suggestText: '我一紧张就睡不着', inferenceIds: [insight.id] })
+
+    await decideSuggestion(user.id, letter.id, '0', { decision: 'accept' })
+
+    const remembered = await db.memory.findFirst({ where: { userId: user.id, content: '我一紧张就睡不着' }, include: { revisions: true } })
+    expect(remembered).toMatchObject({ origin: 'promoted', sources: [{ type: 'message', id: message.id, quote: '又是凌晨三点还醒着', status: 'verified' }] })
+    expect(remembered.revisions[0]).toMatchObject({ action: 'accept_suggestion', proposal: expect.objectContaining({ kind: 'promote_inference', inferenceIds: [insight.id] }) })
+    expect(await db.inference.findUnique({ where: { id: insight.id } })).toMatchObject({ status: 'closed', outcome: 'accepted', proposedIn: { letterId: letter.id, index: 0 } })
+  })
+
+  it('定夺矛盾选「都对，不用改」：关系结束为不用，她不会再推出同一条', async () => {
+    const a = await create('想独居')
+    const b = await create('想合住')
+    const relation = await relationBetween(a, b, 'contradicts')
+    const letter = await letterWith({ kind: 'resolve_conflict', title: '对不上', suggestText: '', inferenceIds: [relation.id],
+      pair: [{ id: a.id, revision: 1, content: a.content }, { id: b.id, revision: 1, content: b.content }] })
+
+    await decideSuggestion(user.id, letter.id, '0', { decision: 'dismiss' })
+
+    expect(await db.inference.findUnique({ where: { id: relation.id } })).toMatchObject({ status: 'closed', outcome: 'declined' })
+    expect(await db.memory.count({ where: { userId: user.id } })).toBe(2)
+    const again = await saveInferences(user.id, [{ kind: 'relation', content: '又推出来了',
+      payload: { fromMemoryId: b.id, toMemoryId: a.id, relation: 'contradicts' }, basisMemoryIds: [a.id, b.id] }], { producedBy: 'test' })
+    expect(again).toMatchObject({ created: 0, revived: 0 })
   })
 
   it('迁移把三张旧表搬进组织层：状态对应、去重键与 JS 同一口径、重复执行不重复（路线图 C23）', async () => {

@@ -21,6 +21,7 @@
 > - **写信移出只读接口**：`GET /api/chat/nudges` 只等写信 1.5 秒，写不完下次再说；同一个人同时只写一封（`POST /api/letters/generate` 走同一个入口）。
 > - **经期卡片只经两项同意进模型**：「记录经期」与「聊天时顾及周期」都开着，关心卡片里的经期才作为「她今天说过的话」交给模型；便签照常显示。
 > - **惦记的事要有原话作依据**：必须逐字出自你说过的话（她自己说的不算）。
+> - **提议通道**：来信建议新增 `merge_memories`（合并两条）、`resolve_conflict`（标出两条矛盾，处置时带 `keep`）、`promote_inference`（把她猜的记下来）；「同意采纳 / 不用」在一个事务里完成（写根、回写建议、结束她依据的整理），任何一步失败整体回滚；采纳写根的那一版在 `memory_revisions.proposal` 记下来源链 `{letterId, index, kind, inferenceIds}`，`action` 为 `accept_suggestion`。见 §十四。
 > - **导出**：`derivedInsights`、`memoryEdges`、`followUps` 三节合成 `inferences`（不含你删掉的、不带内部 id），并补上会话的前情摘要 `summary`、消息的页边批注 `bookNotes`、来信的 `suggestions` 与 `readAt`；`memoryBundle` 带 `pinned`，关系改从组织层取（有效 → `canonical`，作废 → `needs_review`，v2 格式不变）。
 
 > **2026-09-25 书架合并（路线图 C22）**：内置书与她上传的书放进同一个书架。新增 `POST/DELETE /api/reading/books/:id/content`（她确认后上传本机解析好的章节 / 撤回）与只读的 `GET /api/reading/shelf/builtin`、`GET /api/reading/shelf/builtin/:name`（见 §四·五）；书目多了 `serverIndex`、`indexedAt`、`indexProgress`；`bookNotes` 里可能出现她自己的书（见「页边批注」）；`/api/user/profile` 新增 `citeBooks`（回答里提不提书名，默认 `false`）。数据导出的 `books[]` 带上 `serverIndex`、`indexedAt` 和她上传的分段正文 `passages`（不含向量）。
@@ -887,10 +888,13 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 - `edit_memory`：建议把那条记忆改成 `suggestText`（`memoryId`/`quote` 只能指向本次素材里未过期的记忆，`quote` 逐字出自原文；`memoryRevision` 为服务端当前版本）
 - `delete_memory`：建议删掉那条记忆（`suggestText` 恒空）
 - `plan`：建议安排一件事（`suggestText` 正文，`instruction` 可选=交给她到点做，`planDate` 可选 `YYYY-MM-DD`）
+- `merge_memories`（2026-09-25 起）：她整理出一条「相似」关系，建议把两条合成一条。`inferenceIds` 指向那条关系；`pair` 是两条记忆 `[{id, revision, content}]`（以写信时的素材为准，不信模型）；`suggestText` 是合并后的一句
+- `resolve_conflict`（2026-09-25 起）：她整理出一条「矛盾」关系，请你定夺。`inferenceIds`、`pair` 同上；`suggestText` 可空，是她建议的统一说法
+- `promote_inference`（2026-09-25 起）：她的一条理解有你的原话作证，建议记成一条记忆。`inferenceIds` 指向那条理解；`quote` 是她引的原话；`suggestText` 是要记成的一句（你的口吻）
 - `chatText`：用户视角可以直接发给她的一句话（空则前端用模板句）
 - `decided`：`null`（未处理）· `accepted` · `dismissed`
 
-生成双路：同意云端时先回想一次（整理进她的组织层；有效、没进过信的理解与关系是本封信的素材，进过信的记下 `letteredAt`、不再进下一封，作废的不进）再交给模型组信（服务端逐条校验建议，不信模型）；未同意或模型失败降级本地模板（`suggestions: []`）。沉默期（窗口内没有聊天/记忆/日记/读书/做完的安排，也没有草稿）宁缺毋滥，不写也不留空信。
+生成双路：同意云端时先回想一次（整理进她的组织层；有效、没进过信的理解与关系是本封信的素材，进过信的记下 `letteredAt`、不再进下一封，作废的不进）再交给模型组信（服务端逐条校验建议，不信模型：从草稿来的建议必须指向这封信素材里的条目、种类对得上，记下来的理解必须有原话作证）；未同意或模型失败降级本地模板（`suggestions: []`）。沉默期（窗口内没有聊天/记忆/日记/读书/做完的安排，也没有草稿）宁缺毋滥，不写也不留空信。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -898,7 +902,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 | GET | `/api/letters/:id` | 单封；非本人 404 |
 | POST | `/api/letters/generate` | 到期就写一封（幂等）：`{letter, created, reason?}`，`reason` ∈ `off`（没开写信）\|`not_due`\|`quiet` |
 | POST | `/api/letters/:id/read` | 记下读过；已读再调幂等返回 `{success:true}`，信不存在 404 |
-| POST | `/api/letters/:id/suggestions/:index/decide` | 一键处置，body `{decision:'accept'\|'dismiss', content?, expectedRevision?}`；返回 `{letter}`（整封更新后） |
+| POST | `/api/letters/:id/suggestions/:index/decide` | 一键处置，body `{decision:'accept'\|'dismiss', content?, expectedRevision?, keep?}`；返回 `{letter}`（整封更新后）。由提议通道 `services/memory/proposalService.js` 在一个事务里执行 |
 
 **decide 动作矩阵**
 
@@ -910,7 +914,12 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 | accept × edit_memory | `updateMemory(memoryId, {content: content??suggestText, expectedRevision: expectedRevision??memoryRevision})`；记忆已不在 404「这条记忆已经不在了」；版本冲突 409 原样透传，不自动覆盖 |
 | accept × delete_memory | 删掉那条记忆；已删过不报错，返回 `{success:true, already:true}`，照样置 decided |
 | accept × plan | 建一条 once 的「安排」：`{content: suggestText, freq:'once', date: planDate??明天（北京时间）, time:'09:00', instruction}` |
-| dismiss | 不触达记忆与安排 |
+| accept × 从草稿来的三种，依据的整理已经作废（你之后改过相关的记忆） | 409 `PROPOSAL_STALE`「这条建议依据的记忆已经变了，先看看现在的样子再说」，什么都不动 |
+| accept × merge_memories | 先把依据的关系结束为 `accepted`；`pair[0]` 改成 `content??suggestText`（按 `pair[0].revision` 核对），`pair[1]` 删掉（按 `pair[1].revision` 核对）；任一版本对不上 409、记忆不在 404，整体回滚 |
+| accept × resolve_conflict | `keep` 必填：`'a'` 留第一条、删第二条；`'b'` 留第二条、删第一条（留下的那条也核对版本）；`'edit'` 第一条改成 `content??suggestText`（都空 400）、删第二条；缺 `keep` 400 |
+| accept × promote_inference | 新建一条记忆：`{type:'semantic', content: content??suggestText, origin:'promoted'}`，来源取那条理解依据里仍然站得住的原话；依据的理解结束为 `accepted` |
+| accept 写根的那一版 | `memory_revisions.action = 'accept_suggestion'`，`proposal = {letterId, index, kind, inferenceIds}`（来源链） |
+| dismiss | 不触达记忆与安排；从草稿来的三种把依据的整理结束为 `declined`，她不会再拿同一条来提 |
 
 「带去对话」不需要后端：前端把 `chatText`（或模板句）经路由状态交给聊天输入框。
 

@@ -9,6 +9,9 @@ const reminderService = vi.hoisted(() => ({ createScheduledReminder: vi.fn(), ac
 vi.mock('../../src/services/letterService.js', () => letters)
 vi.mock('../../src/services/memoryService.js', () => memoryService)
 vi.mock('../../src/services/reminderService.js', () => reminderService)
+// 来信建议的处置在提议通道里（路线图 C23）
+const proposal = vi.hoisted(() => ({ decideSuggestion: vi.fn() }))
+vi.mock('../../src/services/memory/proposalService.js', () => proposal)
 import app from '../../src/app.js'
 import { generateToken } from '../../src/middleware/auth.js'
 import { buildNativeTools, executeToolCall } from '../../src/services/agentService.js'
@@ -21,18 +24,14 @@ describe('web distribution', () => {
     vi.stubEnv('APP_DISTRIBUTION', distribution)
     const token = generateToken({ userId: 'memory-owner' })
     letters.listLetters.mockResolvedValue([{ id: 'l1' }])
-    letters.getLetter.mockResolvedValue({
-      id: 'l1',
-      suggestions: [{ kind: 'edit_memory', title: '改', memoryId: 'm1', memoryRevision: 2, quote: '旧', suggestText: '新', decided: null }],
-    })
-    letters.saveSuggestions.mockImplementation((id, suggestions) => Promise.resolve({ id, suggestions }))
+    proposal.decideSuggestion.mockResolvedValue({ letter: { id: 'l1', suggestions: [{ kind: 'edit_memory', decided: 'accepted' }] } })
     const listed = await request(app).get('/api/letters').set('Authorization', `Bearer ${token}`)
     expect(listed.status).toBe(200)
     expect(letters.listLetters).toHaveBeenCalledWith('memory-owner')
     // 伪造的 userId 不生效：处置永远按登录身份执行
     const decided = await request(app).post('/api/letters/l1/suggestions/0/decide').set('Authorization', `Bearer ${token}`).send({ decision: 'accept', userId: 'forged' })
     expect(decided.status).toBe(200)
-    expect(memoryService.updateMemory).toHaveBeenCalledWith('memory-owner', 'm1', { content: '新', expectedRevision: 2 })
+    expect(proposal.decideSuggestion).toHaveBeenCalledWith('memory-owner', 'l1', '0', { decision: 'accept', userId: 'forged' })
   })
 
   it('still rejects unauthenticated letter actions in web distribution', async () => {
@@ -40,7 +39,7 @@ describe('web distribution', () => {
     expect((await request(app).get('/api/letters')).status).toBe(401)
     expect((await request(app).post('/api/letters/l1/suggestions/0/decide').send({})).status).toBe(401)
     expect(letters.listLetters).not.toHaveBeenCalled()
-    expect(memoryService.updateMemory).not.toHaveBeenCalled()
+    expect(proposal.decideSuggestion).not.toHaveBeenCalled()
   })
 
   it('defaults closed and requires an explicitly local loopback runtime', () => {

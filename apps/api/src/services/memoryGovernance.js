@@ -59,11 +59,16 @@ export async function validateSources(tx, userId, sources) {
   return result
 }
 
-export function recordRevision(tx, memory, action, restoredFrom = null) {
+/**
+ * 记下这一版。proposal 是来源链（路线图 C23）：采纳了哪封信的哪条建议（{ letterId, index, kind, inferenceIds }）；
+ * 没有就不写这一列——你自己写的、确认「帮我记住」的、导入的都没有。
+ */
+export function recordRevision(tx, memory, action, restoredFrom = null, proposal = null) {
   return tx.memoryRevision.create({ data: {
     memoryId: memory.id, revision: memory.revision, type: memory.type, content: memory.content,
     importance: memory.importance, tags: memory.tags, expiresAt: memory.expiresAt,
     origin: memory.origin, sources: memory.sources, action, restoredFrom,
+    ...(proposal ? { proposal } : {}),
   } })
 }
 

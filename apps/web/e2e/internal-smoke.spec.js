@@ -953,6 +953,69 @@ test('her · letters: one letter with her suggestions — take it to chat or acc
   expect(decidedWith).toEqual(['accept', 'dismiss'])
   await expectNoSeriousAxeFindings(page)
 })
+test('her · letters: what she organised comes back as suggestions — merge two, settle a conflict, write down a guess', async ({ page }) => {
+  await seedAuth(page)
+  await page.route('**/api/user/companion', route => json(route, 200, { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 1, learning: { brevity: 0.5, samples: 1 } } }))
+  await page.route('**/api/user/profile', route => json(route, 200, { careEnabled: true, letterFreqDays: 7 }))
+  // 路线图 C23：她整理出的关系与理解，只能以来信建议回到「她记得的你」，你点同意才算数
+  const suggestions = [
+    { kind: 'merge_memories', title: '这两条是一回事', suggestText: '我喜欢吃火锅', inferenceIds: ['r1'], decided: null,
+      pair: [{ id: 'a', revision: 1, content: '喜欢火锅' }, { id: 'b', revision: 1, content: '爱吃火锅' }] },
+    { kind: 'resolve_conflict', title: '这两条对不上', suggestText: '', inferenceIds: ['r2'], decided: null,
+      pair: [{ id: 'c', revision: 1, content: '想独居' }, { id: 'd', revision: 1, content: '想合住' }] },
+    { kind: 'promote_inference', title: '记下来吧', quote: '又是凌晨三点还醒着', suggestText: '我一紧张就睡不着', inferenceIds: ['i1'], decided: null },
+  ]
+  let letter = { id: 'l2', periodStart: '2026-09-20T00:00:00.000Z', freqDays: 7, content: '见信好。\n\n这周我把你说过的话理了理。', suggestions, readAt: null }
+  const decisions = []
+  await page.route('**/api/letters**', route => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname
+    if (request.method() === 'POST' && pathname === '/api/letters/generate') return json(route, 200, { letter, created: false, reason: 'not_due' })
+    if (request.method() === 'GET' && pathname === '/api/letters') return json(route, 200, { letters: [letter] })
+    if (request.method() === 'POST' && pathname.endsWith('/read')) return json(route, 200, { success: true })
+    const decided = /^\/api\/letters\/l2\/suggestions\/(\d)\/decide$/.exec(pathname)
+    if (request.method() === 'POST' && decided) {
+      const body = request.postDataJSON()
+      const index = Number(decided[1])
+      decisions.push({ index, ...body })
+      letter = { ...letter, suggestions: letter.suggestions.map((item, position) => (position === index ? { ...item, decided: body.decision === 'accept' ? 'accepted' : 'dismissed' } : item)) }
+      return json(route, 200, { letter })
+    }
+    return json(route, 404, { error: 'unexpected letters request' })
+  })
+  await page.route('**/api/memories**', route => json(route, 200, { data: [], total: 0, page: 1, limit: 20, items: [] }))
+
+  await page.goto('/her')
+
+  // 合并：两条并排、合成后的一句；删掉第二条之前先确认
+  const merge = page.getByRole('region', { name: '这两条是一回事' })
+  await expect(merge.getByText('合成一句：我喜欢吃火锅')).toBeVisible()
+  await merge.getByRole('button', { name: '同意采纳' }).click()
+  const mergeDialog = page.getByRole('alertdialog')
+  await expect(mergeDialog).toContainText('「爱吃火锅」删掉，找不回来')
+  await mergeDialog.getByRole('button', { name: '合成一条' }).click()
+  await expect(merge.getByText('已采纳')).toBeVisible()
+
+  // 定夺：没有「同意采纳」，每条下面「留这条」
+  const conflict = page.getByRole('region', { name: '这两条对不上' })
+  await expect(conflict.getByRole('button', { name: '同意采纳' })).toHaveCount(0)
+  await conflict.getByRole('button', { name: '留这条：想合住' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: '留这一条' }).click()
+  await expect(conflict.getByText('已采纳')).toBeVisible()
+
+  // 记下来：写明她听你说过的原话和要记成的一句
+  const promote = page.getByRole('region', { name: '记下来吧' })
+  await expect(promote.getByText('她听你说过：「又是凌晨三点还醒着」')).toBeVisible()
+  await promote.getByRole('button', { name: '同意采纳' }).click()
+  await expect(promote.getByText('已采纳')).toBeVisible()
+
+  expect(decisions).toEqual([
+    { index: 0, decision: 'accept' },
+    { index: 1, decision: 'accept', keep: 'b' },
+    { index: 2, decision: 'accept' },
+  ])
+  await expectNoSeriousAxeFindings(page)
+})
 test('she speaks in the conversation: reminder, care and the weekly letter in one place', async ({ page }) => {
   await seedAuth(page)
   await mockChatBootstrap(page, true)

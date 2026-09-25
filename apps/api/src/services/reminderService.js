@@ -146,9 +146,10 @@ function buildFields(args) {
 // 校验并组装一条安排的调度字段（含 nextFireAt）；迁移脚本复用，保证与接口同一套规则
 export const buildTaskFields = buildFields
 
-export function createScheduledReminder(userId, args) {
+/** database 可传事务（来信建议的采纳与回写建议同一个事务）。 */
+export function createScheduledReminder(userId, args, database = prisma) {
   const fields = buildFields(args)
-  return prisma.scheduledReminder.create({ data: { userId, ...fields } })
+  return database.scheduledReminder.create({ data: { userId, ...fields } })
 }
 
 export function listScheduledReminders(userId) {

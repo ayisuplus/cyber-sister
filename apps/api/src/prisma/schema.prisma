@@ -552,7 +552,9 @@ model MemoryRevision {
   expiresAt   DateTime? @map("expires_at")
   origin      String
   sources     Json     @default("[]")
-  action      String
+  action      String // create | edit | import | baseline | accept_suggestion
+  // 来源链（路线图 C23）：这一版是采纳了哪封信的哪条建议写下的 { letterId, index, kind, inferenceIds }
+  proposal    Json?
   restoredFrom Int?   @map("restored_from")
   imported    Boolean  @default(false)
   confirmedAt DateTime @default(now()) @map("confirmed_at")

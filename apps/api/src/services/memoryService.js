@@ -103,7 +103,7 @@ export async function createMemory(userId, {
   sourceRef = null,
   sources = [],
   expiresAt = null,
-}, { projectEmbedding = true, tx = null, portableId, memoryId, action = 'create', trustedSources = false, deduplicate = false } = {}) {
+}, { projectEmbedding = true, tx = null, portableId, memoryId, action = 'create', trustedSources = false, deduplicate = false, proposal = null } = {}) {
   // 即使命中去重，输入仍须经过相同校验，不能用已有内容绕过类型和来源约束。
   type = validateType(type)
   content = validateContent(content)
@@ -130,7 +130,7 @@ export async function createMemory(userId, {
           revision: { increment: 1 }, sources: [...existing.sources, ...references].slice(-20),
         } })
         await database.memoryProjection.updateMany({ where: { memoryId: existing.id, memoryRevision: existing.revision }, data: { memoryRevision: updated.revision } })
-        await recordRevision(database, updated, action)
+        await recordRevision(database, updated, action, null, proposal)
         return updated
       }
     }
@@ -150,7 +150,7 @@ export async function createMemory(userId, {
       ...(expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime()) ? { expiresAt } : {}),
     },
     })
-    await recordRevision(database, memory, action)
+    await recordRevision(database, memory, action, null, proposal)
     return memory
   }
   const memory = tx ? await write(tx) : await withMemoryTransaction(userId, write)
@@ -215,10 +215,24 @@ export async function setMemoryPinned(userId, memoryId, pinned) {
 }
 
 async function changeMemory(userId, memoryId, updates) {
-  const memory = await withMemoryTransaction(userId, async (tx) => {
-    const current = await ownedMemory(tx, userId, memoryId)
-    assertRevision(current, updates.expectedRevision)
-    await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
+  const memory = await withMemoryTransaction(userId, (tx) => applyMemoryChange(tx, userId, memoryId, updates))
+  if (updates.content !== undefined || updates.type !== undefined) {
+    // 内容变更后投影失效：fire-and-forget 重建向量，失败仅本轮无向量
+    void embedMemory(memory)
+  }
+  logger.info('编辑记忆', { memoryId, userId })
+  return formatMemory(memory)
+}
+
+/**
+ * 在调用方的事务里改一条根（来信建议的采纳与改记忆同一个事务，路线图 C23）。
+ * 版本不对 409，不在 404；意思变了就让她以它为依据的整理作废。返回数据库里的那一行；
+ * 向量重算由调用方在事务提交之后做。
+ */
+export async function applyMemoryChange(tx, userId, memoryId, updates, { action = 'edit', proposal = null } = {}) {
+  const current = await ownedMemory(tx, userId, memoryId)
+  assertRevision(current, updates.expectedRevision)
+  await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
   const updateData = {}
   if (updates.type !== undefined) updateData.type = validateType(updates.type)
   if (updates.content !== undefined) {
@@ -234,21 +248,14 @@ async function changeMemory(userId, memoryId, updates) {
     throw new HttpError('没有可更新的记忆字段', 400)
   }
 
-    const changedMeaning = (updateData.content !== undefined && updateData.content !== current.content)
-      || (updateData.type !== undefined && updateData.type !== current.type)
-    const updated = await tx.memory.update({ where: { id: memoryId }, data: { ...updateData, revision: { increment: 1 } } })
-    if (changedMeaning) await invalidateMemoryDependencies(tx, userId, memoryId)
-    // 意思没变（只改了重要度或标签）：向量跟上新版本号；她的组织层靠状态判断有效，不跟版本号
-    else await tx.memoryProjection.updateMany({ where: { memoryId, memoryRevision: current.revision }, data: { memoryRevision: updated.revision } })
-    await recordRevision(tx, updated, 'edit')
-    return updated
-  })
-  if (updates.content !== undefined || updates.type !== undefined) {
-    // 内容变更后投影失效：fire-and-forget 重建向量，失败仅本轮无向量
-    void embedMemory(memory)
-  }
-  logger.info('编辑记忆', { memoryId, userId })
-  return formatMemory(memory)
+  const changedMeaning = (updateData.content !== undefined && updateData.content !== current.content)
+    || (updateData.type !== undefined && updateData.type !== current.type)
+  const updated = await tx.memory.update({ where: { id: memoryId }, data: { ...updateData, revision: { increment: 1 } } })
+  if (changedMeaning) await invalidateMemoryDependencies(tx, userId, memoryId)
+  // 意思没变（只改了重要度或标签）：向量跟上新版本号；她的组织层靠状态判断有效，不跟版本号
+  else await tx.memoryProjection.updateMany({ where: { memoryId, memoryRevision: current.revision }, data: { memoryRevision: updated.revision } })
+  await recordRevision(tx, updated, action, null, proposal)
+  return updated
 }
 
 export async function getMemory(userId, memoryId) {
@@ -280,6 +287,16 @@ async function eraseMemories(tx, userId, ids) {
     }
   }
   return tx.memory.deleteMany({ where: { userId, id: { in: ids } } })
+}
+
+/**
+ * 在调用方的事务里删一条根（来信建议的采纳用，路线图 C23）。给了 expectedRevision 就先核对：
+ * 她提建议之后你又改过这一条，就不按旧建议删（409）。
+ */
+export async function eraseOwnedMemory(tx, userId, memoryId, { expectedRevision } = {}) {
+  const current = await ownedMemory(tx, userId, memoryId)
+  if (expectedRevision !== undefined) assertRevision(current, expectedRevision)
+  return eraseMemories(tx, userId, [memoryId])
 }
 
 export async function deleteMemory(userId, memoryId) {
