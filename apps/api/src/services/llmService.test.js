@@ -327,7 +327,7 @@ describe('llmService 数据最小化', () => {
     expect(result[0]).not.toHaveProperty('projection')
   })
 
-  it('语义路径：阈值是真的——略低于 0.35 不入选，够上就入选', () => {
+  it('语义路径：阈值是真的——略低于阈值不入选，够上就入选', () => {
     const below = Math.cos(Math.acos(SEMANTIC_MEMORY_MIN_SCORE) + 0.01)
     const above = Math.cos(Math.acos(SEMANTIC_MEMORY_MIN_SCORE) - 0.01)
     const memory = (vector) => withVector({ id: 'a', type: 'semantic', content: '甲', importance: 5, tags: [] }, vector)

@@ -28,7 +28,7 @@ export { detectCrisis, detectEmotion } from './detection.js'
 
 export const MAX_MODEL_MESSAGES = 20
 export const MAX_RELEVANT_MEMORIES = 5
-// 语义检索入选阈值：经验初值，部署方实测后只调这一个常量
+// 语义检索入选阈值：由记忆检索评测标定（vectors/policies.js），换向量模型要重标
 export const SEMANTIC_MEMORY_MIN_SCORE = VECTOR_POLICIES.memory.minScore
 export const MAX_MODEL_MESSAGE_CHARS = 2000
 export const MAX_WORK_MESSAGE_CHARS = 16000
@@ -230,8 +230,9 @@ export function extractKeywords(value) {
 /**
  * 这一轮相关的记忆：关键词重合 + 标签命中 + 意思相近（向量分够阈值才加分）。
  * 记忆的向量（semantic，来自派生索引）只有和这一轮的查询是同一个模型、算的又是现在这段正文时才用（路线图 C23）。
+ * minScore 只给记忆检索评测（eval:memories）扫阈值用，聊天时一律用 SEMANTIC_MEMORY_MIN_SCORE。
  */
-export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null) {
+export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null, { minScore = SEMANTIC_MEMORY_MIN_SCORE } = {}) {
   const queryText = String(currentText ?? '').normalize('NFKC').toLowerCase()
   const queryKeywords = extractKeywords(queryText)
   if (queryKeywords.size === 0 && !queryEmbedding?.vector) return []
@@ -256,7 +257,7 @@ export function retrieveRelevantMemories(currentText, memories = [], queryEmbedd
 
       const semantic = queryKey && vectorFits(memory.semantic, queryKey, memory.content)
         ? cosineSimilarity(queryEmbedding.vector, memory.semantic.vector) : 0
-      const relevance = overlap + tagMatches * 3 + (semantic >= SEMANTIC_MEMORY_MIN_SCORE ? semantic * 3 : 0)
+      const relevance = overlap + tagMatches * 3 + (semantic >= minScore ? semantic * 3 : 0)
       return {
         ...memory,
         relevance,
