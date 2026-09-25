@@ -626,7 +626,7 @@ describe('chatService.sendMessage', () => {
     expect(options).not.toHaveProperty('derivedInsights')
   })
 
-  it('记忆查询带出 id/revision/projection；同意时 embedQuery 结果注入 queryEmbedding', async () => {
+  it('记忆查询带出 id/revision，不再读旧投影；同意时 embedQuery 结果注入 queryEmbedding', async () => {
     mocks.embedQuery.mockResolvedValue([0.1, 0.2, 0.3])
     mocks.memoryFindMany.mockResolvedValue([
       { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', embedding: [0.9] },
@@ -635,8 +635,9 @@ describe('chatService.sendMessage', () => {
     await sendMessage('conversation-1', 'user-1', '今晚吃啥')
 
     expect(mocks.memoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({ id: true, revision: true, projection: true }),
+      select: expect.objectContaining({ id: true, revision: true }),
     }))
+    expect(mocks.memoryFindMany.mock.calls[0][0].select).not.toHaveProperty('projection')
     expect(mocks.embedQuery).toHaveBeenCalledWith('今晚吃啥', expect.objectContaining({ allowExternal: true, authorizeExternal: expect.any(Function) }))
     expect(mocks.generateResponse.mock.calls[0][5].queryEmbedding).toEqual([0.1, 0.2, 0.3])
   })

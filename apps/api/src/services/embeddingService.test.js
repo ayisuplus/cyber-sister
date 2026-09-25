@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
-  userFindUnique: vi.fn(), memoryFindFirst: vi.fn(), projectionUpsert: vi.fn(),
+  userFindUnique: vi.fn(), memoryFindFirst: vi.fn(), embeddingUpsert: vi.fn(),
   jobFindFirst: vi.fn(), jobCreate: vi.fn(),
 }))
 vi.mock('../prisma/client.js', () => {
@@ -8,14 +8,18 @@ vi.mock('../prisma/client.js', () => {
     $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
     user: { findUnique: mocks.userFindUnique },
     memory: { findFirst: mocks.memoryFindFirst, count: vi.fn(async () => 3) },
-    memoryProjection: { upsert: mocks.projectionUpsert },
+    // 派生索引（路线图 C23）：记忆向量存 embeddings
+    embedding: { upsert: mocks.embeddingUpsert },
+    bookPassage: { count: vi.fn(async () => 0) },
     memoryIndexJob: { findFirst: mocks.jobFindFirst, create: mocks.jobCreate },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
 })
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
-import { embedMemory, embedQuery, embedText, embedTexts, embeddingModelName, rebuildEmbeddings } from './embeddingService.js'
+import { embedMemory, embedQuery, embedText, embedTexts, embeddingModelName } from './embeddingService.js'
+import { createIndexJob } from './memoryIndexService.js'
+import { contentVersion, identityKeyOf } from './vectors/identity.js'
 import logger from '../utils/logger.js'
 
 const USER_ID = 'user-1'
@@ -34,7 +38,7 @@ beforeEach(() => {
   for (const field of ['BASE_URL', 'MODEL', 'API_KEY', 'DIMENSIONS']) vi.stubEnv('MEMORY_EMBEDDING_' + field, '')
   mocks.userFindUnique.mockResolvedValue(CONSENTED)
   mocks.memoryFindFirst.mockResolvedValue(memory)
-  mocks.projectionUpsert.mockResolvedValue({})
+  mocks.embeddingUpsert.mockResolvedValue({})
   mocks.jobFindFirst.mockResolvedValue(null)
   mocks.jobCreate.mockImplementation(async ({ data }) => ({ id: 'job-1', status: 'queued', ...data }))
   vi.stubGlobal('fetch', vi.fn())
@@ -159,19 +163,24 @@ describe('memory projection commits', () => {
     mocks.userFindUnique.mockResolvedValue({ externalLlmConsent: false })
     expect(await embedMemory(memory)).toBe(false)
     expect(fetch).not.toHaveBeenCalled()
-    expect(mocks.projectionUpsert).not.toHaveBeenCalled()
+    expect(mocks.embeddingUpsert).not.toHaveBeenCalled()
   })
-  it('stores an independent projection bound to the current revision', async () => {
+  it('stores the vector in the derived index, keyed by model identity and bound to the current text', async () => {
     configure()
-    fetch.mockResolvedValue(response([1, 0]))
+    fetch.mockResolvedValue(response([3, 4]))
     expect(await embedMemory(memory)).toBe(true)
-    expect(mocks.projectionUpsert).toHaveBeenCalledWith({
-      where: { memoryId: memory.id },
-      create: { memoryId: memory.id, memoryRevision: 1, ...identity, vector: [1, 0] },
-      update: { memoryRevision: 1, ...identity, vector: [1, 0] },
+    const identityKey = identityKeyOf(identity, 'memory')
+    const row = {
+      userId: USER_ID, subjectType: 'memory', subjectId: memory.id, parentId: memory.id,
+      subjectVersion: contentVersion(memory.content), identityKey, dimensions: 2, vector: [0.6, 0.8],
+    }
+    expect(mocks.embeddingUpsert).toHaveBeenCalledWith({
+      where: { subjectType_subjectId_identityKey: { subjectType: 'memory', subjectId: memory.id, identityKey } },
+      create: row,
+      update: { subjectVersion: row.subjectVersion, dimensions: 2, vector: [0.6, 0.8], parentId: memory.id },
     })
   })
-  it('late results cannot overwrite a newer revision', async () => {
+  it('a late result for older text cannot overwrite the vector of the newer text', async () => {
     configure()
     let finishOld, startOld
     const started = new Promise((resolve) => { startOld = resolve })
@@ -179,52 +188,53 @@ describe('memory projection commits', () => {
       if (JSON.parse(init.body).input === 'old') { startOld(); return new Promise((resolve) => { finishOld = resolve }) }
       return Promise.resolve(response([0, 1]))
     })
-    mocks.memoryFindFirst.mockImplementation(async ({ where }) => where.revision === 2 ? { ...memory, revision: 2 } : null)
+    // 库里现在是新正文：旧正文算出来的向量对不上，不写
+    mocks.memoryFindFirst.mockResolvedValue({ ...memory, revision: 2, content: 'new' })
     const old = embedMemory({ ...memory, content: 'old' })
     await started
     expect(await embedMemory({ ...memory, revision: 2, content: 'new' })).toBe(true)
     finishOld(response([1, 0]))
     expect(await old).toBe(false)
-    expect(mocks.projectionUpsert).toHaveBeenCalledTimes(1)
-    expect(mocks.projectionUpsert.mock.calls[0][0].update.vector).toEqual([0, 1])
+    expect(mocks.embeddingUpsert).toHaveBeenCalledTimes(1)
+    expect(mocks.embeddingUpsert.mock.calls[0][0].update.vector).toEqual([0, 1])
   })
   it('does not save after consent is revoked while a request is in flight', async () => {
     configure()
     mocks.userFindUnique.mockResolvedValueOnce(CONSENTED).mockResolvedValue({ externalLlmConsent: false })
     fetch.mockResolvedValue(response([1, 0]))
     expect(await embedMemory(memory)).toBe(false)
-    expect(mocks.projectionUpsert).not.toHaveBeenCalled()
+    expect(mocks.embeddingUpsert).not.toHaveBeenCalled()
   })
   it('database failures do not leak content or raw query parameters', async () => {
     configure()
     fetch.mockResolvedValue(response([1, 0]))
-    mocks.projectionUpsert.mockRejectedValue(Object.assign(new Error('where.content=' + memory.content), { code: 'P2025' }))
+    mocks.embeddingUpsert.mockRejectedValue(Object.assign(new Error('where.content=' + memory.content), { code: 'P2025' }))
     expect(await embedMemory(memory)).toBe(false)
-    expect(logger.warn).toHaveBeenCalledWith('记忆投影未保存', { userId: USER_ID, code: 'P2025' })
+    expect(logger.warn).toHaveBeenCalledWith('记忆向量未保存', { userId: USER_ID, code: 'P2025' })
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(memory.content)
   })
 })
 
-describe('legacy rebuild entry creates durable jobs', () => {
+describe('rebuild creates durable jobs (POST /memories/index-jobs, mode=rebuild)', () => {
   it('unconfigured provider returns an honest keyword fallback error', async () => {
-    await expect(rebuildEmbeddings(USER_ID)).rejects.toMatchObject({ code: 'EMBEDDING_NOT_CONFIGURED' })
+    await expect(createIndexJob(USER_ID, { mode: 'rebuild' })).rejects.toMatchObject({ code: 'EMBEDDING_NOT_CONFIGURED' })
     expect(mocks.jobCreate).not.toHaveBeenCalled()
   })
   it('requires consent before creating a job', async () => {
     configure()
     mocks.userFindUnique.mockResolvedValue({ externalLlmConsent: false })
-    await expect(rebuildEmbeddings(USER_ID)).rejects.toMatchObject({ code: 'CLOUD_NOT_CONSENTED' })
+    await expect(createIndexJob(USER_ID, { mode: 'rebuild' })).rejects.toMatchObject({ code: 'CLOUD_NOT_CONSENTED' })
     expect(mocks.jobCreate).not.toHaveBeenCalled()
   })
   it('returns a queued receipt without treating it as completion', async () => {
     configure()
-    expect(await rebuildEmbeddings(USER_ID)).toMatchObject({ id: 'job-1', status: 'queued', mode: 'rebuild', total: 3 })
+    expect(await createIndexJob(USER_ID, { mode: 'rebuild' })).toMatchObject({ id: 'job-1', status: 'queued', mode: 'rebuild', total: 3 })
     expect(fetch).not.toHaveBeenCalled()
   })
   it('reuses the active job for the same user', async () => {
     configure()
     mocks.jobFindFirst.mockResolvedValue({ id: 'job-existing', status: 'running' })
-    expect(await rebuildEmbeddings(USER_ID)).toMatchObject({ id: 'job-existing', status: 'running' })
+    expect(await createIndexJob(USER_ID, { mode: 'rebuild' })).toMatchObject({ id: 'job-existing', status: 'running' })
     expect(mocks.jobCreate).not.toHaveBeenCalled()
   })
 })

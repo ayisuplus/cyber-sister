@@ -24,6 +24,8 @@ vi.mock('../prisma/client.js', () => {
     memoryProjection: { updateMany: vi.fn(), deleteMany: vi.fn() },
     // 她的组织层：根被改就作废、被删就一起删（路线图 C23）
     inference: { updateMany: vi.fn(), deleteMany: vi.fn() },
+    // 派生索引（路线图 C23）：正文改了、记忆删了，向量一并删
+    embedding: { deleteMany: vi.fn() },
     memoryIndexJob: { updateMany: vi.fn() },
     derivedInsight: { updateMany: vi.fn(), deleteMany: vi.fn() },
     diaryEntry: { findFirst: db.diaryEntryFindFirst },
@@ -323,7 +325,7 @@ describe('updateMemory', () => {
     expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', content: '新内容' }))
   })
 
-  it('内容更新与旧向量失效原子保存，新投影失败也不会保留旧向量', async () => {
+  it('内容更新与旧向量失效原子保存：旧正文算的向量在同一个事务里删掉，新向量算不成也不会留旧的（路线图 C23）', async () => {
     let stored = { id: 'm1', userId: 'u1', revision: 1, content: '旧内容', embedding: [1, 2], embeddingModel: 'old-model', entities: null, tags: '[]' }
     db.memoryFindFirst.mockResolvedValue(stored)
     db.memoryUpdate.mockImplementation(({ data }) => {
@@ -331,15 +333,14 @@ describe('updateMemory', () => {
       return Promise.resolve(stored)
     })
     embedding.embedMemory.mockResolvedValue(false)
+    const prisma = (await import('../prisma/client.js')).default
 
     const memory = await updateMemory('u1', 'm1', { content: '新内容', expectedRevision: 1 })
 
-    expect(db.memoryUpdate).toHaveBeenCalledWith({
-      where: { id: 'm1' },
-      data: { content: '新内容', embedding: [], embeddingModel: null, revision: { increment: 1 } },
-    })
-    expect(stored).toMatchObject({ content: '新内容', embedding: [], embeddingModel: null })
-    expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ content: '新内容', embedding: [] }))
+    // 只读的旧列不再写
+    expect(db.memoryUpdate).toHaveBeenCalledWith({ where: { id: 'm1' }, data: { content: '新内容', revision: { increment: 1 } } })
+    expect(prisma.embedding.deleteMany).toHaveBeenCalledWith({ where: { subjectType: 'memory', parentId: { in: ['m1'] } } })
+    expect(embedding.embedMemory).toHaveBeenCalledWith(expect.objectContaining({ content: '新内容' }))
     expect(memory).not.toHaveProperty('embedding')
   })
 

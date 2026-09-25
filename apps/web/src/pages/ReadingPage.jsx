@@ -31,7 +31,7 @@ const readableError = (error, fallback) =>
 // 上传被拒时照实说原因：书还在这台设备上
 const SHARE_REFUSED = {
   CLOUD_NOT_CONSENTED: '要先在设置里同意云端处理，她才能翻这本书；书先只放在这台设备上',
-  EMBEDDING_UNAVAILABLE: '这台服务器还没配向量模型，书先只放在这台设备上',
+  EMBEDDING_NOT_CONFIGURED: '这台服务器还没配向量模型，书先只放在这台设备上',
 }
 const shareError = (error) => SHARE_REFUSED[error?.response?.data?.code]
   ?? (error?.response?.status === 413 ? error.response.data?.error : null)

@@ -2,6 +2,10 @@ import { redactSensitiveText } from './llmService.js'
 import { hasCloudConsent } from './consents.js'
 import { withMemoryTransaction } from './memoryGovernance.js'
 import { embeddingConfig } from './embeddingConfig.js'
+import { validVector as isVector } from './vectors/vectorMath.js'
+import { MAX_EMBED_INPUT_CHARS } from './vectors/policies.js'
+import { sameModel } from './vectors/identity.js'
+import { embeddingRow, saveEmbedding } from './vectors/vectorStore.js'
 import logger from '../utils/logger.js'
 
 export function embeddingModelName() { return embeddingConfig()?.model ?? null }
@@ -16,7 +20,8 @@ export async function embedText(text, { signal, config = embeddingConfig() } = {
     const timeout = AbortSignal.timeout(15000)
     const response = await fetch(`${config.provider}/embeddings`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.model, input: redactSensitiveText(text) }),
+      // 本机向量服务一条最多 8000 字：超出的截掉，不让长消息悄悄没了向量
+      body: JSON.stringify({ model: config.model, input: redactSensitiveText(text).slice(0, MAX_EMBED_INPUT_CHARS) }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
     if (!response.ok || signal?.aborted) return null
@@ -27,8 +32,7 @@ export async function embedText(text, { signal, config = embeddingConfig() } = {
   } catch { return null }
 }
 
-const validVector = (vector, config) => Array.isArray(vector) && vector.length === config.dimensions
-  && vector.every(Number.isFinite) && vector.some((value) => value !== 0)
+const validVector = (vector, config) => isVector(vector, config.dimensions)
 
 /**
  * 一次算一批（她上传的书切成的段）：顺序与 texts 一致，有一条不合格整批作废返回 null。
@@ -40,7 +44,7 @@ export async function embedTexts(texts, { signal, config = embeddingConfig(), ti
     const timeout = AbortSignal.timeout(timeoutMs)
     const response = await fetch(`${config.provider}/embeddings`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: config.model, input: texts.map((text) => redactSensitiveText(text)) }),
+      body: JSON.stringify({ model: config.model, input: texts.map((text) => redactSensitiveText(text).slice(0, MAX_EMBED_INPUT_CHARS)) }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
     if (!response.ok || signal?.aborted) return null
@@ -68,6 +72,10 @@ export async function embedQuery(text, { allowExternal = false, authorizeExterna
   } catch { return null }
 }
 
+/**
+ * 给一条记忆算向量，存进派生索引（embeddings，路线图 C23）。
+ * 网络调用在事务外；写入前在事务里再核对一遍：同意还在、补算任务还在跑、这条记忆的正文没变、没过期、向量模型没换。
+ */
 export async function embedMemory(memory, { signal, jobId } = {}) {
   const config = embeddingConfig()
   if (!config || signal?.aborted) return false
@@ -78,26 +86,16 @@ export async function embedMemory(memory, { signal, jobId } = {}) {
     return await withMemoryTransaction(memory.userId, async (tx) => {
       if (signal?.aborted || !await hasEmbeddingConsent(memory.userId, tx)) return false
       if (jobId && !await tx.memoryIndexJob.findFirst({ where: { id: jobId, userId: memory.userId, status: 'running' } })) return false
-      const current = await tx.memory.findFirst({ where: { id: memory.id, userId: memory.userId, revision: memory.revision } })
-      if (!current || (current.expiresAt && current.expiresAt <= new Date())) return false
-      const liveConfig = embeddingConfig()
-      if (!liveConfig || liveConfig.provider !== config.provider || liveConfig.model !== config.model
-        || liveConfig.dimensions !== config.dimensions || liveConfig.ruleVersion !== config.ruleVersion) return false
-      const { apiKey: _apiKey, ...identity } = config
-      await tx.memoryProjection.upsert({ where: { memoryId: memory.id },
-        create: { memoryId: memory.id, memoryRevision: memory.revision, ...identity, vector },
-        update: { memoryRevision: memory.revision, ...identity, vector },
-      })
+      const current = await tx.memory.findFirst({ where: { id: memory.id, userId: memory.userId } })
+      if (!current || current.content !== memory.content || (current.expiresAt && current.expiresAt <= new Date())) return false
+      if (!sameModel(embeddingConfig(), config)) return false
+      const row = embeddingRow({ userId: memory.userId, subjectType: 'memory', subjectId: memory.id, text: memory.content, identity: config, vector })
+      if (!row) return false
+      await saveEmbedding(tx, row)
       return true
     })
   } catch (error) {
-    logger.warn('记忆投影未保存', { userId: memory.userId, code: error?.code || 'PROJECTION_FAILED' })
+    logger.warn('记忆向量未保存', { userId: memory.userId, code: error?.code || 'EMBEDDING_NOT_SAVED' })
     return false
   }
-}
-
-// 旧入口转接任务创建，排队不代表完成。
-export async function rebuildEmbeddings(userId) {
-  const { createIndexJob } = await import('./memoryIndexService.js')
-  return createIndexJob(userId, { mode: 'rebuild' })
 }

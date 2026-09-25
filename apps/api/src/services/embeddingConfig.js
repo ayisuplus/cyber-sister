@@ -14,30 +14,8 @@ export function embeddingConfig(env = process.env) {
   } catch { return null }
 }
 
-export function projectionMatches(projection, revision, config = embeddingConfig()) {
-  return Boolean(config && projection && projection.memoryRevision === revision
-    && projection.provider === config.provider && projection.model === config.model
-    && projection.dimensions === config.dimensions && projection.ruleVersion === config.ruleVersion
-    && Array.isArray(projection.vector) && projection.vector.length === config.dimensions
-    && projection.vector.every(Number.isFinite) && projection.vector.some((value) => value !== 0))
-}
-
-/** 余弦相似度：长度不等或任一向量零范数 → 0（维度不一致的旧向量自然沉底）。 */
-export function cosineSimilarity(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return 0
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let index = 0; index < a.length; index++) {
-    const x = a[index]
-    const y = b[index]
-    dot += x * y
-    normA += x * x
-    normB += y * y
-  }
-  if (normA === 0 || normB === 0) return 0
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
-}
+// 余弦相似度只留一份，在 vectors/vectorMath.js
+export { cosineSimilarity } from './vectors/vectorMath.js'
 
 export function embeddingStatus() {
   const config = embeddingConfig()

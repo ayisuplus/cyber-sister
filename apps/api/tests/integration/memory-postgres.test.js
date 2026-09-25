@@ -20,6 +20,10 @@ import { listDueReminders, updateScheduledReminder } from '../../src/services/re
 import { dedupeKeyOf, saveInferences } from '../../src/services/memory/inferenceService.js'
 import { collectDrafts } from '../../src/services/letterService.js'
 import { decideSuggestion } from '../../src/services/memory/proposalService.js'
+import { embeddingRow, loadVectors, saveEmbedding } from '../../src/services/vectors/vectorStore.js'
+import { contentVersion, identityKeyOf } from '../../src/services/vectors/identity.js'
+import { forgetShelf, searchUserBooks } from '../../src/services/bookIndexService.js'
+import { deleteBook } from '../../src/services/readingService.js'
 import { readFileSync } from 'node:fs'
 
 const withDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip
@@ -182,7 +186,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     vi.stubEnv('MEMORY_EMBEDDING_API_KEY', 'synthetic-test-key')
   }
 
-  it('does not revive deleted memory when a projection arrives late', async () => {
+  it('does not revive deleted memory when its vector arrives late', async () => {
     const memory = await create()
     enableEmbeddings()
     let complete
@@ -192,7 +196,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     await deleteMemory(user.id, memory.id)
     complete({ ok: true, json: async () => ({ data: [{ embedding: [1, 0] }] }) })
     expect(await pending).toBe(false)
-    expect(await db.memoryProjection.count()).toBe(0)
+    expect(await db.embedding.count()).toBe(0)
     expect(await db.memoryRevision.count()).toBe(0)
   })
 
@@ -253,22 +257,33 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(imported.sources).toEqual([{ type: 'message', status: 'missing', quote: '包内声明的原话' }])
   })
 
-  it('retains a valid projection on rebuild failure and excludes incompatible projections from search', async () => {
+  const IDENTITY = { provider: 'https://embedding.invalid/v1', model: 'test-embedding', dimensions: 2, ruleVersion: 1 }
+  const storeVector = (memory, vector, identity = IDENTITY, text = memory.content) => saveEmbedding(db, embeddingRow({
+    userId: user.id, subjectType: 'memory', subjectId: memory.id, text, identity, vector,
+  }))
+  const withVectors = async (memories, identity = IDENTITY) => {
+    const vectors = await loadVectors(user.id, 'memory', identity)
+    return memories.map((memory) => ({ ...memory, semantic: vectors.get(memory.id) ?? null }))
+  }
+
+  it('retains a valid vector on rebuild failure; vectors from another model or older text are not used (路线图 C23)', async () => {
     const memory = await create('周末徒步')
     enableEmbeddings()
-    const identity = { provider: 'https://embedding.invalid/v1', model: 'test-embedding', dimensions: 2, ruleVersion: 1 }
-    await db.memoryProjection.create({ data: { memoryId: memory.id, memoryRevision: 1, ...identity, vector: [1, 0] } })
+    await storeVector(memory, [1, 0])
     const job = await createIndexJob(user.id, { mode: 'rebuild' })
     await runIndexJob(job.id)
-    expect(await db.memoryProjection.count()).toBe(1)
+    expect(await db.embedding.count()).toBe(1)
     expect(await db.memoryIndexJob.findUnique({ where: { id: job.id } })).toMatchObject({ status: 'completed', failed: 1 })
-    const current = await db.memory.findFirst({ include: { projection: true } })
-    const query = { ...identity, vector: [1, 0] }
+
+    const query = { ...IDENTITY, vector: [1, 0] }
+    const [current] = await withVectors([await db.memory.findFirst()])
     expect(retrieveRelevantMemories('外出', [current], query)).toHaveLength(1)
-    expect(retrieveRelevantMemories('外出', [{ ...current, projection: { ...current.projection, model: 'other-model' } }], query)).toEqual([])
-    expect(retrieveRelevantMemories('外出', [{ ...current, projection: { ...current.projection, memoryRevision: 99 } }], query)).toEqual([])
-    expect(retrieveRelevantMemories('外出', [{ ...current, projection: { ...current.projection, dimensions: 3, vector: [1, 0, 0] } }], query)).toEqual([])
-    expect(retrieveRelevantMemories('徒步', [{ ...current, projection: { ...current.projection, memoryRevision: 99 } }], query)).toHaveLength(1)
+    // 查询是另一个模型算的
+    expect(retrieveRelevantMemories('外出', [current], { ...query, model: 'other-model' })).toEqual([])
+    // 向量是旧正文算的
+    expect(retrieveRelevantMemories('外出', [{ ...current, semantic: { ...current.semantic, version: contentVersion('以前的正文') } }], query)).toEqual([])
+    // 关键词照样找得到
+    expect(retrieveRelevantMemories('徒步', [{ ...current, semantic: null }], query)).toHaveLength(1)
   })
 
   it('imports v1 concurrently once and rolls back persona changes when formal history cannot be saved', async () => {
@@ -459,7 +474,7 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
   it('finds relevant memory beyond 200 records and keeps conflict semantics in context', async () => {
     await db.memory.createMany({ data: Array.from({ length: 205 }, (_, index) => ({ userId: user.id, type: 'semantic', content: `普通内容${index}`, importance: 10 })) })
     const memory = await create('周末想去观星')
-    const all = await db.memory.findMany({ where: { userId: user.id }, orderBy: { importance: 'desc' }, include: { projection: true } })
+    const all = await db.memory.findMany({ where: { userId: user.id }, orderBy: { importance: 'desc' } })
     expect(all.findIndex((item) => item.id === memory.id)).toBeGreaterThan(200)
     const selected = retrieveRelevantMemories('一起观星', all)
     expect(selected.map((item) => item.id)).toContain(memory.id)
@@ -483,19 +498,65 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('repairs missing projections while retaining valid ones and continuing after one failure', async () => {
+  it('repairs missing vectors while retaining valid ones and continuing after one failure', async () => {
     const valid = await create('已有有效索引')
     await create('本条生成失败')
     const missing = await create('本条可以生成')
     enableEmbeddings()
-    const existing = await db.memoryProjection.create({ data: { memoryId: valid.id, memoryRevision: 1,
-      provider: 'https://embedding.invalid/v1', model: 'test-embedding', dimensions: 2, ruleVersion: 1, vector: [0, 1] } })
+    const existing = await storeVector(valid, [0, 1])
     fetch.mockImplementation(async (_url, options) => ({ ok: true, json: async () => ({ data: [{ embedding: JSON.parse(options.body).input.includes('失败') ? [1] : [1, 0] }] }) }))
     const job = await createIndexJob(user.id, { mode: 'repair' })
     await runIndexJob(job.id)
     expect(await db.memoryIndexJob.findUnique({ where: { id: job.id } })).toMatchObject({ status: 'completed', processed: 3, embedded: 1, skipped: 1, failed: 1 })
-    expect(await db.memoryProjection.findUnique({ where: { memoryId: valid.id } })).toEqual(existing)
-    expect(await db.memoryProjection.findUnique({ where: { memoryId: missing.id } })).toMatchObject({ memoryRevision: 1, vector: [1, 0] })
+    const key = identityKeyOf(IDENTITY, 'memory')
+    const byMemory = (memory) => db.embedding.findUnique({ where: { subjectType_subjectId_identityKey: { subjectType: 'memory', subjectId: memory.id, identityKey: key } } })
+    expect(await byMemory(valid)).toEqual(existing)
+    expect(await byMemory(missing)).toMatchObject({ subjectVersion: contentVersion(missing.content), vector: [1, 0] })
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  /** 一本已经上传整理好的书：两段正文，向量是 identity 这个模型算的。 */
+  async function readyBook(identity) {
+    const book = await db.book.create({ data: { userId: user.id, title: '被讨厌的勇气', format: 'epub', serverIndex: 'ready' } })
+    const passages = [
+      { id: `${book.id}-0`, seq: 0, chapterIndex: 0, chapter: '课题分离', locator: '0:0', content: '别人怎么看你，是别人的课题。' },
+      { id: `${book.id}-1`, seq: 1, chapterIndex: 0, chapter: '课题分离', locator: '0:40', content: '你不必满足别人的期待。' },
+    ]
+    await db.bookPassage.createMany({ data: passages.map((passage) => ({ ...passage, bookId: book.id, userId: user.id })) })
+    for (const passage of passages) {
+      await saveEmbedding(db, embeddingRow({
+        userId: user.id, subjectType: 'passage', subjectId: passage.id, parentId: book.id,
+        text: `${passage.chapter}\n${passage.content}`, identity, vector: [1, 0],
+      }))
+    }
+    return book
+  }
+
+  it('换了向量模型：她的书先不翻，补算任务按新模型重算段落之后又能翻到（路线图 C23）', async () => {
+    enableEmbeddings()
+    await readyBook({ ...IDENTITY, model: 'older-embed' })
+    const query = { ...IDENTITY, vector: [1, 0] }
+    forgetShelf(user.id)
+    expect(await searchUserBooks(user.id, { text: '总在讨好别人', queryEmbedding: query })).toEqual([])
+
+    fetch.mockImplementation(async (_url, options) => {
+      const { input } = JSON.parse(options.body)
+      return { ok: true, json: async () => ({ data: input.map((_text, index) => ({ index, embedding: [1, 0] })) }) }
+    })
+    const job = await createIndexJob(user.id, { mode: 'repair' })
+    expect(job.total).toBe(2)
+    await runIndexJob(job.id)
+    expect(await db.memoryIndexJob.findUnique({ where: { id: job.id } })).toMatchObject({ status: 'completed', processed: 2, embedded: 2 })
+    expect(await db.embedding.count({ where: { subjectType: 'passage', identityKey: identityKeyOf(IDENTITY, 'passage') } })).toBe(2)
+    const [hit] = await searchUserBooks(user.id, { text: '总在讨好别人', queryEmbedding: query })
+    expect(hit.cards).toHaveLength(1)
+  })
+
+  it('删书：段落随书删掉，派生索引里的段落向量也一起删（没有外键，不留孤儿）', async () => {
+    const book = await readyBook(IDENTITY)
+    expect(await db.embedding.count({ where: { parentId: book.id } })).toBe(2)
+    await deleteBook(user.id, book.id)
+    expect(await db.bookPassage.count()).toBe(0)
+    expect(await db.embedding.count({ where: { parentId: book.id } })).toBe(0)
   })
 })

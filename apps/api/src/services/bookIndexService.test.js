@@ -3,12 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   bookFindFirst: vi.fn(), bookFindMany: vi.fn(), bookUpdate: vi.fn(), bookUpdateMany: vi.fn(),
   passageDeleteMany: vi.fn(), passageCreateMany: vi.fn(),
+  embeddingDeleteMany: vi.fn(), embeddingCreateMany: vi.fn(), embeddingRows: [],
   embedTexts: vi.fn(), hasEmbeddingConsent: vi.fn(),
 }))
 vi.mock('../prisma/client.js', () => {
   const client = {
     book: { findFirst: mocks.bookFindFirst, findMany: mocks.bookFindMany, update: mocks.bookUpdate, updateMany: mocks.bookUpdateMany },
     bookPassage: { deleteMany: mocks.passageDeleteMany, createMany: mocks.passageCreateMany },
+    // 派生索引（路线图 C23）：段落向量存这里；查的时候按身份键过滤，和数据库一样
+    embedding: {
+      deleteMany: mocks.embeddingDeleteMany,
+      createMany: mocks.embeddingCreateMany,
+      findMany: vi.fn(({ where }) => Promise.resolve(mocks.embeddingRows.filter((row) => row.identityKey === where.identityKey && row.subjectType === where.subjectType))),
+    },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -21,6 +28,8 @@ import {
   PASSAGE_OVERLAP, PASSAGE_SIZE, recoverInterruptedBookIndexing, revokeBookContent, searchUserBooks, uploadBookContent, validateChapters,
 } from './bookIndexService.js'
 import { BOOKS, buildBookSkillContexts, describeBookNotes } from './bookSkills.js'
+import { contentVersion, identityKeyOf } from './vectors/identity.js'
+import { passageEmbeddingText } from './bookIndexService.js'
 
 const USER_ID = 'user-1'
 const config = { provider: 'http://127.0.0.1:5006/v1', model: 'synthetic-embed', dimensions: 2, ruleVersion: 1 }
@@ -46,6 +55,9 @@ beforeEach(() => {
   mocks.bookUpdateMany.mockResolvedValue({ count: 1 })
   mocks.passageDeleteMany.mockResolvedValue({ count: 0 })
   mocks.passageCreateMany.mockResolvedValue({ count: 0 })
+  mocks.embeddingDeleteMany.mockResolvedValue({ count: 0 })
+  mocks.embeddingCreateMany.mockResolvedValue({ count: 0 })
+  mocks.embeddingRows = []
   mocks.hasEmbeddingConsent.mockResolvedValue(true)
   mocks.embedTexts.mockImplementation((texts) => Promise.resolve(texts.map(() => [1, 0])))
   mocks.bookFindMany.mockResolvedValue([])
@@ -104,7 +116,7 @@ describe('切段', () => {
 describe('上传与后台整理', () => {
   it('没配向量模型或没同意云端处理：503，书还是只在她的设备上', async () => {
     await expect(uploadBookContent(USER_ID, 'book-1', { chapters: [{ text: sentences(3) }] }))
-      .rejects.toMatchObject({ statusCode: 503, code: 'EMBEDDING_UNAVAILABLE' })
+      .rejects.toMatchObject({ statusCode: 503, code: 'EMBEDDING_NOT_CONFIGURED' })
     configure()
     mocks.hasEmbeddingConsent.mockResolvedValue(false)
     await expect(uploadBookContent(USER_ID, 'book-1', { chapters: [{ text: sentences(3) }] }))
@@ -127,6 +139,7 @@ describe('上传与后台整理', () => {
     const updated = await uploadBookContent(USER_ID, 'book-1', { chapters })
     expect(updated.serverIndex).toBe('indexing')
     expect(mocks.passageDeleteMany).toHaveBeenCalledWith({ where: { bookId: 'book-1', userId: USER_ID } })
+    expect(mocks.embeddingDeleteMany).toHaveBeenCalledWith({ where: { subjectType: 'passage', parentId: { in: ['book-1'] } } })
 
     await vi.waitFor(() => expect(mocks.passageCreateMany).toHaveBeenCalled())
     const total = chunkBook(chapters).length
@@ -134,7 +147,15 @@ describe('上传与后台整理', () => {
     expect(mocks.embedTexts.mock.calls[0][0][0].startsWith('第一章\n')).toBe(true)
     const written = mocks.passageCreateMany.mock.calls.flatMap(([{ data }]) => data)
     expect(written).toHaveLength(total)
-    expect(written[0]).toMatchObject({ bookId: 'book-1', userId: USER_ID, seq: 0, locator: '0:0', vector: [1, 0] })
+    expect(written[0]).toMatchObject({ bookId: 'book-1', userId: USER_ID, seq: 0, locator: '0:0' })
+    expect(written[0]).not.toHaveProperty('vector')
+    // 向量进派生索引：一段一行，挂在书下面，身份键与正文版本都记上
+    const vectors = mocks.embeddingCreateMany.mock.calls.flatMap(([{ data }]) => data)
+    expect(vectors).toHaveLength(total)
+    expect(vectors[0]).toEqual({
+      userId: USER_ID, subjectType: 'passage', subjectId: written[0].id, parentId: 'book-1',
+      subjectVersion: contentVersion(passageEmbeddingText(written[0])), identityKey: identityKeyOf(config, 'passage'), dimensions: 2, vector: [1, 0],
+    })
     const claim = mocks.bookUpdateMany.mock.calls.find(([{ data }]) => data.serverIndex === 'ready')[0]
     expect(claim.where).toEqual({ id: 'book-1', userId: USER_ID, serverIndex: 'indexing' })
     expect(claim.data.indexIdentity).toEqual(identity)
@@ -174,6 +195,7 @@ describe('上传与后台整理', () => {
     expect(revoked.serverIndex).toBeNull()
     expect(mocks.bookUpdate.mock.invocationCallOrder[0]).toBeLessThan(mocks.passageDeleteMany.mock.invocationCallOrder[0])
     expect(mocks.passageDeleteMany).toHaveBeenCalledWith({ where: { bookId: 'book-1', userId: USER_ID } })
+    expect(mocks.embeddingDeleteMany).toHaveBeenCalledWith({ where: { subjectType: 'passage', parentId: { in: ['book-1'] } } })
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(mocks.passageCreateMany).not.toHaveBeenCalled()
   })
@@ -186,19 +208,32 @@ describe('上传与后台整理', () => {
 })
 
 const passage = (id, vector, extra = {}) => ({ id, seq: 0, chapterIndex: 1, chapter: '课题分离', locator: '1:120', content: `这是${id}的正文。`, vector, ...extra })
-const shelfRow = (id, title, passages, extra = {}) => ({ id, title, author: null, indexIdentity: identity, passages, ...extra })
+const shelfRow = (id, title, passages, extra = {}) => ({ id, title, author: null, passages, ...extra })
+/**
+ * 书架：书与段落正文从 books / book_passages 读，向量从派生索引读。
+ * spec 是算这本书的模型（缺省就是现在配的这个）；换过模型的书，它的向量按另一个身份键存着，现在查不出来。
+ */
+function stock(rows, specs = {}) {
+  mocks.bookFindMany.mockResolvedValue(rows.map(({ passages, ...row }) => ({ ...row, passages: passages.map(({ vector: _vector, ...rest }) => rest) })))
+  mocks.embeddingRows = rows.flatMap((row) => row.passages.map((item) => ({
+    subjectType: 'passage', subjectId: item.id, identityKey: identityKeyOf(specs[row.id] ?? config, 'passage'),
+    subjectVersion: contentVersion(passageEmbeddingText(item)), vector: item.vector,
+  })))
+}
 // 与 [1, 0] 的余弦分别约为 0.80、0.50
 const NEAR = [0.8, 0.6]
 const FAR = [0.5, Math.sqrt(0.75)]
 
 describe('聊天时翻她的书', () => {
+  beforeEach(() => configure())
+
   it('没有这一轮的查询向量就不读库', async () => {
     expect(await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: null })).toEqual([])
     expect(mocks.bookFindMany).not.toHaveBeenCalled()
   })
 
   it('全书架只挑最挨得近的一段，够不上阈值就不翻', async () => {
-    mocks.bookFindMany.mockResolvedValue([
+    stock([
       shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR), passage('p-far', FAR)]),
       shelfRow('book-2', '另一本书', [passage('p-other', [0, 1])]),
     ])
@@ -208,13 +243,13 @@ describe('聊天时翻她的书', () => {
     expect(mocks.bookFindMany.mock.calls[0][0].where).toEqual({ userId: USER_ID, serverIndex: 'ready' })
 
     forgetShelf(USER_ID)
-    mocks.bookFindMany.mockResolvedValue([shelfRow('book-1', '被讨厌的勇气', [passage('p-far', FAR)])])
+    stock([shelfRow('book-1', '被讨厌的勇气', [passage('p-far', FAR)])])
     expect(FAR[0]).toBeLessThan(PASSAGE_MIN_SCORE)
     expect(await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]) })).toEqual([])
   })
 
   it('她点了书名：只在那本里找，阈值放低一档；明说办事又没点名就不找', async () => {
-    mocks.bookFindMany.mockResolvedValue([
+    stock([
       shelfRow('book-1', '被讨厌的勇气：自我启发之父阿德勒的哲学课', [passage('p-named', FAR)]),
       shelfRow('book-2', '另一本书', [passage('p-other', NEAR)]),
     ])
@@ -226,16 +261,22 @@ describe('聊天时翻她的书', () => {
     expect(named.cards.map(({ id }) => id)).toEqual(['p-named'])
   })
 
-  it('伴读时正在读的那本不找；向量身份对不上的书不翻', async () => {
-    mocks.bookFindMany.mockResolvedValue([
+  it('伴读时正在读的那本不找；向量是别的模型算的书（还没补算）不翻', async () => {
+    stock([
       shelfRow('book-1', '被讨厌的勇气', [passage('p-reading', NEAR)]),
-      shelfRow('book-2', '换过模型的书', [passage('p-stale', NEAR)], { indexIdentity: { ...identity, model: 'older-embed' } }),
-    ])
+      shelfRow('book-2', '换过模型的书', [passage('p-stale', NEAR)]),
+    ], { 'book-2': { ...config, model: 'older-embed' } })
     expect(await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]), excludeBookId: 'book-1' })).toEqual([])
   })
 
+  it('段落正文改过（向量是旧正文算的）也不翻，等补算', async () => {
+    stock([shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR)])])
+    mocks.embeddingRows[0].subjectVersion = contentVersion('以前的正文')
+    expect(await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]) })).toEqual([])
+  })
+
   it('书架按用户缓存：同一个人再问不再读库，上传或撤回后重新读', async () => {
-    mocks.bookFindMany.mockResolvedValue([shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR)])])
+    stock([shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR)])])
     await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]) })
     await searchUserBooks(USER_ID, { text: '还是总在讨好别人', queryEmbedding: query([1, 0]) })
     expect(mocks.bookFindMany).toHaveBeenCalledTimes(1)
@@ -245,7 +286,7 @@ describe('聊天时翻她的书', () => {
   })
 
   it('拼进提示词：注明她自己放进来、Amie 没审校、只是资料；批注带书的 id 和阅读器位置', async () => {
-    mocks.bookFindMany.mockResolvedValue([shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR)], { author: '岸见一郎' })])
+    stock([shelfRow('book-1', '被讨厌的勇气', [passage('p-near', NEAR)], { author: '岸见一郎' })])
     const selection = await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]) })
     const [rules, block] = buildBookSkillContexts(selection, '')
     expect(rules.content).toContain('[Amie 书架通用规则]')
@@ -268,7 +309,8 @@ describe('翻书的字数预算：加上她的书', () => {
     const longest = (item) => Math.max(...item.cards.map((card) => size(item.render([card], '就诊'))))
     const [first, second] = BOOKS.map(longest).sort((a, b) => b - a)
     const longestPassage = chunkChapter(sentences(400)).reduce((max, piece) => (piece.content.length > max.content.length ? piece : max))
-    mocks.bookFindMany.mockResolvedValue([shelfRow('book-1', '一本书名不短的书：副标题也不短', [passage('p', NEAR, { content: longestPassage.content })])])
+    configure()
+    stock([shelfRow('book-1', '一本书名不短的书：副标题也不短', [passage('p', NEAR, { content: longestPassage.content })])])
     const selection = await searchUserBooks(USER_ID, { text: '最近总在讨好别人', queryEmbedding: query([1, 0]) })
     const blocks = buildBookSkillContexts(selection, '', { citeBooks: true })
     expect(size(blocks) + first + second).toBeLessThanOrEqual(4300)

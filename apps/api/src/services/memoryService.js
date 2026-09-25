@@ -8,6 +8,7 @@ import logger from '../utils/logger.js'
 import { liveMemoryWhere } from './memory/scopes.js'
 import { normalizeKey } from '../utils/normalizeKey.js'
 import { deleteForMemories } from './memory/inferenceService.js'
+import { deleteEmbeddings } from './vectors/vectorStore.js'
 import { embedMemory } from './embeddingService.js'
 import { assertRevision, withMemoryTransaction, ownedMemory, validateSources, recordRevision, invalidateMemoryDependencies } from './memoryGovernance.js'
 
@@ -129,7 +130,6 @@ export async function createMemory(userId, {
         const updated = await database.memory.update({ where: { id: existing.id }, data: {
           revision: { increment: 1 }, sources: [...existing.sources, ...references].slice(-20),
         } })
-        await database.memoryProjection.updateMany({ where: { memoryId: existing.id, memoryRevision: existing.revision }, data: { memoryRevision: updated.revision } })
         await recordRevision(database, updated, action, null, proposal)
         return updated
       }
@@ -236,10 +236,8 @@ export async function applyMemoryChange(tx, userId, memoryId, updates, { action 
   const updateData = {}
   if (updates.type !== undefined) updateData.type = validateType(updates.type)
   if (updates.content !== undefined) {
+    // 正文一变，旧正文算的向量就对不上（派生索引按正文的哈希核对），重算之前走关键词检索
     updateData.content = validateContent(updates.content)
-    // 内容与投影一起失效，重建失败时走关键词检索，不能继续使用旧内容的向量。
-    updateData.embedding = []
-    updateData.embeddingModel = null
   }
   if (updates.importance !== undefined) updateData.importance = validateImportance(updates.importance)
   if (updates.tags !== undefined) updateData.tags = JSON.stringify(validateTags(updates.tags))
@@ -251,9 +249,8 @@ export async function applyMemoryChange(tx, userId, memoryId, updates, { action 
   const changedMeaning = (updateData.content !== undefined && updateData.content !== current.content)
     || (updateData.type !== undefined && updateData.type !== current.type)
   const updated = await tx.memory.update({ where: { id: memoryId }, data: { ...updateData, revision: { increment: 1 } } })
+  // 意思没变（只改了重要度或标签）：向量按正文核对、她的组织层按状态判断，都不用动
   if (changedMeaning) await invalidateMemoryDependencies(tx, userId, memoryId)
-  // 意思没变（只改了重要度或标签）：向量跟上新版本号；她的组织层靠状态判断有效，不跟版本号
-  else await tx.memoryProjection.updateMany({ where: { memoryId, memoryRevision: current.revision }, data: { memoryRevision: updated.revision } })
   await recordRevision(tx, updated, action, null, proposal)
   return updated
 }
@@ -268,6 +265,7 @@ async function eraseMemories(tx, userId, ids) {
   await tx.memoryIndexJob.updateMany({ where: { userId, status: { in: ['queued', 'running'] } }, data: { status: 'cancelled' } })
   // 以这些根为依据的组织层条目连同引文一起删；只读的旧草稿表也一并清掉（旧关系表随外键级联删除）
   await deleteForMemories(tx, userId, ids)
+  await deleteEmbeddings(tx, { subjectType: 'memory', parentIds: ids })
   await tx.derivedInsight.deleteMany({ where: { userId, OR: [{ promotedMemoryId: { in: ids } }, { sourceMemoryIds: { hasSome: ids } }] } })
   // 删除来源时只擦除依赖副本中的引用，其他用户已确认的正文仍由其自身生命周期管理。
   const scrub = (sources) => (Array.isArray(sources) ? sources : []).filter((source) => !(source.type === 'memory' && ids.includes(source.id)))

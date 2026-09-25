@@ -45,7 +45,6 @@ export const memoryService = {
   },
   // 放在心上 / 拿下来：每次聊天她都记着；不改内容、不产生新版本
   setPinned: async (id, pinned) => (await api.put(`/memories/${id}/pin`, { pinned })).data,
-  rebuildEmbeddings: async () => (await api.post('/memories/embeddings/rebuild')).data,
   // 「她猜的」：她自己整理的关系、理解与惦记的事（没经你确认）；删掉就是否决，她不会再推出同一条
   listInferences: async () => (await api.get('/memories/inferences')).data.items,
   vetoInference: async (id) => (await api.delete(`/memories/inferences/${encodeURIComponent(id)}`)).data,

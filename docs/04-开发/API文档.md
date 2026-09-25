@@ -21,6 +21,7 @@
 > - **写信移出只读接口**：`GET /api/chat/nudges` 只等写信 1.5 秒，写不完下次再说；同一个人同时只写一封（`POST /api/letters/generate` 走同一个入口）。
 > - **经期卡片只经两项同意进模型**：「记录经期」与「聊天时顾及周期」都开着，关心卡片里的经期才作为「她今天说过的话」交给模型；便签照常显示。
 > - **惦记的事要有原话作依据**：必须逐字出自你说过的话（她自己说的不算）。
+> - **派生索引一张表**：记忆与她上传的书的段落，向量合进 `embeddings`（旧的 `memory_projections`、`book_passages.vector` 只读）；三类向量（含随代码提交的书架索引）共用一种身份写法（地址规范化后取哈希 + 模型 + 维度 + 这类对象的规则版本，`localhost` 与 `127.0.0.1`、末尾的 `/` 不再被当成不同模型）、一份相似度计算与集中登记的阈值。补算任务（`POST /api/memories/index-jobs`）同时补记忆与书段落，换了向量模型后她的书会被重算，不再显示「就绪」却每次被跳过。`POST /api/memories/embeddings/rebuild` 删除，全量重算用 `POST /api/memories/index-jobs` 的 `mode: "rebuild"`；上传书时没配向量模型的错误码统一为 `EMBEDDING_NOT_CONFIGURED`。
 > - **提议通道**：来信建议新增 `merge_memories`（合并两条）、`resolve_conflict`（标出两条矛盾，处置时带 `keep`）、`promote_inference`（把她猜的记下来）；「同意采纳 / 不用」在一个事务里完成（写根、回写建议、结束她依据的整理），任何一步失败整体回滚；采纳写根的那一版在 `memory_revisions.proposal` 记下来源链 `{letterId, index, kind, inferenceIds}`，`action` 为 `accept_suggestion`。见 §十四。
 > - **导出**：`derivedInsights`、`memoryEdges`、`followUps` 三节合成 `inferences`（不含你删掉的、不带内部 id），并补上会话的前情摘要 `summary`、消息的页边批注 `bookNotes`、来信的 `suggestions` 与 `readAt`；`memoryBundle` 带 `pinned`，关系改从组织层取（有效 → `canonical`，作废 → `needs_review`，v2 格式不变）。
 
@@ -661,9 +662,9 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 
 **隐私性质**：候选由云端模型生成，与聊天走同一同意门（未同意返回 `CLOUD_NOT_CONSENTED`）与同一脱敏规则；候选为**临时**数据，只存在于响应体，不落库；经用户确认后才可通过既有 `POST /api/memories` 落库。日志只记 requestId 与结果计数，不记消息或候选内容。
 
-### POST /api/memories/embeddings/rebuild — 重建语义索引（2026-09-09 起）
+### POST /api/memories/index-jobs — 向量补算（2026-09-25 起同时补记忆与她上传的书）
 
-该旧入口转接全量重建任务，返回 **202**。新增 `POST /api/memories/index-jobs` 另支持 `mode=repair`，只修复缺失或过期投影。向量服务独立配置，失败不阻断保存或关键词检索。
+body `{ mode: "repair" | "rebuild" }`，缺省 `repair`：只补派生索引 `embeddings` 里缺的、正文变了的、换了模型的；`rebuild` 全部重算。返回 **202**。任务总数 `total` = 未过期的记忆 + 她上传且整理好的书的段落。向量服务独立配置，失败不阻断保存或关键词检索。旧入口 `POST /api/memories/embeddings/rebuild` 已于 2026-09-25 删除（路线图 C23），用 `mode: "rebuild"` 代替。
 
 **响应**
 
@@ -697,7 +698,7 @@ multipart 字段 `file`：WAV（`audio/wav`、`audio/x-wav`、`audio/wave`），
 | PUT | `/api/reading/books/:id` | 改书目；可带 `currentPage`、`percent`、`locator` |
 | PUT | `/api/reading/books/:id/progress` | `{locator?, percent?}` 阅读器一边读一边回存；只动进度，想读的书会转为在读，读到 100% 不自动标记读完 |
 | DELETE | `/api/reading/books/:id` | 删书（笔记、上传的段落级联删） |
-| POST | `/api/reading/books/:id/content` | `{chapters: [{title, text}]}`：她确认后上传本机解析好的章节，全书最多 150 万字（超了 413），请求体上限 8MB。立即返回 202 和书目（`serverIndex: "indexing"`），后台整理。没同意当前版本的云端处理 → 503 `code: CLOUD_NOT_CONSENTED`；没配向量模型 → 503 `code: EMBEDDING_UNAVAILABLE`；纸书 400；正在整理 409 |
+| POST | `/api/reading/books/:id/content` | `{chapters: [{title, text}]}`：她确认后上传本机解析好的章节，全书最多 150 万字（超了 413），请求体上限 8MB。立即返回 202 和书目（`serverIndex: "indexing"`），后台整理。没同意当前版本的云端处理 → 503 `code: CLOUD_NOT_CONSENTED`；没配向量模型 → 503 `code: EMBEDDING_NOT_CONFIGURED`（2026-09-25 起与记忆补算同一个码）；纸书 400；正在整理 409 |
 | DELETE | `/api/reading/books/:id/content` | 「只留在设备上」：停掉整理，删掉服务器上的段落，`serverIndex` 回到 `null` |
 | GET | `/api/reading/shelf/builtin` | Amie 的藏书：`{books: [{name, title, author, edition, setAside, boundary, chapters: [{id, title, origin, use}]}]}`，不带正文 |
 | GET | `/api/reading/shelf/builtin/:name` | 点开一本藏书：同上，`chapters` 多了 `content`（Amie 的改编章节，不是原书）；没有这本 404 |
@@ -970,7 +971,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           POST   /api/asr/transcribe       (multipart WAV，只回文字)
 记忆      CRUD   /api/memories
           POST   /api/memories/suggestions (临时候选，不落库)
-          POST   /api/memories/embeddings/rebuild (重建语义索引)
+          POST   /api/memories/index-jobs  (向量补算：记忆与她的书，repair / rebuild)
           GET    /api/memories/inferences  (「她猜的」：她自己整理的，没经你确认)
           DELETE /api/memories/inferences/:id (删掉即否决，她不会再这样猜)
 来信      GET    /api/letters            (历史列表，新到旧)

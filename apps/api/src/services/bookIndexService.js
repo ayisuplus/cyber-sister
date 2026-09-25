@@ -3,14 +3,19 @@
  * 这里切段、算向量、整本写进 book_passages；聊天时和内置书一起翻，一轮最多翻她的书一段。
  *
  * 没选上传的书照旧只在她的设备上，服务端不知道正文。
- * 向量只在进程内存里比（按用户缓存，上传、撤回、删书时失效），不加向量库。
+ * 段落向量存在派生索引 embeddings（路线图 C23，与记忆向量同一张表），比较在进程内存里做
+ *（按用户缓存，上传、撤回、删书时失效），不加向量库。换了向量模型，补算任务会按段落正文重算。
  */
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
 import { embeddingConfig } from './embeddingConfig.js'
 import { embedTexts, hasEmbeddingConsent } from './embeddingService.js'
-import { providerHashOf } from './bookShelf.js'
+import { identityKeyOf, identityOf, sameModel } from './vectors/identity.js'
+import { deleteEmbeddings, embeddingRow, loadVectors, saveEmbeddings, vectorFits } from './vectors/vectorStore.js'
+import { dot, unit32 } from './vectors/vectorMath.js'
+import { VECTOR_POLICIES } from './vectors/policies.js'
 import logger from '../utils/logger.js'
 
 /** 一段约 600 字，在句末断开；相邻两段重叠约 80 字，一句话不会刚好被切在两段中间找不着。 */
@@ -32,8 +37,8 @@ const CHAPTER_TITLE_MAX = 200
  * 冒充书和本机三本真书上，0.55 是「不该翻书的句子一句都不翻」的最低一档；再低，闲聊也会翻出书来。
  * 代价是召回低（真书上 20 句情绪类的句子翻到 2–7 句），她点了书名时放低一档。
  */
-export const PASSAGE_MIN_SCORE = 0.55
-export const NAMED_BOOK_EASING = 0.1
+export const PASSAGE_MIN_SCORE = VECTOR_POLICIES.passage.minScore
+export const NAMED_BOOK_EASING = VECTOR_POLICIES.passage.namedEasing
 
 const EMBED_BATCH = 32
 const WRITE_BATCH = 200
@@ -114,13 +119,9 @@ export function validateChapters(body) {
 
 // ── 向量身份 ────────────────────────────────────────────
 
-/** 算向量用的身份：供应商只记哈希，和书架索引同一种写法。 */
-export const identityOf = (config) => (config
-  ? { providerHash: providerHashOf(config), model: config.model, dimensions: config.dimensions, ruleVersion: config.ruleVersion }
-  : null)
-
-const sameIdentity = (a, b) => Boolean(a && b && a.providerHash === b.providerHash && a.model === b.model
-  && a.dimensions === b.dimensions && a.ruleVersion === b.ruleVersion)
+/** 算向量用的身份：供应商只记哈希，和书架索引同一种写法（统一在 vectors/identity.js）。 */
+export { identityOf }
+const sameIdentity = sameModel
 
 // ── 后台整理：一次一本，失败不留半本 ──────────────────
 
@@ -187,12 +188,17 @@ async function savePassages({ userId, bookId, passages, config, controller }, ve
       data: { serverIndex: 'ready', indexIdentity: identity, indexedAt: new Date() },
     })
     if (!claimed.count) return false
-    for (let from = 0; from < passages.length; from += WRITE_BATCH) {
+    // 段落正文进 book_passages，向量进派生索引；id 先定好，两边对得上
+    const rows = passages.map((passage) => ({ ...passage, id: randomUUID(), bookId, userId }))
+    for (let from = 0; from < rows.length; from += WRITE_BATCH) {
       // 同一个事务里分批写，一条语句的参数不会太多
+      const batch = rows.slice(from, from + WRITE_BATCH)
       // eslint-disable-next-line no-await-in-loop
-      await tx.bookPassage.createMany({
-        data: passages.slice(from, from + WRITE_BATCH).map((passage, at) => ({ ...passage, bookId, userId, vector: vectors[from + at] })),
-      })
+      await tx.bookPassage.createMany({ data: batch })
+      // eslint-disable-next-line no-await-in-loop
+      await saveEmbeddings(tx, batch.map((passage, at) => embeddingRow({
+        userId, subjectType: 'passage', subjectId: passage.id, parentId: bookId, text: passageEmbeddingText(passage), identity: config, vector: vectors[from + at],
+      })).filter(Boolean))
     }
     return true
   }, { maxWait: 10000, timeout: 120000 })
@@ -228,7 +234,7 @@ export async function uploadBookContent(userId, bookId, body) {
   if (!book.format) throw new HttpError('只有放进书架的电子书可以上传', 400)
   const chapters = validateChapters(body)
   const config = embeddingConfig()
-  if (!config) throw codeError('这台服务器还没配向量模型，书先只放在你的设备上', 503, 'EMBEDDING_UNAVAILABLE')
+  if (!config) throw codeError('这台服务器还没配向量模型，书先只放在你的设备上', 503, 'EMBEDDING_NOT_CONFIGURED')
   if (!await hasEmbeddingConsent(userId)) throw codeError('需要先同意云端处理，书先只放在你的设备上', 503, 'CLOUD_NOT_CONSENTED')
   if (jobs.has(bookId)) throw new HttpError('这本书正在整理', 409)
   const passages = chunkBook(chapters)
@@ -238,6 +244,7 @@ export async function uploadBookContent(userId, bookId, body) {
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.book.update({ where: { id: book.id }, data: { serverIndex: 'indexing', indexIdentity: Prisma.DbNull, indexedAt: null } })
     await tx.bookPassage.deleteMany({ where: { bookId: book.id, userId } })
+    await deleteEmbeddings(tx, { subjectType: 'passage', parentIds: [book.id] })
     return row
   })
   forgetShelf(userId)
@@ -259,6 +266,7 @@ export async function revokeBookContent(userId, bookId) {
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.book.update({ where: { id: book.id }, data: { serverIndex: null, indexIdentity: Prisma.DbNull, indexedAt: null } })
     await tx.bookPassage.deleteMany({ where: { bookId: book.id, userId } })
+    await deleteEmbeddings(tx, { subjectType: 'passage', parentIds: [book.id] })
     return row
   })
   forgetShelf(userId)
@@ -266,9 +274,57 @@ export async function revokeBookContent(userId, bookId) {
   return updated
 }
 
-/** 删书时：段落随书级联删除，这里停掉整理、清掉缓存。 */
-export function forgetBook(userId, bookId) {
+/** 删书时：段落随书级联删除，向量在这里删（派生索引没有外键），停掉整理、清掉缓存。 */
+export async function forgetBook(userId, bookId) {
   cancelJob(bookId)
+  await deleteEmbeddings(prisma, { subjectType: 'passage', parentIds: [bookId] })
+  forgetShelf(userId)
+}
+
+// ── 补算：换了向量模型、或向量缺了 ─────────────────────
+
+/** 她上传的书一共多少段（补算任务的总数用）。 */
+export function countPassages(userId, database = prisma) {
+  return database.bookPassage.count({ where: { userId, book: { serverIndex: 'ready' } } })
+}
+
+/**
+ * 给她上传的书补算段落向量（补算任务调用，路线图 C23）：这个模型下缺的、正文对不上的重算；rebuild 时全部重算。
+ * 一批 32 段，一批一个事务写；写之前再核对同意还在、模型没换、书还在书架上。
+ * onProgress(count, outcome) 按批报进度，outcome ∈ embedded | skipped | failed。
+ */
+export async function repairPassageVectors(userId, { signal, rebuild = false, onProgress = async () => {} } = {}) {
+  const config = embeddingConfig()
+  if (!config) return
+  const key = identityKeyOf(config, 'passage')
+  const books = await prisma.book.findMany({
+    where: { userId, serverIndex: 'ready' },
+    select: { id: true, passages: { orderBy: { seq: 'asc' }, select: { id: true, chapter: true, content: true } } },
+  })
+  const vectors = await loadVectors(userId, 'passage', config)
+  for (const book of books) {
+    const todo = book.passages.filter((passage) => rebuild || !vectorFits(vectors.get(passage.id), key, passageEmbeddingText(passage)))
+    // eslint-disable-next-line no-await-in-loop
+    await onProgress(book.passages.length - todo.length, 'skipped')
+    for (let from = 0; from < todo.length; from += EMBED_BATCH) {
+      if (signal?.aborted) return
+      const batch = todo.slice(from, from + EMBED_BATCH)
+      // eslint-disable-next-line no-await-in-loop
+      const embedded = await embedTexts(batch.map(passageEmbeddingText), { signal, config })
+      // eslint-disable-next-line no-await-in-loop
+      const saved = embedded && await prisma.$transaction(async (tx) => {
+        if (!sameIdentity(identityOf(embeddingConfig()), identityOf(config)) || !await hasEmbeddingConsent(userId, tx)) return false
+        if (!await tx.book.findFirst({ where: { id: book.id, userId, serverIndex: 'ready' }, select: { id: true } })) return false
+        await deleteEmbeddings(tx, { subjectType: 'passage', subjectIds: batch.map((passage) => passage.id) })
+        await saveEmbeddings(tx, batch.map((passage, at) => embeddingRow({
+          userId, subjectType: 'passage', subjectId: passage.id, parentId: book.id, text: passageEmbeddingText(passage), identity: config, vector: embedded[at],
+        })).filter(Boolean))
+        return true
+      })
+      // eslint-disable-next-line no-await-in-loop
+      await onProgress(batch.length, saved ? 'embedded' : 'failed')
+    }
+  }
   forgetShelf(userId)
 }
 
@@ -282,21 +338,7 @@ export function forgetShelf(userId) {
   generations.set(userId, (generations.get(userId) ?? 0) + 1)
 }
 
-function unit(vector) {
-  const out = Float32Array.from(vector)
-  let norm = 0
-  for (const value of out) norm += value * value
-  norm = Math.sqrt(norm)
-  if (!norm) return null
-  for (let index = 0; index < out.length; index += 1) out[index] /= norm
-  return out
-}
-
-function dot(a, b) {
-  let sum = 0
-  for (let index = 0; index < a.length; index += 1) sum += a[index] * b[index]
-  return sum
-}
+const unit = unit32
 
 /** 库里读出的一本书整理成查表用的样子：向量先归一化成 Float32Array，之后只做点积。评测夹具也用它。 */
 export function toShelfBook({ id, title, author, indexIdentity, passages }) {
@@ -310,14 +352,27 @@ async function loadShelf(userId, database) {
   const cached = shelves.get(userId)
   if (cached && Date.now() - cached.at < SHELF_TTL_MS) return cached.books
   const generation = generations.get(userId) ?? 0
-  const rows = await database.book.findMany({
-    where: { userId, serverIndex: 'ready' },
-    select: {
-      id: true, title: true, author: true, indexIdentity: true,
-      passages: { orderBy: { seq: 'asc' }, select: { id: true, seq: true, chapterIndex: true, chapter: true, locator: true, content: true, vector: true } },
-    },
-  })
-  const books = rows.map(toShelfBook)
+  const config = embeddingConfig()
+  const [rows, vectors] = await Promise.all([
+    database.book.findMany({
+      where: { userId, serverIndex: 'ready' },
+      select: {
+        id: true, title: true, author: true,
+        passages: { orderBy: { seq: 'asc' }, select: { id: true, seq: true, chapterIndex: true, chapter: true, locator: true, content: true } },
+      },
+    }),
+    loadVectors(userId, 'passage', config, { database }),
+  ])
+  // 只带这个模型算的、算的正是这段正文的向量；还没补算的段落这一轮先不翻
+  const key = identityKeyOf(config, 'passage')
+  const books = rows.map((book) => toShelfBook({
+    ...book,
+    indexIdentity: identityOf(config),
+    passages: book.passages.map((passage) => {
+      const stored = vectors.get(passage.id)
+      return { ...passage, vector: vectorFits(stored, key, passageEmbeddingText(passage)) ? stored.vector : null }
+    }),
+  }))
   if ((generations.get(userId) ?? 0) === generation) {
     shelves.delete(userId)
     shelves.set(userId, { at: Date.now(), books })

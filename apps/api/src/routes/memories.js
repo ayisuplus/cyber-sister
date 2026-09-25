@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import * as memoryService from '../services/memoryService.js'
 import * as memorySuggestionService from '../services/memorySuggestionService.js'
-import * as embeddingService from '../services/embeddingService.js'
 import * as indexService from '../services/memoryIndexService.js'
 import * as inferenceService from '../services/memory/inferenceService.js'
 import logger from '../utils/logger.js'
@@ -39,17 +38,6 @@ router.post('/suggestions', async (req, res) => {
   } catch (error) {
     logger.error('生成记忆建议失败', { errorCode: error.code || error.name, userId: req.user.userId })
     sendError(res, error, '生成记忆建议失败')
-  }
-})
-
-// 语义索引重建（M2）：向量投影可重建，同意门与计数由 embeddingService 保证
-router.post('/embeddings/rebuild', async (req, res) => {
-  try {
-    const result = await embeddingService.rebuildEmbeddings(req.user.userId)
-    res.status(202).json(result)
-  } catch (error) {
-    logger.error('重建语义索引失败', { errorCode: error.code || error.name, userId: req.user.userId })
-    sendError(res, error, '重建语义索引失败')
   }
 })
 

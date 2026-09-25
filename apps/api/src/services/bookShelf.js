@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { listSkillFiles, readSkillCard } from './skillCatalog.js'
-import { cosineSimilarity } from './embeddingConfig.js'
+import { cosineSimilarity } from './vectors/vectorMath.js'
+import { providerKeyOf, sameModel } from './vectors/identity.js'
 import logger from '../utils/logger.js'
 
 /**
@@ -27,8 +28,8 @@ const sha256 = (text) => createHash('sha256').update(String(text)).digest('hex')
 /** 拿去算向量的那段文字：章名、用途和正文。索引按它的哈希核对卡片改没改过。 */
 export const cardEmbeddingText = (card) => `${card.title}\n${card.use}\n${card.content}`
 
-/** 向量供应商地址不进仓库，只记它的哈希；核对身份时两边都比哈希。 */
-export const providerHashOf = (identity) => identity?.providerHash ?? (identity?.provider ? sha256(identity.provider).slice(0, 16) : null)
+/** 向量供应商地址不进仓库，只记它的哈希；核对身份时两边都比哈希（写法统一在 vectors/identity.js）。 */
+export const providerHashOf = providerKeyOf
 
 function toCard(bookName, file) {
   const { fields, body } = readSkillCard(bookName, file)
@@ -92,9 +93,7 @@ export function shelfIndex() {
 /** 这句话的向量能不能拿来和索引比：供应商、模型、维度、规则版本都对得上才行。 */
 function comparableQuery(query, index) {
   if (!index || !Array.isArray(query?.vector) || query.vector.length !== index.dimensions) return null
-  const same = providerHashOf(query) === index.providerHash && query.model === index.model
-    && query.dimensions === index.dimensions && query.ruleVersion === index.ruleVersion
-  return same ? query.vector : null
+  return sameModel(query, index) ? query.vector : null
 }
 
 const matching = (book, text) => book.cards.filter((card) => card.keywords.test(text))

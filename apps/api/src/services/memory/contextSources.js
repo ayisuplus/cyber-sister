@@ -10,6 +10,8 @@ import { loadCompanionInputs } from '../companionService.js'
 import { artifactMetadataFields } from '../workArtifactService.js'
 import { liveMemoryWhere } from './scopes.js'
 import { listActiveInferences } from './inferenceService.js'
+import { loadVectors } from '../vectors/vectorStore.js'
+import { embeddingConfig } from '../embeddingConfig.js'
 
 /** 聊天历史原样带多少条；更早的并进前情摘要。 */
 export const HISTORY_MESSAGES = 19
@@ -54,7 +56,7 @@ export async function loadRecentNudges(userId, consents, now = new Date()) {
  * 她的组织层只取有效的：关系要两端的根都还在；理解只带以根为依据的（挂在本轮选中的根上，由 llmService 挑）。
  */
 export async function loadChatSources({ userId, user, consents, conversationId, now = new Date() }) {
-  const [descendingHistory, allMemories, inferences, recentNudges, companionInputs] = await Promise.all([
+  const [descendingHistory, liveMemories, vectors, inferences, recentNudges, companionInputs] = await Promise.all([
     // 数据库按倒序只取最近几条，调用方再恢复成旧到新；当前消息由 llmService 追加一次
     prisma.message.findMany({
       where: { conversationId },
@@ -65,13 +67,17 @@ export async function loadChatSources({ userId, user, consents, conversationId, 
     prisma.memory.findMany({
       where: liveMemoryWhere(userId, now),
       orderBy: [{ importance: 'desc' }, { updatedAt: 'desc' }],
-      select: { id: true, revision: true, content: true, type: true, importance: true, tags: true, pinned: true, projection: true, sources: true },
+      select: { id: true, revision: true, content: true, type: true, importance: true, tags: true, pinned: true, sources: true },
     }),
+    // 派生索引里这个模型算的记忆向量（没配向量模型就是空的，只用关键词）
+    loadVectors(userId, 'memory', embeddingConfig()),
     listActiveInferences(userId, { kinds: ['relation', 'insight'], now }),
     loadRecentNudges(userId, consents, now),
     // 这一轮分寸要用的：最近的手记心情，以及（两项经期同意都开时）是否在经期
     loadCompanionInputs(userId, user, now),
   ])
+  // 每条记忆带上它的向量（semantic）；对不对得上这一轮的查询，由检索时核对
+  const allMemories = liveMemories.map((memory) => ({ ...memory, semantic: vectors.get(memory.id) ?? null }))
   // 放在心上的每轮都在「关于她」里；其余的聊到才想起，不重复出现在相关记忆里
   const pinned = allMemories.filter((memory) => memory.pinned)
   const memories = allMemories.filter((memory) => !memory.pinned)

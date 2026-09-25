@@ -12,7 +12,10 @@ import { isLocalWorkRuntime } from '../config/distribution.js'
 import { SCENES, gatewayProviderName, listProvidersForGateway } from './modelProviderService.js'
 import { classifyToolPrefix, parseToolReply, MAX_TOOL_REPLY_CHARS } from './toolProtocol.js'
 import logger from '../utils/logger.js'
-import { cosineSimilarity, projectionMatches } from './embeddingConfig.js'
+import { cosineSimilarity } from './embeddingConfig.js'
+import { VECTOR_POLICIES } from './vectors/policies.js'
+import { identityKeyOf } from './vectors/identity.js'
+import { vectorFits } from './vectors/vectorStore.js'
 // 余弦相似度放在没有依赖的 embeddingConfig.js（书架选章也要用，免得循环引用）；这里照旧导出
 export { cosineSimilarity }
 import { detectEmotion } from './detection.js'
@@ -26,7 +29,7 @@ export { detectCrisis, detectEmotion } from './detection.js'
 export const MAX_MODEL_MESSAGES = 20
 export const MAX_RELEVANT_MEMORIES = 5
 // 语义检索入选阈值：经验初值，部署方实测后只调这一个常量
-export const SEMANTIC_MEMORY_MIN_SCORE = 0.35
+export const SEMANTIC_MEMORY_MIN_SCORE = VECTOR_POLICIES.memory.minScore
 export const MAX_MODEL_MESSAGE_CHARS = 2000
 export const MAX_WORK_MESSAGE_CHARS = 16000
 const MAX_WORK_CONTEXT_CHARS = 64000
@@ -224,10 +227,15 @@ export function extractKeywords(value) {
 }
 
 
+/**
+ * 这一轮相关的记忆：关键词重合 + 标签命中 + 意思相近（向量分够阈值才加分）。
+ * 记忆的向量（semantic，来自派生索引）只有和这一轮的查询是同一个模型、算的又是现在这段正文时才用（路线图 C23）。
+ */
 export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null) {
   const queryText = String(currentText ?? '').normalize('NFKC').toLowerCase()
   const queryKeywords = extractKeywords(queryText)
   if (queryKeywords.size === 0 && !queryEmbedding?.vector) return []
+  const queryKey = queryEmbedding?.vector ? identityKeyOf(queryEmbedding, 'memory') : null
 
   return memories
     .map((memory, index) => {
@@ -246,8 +254,8 @@ export function retrieveRelevantMemories(currentText, memories = [], queryEmbedd
         }
       }
 
-      const semantic = queryEmbedding?.vector && projectionMatches(memory.projection, memory.revision, queryEmbedding)
-        ? cosineSimilarity(queryEmbedding.vector, memory.projection.vector) : 0
+      const semantic = queryKey && vectorFits(memory.semantic, queryKey, memory.content)
+        ? cosineSimilarity(queryEmbedding.vector, memory.semantic.vector) : 0
       const relevance = overlap + tagMatches * 3 + (semantic >= SEMANTIC_MEMORY_MIN_SCORE ? semantic * 3 : 0)
       return {
         ...memory,
@@ -262,7 +270,7 @@ export function retrieveRelevantMemories(currentText, memories = [], queryEmbedd
       || b.importanceScore - a.importanceScore
       || a.originalIndex - b.originalIndex)
     .slice(0, MAX_RELEVANT_MEMORIES)
-    .map(({ relevance: _relevance, importanceScore: _importanceScore, originalIndex: _index, embedding: _embedding, embeddingModel: _embeddingModel, projection: _projection, ...memory }) => memory)
+    .map(({ relevance: _relevance, importanceScore: _importanceScore, originalIndex: _index, embedding: _embedding, embeddingModel: _embeddingModel, projection: _projection, semantic: _semantic, ...memory }) => memory)
 }
 
 const RELATION_HINTS = { similar: '说的可能是一回事', related: '有关', contradicts: '好像互相矛盾（请并列说明并求证，不要自己认定哪条对）' }

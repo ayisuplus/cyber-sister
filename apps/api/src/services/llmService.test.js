@@ -26,6 +26,7 @@ vi.mock('../utils/logger.js', () => ({
 
 import { createGateway } from '@cyber-sister/llm-gateway'
 import logger from '../utils/logger.js'
+import { contentVersion, identityKeyOf } from './vectors/identity.js'
 import {
   activeChatProviders,
   buildMemoryContext,
@@ -43,6 +44,7 @@ import {
   isCloudProviderConfigured,
   loadCloudProviders,
   cosineSimilarity,
+  SEMANTIC_MEMORY_MIN_SCORE,
   CloudConsentRequiredError,
   LlmUnavailableError,
   redactSensitiveText,
@@ -305,35 +307,52 @@ describe('llmService 数据最小化', () => {
     expect(cosineSimilarity([], [])).toBe(0)
   })
 
+  // 派生索引里的记忆向量（路线图 C23）：和这一轮的查询同一个模型、算的正是现在这段正文，才拿来比
+  const SPEC = { provider: 'https://embedding.invalid/v1', model: 'm', dimensions: 2, ruleVersion: 1 }
+  const withVector = (memory, vector, spec = SPEC, text = memory.content) => ({ ...memory, semantic: vector
+    ? { identityKey: identityKeyOf(spec, 'memory'), version: contentVersion(text), vector } : null })
+  const query = (vector, spec = SPEC) => ({ ...spec, vector })
+
   it('语义路径：带 queryEmbedding 时按余弦排序、阈值入选并剥离向量字段', () => {
-    const spec = { provider: 'https://embedding.invalid/v1', model: 'm', dimensions: 2, ruleVersion: 1 }
     const memories = [
-      { id: 'a', type: 'semantic', content: '甲', importance: 5, tags: [], embedding: [1, 0], embeddingModel: 'm' },
-      { id: 'b', type: 'semantic', content: '乙', importance: 9, tags: [], embedding: [1, 0], embeddingModel: 'm' },
-      { id: 'c', type: 'semantic', content: '丙', importance: 1, tags: [], embedding: [0.9, 0.1], embeddingModel: 'm' },
-      { id: 'd', type: 'semantic', content: '丁', importance: 10, tags: [] },
+      withVector({ id: 'a', type: 'semantic', content: '甲', importance: 5, tags: [] }, [1, 0]),
+      withVector({ id: 'b', type: 'semantic', content: '乙', importance: 9, tags: [] }, [1, 0]),
+      withVector({ id: 'c', type: 'semantic', content: '丙', importance: 1, tags: [] }, [0.9, 0.1]),
+      { id: 'd', type: 'semantic', content: '丁', importance: 10, tags: [], semantic: null },
     ]
-    const projected = memories.map((memory) => ({ ...memory, revision: 1,
-      projection: memory.embedding ? { ...spec, memoryRevision: 1, vector: memory.embedding } : null }))
-    const result = retrieveRelevantMemories('任意文本', projected, { ...spec, vector: [1, 0] })
+    const result = retrieveRelevantMemories('任意文本', memories, query([1, 0]))
     // 同分按 importance 降序（b 在 a 前），c 次之分；d 无向量不参与语义路径
     expect(result.map((m) => m.id)).toEqual(['b', 'a', 'c'])
-    expect(result[0].embedding).toBeUndefined()
-    expect(result[0].embeddingModel).toBeUndefined()
-    expect(result[0].projection).toBeUndefined()
+    expect(result[0]).not.toHaveProperty('semantic')
+    expect(result[0]).not.toHaveProperty('projection')
   })
 
-  it('语义路径：低于阈值不入选；无向量记忆存在时关键词路径原样回退', () => {
-    const weak = retrieveRelevantMemories('任意文本', [
-      { id: 'a', type: 'semantic', content: '甲', importance: 5, tags: [], embedding: [1, 0] },
-    ], [0, 1])
-    expect(weak).toEqual([])
+  it('语义路径：阈值是真的——略低于 0.35 不入选，够上就入选', () => {
+    const below = Math.cos(Math.acos(SEMANTIC_MEMORY_MIN_SCORE) + 0.01)
+    const above = Math.cos(Math.acos(SEMANTIC_MEMORY_MIN_SCORE) - 0.01)
+    const memory = (vector) => withVector({ id: 'a', type: 'semantic', content: '甲', importance: 5, tags: [] }, vector)
+    const angled = (cos) => [cos, Math.sqrt(1 - cos * cos)]
+    expect(retrieveRelevantMemories('任意文本', [memory(angled(below))], query([1, 0]))).toEqual([])
+    expect(retrieveRelevantMemories('任意文本', [memory(angled(above))], query([1, 0])).map((m) => m.id)).toEqual(['a'])
+  })
 
+  it('语义路径：换了模型、或正文改过（向量是旧正文算的），这条向量都不算', () => {
+    const otherModel = { ...SPEC, model: 'another' }
+    const stale = withVector({ id: 'a', type: 'semantic', content: '现在的正文', importance: 5, tags: [] }, [1, 0], SPEC, '以前的正文')
+    const foreign = withVector({ id: 'b', type: 'semantic', content: '乙', importance: 5, tags: [] }, [1, 0], otherModel)
+    expect(retrieveRelevantMemories('任意文本', [stale, foreign], query([1, 0]))).toEqual([])
+    // 同一个地址写成 localhost 与 127.0.0.1：是同一个模型
+    const local = { ...SPEC, provider: 'http://127.0.0.1:5006/v1' }
+    const memory = withVector({ id: 'c', type: 'semantic', content: '丙', importance: 5, tags: [] }, [1, 0], local)
+    expect(retrieveRelevantMemories('任意文本', [memory], query([1, 0], { ...SPEC, provider: 'http://localhost:5006/v1/' })).map((m) => m.id)).toEqual(['c'])
+  })
+
+  it('没有查询向量时关键词路径原样回退', () => {
     const keywordMemories = [
       { id: '1', type: 'semantic', content: '用户喜欢吃火锅', importance: 5, tags: [] },
       { id: '2', type: 'semantic', content: '完全无关的内容', importance: 10, tags: [] },
     ]
-    expect(retrieveRelevantMemories('火锅好吃吗', keywordMemories, [1, 0]).map((m) => m.id)).toEqual(['1'])
+    expect(retrieveRelevantMemories('火锅好吃吗', keywordMemories, null).map((m) => m.id)).toEqual(['1'])
   })
 
   it('buildMemoryContext：她自己的联想单独成块、标明不当事实，一跳关系每条根最多 2 条并截断（路线图 C23）', () => {

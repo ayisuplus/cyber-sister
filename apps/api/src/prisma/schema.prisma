@@ -63,6 +63,7 @@ model User {
   localBridges       LocalBridge[]
   followUps          FollowUp[]
   inferences         Inference[]
+  embeddings         Embedding[]
 
   @@map("users")
 }
@@ -466,7 +467,7 @@ model BookPassage {
   /// 与阅读器同格式的位置串（"<章序>:<字符偏移>"），批注里「翻到这一段」用
   locator      String
   content      String
-  vector       Float[]
+  vector       Float[] // 2026-09-25 起不再写（路线图 C23）：段落向量改存 embeddings，下一周期另批删除
   createdAt    DateTime @default(now()) @map("created_at")
 
   book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
@@ -564,7 +565,8 @@ model MemoryRevision {
   @@map("memory_revisions")
 }
 
-// 可替换的机器投影；旧 Memory.embedding 列只作迁移留存，不再参与检索。
+// 2026-09-25 起只读（路线图 C23）：记忆向量改存 embeddings，这张表不再有写入方，下一周期另批删除。
+// 旧 Memory.embedding 列同样只作迁移留存，不参与检索。
 model MemoryProjection {
   memoryId       String   @id @map("memory_id")
   memoryRevision Int      @map("memory_revision")
@@ -701,6 +703,31 @@ model FollowUp {
 
   @@index([userId, status, askOn])
   @@map("follow_ups")
+}
+
+/// 派生索引（路线图 C23）：记忆与她上传的书的段落，向量都在这一张表。只是派生物：可丢弃、可重算、不导出。
+/// identityKey = 模型身份（地址哈希 + 模型 + 维度）+ 这类对象的规则版本（services/vectors/identity.js）；
+/// subjectVersion 是算向量那段文字的 sha256，文字一改就对不上。向量写入前已归一化。
+/// 对象可能是记忆或书段落，没法各挂外键：parentId 记记忆 id 或书 id，删记忆、删书、撤回上传时按它一并删掉。
+/// 内置书的章节卡向量随代码提交在 skills/book-index.json，不进这张表。
+model Embedding {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  subjectType    String   @map("subject_type") // memory | passage
+  subjectId      String   @map("subject_id")
+  parentId       String   @map("parent_id") // 记忆：它自己；段落：所属的书
+  subjectVersion String   @map("subject_version")
+  identityKey    String   @map("identity_key")
+  dimensions     Int
+  vector         Float[]
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([subjectType, subjectId, identityKey])
+  @@index([userId, subjectType, identityKey])
+  @@index([subjectType, parentId])
+  @@map("embeddings")
 }
 
 /// 她的组织层（路线图 C23，见 docs/architecture/非对称记忆架构.md）：她用你的记忆自行推断、自行整理的东西。

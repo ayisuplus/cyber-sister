@@ -15,13 +15,11 @@ const suggestionService = vi.hoisted(() => ({
   getMemorySuggestions: vi.fn(),
 }))
 
-const embedding = vi.hoisted(() => ({ rebuildEmbeddings: vi.fn() }))
 const indexing = vi.hoisted(() => ({ createIndexJob: vi.fn(), latestIndexJob: vi.fn(), getIndexJob: vi.fn(), cancelIndexJob: vi.fn() }))
 const inferences = vi.hoisted(() => ({ listForHer: vi.fn(), vetoInference: vi.fn() }))
 
 vi.mock('../services/memoryService.js', () => service)
 vi.mock('../services/memorySuggestionService.js', () => suggestionService)
-vi.mock('../services/embeddingService.js', () => embedding)
 vi.mock('../services/memoryIndexService.js', () => indexing)
 vi.mock('../services/memory/inferenceService.js', () => inferences)
 vi.mock('../utils/logger.js', () => ({
@@ -141,34 +139,20 @@ describe('记忆路由', () => {
   })
 })
 
-describe('语义索引重建路由（M2）', () => {
-  it('POST /embeddings/rebuild 返回 202 任务回执，且不被 /:id 系路由截获', async () => {
-    embedding.rebuildEmbeddings.mockResolvedValue({ id: 'job1', status: 'queued' })
+describe('向量补算（路线图 C23）', () => {
+  it('旧的 POST /embeddings/rebuild 已删除；全量重算走 POST /index-jobs（mode=rebuild），同意门 503 + code 原样透传', async () => {
+    expect((await request(app).post('/embeddings/rebuild')).status).toBe(404)
+    expect(service.getMemory).not.toHaveBeenCalled()
 
-    const ok = await request(app).post('/embeddings/rebuild')
-
+    indexing.createIndexJob.mockResolvedValue({ id: 'job1', status: 'queued', mode: 'rebuild' })
+    const ok = await request(app).post('/index-jobs').send({ mode: 'rebuild' })
     expect(ok.status).toBe(202)
-    expect(ok.body).toEqual({ id: 'job1', status: 'queued' })
-    expect(embedding.rebuildEmbeddings).toHaveBeenCalledWith('user-1')
-    expect(service.updateMemory).not.toHaveBeenCalled()
-  })
+    expect(indexing.createIndexJob).toHaveBeenCalledWith('user-1', { mode: 'rebuild' })
 
-  it('同意门与模型不可用按 503 + code 原样透传', async () => {
-    embedding.rebuildEmbeddings.mockRejectedValue(Object.assign(new Error('需要你先同意使用云端模型才能聊天'), {
-      code: 'CLOUD_NOT_CONSENTED',
-      statusCode: 503,
-    }))
-    const noConsent = await request(app).post('/embeddings/rebuild')
+    indexing.createIndexJob.mockRejectedValue(Object.assign(new Error('需要先同意云端处理'), { code: 'CLOUD_NOT_CONSENTED', statusCode: 503 }))
+    const noConsent = await request(app).post('/index-jobs').send({ mode: 'rebuild' })
     expect(noConsent.status).toBe(503)
-    expect(noConsent.body).toEqual({ error: '需要你先同意使用云端模型才能聊天', code: 'CLOUD_NOT_CONSENTED' })
-
-    embedding.rebuildEmbeddings.mockRejectedValue(Object.assign(new Error('外部模型暂时不可用，请稍后重试'), {
-      code: 'LLM_UNAVAILABLE',
-      statusCode: 503,
-    }))
-    const unavailable = await request(app).post('/embeddings/rebuild')
-    expect(unavailable.status).toBe(503)
-    expect(unavailable.body).toEqual({ error: '外部模型暂时不可用，请稍后重试', code: 'LLM_UNAVAILABLE' })
+    expect(noConsent.body).toEqual({ error: '需要先同意云端处理', code: 'CLOUD_NOT_CONSENTED' })
   })
 })
 

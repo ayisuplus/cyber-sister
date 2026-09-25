@@ -189,8 +189,8 @@ export async function updateProgress(userId, bookId, { locator, percent }) {
 export async function deleteBook(userId, bookId) {
   const book = await findOwned('book', bookId, userId, '书籍')
   await prisma.book.delete({ where: { id: book.id } })
-  // 上传过的段落随书级联删除；这里停掉还在跑的整理、清掉聊天时用的缓存
-  forgetBook(userId, book.id)
+  // 上传过的段落随书级联删除；段落向量、还在跑的整理和聊天时用的缓存在这里清掉
+  await forgetBook(userId, book.id)
   logger.info('删除书籍', { userId })
 }
 
