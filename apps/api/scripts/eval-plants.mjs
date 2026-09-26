@@ -11,12 +11,15 @@
  * 模型：EVAL_PLANT_BASE_URL / EVAL_PLANT_MODEL / EVAL_PLANT_API_KEY_FILE；没配就用 apps/api/.env 里聊天那个槽
  * （GATEWAY_QWEN_BASE_URL / GATEWAY_QWEN_MODEL / GATEWAY_QWEN_API_KEY_FILE）。密钥只从文件读，不打印任何值。
  * 提示词、解析与兜底和页面上「认一认」是同一份（plant-id 版本号写进报告）。
+ * 报告时每份回答再在本机名录与毒性库里核一遍（plant-data/plant-reference.json，见 plants:reference），另算一组对照，不多花调用；
+ * 重新打分时按现在的名录重核，所以先跑、后装名录也能补上这一组。
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { renderPlantReport, scoreCase, summarizePlantRun, validatePlantCases } from '../src/eval/plantIdEval.js'
+import { renderPlantComparison, renderPlantReport, scoreCase, summarizePlantRun, validatePlantCases } from '../src/eval/plantIdEval.js'
+import { groundIdentification, loadPlantReference } from '../src/services/plantReference.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const API_DIR = path.resolve(HERE, '..')
@@ -57,14 +60,33 @@ const saidOf = (records) => Object.fromEntries(records.map((record) => [record.i
   ? '（不是植物）'
   : (record.identification?.candidates ?? []).map((candidate) => `${candidate.name}·${candidate.likelihood}`).join('、')]))
 
-function writeReport(runDir, meta, records) {
+// 按现在的本机名录与毒性库重核（去掉存下来的旧核对）：先跑、后装名录，重新打分也能补上名录那一组
+function regrounded(records) {
+  const index = loadPlantReference()
+  return records.map((record) => {
+    if (!record.identification) return record
+    const { reference: _old, ...identification } = record.identification
+    return { ...record, identification: groundIdentification(identification, index) }
+  })
+}
+
+function writeReport(runDir, meta, rawRecords) {
+  const records = regrounded(rawRecords)
   const byId = new Map(records.map((record) => [record.id, record]))
   const scored = cases.filter((testCase) => byId.has(testCase.id))
-  const rows = scored.map((testCase) => scoreCase(testCase, byId.get(testCase.id).identification ?? null))
+  const resultOf = (testCase) => byId.get(testCase.id).identification ?? null
+  const rows = scored.map((testCase) => scoreCase(testCase, resultOf(testCase)))
   const summary = summarizePlantRun(rows)
-  const report = renderPlantReport({ ...meta, suiteVersion: suite.version, suiteStatus: suite.status, said: saidOf(records) }, rows, summary)
+  const reference = records.find((record) => record.identification?.reference)?.identification.reference
+  const withReference = Boolean(reference?.checked || reference?.toxicChecked)
+  const referenceRows = scored.map((testCase) => scoreCase(testCase, resultOf(testCase), 'reference'))
+  const referenceNote = withReference ? `（名录${reference.checked ? '已装' : '没装'}，毒性库${reference.toxicChecked ? '已装' : '没装'}）` : ''
+  const body = renderPlantReport({ ...meta, suiteVersion: suite.version, suiteStatus: suite.status, said: saidOf(records) }, rows, summary)
+  // 两组对照插在逐条表格前面
+  const report = withReference ? body.replace('\n| 用例 |', `\n${renderPlantComparison({ referenceNote }, rows, referenceRows)}\n| 用例 |`) : body
   writeFileSync(path.join(runDir, 'report.md'), report, 'utf8')
-  writeFileSync(path.join(runDir, 'summary.json'), `${JSON.stringify({ ...meta, suiteVersion: suite.version, summary }, null, 2)}\n`, 'utf8')
+  const summaries = { summary, ...(withReference ? { referenceSummary: summarizePlantRun(referenceRows) } : {}) }
+  writeFileSync(path.join(runDir, 'summary.json'), `${JSON.stringify({ ...meta, suiteVersion: suite.version, ...summaries }, null, 2)}\n`, 'utf8')
   console.log(report)
   console.log(`[评测] 报告：${path.join(runDir, 'report.md')}`)
 }

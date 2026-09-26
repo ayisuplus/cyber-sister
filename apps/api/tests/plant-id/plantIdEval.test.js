@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { candidateMatches, renderPlantReport, scoreCase, summarizePlantRun, validatePlantCases } from '../../src/eval/plantIdEval.js'
+import { candidateMatches, renderPlantComparison, renderPlantReport, scoreCase, summarizePlantRun, validatePlantCases } from '../../src/eval/plantIdEval.js'
 import { FUNGI_CAUTION } from '../../src/services/plantIdentification.js'
 
 // 只测打分与用例集本身：不联网、不读照片（照片在仓库外）
@@ -57,6 +57,40 @@ describe('打分', () => {
     expect(scoreCase({ id: 'n01', group: 'not-plant', expect: { isPlant: false } }, { isPlant: false, candidates: [] })).toMatchObject({ rejected: true, top1: null })
     expect(scoreCase({ id: 'f01', group: 'fungus', expect: { fungus: true } }, identified([{ name: '鸡枞' }], { caution: FUNGI_CAUTION }))).toMatchObject({ fungusWarned: true })
     expect(scoreCase(gardenia, null)).toMatchObject({ failed: true, top1: false, top3: false, humble: null })
+  })
+
+  it('名录组：名录里的标准名与接受学名也算认对，毒性库有记载也算提醒了；另记第一个候选核不核得到', () => {
+    const oleander = { id: 'c13', group: 'campus', expect: { names: ['夹竹桃'], scientific: 'Nerium oleander', toxic: true } }
+    const result = identified([{ name: '欧洲夹竹桃', scientificName: 'Nerium indicum', likelihood: '很像' }], {
+      reference: {
+        checked: true, toxicChecked: true,
+        candidates: [{ found: true, standardName: '夹竹桃', scientificName: 'Nerium oleander' }],
+        toxic: [{ candidate: 0, name: '夹竹桃', level: null, parts: [] }],
+      },
+    })
+    expect(scoreCase(oleander, result)).toMatchObject({ top1: false, cautioned: false, refFound: true })
+    expect(scoreCase(oleander, result, 'reference')).toMatchObject({ top1: true, cautioned: true, refFound: true })
+    // 没装名录：refFound 为 null，不进「名录核实」
+    expect(scoreCase(oleander, identified([{ name: '夹竹桃', likelihood: '很像' }]))).toMatchObject({ refFound: null })
+  })
+
+  it('两组对照：同一份回答算两遍；「名录核实」分认对和认错两边', () => {
+    const oleander = { id: 'c13', group: 'campus', expect: { names: ['夹竹桃'], scientific: 'Nerium oleander', toxic: true } }
+    const lily = { id: 'h11', group: 'home', expect: { names: ['百合'], scientific: 'Lilium', genusOk: true, toxic: true } }
+    const results = [
+      [oleander, identified([{ name: '欧洲夹竹桃', scientificName: 'Nerium indicum', likelihood: '很像' }], {
+        reference: { checked: true, candidates: [{ found: true, standardName: '夹竹桃', scientificName: 'Nerium oleander' }], toxic: [{ candidate: 0, name: '夹竹桃' }] },
+      })],
+      [lily, identified([{ name: '萱草', likelihood: '可能是' }], { reference: { checked: true, candidates: [{ found: false }], toxic: [] } })],
+    ]
+    const cloudRows = results.map(([testCase, result]) => scoreCase(testCase, result))
+    const referenceRows = results.map(([testCase, result]) => scoreCase(testCase, result, 'reference'))
+    expect(summarizePlantRun(referenceRows)).toMatchObject({ top1: { hit: 1, of: 2 }, toxicRecall: { hit: 1, of: 2 }, foundWhenRight: { hit: 1, of: 1 }, foundWhenWrong: { hit: 0, of: 1 } })
+
+    const text = renderPlantComparison({ referenceNote: '（名录已装，毒性库已装）' }, cloudRows, referenceRows)
+    expect(text).toContain('| 第一个候选认对 | 0/2（0%） | 1/2（50%） |')
+    expect(text).toContain('| 有毒的提醒了 | 0/2（0%） | 1/2（50%） |')
+    expect(text).toContain('认错时核得到 0/1（0%）')
   })
 
   it('汇总与报告：错的排在前面', () => {
