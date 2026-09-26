@@ -183,7 +183,7 @@ export async function buildUserExport(userId) {
       orderBy: { createdAt: 'asc' },
       select: {
         name: true, scientificName: true, family: true, status: true, note: true, candidates: true, explanation: true,
-        caution: true, promptVersion: true, identifiedBy: true, imageExt: true, createdAt: true, updatedAt: true,
+        caution: true, reference: true, promptVersion: true, identifiedBy: true, imageExt: true, createdAt: true, updatedAt: true,
       },
     }),
     prisma.letter.findMany({
@@ -368,6 +368,7 @@ export async function buildUserExport(userId) {
       candidates: entry.candidates ?? null,
       explanation: entry.explanation ?? null,
       caution: entry.caution ?? null,
+      reference: entry.reference ?? null,
       promptVersion: entry.promptVersion ?? null,
       identifiedBy: entry.identifiedBy ?? null,
       hasPhoto: Boolean(entry.imageExt),

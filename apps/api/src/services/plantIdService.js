@@ -1,6 +1,7 @@
 /**
  * 花草图鉴的「认一认」（路线图 C26）：一张照片发给聊天那个视觉模型，一次拿回候选与她的讲解。
  * 照片不落盘：去掉拍摄信息后只在这一次请求里用。要 v4 云端同意；场景用 chat，讲解就是她平时的说话方式。
+ * 拿回来之后在本机名录与毒性库里核一遍（见 plantReference.js），核对不出本机、不花钱。
  */
 import prisma from '../prisma/client.js'
 import { cloudAuthorization } from './consents.js'
@@ -9,6 +10,7 @@ import { extractJsonObject } from './letterService.js'
 import {
   applyPlantSafety, IDENTIFY_ASK, normalizeIdentification, PLANT_ID_PROMPT, PLANT_ID_PROMPT_VERSION,
 } from './plantIdentification.js'
+import { groundIdentification, loadPlantReference } from './plantReference.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { stripJpegMetadata } from '../utils/jpegMetadata.js'
 import { MAX_PHOTO_BYTES } from '../utils/photoStore.js'
@@ -66,5 +68,6 @@ export async function identifyPlant(userId, files = {}, { requestId, signal } = 
   // 只记形状，不记内容
   logger.info('认了一株花草', { userId, requestId, model: result.model, ok: Boolean(identification), isPlant: identification?.isPlant, candidates: identification?.candidates.length })
   if (!identification) throw withCode('她这次没说清楚，再认一次吧', 502, 'PLANT_ID_UNREADABLE')
-  return identification
+  // 本机名录与毒性库再核一遍（路线图 C27）：不改她的候选与讲解，只挂上 reference
+  return groundIdentification(identification, loadPlantReference())
 }

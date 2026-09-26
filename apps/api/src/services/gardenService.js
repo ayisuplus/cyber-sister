@@ -8,6 +8,7 @@ import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
 import { createPhotoStore, PHOTO_EXT, preparePhotoPair } from '../utils/photoStore.js'
 import { clip, normalizeIdentification } from './plantIdentification.js'
+import { groundIdentification, loadPlantReference } from './plantReference.js'
 import logger from '../utils/logger.js'
 
 export const STATUSES = ['met', 'grow']
@@ -38,6 +39,7 @@ function toClient(entry) {
     candidates: Array.isArray(entry.candidates) ? entry.candidates : [],
     explanation: entry.explanation ?? null,
     caution: entry.caution ?? null,
+    reference: entry.reference ?? null,
     identified: Boolean(entry.promptVersion),
     photoUrl: photo('photo'),
     thumbUrl: photo('thumb'),
@@ -86,8 +88,9 @@ function normalizeFields(fields = {}) {
 /**
  * 收藏时带回来的识别结果（multipart 里是一段 JSON）。讲解是照第一个候选写的，
  * 所以只有她选的就是第一个候选（pick = 0）时才留讲解；换了候选或自己写名字，只留候选和提醒。
+ * 名录与毒性的核对不信前端带回来的：按候选在本机资料里重核一遍再存。
  */
-function identificationData(fields) {
+function identificationData(fields, env) {
   if (fields.identification === undefined || fields.identification === '') return {}
   let raw
   try {
@@ -100,6 +103,7 @@ function identificationData(fields) {
   const pickedFirst = String(fields.pick ?? '') === '0'
   return {
     candidates: result.candidates,
+    reference: groundIdentification(result, loadPlantReference(env)).reference,
     explanation: pickedFirst ? result.explanation : null,
     caution: result.caution,
     promptVersion: result.promptVersion,
@@ -118,7 +122,7 @@ export async function listEntries(userId, status) {
 }
 
 export async function createEntry(userId, fields = {}, files = {}, env = process.env) {
-  const data = { name: checkName(fields.name), status: 'met', ...normalizeFields(fields), ...identificationData(fields) }
+  const data = { name: checkName(fields.name), status: 'met', ...normalizeFields(fields), ...identificationData(fields, env) }
   const images = preparePhotoPair(files)
   const count = await prisma.plantEntry.count({ where: { userId } })
   if (count >= MAX_PLANT_ENTRIES) throw new HttpError(`图鉴已经满 ${MAX_PLANT_ENTRIES} 株了，删掉一些再收吧`, 400)

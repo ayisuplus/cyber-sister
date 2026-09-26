@@ -25,6 +25,8 @@ stealth_*results.json
 tools/data-pipeline/sources/raw-corpus/
 # 书籍技能的原书文本：只在本机读、改编成章节卡；全文不进仓库（见各书 skills/<书>/sources.md）
 book/
+# 花草图鉴的名录与有毒植物数据：来源条款不许再分发，只放本机（见 docs/04-开发/花草识别评测.md「名录与毒性」）
+plant-data/
 
 # 依赖与构建产物
 node_modules/

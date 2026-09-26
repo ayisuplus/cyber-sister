@@ -182,7 +182,7 @@ describe('exportService.buildUserExport', () => {
 
     expect(bundle.garden).toEqual([{
       name: '栀子花', scientificName: 'Gardenia jasminoides', family: '茜草科', status: 'met', note: '楼下花坛',
-      candidates: [{ name: '栀子花', likelihood: '很像' }], explanation: { what: '夏天开的白花。' }, caution: null,
+      candidates: [{ name: '栀子花', likelihood: '很像' }], explanation: { what: '夏天开的白花。' }, caution: null, reference: null,
       promptVersion: 'plant-id-v1', identifiedBy: 'qwen-vl-max', hasPhoto: true,
       createdAt: '2026-09-26T00:00:00.000Z', updatedAt: '2026-09-26T00:00:00.000Z',
     }])

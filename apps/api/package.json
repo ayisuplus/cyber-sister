@@ -33,6 +33,8 @@
     "eval:memories": "node scripts/eval-memories.mjs",
     "eval:query-instruction": "node scripts/eval-query-instruction.mjs",
     "eval:plants": "node scripts/eval-plants.mjs",
+    "plants:fetch-toxic": "node scripts/fetch-frps-toxic.mjs",
+    "plants:reference": "node scripts/build-plant-reference.mjs",
     "lint": "eslint src/ --max-warnings 146",
     "format": "prettier --write src/"
   },

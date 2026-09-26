@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const db = vi.hoisted(() => ({ findUnique: vi.fn() }))
 const gateway = vi.hoisted(() => ({ complete: vi.fn() }))
 
+const reference = vi.hoisted(() => ({ index: null }))
 vi.mock('../prisma/client.js', () => ({ default: { user: { findUnique: db.findUnique } } }))
+// 测试不读这台电脑上真的名录：按用例给一份小索引或者没有
+vi.mock('./plantReference.js', async (importOriginal) => ({ ...(await importOriginal()), loadPlantReference: () => reference.index }))
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 vi.mock('./llmService.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -17,6 +20,7 @@ vi.mock('./llmService.js', async (importOriginal) => {
 })
 
 import { identifyPlant, readIdentification } from './plantIdService.js'
+import { indexReference } from './plantReference.js'
 
 const segment = (marker, body) => {
   const payload = Buffer.from(body)
@@ -37,6 +41,7 @@ const ANSWER = JSON.stringify({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  reference.index = null
   db.findUnique.mockResolvedValue(CONSENTED)
   gateway.complete.mockResolvedValue({ content: ANSWER, model: 'qwen-vl-max' })
 })
@@ -56,6 +61,23 @@ describe('认一认', () => {
     expect(result).toMatchObject({
       isPlant: true, promptVersion: 'plant-id-v1', identifiedBy: 'qwen-vl-max',
       candidates: [{ name: '栀子花', likelihood: '很像' }], explanation: { season: '五到七月' },
+    })
+  })
+
+  it('没装名录就不核：reference 如实写着没核；装了就按学名核到名录里那一种，并挂上毒性记载', async () => {
+    expect((await identifyPlant('u1', photo())).reference).toMatchObject({ checked: false, toxicChecked: false })
+
+    reference.index = indexReference({
+      taxa: [{ cn: '栀子', sci: 'Gardenia jasminoides', family: '茜草科', aliases: ['栀子花'] }],
+      toxic: [{ taxon: 0, cn: '栀子', sci: 'Gardenia jasminoides', level: '小毒', parts: ['果实'] }],
+      sources: { checklist: { title: '名录' } },
+    })
+    const grounded = await identifyPlant('u1', photo())
+    expect(grounded.candidates[0].name).toBe('栀子花')
+    expect(grounded.reference).toMatchObject({
+      checked: true, toxicChecked: true,
+      candidates: [{ found: true, standardName: '栀子', scientificName: 'Gardenia jasminoides', via: 'scientific' }],
+      toxic: [{ candidate: 0, name: '栀子', level: '小毒', parts: ['果实'] }],
     })
   })
 

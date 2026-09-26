@@ -13,10 +13,14 @@ const db = vi.hoisted(() => ({
   delete: vi.fn(),
 }))
 
+const reference = vi.hoisted(() => ({ index: null }))
 vi.mock('../prisma/client.js', () => ({ default: { plantEntry: db } }))
+// 测试不读这台电脑上真的名录
+vi.mock('./plantReference.js', async (importOriginal) => ({ ...(await importOriginal()), loadPlantReference: () => reference.index }))
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 
 import { createEntry, deleteEntry, listEntries, listForHer, MAX_PLANT_ENTRIES, readPhoto, updateEntry } from './gardenService.js'
+import { indexReference } from './plantReference.js'
 
 const segment = (marker, body) => {
   const payload = Buffer.from(body)
@@ -51,6 +55,7 @@ describe('花草图鉴', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    reference.index = null
     root = await mkdtemp(join(tmpdir(), 'garden-'))
     env = { GARDEN_DIR: root }
     db.count.mockResolvedValue(0)
@@ -80,6 +85,21 @@ describe('花草图鉴', () => {
     for (const name of ['plant-1.jpg', 'plant-1.thumb.jpg']) {
       expect((await readFile(join(root, 'u1', name))).includes('GPS')).toBe(false)
     }
+  })
+
+  it('名录与毒性的核对不信前端带回来的：按候选在本机资料里重核一遍再存', async () => {
+    reference.index = indexReference({
+      taxa: [{ cn: '栀子', sci: 'Gardenia jasminoides', family: '茜草科' }],
+      toxic: [{ cn: '白兰', sci: 'Michelia alba', level: '有毒', parts: [] }],
+    })
+    const forged = { ...IDENTIFIED, reference: { checked: true, toxic: [] } }
+    await createEntry('u1', { name: '栀子花', identification: JSON.stringify(forged), pick: '0' }, {}, env)
+
+    expect(db.create.mock.calls[0][0].data.reference).toMatchObject({
+      checked: true,
+      candidates: [{ found: true, standardName: '栀子' }, { found: false }],
+      toxic: [{ candidate: 1, name: '白兰', level: '有毒' }],
+    })
   })
 
   it('换了候选或自己写名字：讲解是照第一个候选写的，就不留；候选和提醒照留', async () => {

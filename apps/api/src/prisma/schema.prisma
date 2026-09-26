@@ -703,6 +703,7 @@ model PlantEntry {
   candidates     Json? // 识别时模型给的 1–3 个候选（名字、学名、科、像不像）
   explanation    Json? // 她的讲解：是什么、怎么认、花期、民间说法、想养的话
   caution        String? // 对人或猫狗有毒的提醒
+  reference      Json? // 收进来那一刻本机名录与毒性库的核对结果（路线图 C27）；没装资料时 checked 为 false
   promptVersion  String?  @map("prompt_version") // 识别提示词版本，如 plant-id-v1
   identifiedBy   String?  @map("identified_by") // 识别用的模型
   imageExt       String?  @map("image_ext") // 有照片时为 .jpg（另有 .thumb.jpg 缩略图）
