@@ -127,6 +127,7 @@ import {
 } from './chatService.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import { detectRememberIntent } from './contextBlocks.js'
+import { clearWeatherCache } from './weatherService.js'
 import { initExtensions, shutdownExtensions } from './extensionRuntime.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -1641,7 +1642,20 @@ describe('「懂你」检验集（冻结）', () => {
     externalLlmConsentVersion: EXTERNAL_LLM_CONSENT_VERSION,
     periodConsentAt: given.periodConsent ? new Date('2026-09-01T00:00:00.000Z') : null,
     periodToneAt: given.periodConsent ? new Date('2026-09-01T00:00:00.000Z') : null,
+    weatherPlace: given.weatherPlace ? { name: '杭州', admin1: '浙江', country: '中国', latitude: 30.29, longitude: 120.16, timezone: 'Asia/Shanghai' } : null,
   })
+
+  // 她在设置里填了城市时：今天小雨、明天降温（数据源由 fetch 替身给出，不连外网）
+  const WEATHER_FORECAST = {
+    current: { temperature_2m: 18, weather_code: 61 },
+    daily: {
+      time: ['2026-09-27', '2026-09-28'],
+      weather_code: [61, 0],
+      temperature_2m_max: [19, 12],
+      temperature_2m_min: [14, 6],
+      precipitation_probability_max: [80, 0],
+    },
+  }
 
   const contextOf = () => (mocks.generateResponseStream.mock.calls[0]?.[5].extraSystem ?? [])
     .map((item) => item.content).join('\n')
@@ -1698,8 +1712,17 @@ describe('「懂你」检验集（冻结）', () => {
       }
       if (given.crisis) mocks.detectCrisis.mockReturnValue(given.crisis)
       if (given.periodRecord) mocks.periodFindFirst.mockResolvedValue({ startDate: new Date(Date.now() - 2 * day), endDate: null })
+      clearWeatherCache()
+      const weatherFetch = vi.fn(() => (given.weatherDown
+        ? Promise.reject(new Error('ECONNREFUSED'))
+        : Promise.resolve({ ok: true, json: () => Promise.resolve(WEATHER_FORECAST) })))
+      vi.stubGlobal('fetch', weatherFetch)
 
-      await collectEvents(sendMessageStream('conversation-1', 'user-1', scenario.text, `req-${scenario.id}`))
+      try {
+        await collectEvents(sendMessageStream('conversation-1', 'user-1', scenario.text, `req-${scenario.id}`))
+      } finally {
+        vi.unstubAllGlobals()
+      }
 
       if (scenario.expect.model === false) {
         expect(mocks.generateResponseStream).not.toHaveBeenCalled()
@@ -1713,6 +1736,7 @@ describe('「懂你」检验集（冻结）', () => {
       // 没同意的事连读都不读：数据在那儿也不碰
       for (const unread of scenario.expect.unread ?? []) {
         if (unread === 'periodRecord') expect(mocks.periodFindFirst).not.toHaveBeenCalled()
+        if (unread === 'weather') expect(weatherFetch).not.toHaveBeenCalled()
       }
     })
   }

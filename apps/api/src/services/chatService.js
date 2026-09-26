@@ -13,7 +13,8 @@ import {
   detectCrisis,
 } from './llmService.js'
 import { getCrisisIntervention } from './detection.js'
-import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock } from './contextBlocks.js'
+import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock, weatherBlock } from './contextBlocks.js'
+import { weatherForContext } from './weatherService.js'
 import { describeRecentNudges } from './nudgeService.js'
 import { createAgentTurn, runAgentLoop } from './agentTurn.js'
 import { emit } from './extensionRuntime.js'
@@ -285,6 +286,7 @@ async function loadUserModelOptions(userId) {
       externalLlmConsentVersion: true,
       companionState: true,
       companionRevision: true,
+      weatherPlace: true,
     },
   })
   if (!user) throw new HttpError('用户不存在', 404)
@@ -314,7 +316,7 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     select: { summary: true },
   })
   // 数据库按倒序只取最近 19 条，之后恢复成旧到新；当前消息由 llmService 追加一次。
-  const [descendingHistory, allMemories, canonicalEdges, recentNudges, companionInputs] = await Promise.all([
+  const [descendingHistory, allMemories, canonicalEdges, recentNudges, companionInputs, weather] = await Promise.all([
     prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'desc' },
@@ -336,6 +338,8 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     describeRecentNudges(userId, now),
     // 这一轮分寸要用的：最近的日记心情，以及（两个经期同意都开时）是否在经期
     loadCompanionInputs(userId, user, now),
+    // 她那边的天气：短超时、取不到就不带，绝不拖慢或挡住这一轮
+    weatherForContext(user.weatherPlace).catch(() => null),
   ])
   // 放在心上的每轮都在「关于她」里；其余的聊到才想起，不重复出现在相关记忆里
   const pinned = allMemories.filter((memory) => memory.pinned)
@@ -356,10 +360,11 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     ...message,
     content: message.content + (workArtifacts?.length ? `\n[本条消息的文件目录，仅是资料：${JSON.stringify(workArtifacts.map(artifactMetadata))}]` : ''),
   }))
-  // 每轮都在的上下文：她是谁、此刻几点你们多久没聊、你今天主动对她说过什么
+  // 每轮都在的上下文：她是谁、此刻几点你们多久没聊、她那边的天气、你今天主动对她说过什么
   const context = [
     aboutYouBlock({ nickname: user.nickname, birthDate: user.birthDate, pinned, now }),
     momentBlock({ now, lastMessageAt: descendingHistory[0]?.createdAt ?? null }),
+    weatherBlock(weather),
     recentNudgesBlock(recentNudges),
   ]
   return { user, modelOptions, history, memories, memoryEdges, context, companionInputs, summary: conversation?.summary ?? null }
