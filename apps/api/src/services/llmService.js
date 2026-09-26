@@ -176,6 +176,11 @@ export function assertCloudCallable(allowExternal) {
   if (!allowExternal) throw new CloudConsentRequiredError()
 }
 
+/** 发给模型的一张图：OpenAI 兼容的 image_url（data URL）。聊天照片与花草图鉴共用。 */
+export function imagePart(image) {
+  return { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.buffer.toString('base64')}` } }
+}
+
 /** 仅处理确定性高的常见直接标识符，不声称能够匿名化任意自由文本。 */
 export function redactSensitiveText(value) {
   return String(value ?? '')
@@ -498,7 +503,7 @@ export async function generateResponse(
       role: 'user',
       content: [
         { type: 'text', text: textPart },
-        { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.buffer.toString('base64')}` } },
+        imagePart(image),
       ],
     }
   }
@@ -605,7 +610,7 @@ export async function* generateResponseStream(
       role: 'user',
       content: [
         { type: 'text', text: textPart },
-        { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.buffer.toString('base64')}` } },
+        imagePart(image),
       ],
     }
   }

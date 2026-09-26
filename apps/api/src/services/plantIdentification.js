@@ -74,3 +74,69 @@ export function normalizeIdentification(raw) {
     ...meta,
   }
 }
+
+// ---- 识别提示词（改了规则就升版本号，评测与收藏记录都会带上它）----
+
+export const PLANT_ID_PROMPT_VERSION = 'plant-id-v1'
+export const IDENTIFY_ASK = '帮我认认照片里这是什么花草。'
+
+export const PLANT_ID_PROMPT = `【认花草】她拍了一张照片，想知道这是什么花草。只输出一个 JSON 对象，不要任何别的文字，也不要 Markdown 代码块。
+形状：
+{"isPlant": true, "candidates": [{"name": "中文常用名", "scientificName": "拉丁学名", "family": "科（中文）", "likelihood": "很像"}], "explanation": {"what": "", "howToTell": "", "season": "", "lore": "", "care": ""}, "caution": null}
+规则：
+1. 照片里主要的东西不是植物（人、宠物、食物、物品，或者植物小到看不清）时，只输出 {"isPlant": false}。
+2. candidates 最多 3 个，最像的放第一个；likelihood 只能是「很像」「可能是」「拿不准」之一。拿不准就老实标「拿不准」，不要为了显得懂而硬认；学名或科不确定就给 null。
+3. explanation 照第一个候选写，用你平时跟她说话的口吻，每段一两句、不超过 60 字：
+   - what：它是什么、平时在哪儿能见到；
+   - howToTell：照片里看得到的哪几处让你认出它（花瓣、叶形、叶脉、花序……），照片里看不到的不要说成看到了；
+   - season：什么时候开花或最好看；
+   - lore：花语或民间说法，要写明是民间说法；没有就给 null；
+   - care：她想在宿舍或家里养的话，最要紧的一两条；不适合家养就直说。
+4. 绝不说它能吃、能泡水喝、能入药或有什么疗效，也不给偏方。
+5. 菌菇、蘑菇一律不判断能不能吃，caution 写：认错的后果很重，别吃，也别让猫狗碰。
+6. 任何一个候选对人或猫狗有毒、汁液刺激皮肤、花粉容易过敏时，caution 用一句话提醒她；都没有就给 null。
+7. 不评价照片拍得好不好，不说教，不问她问题。`
+
+// ---- 输出之后再兜一道：模型偶尔不听话，这几条在代码里保证 ----
+
+// 说能吃、能泡、能入药（同一小句里前面有「别 / 不能 / 切勿」的是劝阻，不算；「不仅 / 不过 / 不少」这类不是否定）
+const EDIBLE_CLAIM = /可以吃|能吃|可食用|好吃|做菜|炒着吃|泡水|泡茶|煮水|入药|药用|药效|疗效|治疗|偏方|清热解毒/g
+const NEGATION = /不(?!仅|但|光|只|过|少|同|错|久)|别|勿|禁止|没法/
+const CLAUSE_BREAK = /[，。！？；,.!?;、\n]/
+const FUNGI = /菌|菇|蘑|Fungi|Agaric|Boletus|Amanita/i
+export const FUNGI_CAUTION = '菌菇认错的后果很重：不管它像什么，都别吃，也别让猫狗碰。'
+
+export function claimsEdible(text) {
+  for (const match of String(text ?? '').matchAll(EDIBLE_CLAIM)) {
+    const before = text.slice(Math.max(0, match.index - 8), match.index)
+    const clause = before.split(CLAUSE_BREAK).pop()
+    if (!NEGATION.test(clause)) return true
+  }
+  return false
+}
+
+const looksFungal = (candidates) => candidates.some((candidate) => [candidate.name, candidate.scientificName, candidate.family].some((value) => value && FUNGI.test(value)))
+
+/**
+ * 模型的回答解析出来之后再过一遍：
+ * - 讲解每段、提醒都过回复同款的红线判断（unsafe 由调用方传入，免得这里依赖模型服务）；
+ * - 说能吃、能入药的那一段整段去掉；
+ * - 候选里像菌菇的：提醒换成固定那句，「想养的话」去掉。
+ * @param {ReturnType<typeof normalizeIdentification>} result
+ * @param {{ unsafe?: (text: string) => boolean }} [options]
+ */
+export function applyPlantSafety(result, { unsafe = () => false } = {}) {
+  if (!result?.isPlant) return result
+  const keep = (text) => (text && !unsafe(text) && !claimsEdible(text) ? text : null)
+  let explanation = null
+  if (result.explanation) {
+    explanation = Object.fromEntries(Object.entries(result.explanation).map(([key, value]) => [key, keep(value)]))
+    if (!Object.values(explanation).some(Boolean)) explanation = null
+  }
+  let caution = result.caution && !unsafe(result.caution) ? result.caution : null
+  if (looksFungal(result.candidates)) {
+    caution = FUNGI_CAUTION
+    if (explanation) explanation = { ...explanation, care: null }
+  }
+  return { ...result, explanation, caution }
+}

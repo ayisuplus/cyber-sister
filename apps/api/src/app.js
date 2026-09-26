@@ -161,7 +161,18 @@ const llmUserLimiter = rateLimit({
   message: { error: '模型请求过于频繁，请稍后再试' },
 })
 
+// 花草图鉴的「认一认」每次都真调一次云端视觉模型：每人每小时 30 次
+const gardenIdentifyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `user:${req.user.userId}`,
+  message: { error: '这一小时认得有点多了，歇一会儿再认吧' },
+})
+
 app.use('/api/llm', authMiddleware, llmUserLimiter, llmRoutes)
+app.use('/api/garden/identify', authMiddleware, gardenIdentifyLimiter)
 app.use('/api/memories/index-jobs', authMiddleware, memoryProgressLimiter)
 app.use('/api/work/tasks', authMiddleware, memoryProgressLimiter)
 // 只有一个 Web 版：安排、手记、经期、装扮与「她」都走普通鉴权。

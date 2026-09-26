@@ -10,7 +10,9 @@ const service = vi.hoisted(() => ({
   deleteEntry: vi.fn(),
   readPhoto: vi.fn(),
 }))
+const plantId = vi.hoisted(() => ({ identifyPlant: vi.fn() }))
 vi.mock('../services/gardenService.js', () => service)
+vi.mock('../services/plantIdService.js', () => plantId)
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 
 import gardenRoutes from './garden.js'
@@ -78,5 +80,24 @@ describe('花草图鉴接口', () => {
       expect(response.headers['cache-control']).toBe('no-store')
       expect(service.readPhoto).toHaveBeenLastCalledWith('user-1', 'plant-1', kind)
     }
+  })
+})
+
+describe('认一认接口', () => {
+  it('照片交给识别服务，结果原样带回，不落盘', async () => {
+    plantId.identifyPlant.mockResolvedValueOnce({ isPlant: true, candidates: [{ name: '栀子花' }] })
+    const ok = await request(app).post('/identify').attach('photo', JPEG, { filename: 'p.jpg', contentType: 'image/jpeg' })
+    expect(ok.body).toEqual({ isPlant: true, candidates: [{ name: '栀子花' }] })
+    const [userId, files] = plantId.identifyPlant.mock.calls[0]
+    expect(userId).toBe('user-1')
+    expect(files.photo[0].buffer.equals(JPEG)).toBe(true)
+    expect(service.createEntry).not.toHaveBeenCalled()
+  })
+
+  it('没同意云端、模型不可用时带上 code，页面据此说清原因', async () => {
+    plantId.identifyPlant.mockRejectedValueOnce(Object.assign(bad('需要你先同意使用云端模型才能聊天', 503), { code: 'CLOUD_NOT_CONSENTED' }))
+    const refused = await request(app).post('/identify').attach('photo', JPEG, { filename: 'p.jpg', contentType: 'image/jpeg' })
+    expect(refused.status).toBe(503)
+    expect(refused.body).toEqual({ error: '需要你先同意使用云端模型才能聊天', code: 'CLOUD_NOT_CONSENTED' })
   })
 })

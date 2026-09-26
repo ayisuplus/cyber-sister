@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { createCollectionUpload } from '../utils/imageUpload.js'
 import { MAX_PHOTO_BYTES } from '../utils/photoStore.js'
 import * as gardenService from '../services/gardenService.js'
+import { identifyPlant } from '../services/plantIdService.js'
 import logger from '../utils/logger.js'
 
 // 花草图鉴（路线图 C26）。每个接口都只作用于当前登录的人。
@@ -10,8 +11,19 @@ const upload = createCollectionUpload({ maxBytes: MAX_PHOTO_BYTES, fieldSize: 16
 
 function sendError(res, error, fallback) {
   if (!error.statusCode) logger.error(fallback, { error: error.message })
-  return res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : fallback })
+  if (!error.statusCode) return res.status(500).json({ error: fallback })
+  // 没同意云端、模型不可用等要让页面说清楚原因，带上 code
+  return res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) })
 }
+
+// 认一认：照片只在这一次请求里用，不落盘；收不收由她
+router.post('/identify', upload, async (req, res) => {
+  try {
+    res.json(await identifyPlant(req.user.userId, req.files, { requestId: req.requestId }))
+  } catch (error) {
+    sendError(res, error, '这会儿没认出来，过一会儿再试试')
+  }
+})
 
 router.get('/', async (req, res) => {
   try {
