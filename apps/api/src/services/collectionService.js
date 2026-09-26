@@ -1,16 +1,15 @@
 /**
  * 「装扮」里的收藏：衣柜与化妆间共用一张表（collection_items）。
- * 照片存在 data/collection/<userId>/<itemId>.jpg 与 <itemId>.thumb.jpg（先写临时文件再改名；写失败就把刚建的行删掉），
- * 行内只记 imageExt。只收 JPEG，存之前再去一遍拍摄信息。链接只存不打开：服务器从不访问它。
+ * 照片存在 data/collection/<userId>/<itemId>.jpg 与 <itemId>.thumb.jpg（照片存储见 utils/photoStore.js；写失败就把刚建的行删掉），
+ * 行内只记 imageExt。链接只存不打开：服务器从不访问它。
  */
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
 import prisma from '../prisma/client.js'
 import { findOwned, HttpError } from '../utils/dbHelpers.js'
-import { stripJpegMetadata } from '../utils/jpegMetadata.js'
+import { createPhotoStore, MAX_PHOTO_BYTES, MAX_THUMB_BYTES, PHOTO_EXT, preparePhotoPair } from '../utils/photoStore.js'
 import logger from '../utils/logger.js'
+
+export { MAX_PHOTO_BYTES, MAX_THUMB_BYTES }
 
 export const CATEGORIES = {
   wardrobe: ['上衣', '下装', '连衣裙', '外套', '鞋', '包', '配饰'],
@@ -19,21 +18,14 @@ export const CATEGORIES = {
 export const SHELVES = Object.keys(CATEGORIES)
 export const STATUSES = ['want', 'have']
 export const MAX_COLLECTION_ITEMS = 500
-export const MAX_PHOTO_BYTES = 3 * 1024 * 1024
-export const MAX_THUMB_BYTES = 512 * 1024
 // 她读收藏时最多看这么多件，免得一次塞满上下文
 export const MAX_ITEMS_FOR_HER = 60
 const MAX_NAME = 40
 const MAX_NOTE = 300
 const MAX_LINK = 2000
-const PHOTO_EXT = '.jpg'
 const SHELF_LABELS = { wardrobe: '衣柜', makeup: '化妆间' }
 
-// 与 chatImageService 相同的用户目录名净化：杜绝路径穿越
-const sanitizeUserSegment = (userId) => String(userId ?? '').replace(/[^a-zA-Z0-9-]/g, '_')
-const collectionRootDir = (env) => env.COLLECTION_DIR || fileURLToPath(new URL('../../data/collection', import.meta.url))
-const userDir = (env, userId) => join(collectionRootDir(env), sanitizeUserSegment(userId))
-const fileName = (itemId, kind) => `${itemId}${kind === 'thumb' ? '.thumb' : ''}${PHOTO_EXT}`
+const photos = createPhotoStore((env) => env.COLLECTION_DIR || fileURLToPath(new URL('../../data/collection', import.meta.url)))
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '')
 
@@ -112,32 +104,6 @@ function normalizeFields(fields = {}, shelf) {
   return data
 }
 
-/** 照片和缩略图要一起来；都去掉拍摄信息。没有照片时返回 null。 */
-function preparePhotos(files = {}) {
-  const photo = files.photo?.[0]?.buffer
-  const thumb = files.thumb?.[0]?.buffer
-  if (!photo && !thumb) return null
-  if (!photo || !thumb) throw new HttpError('照片和缩略图要一起上传', 400)
-  if (photo.length > MAX_PHOTO_BYTES || thumb.length > MAX_THUMB_BYTES) throw new HttpError('这张照片太大了，请换一张', 400)
-  return { photo: stripJpegMetadata(photo), thumb: stripJpegMetadata(thumb) }
-}
-
-async function writePhotos(env, userId, itemId, images) {
-  const dir = userDir(env, userId)
-  await mkdir(dir, { recursive: true })
-  // 先写临时文件再改名：同时在读的请求不会读到半张图
-  await Promise.all(['photo', 'thumb'].map(async (kind) => {
-    const target = join(dir, fileName(itemId, kind))
-    const tmpPath = `${target}.${randomUUID()}.tmp`
-    await writeFile(tmpPath, images[kind])
-    await rename(tmpPath, target)
-  }))
-}
-
-const removePhotos = (env, userId, itemId) => Promise.all(
-  ['photo', 'thumb'].map((kind) => rm(join(userDir(env, userId), fileName(itemId, kind)), { force: true })),
-)
-
 /** 某个柜子里的收藏，新的在前；不传柜子就是全部。 */
 export async function listItems(userId, shelf) {
   const items = await prisma.collectionItem.findMany({
@@ -151,17 +117,17 @@ export async function listItems(userId, shelf) {
 export async function createItem(userId, fields = {}, files = {}, env = process.env) {
   const shelf = checkShelf(fields.shelf)
   const data = { name: checkName(fields.name), status: 'have', ...normalizeFields(fields, shelf) }
-  const images = preparePhotos(files)
+  const images = preparePhotoPair(files)
   const count = await prisma.collectionItem.count({ where: { userId } })
   if (count >= MAX_COLLECTION_ITEMS) throw new HttpError(`收藏已经满 ${MAX_COLLECTION_ITEMS} 件了，删掉一些再放吧`, 400)
   const item = await prisma.collectionItem.create({ data: { userId, shelf, ...data, imageExt: images ? PHOTO_EXT : null } })
   if (images) {
     try {
-      await writePhotos(env, userId, item.id, images)
+      await photos.write(env, userId, item.id, images)
     } catch (error) {
       // 写盘失败就把行删掉，不留有行没图的空记录
       await prisma.collectionItem.delete({ where: { id: item.id } }).catch(() => {})
-      await removePhotos(env, userId, item.id).catch(() => {})
+      await photos.remove(env, userId, item.id).catch(() => {})
       throw error
     }
   }
@@ -173,8 +139,8 @@ export async function createItem(userId, fields = {}, files = {}, env = process.
 export async function updateItem(userId, itemId, fields = {}, files = {}, env = process.env) {
   const existing = await findOwned('collectionItem', itemId, userId, '这件收藏')
   const data = normalizeFields(fields, existing.shelf)
-  const images = preparePhotos(files)
-  if (images) await writePhotos(env, userId, existing.id, images)
+  const images = preparePhotoPair(files)
+  if (images) await photos.write(env, userId, existing.id, images)
   const item = await prisma.collectionItem.update({
     where: { id: existing.id },
     data: { ...data, ...(images ? { imageExt: PHOTO_EXT } : {}) },
@@ -185,7 +151,7 @@ export async function updateItem(userId, itemId, fields = {}, files = {}, env = 
 export async function deleteItem(userId, itemId, env = process.env) {
   const existing = await findOwned('collectionItem', itemId, userId, '这件收藏')
   await prisma.collectionItem.delete({ where: { id: existing.id } })
-  await removePhotos(env, userId, existing.id)
+  await photos.remove(env, userId, existing.id)
   logger.info('删掉一件收藏', { userId })
 }
 
@@ -193,7 +159,7 @@ export async function deleteItem(userId, itemId, env = process.env) {
 export async function readPhoto(userId, itemId, kind, env = process.env) {
   const item = await findOwned('collectionItem', itemId, userId, '这件收藏')
   if (!item.imageExt) throw new HttpError('这件收藏没有照片', 404)
-  const buffer = await readFile(join(userDir(env, userId), fileName(item.id, kind === 'thumb' ? 'thumb' : 'photo'))).catch(() => null)
+  const buffer = await photos.read(env, userId, item.id, kind)
   if (!buffer) throw new HttpError('照片不在了', 404)
   return { buffer, mime: 'image/jpeg' }
 }
