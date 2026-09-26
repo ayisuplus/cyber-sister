@@ -1177,9 +1177,22 @@ test('reading: a book stays on this device, and asking her about a passage also 
   await page.goto('/tools/reading')
   await expect(page.getByText('书架还空着')).toBeVisible()
 
+  // 选了「让她聊天时也能翻」才会上传章节（路线图 C22）；注册在书架路由之后，后注册的优先匹配
+  let uploaded = null
+  await page.route('**/api/reading/books/*/content', route => {
+    uploaded = route.request().postDataJSON()
+    return json(route, 200, { ...shelf[0], serverIndex: 'indexing' })
+  })
+
   // 放一本书进来：解析在浏览器里做，文件不上传
   await page.getByLabel('选一本书').setInputFiles({ name: '活着.epub', mimeType: 'application/epub+zip', buffer: TINY_EPUB })
   await expect(page.getByText('《活着》放好了')).toBeVisible()
+  // 放好之后问一句要不要让她聊天时也能翻：两个按钮一样轻重，这本只放在这台设备上
+  const ask = page.getByRole('alertdialog', { name: '《活着》要不要让她也能翻？' })
+  await expect(ask).toBeVisible()
+  await ask.getByRole('button', { name: '只放在这台设备' }).click()
+  await expect(ask).toBeHidden()
+  expect(uploaded).toBeNull()
   const onShelf = page.getByRole('button', { name: /^活着/ })
   await expect(onShelf).toBeVisible()
   await expectNoSeriousAxeFindings(page)
