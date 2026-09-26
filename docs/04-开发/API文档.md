@@ -268,7 +268,7 @@ Authorization: Bearer <access_token>
 ```
 
 - `days` 从近到远，一天里按时间先后；没有记录的日子不出现。
-- `kind` 与来源：`reflect` 回想（她的组织层里 `producedBy=reflection:*` 的条目，按天合成一句：猜了几件、连了哪一对、记下几件惦记的事）；`tidy` 你改过记忆后作废的、你在「她猜的」里删掉的；`ask` 惦记的事到日子问过你的；`letter` 写了一封信；`decide` 你采纳或没用信里的建议（按建议上的 `decidedAt`，2026-09-26 起记下）；`remember` 你让她记下的记忆（「帮我记住」与手写的分开说，一天超过 3 条合成一句，导入的一句带过，采纳来信建议记下的不重复写）；`book` 聊天时翻过的书（页边批注，一天最多写两本）。
+- `kind` 与来源：`reflect` 回想（她的组织层里 `producedBy=reflection:*` 的条目，按天合成一句：猜了几件、连了哪一对、记下几件惦记的事）；`tidy` 你改过记忆后作废的、你在「她猜的」里删掉的；`ask` 惦记的事到日子问过你的；`letter` 写了一封信；`decide` 你采纳或没用信里的建议（按建议上的 `decidedAt`，2026-09-26 起记下）；`remember` 你让她记下的记忆（「帮我记住」与手写的分开说，一天超过 3 条合成一句，导入的一句带过，采纳来信建议记下的不重复写）；`book` 聊天时翻过的书（页边批注，一天最多写两本）；`plant` 花草图鉴里她帮你认过、你收进来的花草（只算认过的，自己写名字收的不写；一天超过 2 株合成一句，2026-09-26 起）。
 - `lettersOn`：写信是否开着。回想跟着写信走（路线图 C23），写信关着时她不在你不在的时候整理，页面如实说明。
 
 ### GET /api/user/export — 一键导出全部数据
@@ -795,6 +795,42 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 
 照片存在 `COLLECTION_DIR`（默认 `apps/api/data/collection/<userId>/<id>.jpg` 与 `.thumb.jpg`，在 API 数据卷里，数据库备份不含）。她读收藏走聊天工具 `list_collection`：只返回名字、柜子、分类、想要/已有、备注（最多 60 件），不含照片与链接。
 
+## 九、花草图鉴 `/api/garden`（2026-09-26 起）
+
+路线图 C26。拍一张花草 → 她认一认、讲一讲 → 收不收由你；不认也可以自己写名字收进来。收藏与照片存储和装扮同一套做法（`utils/photoStore.js`）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/garden/identify` | 认一认。multipart，只要一个 `photo`（在这台设备上压缩好的 JPEG，≤3MB）。**照片不落盘**：去掉 EXIF/XMP 后只在这一次请求里交给聊天那个视觉模型（`GATEWAY_QWEN_MODEL` 要是视觉模型；场景 `chat`，讲解按你选的说话方式），提示词 `plant-id-v1`。要 `cloud-primary-v4` 云端同意，每人每小时 30 次。返回见下 |
+| GET | `/api/garden?status=met\|grow` | `{ entries }`，新的在前；每株 `{id, name, scientificName, family, status, note, candidates, explanation, caution, identified, photoUrl, thumbUrl, createdAt, updatedAt}`，没照片时两个地址为 `null` |
+| POST | `/api/garden` | 收进图鉴。multipart。文字字段：`name` 必填 ≤40 字；`scientificName` ≤80；`family` ≤40；`status` 为 `met`（路上遇见，缺省）/ `grow`（我养的）；`note` ≤300；`identification` 可选，是认一认返回的那段 JSON（≤16KB，服务器按同一份形状再校验、超长截断，读不出 400）；`pick` 是选了第几个候选（`0`–`2`，自己写名字就不传）。**讲解是照第一个候选写的，只有 `pick=0` 才存讲解**；候选和提醒照存。文件：`photo`（≤3MB）与 `thumb`（≤512KB）要么都有要么都没有，只收 JPEG，存之前去掉拍摄信息。每人最多 1000 株 |
+| PUT | `/api/garden/:id` | 改名字、学名、科、遇见/养着、备注，可换照片；识别结果不能改；非本人 404 |
+| DELETE | `/api/garden/:id` | 删除行与照片文件；非本人 404 |
+| GET | `/api/garden/:id/photo`、`/thumb` | JPEG，`Cache-Control: no-store`；没有照片或非本人 404 |
+
+认一认的返回：
+
+```json
+{
+  "isPlant": true,
+  "candidates": [
+    { "name": "栀子花", "scientificName": "Gardenia jasminoides", "family": "茜草科", "likelihood": "很像" },
+    { "name": "白兰", "scientificName": null, "family": "木兰科", "likelihood": "拿不准" }
+  ],
+  "explanation": { "what": "…", "howToTell": "…", "season": "…", "lore": "民间说法：…", "care": "…" },
+  "caution": "叶子和果实别让猫啃。",
+  "promptVersion": "plant-id-v1",
+  "identifiedBy": "qwen-vl-max"
+}
+```
+
+- `likelihood` 只有「很像 / 可能是 / 拿不准」三档，不给百分比；最多 3 个候选。不是植物时只有 `{"isPlant": false, "candidates": []}`。
+- 讲解五段按字截断（what / howToTell / care ≤200 字，season ≤120，lore ≤200），没有的段为 `null`；全空时 `explanation` 为 `null`。
+- **代码里再兜一道**：讲解某段说能吃、能泡水、能入药或有疗效的，整段去掉（同一小句里有「别 / 不能 / 切勿」的劝阻不算）；讲解和提醒都过一遍回复同款的红线判断；候选像菌菇的，`caution` 换成固定一句「菌菇认错的后果很重：不管它像什么，都别吃，也别让猫狗碰。」，「想养的话」去掉。
+- 错误（带 `code`）：没同意云端 503 `CLOUD_NOT_CONSENTED`；没配模型或这会儿没回话 503 `LLM_UNAVAILABLE`；回了但读不出形状 502 `PLANT_ID_UNREADABLE`；超过每小时 30 次 429。页面按 `code` 说清原因，没同意时给一条去设置的路，并保留「自己写名字」。
+
+照片存在 `GARDEN_DIR`（默认 `apps/api/data/garden/<userId>/<id>.jpg` 与 `.thumb.jpg`，在 API 数据卷里，数据库备份不含）。她读图鉴走聊天工具 `list_garden`（只读，`status` 与 `keyword` 可选）：只返回名字、科、路上遇见/我养的、哪天收的（北京时间）、备注，外加一共几种（同名算一种，最多 60 株），不含照片、讲解与识别细节；聊天里不能加、改、删。数据导出多一段 `garden`：名字、学名、科、状态、备注、候选、讲解、提醒、提示词版本、模型与有没有照片（照片不进导出包）。识别准不准见[花草识别评测](花草识别评测.md)。
+
 ---
 
 ## 十、模型状态 `/api/llm`
@@ -1017,6 +1053,12 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           PUT    /api/collection/:id     (同上，柜子不能换)
           DELETE /api/collection/:id
           GET    /api/collection/:id/{photo,thumb} (no-store)
+花草      POST   /api/garden/identify    (multipart：一张 JPEG，不落盘；要云端同意，每人每小时 30 次)
+          GET    /api/garden?status=     (路上遇见 met / 我养的 grow)
+          POST   /api/garden             (multipart：文字字段 + 可选识别结果 JSON 与 pick + 可选 photo/thumb)
+          PUT    /api/garden/:id         (识别结果不能改)
+          DELETE /api/garden/:id
+          GET    /api/garden/:id/{photo,thumb} (no-store)
 模型      GET    /api/llm/status
 模型供应商 GET    /api/admin/model-providers           (实例管理员)
           POST   /api/admin/model-providers           (新增；密钥只写不读)
