@@ -197,7 +197,7 @@ test('night mode: the phone navigation drawer stays dark and accessible at 320px
   const drawer = page.getByRole('dialog', { name: '导航抽屉', exact: true })
   await expect(drawer).toBeVisible()
   const nav = drawer.getByRole('navigation', { name: '页面导航' })
-  await expect(nav.getByRole('link')).toHaveCount(7)
+  await expect(nav.getByRole('link')).toHaveCount(8)
   await inspectSurface(page, testInfo, 'night-drawer-320')
   await nav.getByRole('link', { name: '日历', exact: true }).click()
   await expect(page).toHaveURL(/\/tools\/calendar$/)
