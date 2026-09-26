@@ -802,7 +802,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/garden/identify` | 认一认。multipart，只要一个 `photo`（在这台设备上压缩好的 JPEG，≤3MB）。**照片不落盘**：去掉 EXIF/XMP 后只在这一次请求里交给聊天那个视觉模型（`GATEWAY_QWEN_MODEL` 要是视觉模型；场景 `chat`，讲解按你选的说话方式），提示词 `plant-id-v1`。要 `cloud-primary-v4` 云端同意，每人每小时 30 次。返回见下 |
-| GET | `/api/garden?status=met\|grow` | `{ entries }`，新的在前；每株 `{id, name, scientificName, family, status, note, candidates, explanation, caution, identified, photoUrl, thumbUrl, createdAt, updatedAt}`，没照片时两个地址为 `null` |
+| GET | `/api/garden?status=met\|grow` | `{ entries }`，新的在前；每株 `{id, name, scientificName, family, status, note, candidates, explanation, caution, reference, identified, photoUrl, thumbUrl, createdAt, updatedAt}`（`reference` 是收进来那一刻的名录与毒性核对，2026-09-27 之前收的为 `null`），没照片时两个地址为 `null` |
 | POST | `/api/garden` | 收进图鉴。multipart。文字字段：`name` 必填 ≤40 字；`scientificName` ≤80；`family` ≤40；`status` 为 `met`（路上遇见，缺省）/ `grow`（我养的）；`note` ≤300；`identification` 可选，是认一认返回的那段 JSON（≤16KB，服务器按同一份形状再校验、超长截断，读不出 400）；`pick` 是选了第几个候选（`0`–`2`，自己写名字就不传）。**讲解是照第一个候选写的，只有 `pick=0` 才存讲解**；候选和提醒照存。文件：`photo`（≤3MB）与 `thumb`（≤512KB）要么都有要么都没有，只收 JPEG，存之前去掉拍摄信息。每人最多 1000 株 |
 | PUT | `/api/garden/:id` | 改名字、学名、科、遇见/养着、备注，可换照片；识别结果不能改；非本人 404 |
 | DELETE | `/api/garden/:id` | 删除行与照片文件；非本人 404 |
@@ -827,6 +827,16 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 - `likelihood` 只有「很像 / 可能是 / 拿不准」三档，不给百分比；最多 3 个候选。不是植物时只有 `{"isPlant": false, "candidates": []}`。
 - 讲解五段按字截断（what / howToTell / care ≤200 字，season ≤120，lore ≤200），没有的段为 `null`；全空时 `explanation` 为 `null`。
 - **代码里再兜一道**：讲解某段说能吃、能泡水、能入药或有疗效的，整段去掉（同一小句里有「别 / 不能 / 切勿」的劝阻不算）；讲解和提醒都过一遍回复同款的红线判断；候选像菌菇的，`caution` 换成固定一句「菌菇认错的后果很重：不管它像什么，都别吃，也别让猫狗碰。」，「想养的话」去掉。
+- **本机名录与毒性库**（2026-09-27 起，路线图 C27）：认一认的返回多一个 `reference`，由服务器在本机资料里核出来，不另调任何外部服务：
+  ```json
+  "reference": {
+    "checked": true, "toxicChecked": true,
+    "candidates": [{ "found": true, "standardName": "夹竹桃", "scientificName": "Nerium oleander L.", "family": "夹竹桃科", "scrutiny": "审核专家与日期", "via": "scientific" }, { "found": false }],
+    "toxic": [{ "candidate": 0, "name": "夹竹桃", "recordedAs": "欧洲夹竹桃", "level": "有毒", "parts": ["全株"], "by": "species" }],
+    "sources": { "checklist": { "title": "…", "database": "China Checklist of Higher Plants", "node": "Species 2000 China Node" }, "toxic": { "title": "《中国植物志》经济用途 · 中国有毒植物", "via": "iPlant 植物智（中国科学院植物研究所）" } }
+  }
+  ```
+  `candidates` 与模型的候选一一对应：先按学名（含异名）、再按中文名（只认唯一的一种）在《中国生物物种名录》植物界里找，`via` 说是哪条路找到的；**不改模型的候选名**，页面在旁边写「名录里有，名录作「…」」或「名录里没查到」。`toxic` 是候选里在《中国植物志》「中国有毒植物」有记载的（按这一种、按学名、按属或按中文名认，`by` 为 `species` / `genus`），`level` 为 剧毒 / 有毒 / 小毒 或 `null`（列为有毒但摘录里没写清），`parts` 是记载的有毒部位；原文里的药用说法不进索引、不返回。没装资料时 `checked` / `toxicChecked` 为 `false`、两个数组为空，页面什么都不标。收进图鉴时服务器按候选重核一遍再存（不信前端带回来的），每株多一个 `reference` 字段，随数据导出。资料的来源、条款与怎么建见[花草识别评测](花草识别评测.md)「名录与毒性」。
 - 错误（带 `code`）：没同意云端 503 `CLOUD_NOT_CONSENTED`；没配模型或这会儿没回话 503 `LLM_UNAVAILABLE`；回了但读不出形状 502 `PLANT_ID_UNREADABLE`；超过每小时 30 次 429。页面按 `code` 说清原因，没同意时给一条去设置的路，并保留「自己写名字」。
 
 照片存在 `GARDEN_DIR`（默认 `apps/api/data/garden/<userId>/<id>.jpg` 与 `.thumb.jpg`，在 API 数据卷里，数据库备份不含）。她读图鉴走聊天工具 `list_garden`（只读，`status` 与 `keyword` 可选）：只返回名字、科、路上遇见/我养的、哪天收的（北京时间）、备注，外加一共几种（同名算一种，最多 60 株），不含照片、讲解与识别细节；聊天里不能加、改、删。数据导出多一段 `garden`：名字、学名、科、状态、备注、候选、讲解、提醒、提示词版本、模型与有没有照片（照片不进导出包）。识别准不准见[花草识别评测](花草识别评测.md)。
