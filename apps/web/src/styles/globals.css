@@ -1222,3 +1222,31 @@ h1, h2, h3 {
   .chat-slip__handed { display: none; }
   .letter-viewport:not(.letter-ghost) .letter-entry[data-fresh="true"] { animation: none; }
 }
+
+/* ===== 花草图鉴（2026-09-26，路线图 C26）=====
+ * 每一株像一张压花标本签：纸底、照片加一圈白边、名字手写，下面一行铅笔灰的科和日子。
+ * 夜里照片的白边压暗一点，别在深色纸上发亮；不加动画。 */
+.specimen-sheet,
+.specimen-card {
+  background: var(--cs-paper);
+  box-shadow: var(--cs-paper-shadow), 0 0 0 1px var(--cs-paper-line);
+  color: var(--cs-ink-her);
+}
+.specimen-card { border-radius: 14px; padding: 8px 8px 10px; transition: transform 300ms var(--cs-ease-calm); }
+.specimen-card:hover { transform: translateY(-1px); }
+.specimen-card:focus-visible { outline: 2px solid var(--cs-focus-info); outline-offset: 3px; }
+.specimen-photo {
+  padding: 4px;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(56, 66, 46, 0.1);
+}
+:root[data-theme="dark"] .specimen-photo { background: color-mix(in srgb, var(--cs-paper) 86%, #fff); box-shadow: none; }
+.specimen-label { color: var(--cs-ink-her); }
+.specimen-label > :last-child { color: var(--cs-ink-pencil); }
+.specimen-notes dt { color: var(--cs-ink-pencil); }
+.specimen-notes dd { color: var(--cs-ink-her); }
+@media (prefers-reduced-motion: reduce) {
+  .specimen-card { transition: none; }
+  .specimen-card:hover { transform: none; }
+}

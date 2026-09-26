@@ -748,7 +748,7 @@ test('navigation: every entry lives in one list under the conversations, and old
 
   if (isMobile) await page.getByRole('button', { name: '打开导航', exact: true }).click()
   const nav = page.getByRole('navigation', { name: '页面导航' }).last()
-  const expected = [['对话', '/chat'], ['她', '/her'], ['日历', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['设置', '/settings']]
+  const expected = [['对话', '/chat'], ['她', '/her'], ['日历', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['花草', '/tools/garden'], ['设置', '/settings']]
   await expect(nav.getByRole('link')).toHaveCount(expected.length)
   for (const [name, href] of expected) {
     await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href)
@@ -857,6 +857,118 @@ test('dress-up is a collection: save a photo or a pasted link, filter what you w
   await page.setViewportSize({ width: 320, height: 740 })
   await page.goto('/tools/style?tab=wardrobe')
   await expect(page.getByRole('list', { name: '衣柜' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('garden: she identifies a flower, you choose whether to keep it, and you can always write one yourself', async ({ page }) => {
+  await seedAuth(page)
+  await mockChatBootstrap(page, true)
+  let entries = []
+  const posts = []
+  const identifies = []
+  let consented = true
+  const identified = {
+    isPlant: true,
+    candidates: [
+      { name: '栀子花', scientificName: 'Gardenia jasminoides', family: '茜草科', likelihood: '很像' },
+      { name: '白兰', scientificName: null, family: '木兰科', likelihood: '拿不准' },
+    ],
+    explanation: { what: '夏天开的白花，香得很浓。', howToTell: '花瓣厚、像蜡。', season: '五到七月', lore: '民间说它代表一生的守候。', care: '喜酸性土。' },
+    caution: '叶子和果实别让猫啃。',
+    promptVersion: 'plant-id-v1',
+    identifiedBy: 'qwen-vl-max',
+  }
+  await page.route(/\/api\/garden(?:\/[^?]*)?(?:\?.*)?$/, route => {
+    const request = route.request()
+    const { pathname } = new URL(request.url())
+    const id = pathname.split('/')[3]
+    if (/\/(photo|thumb)$/.test(pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG })
+    if (request.method() === 'GET') return json(route, 200, { entries })
+    if (request.method() === 'DELETE') {
+      entries = entries.filter(entry => entry.id !== id)
+      return json(route, 200, { success: true })
+    }
+    const body = request.postDataBuffer().toString('latin1')
+    const field = name => body.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`))?.[1]
+    const text = name => (field(name) === undefined ? undefined : Buffer.from(field(name), 'latin1').toString('utf8'))
+    if (pathname.endsWith('/identify')) {
+      identifies.push(body)
+      return consented
+        ? json(route, 200, identified)
+        : json(route, 503, { error: '需要你先同意使用云端模型才能聊天', code: 'CLOUD_NOT_CONSENTED' })
+    }
+    if (request.method() === 'PUT') {
+      entries = entries.map(entry => (entry.id === id ? { ...entry, status: text('status') ?? entry.status } : entry))
+      return json(route, 200, entries.find(entry => entry.id === id))
+    }
+    posts.push(body)
+    const kept = text('identification') ? JSON.parse(text('identification')) : null
+    const created = {
+      id: `g${posts.length}`, name: text('name'), scientificName: text('scientificName') || null, family: text('family') || null,
+      status: text('status'), note: text('note') || null, candidates: kept?.candidates ?? [],
+      explanation: text('pick') === '0' ? kept.explanation : null, caution: kept?.caution ?? null, identified: Boolean(kept),
+      photoUrl: `/api/garden/g${posts.length}/photo?v=1`, thumbUrl: `/api/garden/g${posts.length}/thumb?v=1`, createdAt: '2026-09-26T04:00:00.000Z',
+    }
+    entries = [created, ...entries]
+    return json(route, 200, created)
+  })
+
+  await page.goto('/tools/garden')
+  await expect(page.getByRole('heading', { name: '花草', exact: true })).toBeVisible()
+  await expect(page.getByText(/路上看到一朵叫不出名字的花/)).toBeVisible()
+  await expect(page.getByLabel('拍一张（打开相机）')).toHaveAttribute('capture', 'environment')
+
+  // 认一认：只传一张压缩好的 JPEG；她说像什么、怎么认、要小心什么，并写明认得不一定准
+  await page.getByRole('button', { name: '认一认' }).click()
+  await page.getByLabel('从相册选一张').setInputFiles({ name: 'flower.png', mimeType: 'image/png', buffer: TINY_PNG })
+  await expect(page.getByText('她说，很像是「栀子花」')).toBeVisible()
+  expect(identifies[0].match(/Content-Type: image\/jpeg/g)).toHaveLength(1)
+  const sheet = page.getByRole('article', { name: '认一认' })
+  await expect(sheet.getByText('叶子和果实别让猫啃。')).toBeVisible()
+  await expect(sheet.getByText(/她认得不一定准/)).toBeVisible()
+  await expectNoSeriousAxeFindings(page)
+
+  // 收进图鉴：两张 JPEG 加识别结果一起带回去
+  await sheet.getByLabel(/写一句/).fill('楼下花坛')
+  await sheet.getByRole('button', { name: '收进图鉴' }).click()
+  const book = page.getByRole('list', { name: '花草图鉴' })
+  await expect(book.getByRole('button', { name: '栀子花，路上遇见' })).toBeVisible()
+  await expect(page.getByText('遇见过 1 种')).toBeVisible()
+  expect(posts[0].match(/Content-Type: image\/jpeg/g)).toHaveLength(2)
+  expect(posts[0]).toContain('name="identification"')
+  expect(posts[0]).toMatch(/name="pick"\r\n\r\n0/)
+
+  // 没同意云端：说清楚照片会发去哪；不认也能自己写名字，照片照样收进来
+  consented = false
+  await page.getByRole('button', { name: '认一认' }).click()
+  await page.getByLabel('从相册选一张').setInputFiles({ name: 'leaf.png', mimeType: 'image/png', buffer: TINY_PNG })
+  await expect(page.getByRole('alert')).toContainText('照片会发给已配置的模型供应商')
+  await expect(page.getByRole('button', { name: '去设置' })).toBeVisible()
+  await page.getByRole('button', { name: '自己写名字' }).click()
+  const form = page.getByRole('form', { name: '自己写一株' })
+  await form.getByLabel('名字').fill('绿萝')
+  await form.getByRole('button', { name: '我养的' }).click()
+  await form.getByRole('button', { name: '存下来' }).click()
+  await expect(book.getByRole('button', { name: '绿萝，我养的' })).toBeVisible()
+  expect(posts[1]).not.toContain('name="identification"')
+  expect(posts[1].match(/Content-Type: image\/jpeg/g)).toHaveLength(2)
+
+  // 看一株：换成我养的，再从图鉴拿掉
+  await book.getByRole('button', { name: '栀子花，路上遇见' }).click()
+  const detail = page.getByRole('article', { name: '栀子花' })
+  await expect(detail.getByText('Gardenia jasminoides')).toBeVisible()
+  await expect(detail.getByText('花瓣厚、像蜡。')).toBeVisible()
+  await detail.getByRole('button', { name: '我养的' }).click()
+  await expect(detail.getByRole('button', { name: '我养的' })).toHaveAttribute('aria-pressed', 'true')
+  await expectNoSeriousAxeFindings(page)
+  await detail.getByRole('button', { name: '从图鉴拿掉' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: '拿掉' }).click()
+  await expect(book.getByRole('button')).toHaveCount(1)
+
+  // 最窄的手机上不横向滚
+  await page.setViewportSize({ width: 320, height: 740 })
+  await page.goto('/tools/garden')
+  await expect(page.getByRole('list', { name: '花草图鉴' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 

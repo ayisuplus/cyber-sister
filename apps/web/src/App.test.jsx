@@ -14,6 +14,7 @@ vi.mock('./pages/NotesPage', () => ({ default: () => <h1>手记页</h1> }))
 vi.mock('./pages/ReadingPage', () => ({ default: () => <h1>书架页</h1> }))
 vi.mock('./pages/ReaderPage', () => ({ default: () => <h1>阅读页</h1> }))
 vi.mock('./pages/StylePage', () => ({ default: () => <h1>装扮页</h1> }))
+vi.mock('./pages/GardenPage', () => ({ default: () => <h1>花草页</h1> }))
 vi.mock('./pages/CalendarPage', () => ({ default: () => <h1>日历页</h1> }))
 vi.mock('./pages/SettingsPage', () => ({ default: () => <h1>设置页</h1> }))
 
@@ -29,6 +30,7 @@ it.each([
   ['/tools/reading', '书架页'],
   ['/tools/reading/b1', '阅读页'],
   ['/tools/style', '装扮页'],
+  ['/tools/garden', '花草页'],
   ['/her', '她页'],
 ])('the one Web version opens %s', async (url, heading) => {
   vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
@@ -76,6 +78,7 @@ describe('root routing', () => {
     ['/tools/notes', '手记页'],
     ['/tools/reading', '书架页'],
     ['/tools/style', '装扮页'],
+    ['/tools/garden', '花草页'],
     ['/settings', '设置页'],
   ])('protects and exposes the entry route %s', async (path, heading) => {
     signIn()

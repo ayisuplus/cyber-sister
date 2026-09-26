@@ -9,6 +9,7 @@ import ChatPage from './pages/ChatPage'
 // 路由级代码分割：登录/聊天为关键路径保持直出，其余页面按需加载（首屏包体收敛）
 const HerPage = lazy(() => import('./pages/HerPage'))
 const StylePage = lazy(() => import('./pages/StylePage'))
+const GardenPage = lazy(() => import('./pages/GardenPage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ReadingPage = lazy(() => import('./pages/ReadingPage'))
 const ReaderPage = lazy(() => import('./pages/ReaderPage'))
@@ -47,13 +48,14 @@ export default function App() {
           <Route path="/chat/archives" element={<ProtectedRoute><ConversationArchivePage /></ProtectedRoute>} />
           <Route path="/her" element={<ProtectedRoute><HerPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          {/* 生活功能在 /tools/ 下：日历、手记、读书、装扮 */}
+          {/* 生活功能在 /tools/ 下：日历、手记、读书、装扮、花草 */}
           <Route path="/tools/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
           <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />
           <Route path="/tools/reading/:bookId" element={<ProtectedRoute><ReaderPage /></ProtectedRoute>} />
           <Route path="/tools/reading/shelf/:name" element={<ProtectedRoute><ShelfBookPage /></ProtectedRoute>} />
           <Route path="/tools/style" element={<ProtectedRoute><StylePage /></ProtectedRoute>} />
+          <Route path="/tools/garden" element={<ProtectedRoute><GardenPage /></ProtectedRoute>} />
           {/* 旧路径（含后端关怀卡 action.to 与外部深链）一律收拢到新入口 */}
           <Route path="/memories" element={<Moved to="/her" />} />
           <Route path="/profile" element={<Moved to="/settings" />} />

@@ -38,6 +38,8 @@ router.get('/status', async (req, res) => {
       { id: 'period', api: '/api/tools/period', generation: 'server_calculation' },
       // 装扮是收藏，不做生成
       { id: 'collection', api: '/api/collection', generation: 'none' },
+      // 花草图鉴：认一认真调一次云端视觉模型（要同意）；收藏本身不做生成
+      { id: 'garden', api: '/api/garden', generation: 'cloud' },
       { id: 'letters', api: '/api/letters', generation: 'mock' },
     ],
   })
