@@ -54,6 +54,7 @@ export async function buildUserExport(userId) {
     makeupPresets,
     wardrobeItems,
     collectionItems,
+    plantEntries,
     letters,
     workTasks,
     scheduledTasks,
@@ -176,6 +177,14 @@ export async function buildUserExport(userId) {
       where: { userId },
       orderBy: { createdAt: 'asc' },
       select: { shelf: true, category: true, name: true, note: true, status: true, link: true, imageExt: true, createdAt: true, updatedAt: true },
+    }),
+    prisma.plantEntry.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        name: true, scientificName: true, family: true, status: true, note: true, candidates: true, explanation: true,
+        caution: true, promptVersion: true, identifiedBy: true, imageExt: true, createdAt: true, updatedAt: true,
+      },
     }),
     prisma.letter.findMany({
       where: { userId },
@@ -349,6 +358,22 @@ export async function buildUserExport(userId) {
       createdAt: iso(item.createdAt),
       updatedAt: iso(item.updatedAt),
     })),
+    // 花草图鉴：连同识别时的候选与她的讲解；照片同属二进制资产边界，只记有没有
+    garden: plantEntries.map((entry) => ({
+      name: entry.name,
+      scientificName: entry.scientificName ?? null,
+      family: entry.family ?? null,
+      status: entry.status,
+      note: entry.note ?? null,
+      candidates: entry.candidates ?? null,
+      explanation: entry.explanation ?? null,
+      caution: entry.caution ?? null,
+      promptVersion: entry.promptVersion ?? null,
+      identifiedBy: entry.identifiedBy ?? null,
+      hasPhoto: Boolean(entry.imageExt),
+      createdAt: iso(entry.createdAt),
+      updatedAt: iso(entry.updatedAt),
+    })),
     // 她整理的：关系、理解、惦记的事。按内容导出，不带内部 id；依据只留原话
     inferences: inferences.map((row) => ({
       kind: row.kind,
@@ -381,6 +406,7 @@ export async function buildUserExport(userId) {
     makeupPresets: bundle.makeupPresets.length,
     wardrobeItems: bundle.wardrobeItems.length,
     collection: bundle.collection.length,
+    garden: bundle.garden.length,
     studySessions: bundle.studySessions.length,
     inferences: bundle.inferences.length,
     letters: bundle.letters.length,

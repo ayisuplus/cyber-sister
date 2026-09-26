@@ -16,6 +16,7 @@ const db = vi.hoisted(() => ({
   makeupPresetFindMany: vi.fn(),
   wardrobeItemFindMany: vi.fn(),
   collectionFindMany: vi.fn(),
+  plantFindMany: vi.fn(),
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
   scheduledTaskFindMany: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('../prisma/client.js', () => {
     makeupPreset: { findMany: db.makeupPresetFindMany },
     wardrobeItem: { findMany: db.wardrobeItemFindMany },
     collectionItem: { findMany: db.collectionFindMany },
+    plantEntry: { findMany: db.plantFindMany },
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
     scheduledReminder: { findMany: db.scheduledTaskFindMany },
@@ -74,7 +76,7 @@ describe('exportService.buildUserExport', () => {
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'inferenceFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'letterFindMany', 'workTaskFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'plantFindMany', 'letterFindMany', 'workTaskFindMany',
       'scheduledTaskFindMany',
     ]) {
       db[key].mockResolvedValue([])
@@ -102,14 +104,14 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([])
   })
 
-  it('全部 17 张表按当前用户过滤查询', async () => {
+  it('全部 18 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
       'memoryFindMany', 'conversationFindMany', 'todoFindMany', 'countdownFindMany',
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'inferenceFindMany',
-      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'letterFindMany', 'workTaskFindMany',
+      'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'plantFindMany', 'letterFindMany', 'workTaskFindMany',
       'scheduledTaskFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
@@ -164,6 +166,27 @@ describe('exportService.buildUserExport', () => {
       { shelf: 'wardrobe', category: null, name: '白衬衫', note: null, status: 'have', link: null, hasPhoto: true, createdAt: '2026-09-21T02:00:00.000Z', updatedAt: '2026-09-21T02:00:00.000Z' },
     ])
     expect(JSON.stringify(bundle.collection)).not.toContain('imageExt')
+  })
+
+  it('花草图鉴随包导出：名字、识别时的候选与讲解都在，照片只记有没有', async () => {
+    db.plantFindMany.mockResolvedValue([
+      {
+        name: '栀子花', scientificName: 'Gardenia jasminoides', family: '茜草科', status: 'met', note: '楼下花坛',
+        candidates: [{ name: '栀子花', likelihood: '很像' }], explanation: { what: '夏天开的白花。' }, caution: null,
+        promptVersion: 'plant-id-v1', identifiedBy: 'qwen-vl-max', imageExt: '.jpg',
+        createdAt: new Date('2026-09-26T00:00:00.000Z'), updatedAt: new Date('2026-09-26T00:00:00.000Z'),
+      },
+    ])
+
+    const bundle = await buildUserExport('user-1')
+
+    expect(bundle.garden).toEqual([{
+      name: '栀子花', scientificName: 'Gardenia jasminoides', family: '茜草科', status: 'met', note: '楼下花坛',
+      candidates: [{ name: '栀子花', likelihood: '很像' }], explanation: { what: '夏天开的白花。' }, caution: null,
+      promptVersion: 'plant-id-v1', identifiedBy: 'qwen-vl-max', hasPhoto: true,
+      createdAt: '2026-09-26T00:00:00.000Z', updatedAt: '2026-09-26T00:00:00.000Z',
+    }])
+    expect(JSON.stringify(bundle.garden)).not.toContain('imageExt')
   })
 
   it('来信随包导出，连同她的建议和你怎么处理的', async () => {

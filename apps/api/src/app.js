@@ -22,6 +22,7 @@ import llmRoutes from './routes/llm.js'
 import workRoutes from './routes/work.js'
 import asrRoutes from './routes/asr.js'
 import collectionRoutes from './routes/collection.js'
+import gardenRoutes from './routes/garden.js'
 import reminderRoutes from './routes/reminders.js'
 import letterRoutes from './routes/letters.js'
 import bridgeRoutes from './routes/bridge.js'
@@ -181,6 +182,8 @@ app.use('/api/work', authMiddleware, workRoutes)
 app.use('/api/asr', authMiddleware, asrRoutes)
 // 装扮里的收藏（衣柜 / 化妆间）；旧的化妆预设、3D 衣柜与模拟预览接口已于 2026-09-21 下线
 app.use('/api/collection', authMiddleware, collectionRoutes)
+// 花草图鉴（路线图 C26）：拍一张、认一认、收不收由她
+app.use('/api/garden', authMiddleware, gardenRoutes)
 app.use('/api/reminders', authMiddleware, reminderRoutes)
 app.use('/api/letters', authMiddleware, letterRoutes)
 // 本机助手：路由内分别用登录身份（设置页）和助手令牌（取任务/交结果）鉴权

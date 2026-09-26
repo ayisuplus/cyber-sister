@@ -30,13 +30,13 @@ export function createImageUpload({ field, typeMessage, limitMessage, fallbackMe
 }
 
 /**
- * 收藏用：一次最多两张 JPEG（photo 原图 + thumb 缩略图），都可省略；其余是文字字段。
- * 文件签名与大小由 collectionService 再查一遍（改了扩展名的文件骗不过去）。
+ * 收藏与花草图鉴用：一次最多两张 JPEG（photo 原图 + thumb 缩略图），都可省略；其余是文字字段。
+ * 文件签名与大小由服务再查一遍（改了扩展名的文件骗不过去）。花草图鉴收藏时要带回识别结果（一段 JSON），字段上限放宽一些。
  */
-export function createCollectionUpload({ maxBytes }) {
+export function createCollectionUpload({ maxBytes, fieldSize = 4096 }) {
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: maxBytes, files: 2, fields: 10, fieldSize: 4096 },
+    limits: { fileSize: maxBytes, files: 2, fields: 10, fieldSize },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === 'image/jpeg') return cb(null, true)
       cb(Object.assign(new Error('照片要先在这台设备上压缩成 JPEG 再上传'), { statusCode: 400 }))
