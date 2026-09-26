@@ -44,8 +44,28 @@ export function parseToxicText(text) {
 
 // ---- 索引：名录的一种一条，另有异名表；毒性按这一种、按学名、按属、按中文名各挂一份 ----
 
-/** 名录：学名（含异名）→ 第几种；中文名与别名 → 第几种（可能不止一种） */
+const RANK = /^(var|subsp|ssp|f|forma)\.?$/i
+const RANK_NAMES = { ssp: 'subsp', forma: 'f' }
+const EPITHET = /^[a-z-]+$/
+
+/** 完整学名：属 + 种加词，有种下等级再加「var. xxx」这样一段；去掉命名人、杂交符号，小写。用来对上名录里的那一行。 */
+export function fullNameKey(value) {
+  const words = String(value ?? '').normalize('NFKC').replace(/[×✕]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  const species = scientificKey(value)
+  if (!species?.includes(' ')) return species
+  const rankAt = words.findIndex((word, position) => position >= 2 && RANK.test(word))
+  const epithet = rankAt > 0 ? words[rankAt + 1] : null
+  if (!epithet || !EPITHET.test(epithet)) return species
+  const rank = words[rankAt].toLowerCase().replace(/\.$/, '')
+  return `${species} ${RANK_NAMES[rank] ?? rank} ${epithet}`
+}
+
+/**
+ * 名录：完整学名 → 第几种；属 + 种 → 同一种下的几条（种本身排第一，其后是变种、亚种）；
+ * 异名 → 第几种；中文名与别名 → 第几种（可能不止一种）
+ */
 function indexTaxa(taxa, synonyms) {
+  const byFull = new Map()
   const bySci = new Map()
   const byCn = new Map()
   const addCn = (name, index) => {
@@ -53,14 +73,17 @@ function indexTaxa(taxa, synonyms) {
     if (key) byCn.set(key, [...new Set([...(byCn.get(key) ?? []), index])])
   }
   taxa.forEach((taxon, index) => {
+    const full = fullNameKey(taxon.sci)
     const key = scientificKey(taxon.sci)
-    if (key && !bySci.has(key)) bySci.set(key, index)
+    if (full && !byFull.has(full)) byFull.set(full, index)
+    if (key) bySci.set(key, [...(bySci.get(key) ?? []), index])
     for (const name of [taxon.cn, ...(taxon.aliases ?? [])]) addCn(name, index)
   })
-  for (const [synonym, index] of Object.entries(synonyms)) {
-    if (!bySci.has(synonym) && taxa[index]) bySci.set(synonym, index)
+  for (const [key, group] of bySci) {
+    bySci.set(key, [...group].sort((a, b) => Number(fullNameKey(taxa[b].sci) === key) - Number(fullNameKey(taxa[a].sci) === key)))
   }
-  return { bySci, byCn }
+  const bySyn = new Map(Object.entries(synonyms).filter(([, index]) => taxa[index]))
+  return { byFull, bySci, bySyn, byCn }
 }
 
 /** 毒性：对上名录的按那一种挂；另按学名（到种）、按属、按中文名各挂一份 */
@@ -94,11 +117,25 @@ export function indexReference(data) {
   }
 }
 
-/** 一个候选在名录里是哪一种：先按学名（含异名），再按中文名（只认唯一的一种）。 */
+const namesOf = (taxon) => [taxon.cn, ...(taxon.aliases ?? [])].map(normalizeName).filter(Boolean)
+
+/**
+ * 一个候选在名录里是哪一种：
+ * 完整学名（含变种）对得上就是那一行；只对上属 + 种时，同一种下有和她说的中文名一样的变种就取它（她说「水仙」，
+ * 学名写 Narcissus tazetta，取变种「水仙」而不是种「欧洲水仙」），否则取种本身；再看异名；最后按中文名（只认唯一的一种）。
+ */
 export function lookupTaxon(index, candidate) {
   if (!index?.hasChecklist || !candidate) return null
+  const full = fullNameKey(candidate.scientificName)
+  if (full?.split(' ').length > 2 && index.byFull.has(full)) return { taxonIndex: index.byFull.get(full), via: 'scientific' }
   const key = scientificKey(candidate.scientificName)
-  if (key && index.bySci.has(key)) return { taxonIndex: index.bySci.get(key), via: 'scientific' }
+  const group = key ? index.bySci.get(key) : null
+  if (group?.length) {
+    const name = normalizeName(candidate.name)
+    const same = group.find((position) => namesOf(index.taxa[position]).includes(name))
+    return { taxonIndex: same ?? group[0], via: 'scientific' }
+  }
+  if (key && index.bySyn.has(key)) return { taxonIndex: index.bySyn.get(key), via: 'synonym' }
   const matches = index.byCn.get(normalizeName(candidate.name)) ?? []
   return matches.length === 1 ? { taxonIndex: matches[0], via: 'chinese' } : null
 }
@@ -109,7 +146,8 @@ function toxicFor(index, candidate, found) {
   if (found && index.toxicByTaxon.has(found.taxonIndex)) return { entry: index.toxicByTaxon.get(found.taxonIndex), by: 'species' }
   if (key && index.toxicBySci.has(key)) return { entry: index.toxicBySci.get(key), by: 'species' }
   if (key && index.toxicByGenus.has(genusOf(key))) return { entry: index.toxicByGenus.get(genusOf(key)), by: 'genus' }
-  const byName = index.toxicByCn.get(normalizeName(taxon?.cn ?? candidate.name))
+  // 名录里的叫法和她说的叫法都试一下：宁可多提醒一句（她说「海芋」、学名写成了另一种海芋，也照样提醒）
+  const byName = [taxon?.cn, candidate.name].map((name) => index.toxicByCn.get(normalizeName(name))).find(Boolean)
   return byName ? { entry: byName, by: 'species' } : null
 }
 

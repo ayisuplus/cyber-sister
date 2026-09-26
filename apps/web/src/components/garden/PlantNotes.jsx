@@ -37,12 +37,15 @@ export function PlantCaution({ caution, reference }) {
   )
 }
 
-/** 一个候选在名录里的样子：「名录里有」（叫法不同时写名录里的名字），或「名录里没查到」；没装名录什么都不写。 */
+/**
+ * 一个候选在名录里的样子：「名录里有」（叫法不同时写名录里的名字），或「中国名录里没查到」；没装名录什么都不写。
+ * 名录只收在中国有记录的植物，石莲花、发财树这类外来栽培的常查不到，所以写明是中国名录，免得读成「她认错了」。
+ */
 export function ChecklistTag({ reference, index, name, block = false }) {
   if (!reference?.checked) return null
   const found = reference.candidates?.[index]
   const place = block ? 'mt-0.5 block' : 'ml-2'
-  if (!found?.found) return <span className={`${place} text-xs text-text-muted`}>名录里没查到</span>
+  if (!found?.found) return <span className={`${place} text-xs text-text-muted`}>中国名录里没查到</span>
   const other = found.standardName && found.standardName !== name ? `，名录作「${found.standardName}」` : ''
   return <span className={`${place} text-xs text-text-secondary`}>名录里有{other}</span>
 }

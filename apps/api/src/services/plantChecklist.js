@@ -1,13 +1,14 @@
 /**
- * 把《中国生物物种名录》植物界的表格行变成名录索引要的样子（路线图 C27）：接受名一种一条，异名指向它。
+ * 把《中国生物物种名录》植物界的表格行变成名录索引要的样子（路线图 C27）：接受名一行一条（种与变种、亚种各算一条），异名指向它。
  * 列按表头认（名录各年的表头写法不完全一样），认不出学名或中文名那一列就把看到的表头报出来，不瞎猜。
  * 两种排法都认：一行一种、「异名」一列里列着好几个；或者接受名与异名各占一行，用「名称状态」「接受名」两列连起来。
+ * 2026 版（植物界-2026-48356.xlsx）是一行一种、只有接受名：物种拉丁名、物种中文名、界门纲目科属的拉丁名与中文名、审核专家/数据源，没有异名和别名。
  */
-import { scientificKey } from './plantReference.js'
+import { fullNameKey, scientificKey } from './plantReference.js'
 
 const COLUMNS = {
   cn: ['中文名', '物种中文名', '种中文名', '中文名称', 'chinese name', 'chinesename', 'chinese_name'],
-  sci: ['学名', '物种学名', '完整学名', '接受名学名', 'scientific name', 'scientificname', 'scientific_name', '拉丁名'],
+  sci: ['物种拉丁名', '学名', '物种学名', '完整学名', '接受名学名', 'scientific name', 'scientificname', 'scientific_name', '拉丁名'],
   genus: ['属名', '属拉丁名', 'genus'],
   species: ['种加词', '种名', 'species', 'specific epithet'],
   infraRank: ['种下等级', 'infraspecific rank', 'rank'],
@@ -18,7 +19,7 @@ const COLUMNS = {
   family: ['科中文名', '科名', '科', 'family chinese name', 'family'],
   familyLatin: ['科拉丁名', '科学名', 'family name', 'family latin name'],
   aliases: ['别名', '中文别名', '俗名', 'common names', 'common name', 'commonnames'],
-  scrutiny: ['审核专家', '审核人', '专家', 'taxonomic scrutiny', 'scrutiny', 'specialist'],
+  scrutiny: ['审核专家/数据源', '审核专家', '审核人', '专家', 'taxonomic scrutiny', 'scrutiny', 'specialist'],
   scrutinyDate: ['审核日期', '审核时间', 'scrutiny date'],
 }
 
@@ -63,10 +64,10 @@ export function mapChecklist(rows) {
   const pendingSynonyms = []
   for (const row of rows.slice(headerRow + 1)) {
     const sci = sciOf(row)
-    const key = scientificKey(sci)
+    const key = fullNameKey(sci)
     if (!key?.includes(' ')) continue
     if (columns.status >= 0 && isSynonymStatus(cell(row, 'status'))) {
-      pendingSynonyms.push({ key, accepted: scientificKey(cell(row, 'accepted')) })
+      pendingSynonyms.push({ key: scientificKey(sci), accepted: fullNameKey(cell(row, 'accepted')) })
     } else if (!byKey.has(key)) {
       const { taxon, synonyms } = acceptedOf(row, sci, key)
       byKey.set(key, taxa.length)

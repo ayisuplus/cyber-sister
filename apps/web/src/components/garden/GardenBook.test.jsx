@@ -209,7 +209,7 @@ describe('花草图鉴：名录与毒性', () => {
     const sheet = await resultSheet()
 
     expect(within(sheet).getByRole('radio', { name: /栀子花.*名录里有，名录作「栀子」/ })).toBeChecked()
-    expect(within(sheet).getByRole('radio', { name: /白兰.*名录里没查到/ })).toBeInTheDocument()
+    expect(within(sheet).getByRole('radio', { name: /白兰.*中国名录里没查到/ })).toBeInTheDocument()
     expect(within(sheet).getByText('《中国植物志》把「白兰」列为有毒植物，记载种子有剧毒。别入口，也别让猫狗啃。')).toBeInTheDocument()
     expect(within(sheet).getByText('她还提醒：叶子和果实别让猫啃。')).toBeInTheDocument()
     expect(within(sheet).getByText(/毒性：《中国植物志》经济用途 · 中国有毒植物，iPlant 植物智/)).toBeInTheDocument()

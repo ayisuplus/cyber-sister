@@ -14,7 +14,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readXlsxRows } from '../src/utils/xlsx.js'
-import { parseToxicText, REFERENCE_VERSION, scientificKey } from '../src/services/plantReference.js'
+import { indexReference, lookupTaxon, parseToxicText, REFERENCE_VERSION } from '../src/services/plantReference.js'
 import { mapChecklist } from '../src/services/plantChecklist.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -33,8 +33,6 @@ function findChecklist() {
   const files = readdirSync(DATA_DIR).filter((name) => /植物界.*\.xlsx$/i.test(name)).sort()
   return files.length ? path.join(DATA_DIR, files.at(-1)) : null
 }
-
-const normalize = (value) => String(value ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase()
 
 function build() {
   const sources = {}
@@ -57,14 +55,8 @@ function build() {
     console.log('[名录] plant-data/ 里没有「植物界…xlsx」：这次只建毒性。名录要自己到 http://www.sp2000.org.cn/download 填表下载')
   }
 
-  const bySci = new Map()
-  const byCn = new Map()
-  taxa.forEach((taxon, index) => {
-    const key = scientificKey(taxon.sci)
-    if (key && !bySci.has(key)) bySci.set(key, index)
-    for (const name of [taxon.cn, ...(taxon.aliases ?? [])]) byCn.set(normalize(name), [...(byCn.get(normalize(name)) ?? []), index])
-  })
-  for (const [key, index] of Object.entries(synonyms)) if (!bySci.has(key)) bySci.set(key, index)
+  // 毒性条目对到名录里的哪一种：和聊天时核候选用同一套办法（完整学名、同一种下按中文名挑变种、异名、唯一的中文名）
+  const checklist = indexReference({ taxa, synonyms })
 
   let toxic = []
   const toxicFile = path.join(DATA_DIR, 'frps-toxic.json')
@@ -72,10 +64,10 @@ function build() {
     const raw = JSON.parse(readFileSync(toxicFile, 'utf8'))
     let matched = 0
     toxic = raw.entries.map((entry) => {
-      const key = scientificKey(entry.scientificName)
-      const byName = byCn.get(normalize(entry.name)) ?? []
-      const taxon = key?.includes(' ') ? (bySci.get(key) ?? (byName.length === 1 ? byName[0] : null)) : null
-      if (taxon !== null && taxon !== undefined) matched += 1
+      // 只有属名的条目（乌头属）按属挂，不对到某一种
+      const genusOnly = !String(entry.scientificName ?? '').trim().includes(' ')
+      const taxon = genusOnly ? null : (lookupTaxon(checklist, { name: entry.name, scientificName: entry.scientificName })?.taxonIndex ?? null)
+      if (taxon !== null) matched += 1
       // 只存有没有毒、哪儿有毒；功用原文（夹着药用说法）不进索引
       return { ...(Number.isInteger(taxon) ? { taxon } : {}), cn: entry.name || null, sci: entry.scientificName, ...parseToxicText(entry.text) }
     })
