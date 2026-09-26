@@ -7,13 +7,14 @@ const ALL_TOOL_NAMES = [
   'add_task', 'list_tasks', 'update_task', 'delete_task', 'day_review',
   'record_period', 'period_status', 'update_period_record', 'delete_period_record',
   'list_collection', 'add_collection_item', 'update_collection_item', 'delete_collection_item',
+  'list_garden',
   'list_memories', 'update_memory', 'delete_memory',
   'list_letters', 'set_letter_freq',
 ]
 
 describe('moduleSkills 注册表', () => {
-  it('七个模块技能一个不少，id 与目录名一致', () => {
-    expect(MODULE_SKILLS.map((skill) => skill.id)).toEqual(['notes', 'reading', 'calendar', 'period', 'collection', 'memory', 'letter'])
+  it('八个模块技能一个不少，id 与目录名一致', () => {
+    expect(MODULE_SKILLS.map((skill) => skill.id)).toEqual(['notes', 'reading', 'calendar', 'period', 'collection', 'garden', 'memory', 'letter'])
     for (const skill of MODULE_SKILLS) {
       expect(skill.title).toBeTruthy()
       expect(typeof skill.buildContext).toBe('function')

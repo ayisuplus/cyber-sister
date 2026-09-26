@@ -39,6 +39,7 @@ describe('CloudModelSettings', () => {
     expect(screen.getByText(/你的生日平时不发送，只在前后一天/)).toBeInTheDocument()
     expect(screen.getByText(/你最近两天日记里的心情不会原样发送/)).toBeInTheDocument()
     expect(screen.getByText(/你问她衣柜或化妆间里的东西时，她会读取你收藏的名字、分类、想要\/已有和备注，不读照片和链接/)).toBeInTheDocument()
+    expect(screen.getByText(/你在「花草」里点「认一认」时，那一张照片.*会交给聊天模型认一认.*不收进图鉴就不在服务器上留下/)).toBeInTheDocument()
     expect(screen.getByText(/另外打开「聊天时让她顾及你的周期」后，经期里的那几天还会告诉她/)).toBeInTheDocument()
     // 写信前的回想、信里的建议，都得在同意前说清楚
     expect(screen.getByText(/读书时你选中来问她的那一段原文/)).toBeInTheDocument()

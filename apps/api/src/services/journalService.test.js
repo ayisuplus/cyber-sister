@@ -17,6 +17,7 @@ function fakeDb(data = {}) {
     // 第一次查这几天新记下的，第二次按 id 查回想里连起来的那一对
     memory: { findMany: vi.fn(({ where }) => Promise.resolve(where.id ? (data.linked ?? []).filter((memory) => where.id.in.includes(memory.id)) : (data.memories ?? []))) },
     message: { findMany: resolve(data.messages ?? []) },
+    plantEntry: { findMany: resolve(data.plants ?? []) },
   }
 }
 const load = (data, options = {}) => loadJournal('u1', { now: NOW, database: fakeDb(data), ...options })
@@ -127,5 +128,23 @@ describe('「她这几天」手账', () => {
       where: expect.objectContaining({ role: 'assistant', conversation: { userId: 'u1' }, bookNotes: { not: expect.anything() } }),
     }))
     expect(database.memory.findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('花草图鉴：只写她认过、你收进来的；一天多了合成一句；只查这个用户认过的', async () => {
+    const plant = (name, iso) => ({ name, createdAt: at(iso) })
+    const journal = await load({ plants: [
+      plant('栀子花', '2026-09-25T11:00:00.000Z'),
+      plant('桂花', '2026-09-24T11:00:00.000Z'), plant('月季', '2026-09-24T11:05:00.000Z'), plant('绣球', '2026-09-24T11:10:00.000Z'),
+    ] })
+    expect(journal.days).toEqual([
+      { date: '2026-09-25', entries: [{ kind: 'plant', at: '2026-09-25T11:00:00.000Z', text: '帮你认了「栀子花」，你把它收进了图鉴。' }] },
+      { date: '2026-09-24', entries: [{ kind: 'plant', at: '2026-09-24T11:10:00.000Z', text: '帮你认了 3 株花草，比如「桂花」，你都收进了图鉴。' }] },
+    ])
+
+    const database = fakeDb()
+    await loadJournal('u1', { now: NOW, database })
+    expect(database.plantEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: 'u1', promptVersion: { not: null } }),
+    }))
   })
 })

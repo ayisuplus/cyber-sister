@@ -21,8 +21,8 @@ const PROJECT_SKILLS_DIR = fileURLToPath(new URL('../../../../.pi/skills/', impo
 const BUILTIN_SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url))
 const PROJECT_FOO = path.join(PROJECT_SKILLS_DIR, 'foo.md')
 
-// 现有 9 个内置技能（name = 目录名）
-const BUILTIN_SKILLS = ['body-care', 'calendar', 'collection', 'emotion-reflection', 'letter', 'memory', 'notes', 'period', 'reading']
+// 现有 10 个内置技能（name = 目录名）
+const BUILTIN_SKILLS = ['body-care', 'calendar', 'collection', 'emotion-reflection', 'garden', 'letter', 'memory', 'notes', 'period', 'reading']
 
 describe('skillCatalog 发现与 frontmatter', () => {
   let tempRoot

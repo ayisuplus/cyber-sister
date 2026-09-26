@@ -15,7 +15,10 @@ const JOURNAL = {
       { kind: 'reflect', at: '2026-09-25T14:00:00.000Z', text: '回想了你最近说的话，猜了 2 件事。' },
       { kind: 'letter', at: '2026-09-25T14:01:00.000Z', text: '给你写了一封信，里面有 1 条建议。' },
     ] },
-    { date: '2026-09-23', entries: [{ kind: 'book', at: '2026-09-23T12:00:00.000Z', text: '聊天时翻了《情绪急救》「失败」。' }] },
+    { date: '2026-09-23', entries: [
+      { kind: 'book', at: '2026-09-23T12:00:00.000Z', text: '聊天时翻了《情绪急救》「失败」。' },
+      { kind: 'plant', at: '2026-09-23T13:00:00.000Z', text: '帮你认了「栀子花」，你把它收进了图鉴。' },
+    ] },
   ],
 }
 
@@ -36,8 +39,10 @@ describe('「她这几天」手账', () => {
     expect(await within(section).findByText('记住了你说的「我对芒果过敏」。')).toBeInTheDocument()
     expect(within(section).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['今天', '昨天', '9月23日 周三'])
     expect(within(section).getByText('最近 7 天')).toBeInTheDocument()
-    expect(section.querySelectorAll('[data-doodle]')).toHaveLength(4)
+    expect(section.querySelectorAll('[data-doodle]')).toHaveLength(5)
     expect(section.querySelector('[data-doodle="reflect"]')).toHaveAttribute('aria-hidden', 'true')
+    // 认了一株花草有自己的小画，不借「记下了」那支铅笔
+    expect(section.querySelector('[data-doodle="plant"] .fill-rose')).not.toBeNull()
     // 写信开着，不需要说明
     expect(within(section).queryByText(/写信关着的时候/)).not.toBeInTheDocument()
   })

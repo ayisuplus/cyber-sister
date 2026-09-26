@@ -9,7 +9,8 @@ import { localClock } from './contextBlocks.js'
  * - 她的组织层：回想时猜了什么、连了哪两条记忆、记下了哪件惦记的事；你改过记忆后收起的、你删掉的；惦记的事到日子问过你的；
  * - 来信，以及信里的建议你采纳了还是没用；
  * - 记忆里你让她记下的；
- * - 聊天时她翻过的书（页边批注）。
+ * - 聊天时她翻过的书（页边批注）；
+ * - 花草图鉴里她帮你认过、你收进来的花草（只算认过的：你自己写名字收的不是她做的事）。
  * 回想跟着写信走（路线图 C23），写信关着时她不在你不在的时候整理，手账如实说明（lettersOn）。
  */
 export const JOURNAL_DAYS = 7
@@ -18,6 +19,8 @@ const MAX_QUOTE = 24
 // 一天里「记下了」超过这么多条就合成一句，不刷屏
 const MAX_REMEMBER_LINES = 3
 const MAX_BOOKS_PER_DAY = 2
+// 一天里认过的花草超过这么多株就合成一句
+const MAX_PLANT_LINES = 2
 
 const quote = (text) => {
   const clean = String(text ?? '').replace(/\s+/g, ' ').trim()
@@ -136,15 +139,27 @@ function bookEntries(messages) {
   return entries
 }
 
+function plantEntries(plants) {
+  const entries = []
+  for (const [, rows] of countBy(plants, (plant) => dayOf(plant.createdAt))) {
+    if (rows.length > MAX_PLANT_LINES) {
+      entries.push({ kind: 'plant', at: latest(rows, 'createdAt'), text: `帮你认了 ${rows.length} 株花草，比如「${quote(rows[0].name)}」，你都收进了图鉴。` })
+      continue
+    }
+    for (const plant of rows) entries.push({ kind: 'plant', at: plant.createdAt, text: `帮你认了「${quote(plant.name)}」，你把它收进了图鉴。` })
+  }
+  return entries
+}
+
 /**
  * 最近 days 天（含今天，北京时间）的手账：{ days: [{ date, entries: [{ kind, at, text }] }], lettersOn, windowDays }。
- * 日子从近到远，一天里按时间先后。kind：reflect | letter | decide | tidy | ask | remember | book。
+ * 日子从近到远，一天里按时间先后。kind：reflect | letter | decide | tidy | ask | remember | book | plant。
  */
 export async function loadJournal(userId, { now = new Date(), days = JOURNAL_DAYS, database = prisma } = {}) {
   const firstDayKey = localClock(now).dayKey - (days - 1) * DAY_MS
   // 多取一天再按北京时间的日子筛：查询条件只要不漏
   const since = new Date(firstDayKey - DAY_MS)
-  const [user, inferences, letters, memories, messages] = await Promise.all([
+  const [user, inferences, letters, memories, messages, plants] = await Promise.all([
     database.user.findUnique({ where: { id: userId }, select: { letterFreqDays: true } }),
     database.inference.findMany({
       where: { userId, OR: [{ createdAt: { gte: since } }, { updatedAt: { gte: since } }] },
@@ -155,6 +170,11 @@ export async function loadJournal(userId, { now = new Date(), days = JOURNAL_DAY
     database.message.findMany({
       where: { role: 'assistant', createdAt: { gte: since }, bookNotes: { not: Prisma.DbNull }, conversation: { userId } },
       select: { bookNotes: true, createdAt: true },
+    }),
+    database.plantEntry.findMany({
+      where: { userId, createdAt: { gte: since }, promptVersion: { not: null } },
+      select: { name: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
     }),
   ])
   // 回想里连起来的那一对：只为每天第一条关系查一次正文
@@ -172,6 +192,7 @@ export async function loadJournal(userId, { now = new Date(), days = JOURNAL_DAY
     ...letterEntries(letters, since),
     ...rememberEntries(memories),
     ...bookEntries(messages),
+    ...plantEntries(plants),
   ].filter(inWindow)
 
   const byDay = countBy(entries, (entry) => dayOf(entry.at))

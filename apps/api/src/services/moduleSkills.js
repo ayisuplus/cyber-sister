@@ -19,22 +19,23 @@ import { READING_SKILL } from './readingSkill.js'
 import { CALENDAR_SKILL } from './calendarSkill.js'
 import { PERIOD_SKILL } from './periodSkill.js'
 import { COLLECTION_SKILL } from './collectionSkill.js'
+import { GARDEN_SKILL } from './gardenSkill.js'
 import { MEMORY_SKILL } from './memorySkill.js'
 import { LETTER_SKILL } from './letterSkill.js'
 
-export const MODULE_SKILLS = [NOTES_SKILL, READING_SKILL, CALENDAR_SKILL, PERIOD_SKILL, COLLECTION_SKILL, MEMORY_SKILL, LETTER_SKILL]
+export const MODULE_SKILLS = [NOTES_SKILL, READING_SKILL, CALENDAR_SKILL, PERIOD_SKILL, COLLECTION_SKILL, GARDEN_SKILL, MEMORY_SKILL, LETTER_SKILL]
 
 /** 话题命中时的操作口径注入（0 条命中返回 []）；跨模块硬规则另有 TASK_GUIDE 常驻兜底。 */
 export function buildModuleSkillContexts(text, history = [], scene = 'chat') {
   return MODULE_SKILLS.flatMap((skill) => skill.buildContext(text, history, scene))
 }
 
-/** 七个技能的工具合并成扁平注册表（name → tool 对象）。 */
+/** 八个技能的工具合并成扁平注册表（name → tool 对象）。 */
 export function moduleSkillTools() {
   return Object.assign({}, ...MODULE_SKILLS.map((skill) => skill.tools))
 }
 
-/** 七个技能的参数结构合并（name → JSON schema）。 */
+/** 八个技能的参数结构合并（name → JSON schema）。 */
 export function moduleSkillParameters() {
   return Object.assign({}, ...MODULE_SKILLS.map((skill) => skill.toolParameters))
 }

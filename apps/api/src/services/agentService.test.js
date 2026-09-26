@@ -113,7 +113,7 @@ describe('buildToolSystemPrompt', () => {
   it('lists every registered tool and the day anchor without leaking internals', () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
     const prompt = buildToolSystemPrompt(new Date(2026, 8, 4))
-    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'record_period', 'period_status', 'add_diary', 'diary_status', 'log_reading', 'list_collection', 'web_search']) {
+    for (const name of ['add_task', 'list_tasks', 'update_task', 'delete_task', 'record_period', 'period_status', 'add_diary', 'diary_status', 'log_reading', 'list_collection', 'list_garden', 'web_search']) {
       expect(prompt).toContain(`"tool":"${name}"`)
     }
     for (const name of RETIRED_TOOLS) {
