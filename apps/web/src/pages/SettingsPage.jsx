@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import CloudModelSettings from '../components/chat/CloudModelSettings'
 import ModelProviderSettings from '../components/chat/ModelProviderSettings'
 import ImportMigration from '../components/profile/ImportMigration'
+import WeatherPlaceSetting from '../components/profile/WeatherPlaceSetting'
 import LocalBridgeSettings from '../components/profile/LocalBridgeSettings'
 import AboutYouSettings from '../components/profile/AboutYouSettings'
 import LetterFontSetting from '../components/profile/LetterFontSetting'
@@ -276,6 +277,8 @@ export default function SettingsPage() {
               </button>
             </div>
           </Card>
+
+          <WeatherPlaceSetting />
 
           <LocalBridgeSettings />
 

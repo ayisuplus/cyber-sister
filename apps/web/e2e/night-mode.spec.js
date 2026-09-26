@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
       '/api/admin/model-providers': { providers: [
         { id: 'night-provider', name: '夜里的家', baseUrl: 'https://api.night.example/compatible-mode/v1', model: 'night-chat', scenes: ['chat', 'explain'], priority: 1, enabled: true, hasKey: true },
       ] },
-      '/api/chat/nudges': { nudges: [] },
+      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null },
       '/api/chat/openers': { openers: [] },
       '/api/asr/status': { available: false },
       '/api/user/profile': { careEnabled: true },
