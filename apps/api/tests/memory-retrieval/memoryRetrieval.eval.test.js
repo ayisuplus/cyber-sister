@@ -36,4 +36,13 @@ describe('记忆检索检验集', () => {
     const { paraphrase, spoken } = score.byKind
     expect((paraphrase.hits + spoken.hits) / (paraphrase.expected + spoken.expected)).toBeGreaterThan(0.5)
   })
+
+  it.skipIf(!vectors)('关键词撞车请向量作证（2026-09-26 裁定）：多带的无关记忆少一半以上，召回一条不掉；「喜欢」撞车的两句一条不带', () => {
+    const memories = memoriesWithVectors(set, vectors)
+    const on = scoreMemoryRetrieval(set.cases, (item) => predictMemories(item, memories, { vectors }))
+    const off = scoreMemoryRetrieval(set.cases, (item) => predictMemories(item, memories, { vectors, corroborate: false }))
+    expect(on.overall.hits).toBe(off.overall.hits)
+    expect(on.overall.noise * 2).toBeLessThan(off.overall.noise)
+    for (const id of ['t02-what-do-you-like', 't05-like-you']) expect(on.details.find((row) => row.id === id).got, id).toEqual([])
+  })
 })

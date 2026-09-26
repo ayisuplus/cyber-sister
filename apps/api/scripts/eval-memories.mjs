@@ -71,3 +71,7 @@ for (const minScore of grid) {
   const label = minScore === SEMANTIC_MEMORY_MIN_SCORE ? `**${minScore.toFixed(2)}（现行）**` : minScore.toFixed(2)
   row(label, scoreMemoryRetrieval(set.cases, (item) => predictMemories(item, memories, { vectors, minScore })))
 }
+
+// 对照（2026-09-26 之前的做法）：关键词只撞上一个两字片段也算，不请向量作证
+table(`对照：关键词撞车不请向量作证（阈值 ${SEMANTIC_MEMORY_MIN_SCORE}，2026-09-26 之前的做法）`,
+  scoreMemoryRetrieval(set.cases, (item) => predictMemories(item, memories, { vectors, corroborate: false })))

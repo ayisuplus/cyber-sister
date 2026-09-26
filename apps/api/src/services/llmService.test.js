@@ -347,6 +347,24 @@ describe('llmService 数据最小化', () => {
     expect(retrieveRelevantMemories('任意文本', [memory], query([1, 0], { ...SPEC, provider: 'http://localhost:5006/v1/' })).map((m) => m.id)).toEqual(['c'])
   })
 
+  it('关键词只撞上一个两字片段、向量又不够阈值，不算（2026-09-26 裁定：请向量作证）', () => {
+    // 「我好喜欢你呀」和「喜欢吃火锅」只共用「喜欢」，向量也不像
+    const hotpot = withVector({ id: 'hotpot', type: 'semantic', content: '用户喜欢吃火锅', importance: 5, tags: [] }, [0, 1])
+    const far = query([1, 0])
+    expect(retrieveRelevantMemories('我好喜欢你呀', [hotpot], far)).toEqual([])
+    // 评测里的对照：不请向量作证时会带上
+    expect(retrieveRelevantMemories('我好喜欢你呀', [hotpot], far, { corroborate: false }).map((m) => m.id)).toEqual(['hotpot'])
+    // 撞上不止一个片段（「火锅」连着「吃火」「吃火锅」）照旧算
+    expect(retrieveRelevantMemories('明天去吃火锅', [hotpot], far).map((m) => m.id)).toEqual(['hotpot'])
+    // 标签印证了（句子里有「饮食」）照旧算
+    expect(retrieveRelevantMemories('我好喜欢你呀，饮食上要注意什么', [{ ...hotpot, tags: ['饮食'] }], far).map((m) => m.id)).toEqual(['hotpot'])
+    // 向量够上阈值：本来就会带
+    expect(retrieveRelevantMemories('我好喜欢你呀', [hotpot], query([0, 1])).map((m) => m.id)).toEqual(['hotpot'])
+    // 这一轮没有向量、或这条记忆还没算向量：没法作证，照旧按关键词
+    expect(retrieveRelevantMemories('我好喜欢你呀', [hotpot], null).map((m) => m.id)).toEqual(['hotpot'])
+    expect(retrieveRelevantMemories('我好喜欢你呀', [{ ...hotpot, semantic: null }], far).map((m) => m.id)).toEqual(['hotpot'])
+  })
+
   it('没有查询向量时关键词路径原样回退', () => {
     const keywordMemories = [
       { id: '1', type: 'semantic', content: '用户喜欢吃火锅', importance: 5, tags: [] },

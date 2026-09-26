@@ -89,9 +89,12 @@ export function queryVectorFor(item, vectors) {
   return vector ? { ...vectors.identity, vector } : null
 }
 
-/** 这一句带进来的记忆 id（最多 5 条，按聊天时的排序）。vectors 为 null 时只看关键词与标签。 */
-export function predictMemories(item, memories, { vectors = null, minScore } = {}) {
-  const options = minScore === undefined ? {} : { minScore }
+/**
+ * 这一句带进来的记忆 id（最多 5 条，按聊天时的排序）。vectors 为 null 时只看关键词与标签。
+ * minScore、corroborate 不给就和聊天时一样（见 retrieveRelevantMemories）。
+ */
+export function predictMemories(item, memories, { vectors = null, minScore, corroborate } = {}) {
+  const options = Object.fromEntries(Object.entries({ minScore, corroborate }).filter(([, value]) => value !== undefined))
   return retrieveRelevantMemories(item.text, memories, queryVectorFor(item, vectors), options).map((memory) => memory.id)
 }
 

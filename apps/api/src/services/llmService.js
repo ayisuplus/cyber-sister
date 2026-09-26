@@ -227,12 +227,35 @@ export function extractKeywords(value) {
 }
 
 
+/** 这一轮的话和记忆正文共用几个关键词片段。 */
+function keywordOverlap(queryKeywords, content) {
+  const contentKeywords = extractKeywords(content)
+  let overlap = 0
+  for (const keyword of queryKeywords) {
+    if (contentKeywords.has(keyword)) overlap++
+  }
+  return overlap
+}
+
+/** 记忆的标签有几个出现在这一轮的话里（整个标签，或标签里的片段）。 */
+function tagMatchCount(tags, queryText, queryKeywords) {
+  let matches = 0
+  for (const rawTag of parseTags(tags)) {
+    const tag = String(rawTag ?? '').normalize('NFKC').trim().toLowerCase()
+    if (!tag) continue
+    if (queryText.includes(tag) || [...extractKeywords(tag)].some((token) => queryKeywords.has(token))) matches++
+  }
+  return matches
+}
+
 /**
  * 这一轮相关的记忆：关键词重合 + 标签命中 + 意思相近（向量分够阈值才加分）。
  * 记忆的向量（semantic，来自派生索引）只有和这一轮的查询是同一个模型、算的又是现在这段正文时才用（路线图 C23）。
- * minScore 只给记忆检索评测（eval:memories）扫阈值用，聊天时一律用 SEMANTIC_MEMORY_MIN_SCORE。
+ * 关键词只撞上一个两字片段、又没有标签印证时（「我好喜欢你呀」撞上「喜欢吃火锅」），要这条记忆的向量也够上阈值才算；
+ * 这一轮或这条记忆算不了向量时照旧按关键词（2026-09-26 裁定，见 vectors/policies.js）。
+ * 两个选项只给记忆检索评测（eval:memories）做对照，聊天时都取默认（VECTOR_POLICIES.memory）。
  */
-export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null, { minScore = SEMANTIC_MEMORY_MIN_SCORE } = {}) {
+export function retrieveRelevantMemories(currentText, memories = [], queryEmbedding = null, { minScore = SEMANTIC_MEMORY_MIN_SCORE, corroborate = VECTOR_POLICIES.memory.corroborate } = {}) {
   const queryText = String(currentText ?? '').normalize('NFKC').toLowerCase()
   const queryKeywords = extractKeywords(queryText)
   if (queryKeywords.size === 0 && !queryEmbedding?.vector) return []
@@ -240,24 +263,12 @@ export function retrieveRelevantMemories(currentText, memories = [], queryEmbedd
 
   return memories
     .map((memory, index) => {
-      const contentKeywords = extractKeywords(memory.content)
-      let overlap = 0
-      for (const keyword of queryKeywords) {
-        if (contentKeywords.has(keyword)) overlap++
-      }
-
-      let tagMatches = 0
-      for (const rawTag of parseTags(memory.tags)) {
-        const tag = String(rawTag ?? '').normalize('NFKC').trim().toLowerCase()
-        if (!tag) continue
-        if (queryText.includes(tag) || [...extractKeywords(tag)].some((token) => queryKeywords.has(token))) {
-          tagMatches++
-        }
-      }
-
-      const semantic = queryKey && vectorFits(memory.semantic, queryKey, memory.content)
-        ? cosineSimilarity(queryEmbedding.vector, memory.semantic.vector) : 0
-      const relevance = overlap + tagMatches * 3 + (semantic >= minScore ? semantic * 3 : 0)
+      const overlap = keywordOverlap(queryKeywords, memory.content)
+      const tagMatches = tagMatchCount(memory.tags, queryText, queryKeywords)
+      const fits = Boolean(queryKey && vectorFits(memory.semantic, queryKey, memory.content))
+      const semantic = fits ? cosineSimilarity(queryEmbedding.vector, memory.semantic.vector) : 0
+      const unsupported = corroborate && fits && overlap === 1 && tagMatches === 0 && semantic < minScore
+      const relevance = (unsupported ? 0 : overlap) + tagMatches * 3 + (semantic >= minScore ? semantic * 3 : 0)
       return {
         ...memory,
         relevance,
