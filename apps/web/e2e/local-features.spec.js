@@ -35,6 +35,7 @@ test.beforeEach(async ({ page }) => {
       // 「她」页（2026-09-23）：来信与她记得的你；做梦、待确认与关系列表已收进来信，接口一并删除
       '/api/letters': { letters: [] }, '/api/memories': { data: [], total: 0, page: 1, limit: 20 }, '/api/memories/inferences': { items: [] },
       '/api/user/companion': { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 3, learning: { brevity: 0.5, samples: 2 } } },
+      '/api/user/companion/journal': { windowDays: 7, lettersOn: false, days: [] },
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat)$/.test(path)) return json(route, 404, {})
@@ -172,10 +173,10 @@ test('life entries: the wardrobe keeps a photo compressed on this device, with n
   await page.screenshot({ path: testInfo.outputPath('cloud-wardrobe.png'), fullPage: true })
 })
 
-test('life entries: the her page keeps four quiet sections, with no pending panel or mock buttons', async ({ page }, testInfo) => {
-  // 旧的「待确认」深链接也落在这一页；做梦、待确认与记忆整理已收进来信（2026-09-23）
+test('life entries: the her page keeps five quiet sections, with no pending panel or mock buttons', async ({ page }, testInfo) => {
+  // 旧的「待确认」深链接也落在这一页；做梦、待确认与记忆整理已收进来信（2026-09-23）；「她这几天」2026-09-26 加入（路线图 C24）
   await page.goto('/her?tab=pending')
-  for (const name of ['她的说话方式', '她的状态', '她的来信', '她记得的你']) {
+  for (const name of ['她的说话方式', '她的状态', '她这几天', '她的来信', '她记得的你']) {
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   }
   await expect(page.getByText('她还没写好第一封，到了日子她会写的。')).toBeVisible()

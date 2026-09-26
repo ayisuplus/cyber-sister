@@ -953,6 +953,37 @@ test('her · letters: one letter with her suggestions — take it to chat or acc
   expect(decidedWith).toEqual(['accept', 'dismiss'])
   await expectNoSeriousAxeFindings(page)
 })
+test('her · journal: what she did these days, a few handwritten lines a day, only what really happened', async ({ page }) => {
+  await seedAuth(page)
+  await page.route('**/api/user/companion', route => json(route, 200, { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 1, learning: { brevity: 0.5, samples: 1 } } }))
+  await page.route('**/api/user/profile', route => json(route, 200, { careEnabled: true, letterFreqDays: null }))
+  await page.route('**/api/letters**', route => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === '/api/letters/generate') return json(route, 200, { letter: null, created: false, reason: 'off' })
+    return json(route, 200, { letters: [] })
+  })
+  await page.route('**/api/memories**', route => json(route, 200, { data: [], total: 0, page: 1, limit: 20 }))
+  // 注册在上面之后：后注册的优先匹配
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+  await page.route('**/api/user/companion/journal', route => json(route, 200, {
+    windowDays: 7,
+    lettersOn: false,
+    days: [{ date: today, entries: [
+      { kind: 'remember', at: `${today}T01:00:00.000Z`, text: '记住了你说的「我对芒果过敏，吃了会起疹子」。' },
+      { kind: 'book', at: `${today}T02:00:00.000Z`, text: '聊天时翻了《情绪急救》「失败」。' },
+      { kind: 'tidy', at: `${today}T03:00:00.000Z`, text: '你说她猜错了 1 件，她记下了，不会再这样猜。' },
+    ] }],
+  }))
+
+  await page.goto('/her')
+  const journal = page.getByRole('region', { name: '她这几天' })
+  await expect(journal.getByRole('heading', { name: '今天' })).toBeVisible()
+  await expect(journal.getByText('记住了你说的「我对芒果过敏，吃了会起疹子」。')).toBeVisible()
+  await expect(journal.getByText('聊天时翻了《情绪急救》「失败」。')).toBeVisible()
+  // 写信关着：如实说她不在你不在时回想
+  await expect(journal.getByText(/写信关着的时候，她不会在你不在时回想/)).toBeVisible()
+  await expectNoSeriousAxeFindings(page)
+})
 test('her · letters: what she organised comes back as suggestions — merge two, settle a conflict, write down a guess', async ({ page }) => {
   await seedAuth(page)
   await page.route('**/api/user/companion', route => json(route, 200, { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 1, learning: { brevity: 0.5, samples: 1 } } }))

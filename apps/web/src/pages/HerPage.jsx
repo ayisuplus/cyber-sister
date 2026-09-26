@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Header from '../components/layout/Header'
 import CompanionStatePanel from '../components/chat/CompanionStatePanel'
+import HerJournal from '../components/her/HerJournal'
 import LetterView from '../components/letter/LetterView'
 import MemoriesPage from './MemoriesPage'
 import { useAuthStore } from '../stores/authStore'
@@ -75,7 +76,7 @@ function LetterFreqSetting() {
   )
 }
 
-// 「她」：她怎么和你说话、她此刻的节奏、她的来信、她记得的你——关于她的一切都在这一处。
+// 「她」：她怎么和你说话、她此刻的节奏、她这几天、她的来信、她记得的你——关于她的一切都在这一处。
 export default function HerPage() {
   const user = useAuthStore(state => state.user)
   const updatePersona = useAuthStore(state => state.updatePersona)
@@ -164,6 +165,8 @@ export default function HerPage() {
           </section>
 
           <CompanionStatePanel />
+
+          <HerJournal />
 
           <section aria-labelledby="her-letters-title">
             <h2 id="her-letters-title" className="px-1 text-sm font-semibold text-text-primary">她的来信</h2>

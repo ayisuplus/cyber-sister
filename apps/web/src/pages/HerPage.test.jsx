@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../components/chat/CompanionStatePanel', () => ({ default: () => <section aria-label="她的状态" /> }))
+vi.mock('../components/her/HerJournal', () => ({ default: () => <section aria-label="她这几天" /> }))
 vi.mock('./MemoriesPage', () => ({ default: () => <p>已记住列表</p> }))
 vi.mock('../services/authService', () => ({ authService: { updatePersona: vi.fn() } }))
 vi.mock('../services/userService', () => ({ profileService: { get: vi.fn(), update: vi.fn() } }))

@@ -166,7 +166,8 @@ export async function decideSuggestion(userId, letterId, rawIndex, body = {}) {
       // 不用：她依据的那条整理结束为「不用」，不会再拿同一条来提
       await closeInferences(tx, userId, inferenceIds, 'declined', { letterId: letter.id, index })
     }
-    suggestions[index] = { ...item, decided: decision === 'accept' ? 'accepted' : 'dismissed' }
+    // decidedAt：「她这几天」手账按它把处理写进那一天
+    suggestions[index] = { ...item, decided: decision === 'accept' ? 'accepted' : 'dismissed', decidedAt: new Date().toISOString() }
     const updated = await tx.letter.update({ where: { id: letter.id }, data: { suggestions } })
     return { letter: updated, ...result }
   })

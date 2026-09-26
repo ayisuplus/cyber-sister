@@ -250,6 +250,27 @@ Authorization: Bearer <access_token>
 
 角色扮演随功能收拢取消：设置与清除接口均已移除，聊天不再注入角色设定，导入也不再接收角色。已有的 `roleName / roleSetting` 只随导出带出。
 
+### GET /api/user/companion/journal — 「她这几天」手账（2026-09-26 起）
+
+「她」页的一本手账：最近 7 天（含今天，北京时间）她为你做过、有记录可查的事。只读，全部从已有记录按模板拼出，不调模型、不另存一份；`Cache-Control: no-store`。
+
+```json
+{
+  "windowDays": 7,
+  "lettersOn": false,
+  "days": [
+    { "date": "2026-09-26", "entries": [
+      { "kind": "remember", "at": "2026-09-26T01:00:00.000Z", "text": "记住了你说的「我对芒果过敏」。" },
+      { "kind": "book", "at": "2026-09-26T02:00:00.000Z", "text": "聊天时翻了《情绪急救》「失败」。" }
+    ] }
+  ]
+}
+```
+
+- `days` 从近到远，一天里按时间先后；没有记录的日子不出现。
+- `kind` 与来源：`reflect` 回想（她的组织层里 `producedBy=reflection:*` 的条目，按天合成一句：猜了几件、连了哪一对、记下几件惦记的事）；`tidy` 你改过记忆后作废的、你在「她猜的」里删掉的；`ask` 惦记的事到日子问过你的；`letter` 写了一封信；`decide` 你采纳或没用信里的建议（按建议上的 `decidedAt`，2026-09-26 起记下）；`remember` 你让她记下的记忆（「帮我记住」与手写的分开说，一天超过 3 条合成一句，导入的一句带过，采纳来信建议记下的不重复写）；`book` 聊天时翻过的书（页边批注，一天最多写两本）。
+- `lettersOn`：写信是否开着。回想跟着写信走（路线图 C23），写信关着时她不在你不在的时候整理，页面如实说明。
+
 ### GET /api/user/export — 一键导出全部数据
 
 登录用户导出单 JSON 包，响应头 `Content-Disposition: attachment; filename="cyber-sister-export-<yyyy-MM-dd>.json"`。永久免费，无会员门槛。
@@ -956,6 +977,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           GET    /api/user/external-llm-consent
           PUT    /api/user/external-llm-consent
           PUT    /api/user/roleplay        (恋人红线 400)
+          GET    /api/user/companion/journal (「她这几天」手账：最近 7 天她做过的事，只读)
           GET    /api/user/export          (一键导出 JSON)
           POST   /api/user/import/preview  (预览不落库)
           POST   /api/user/import/apply

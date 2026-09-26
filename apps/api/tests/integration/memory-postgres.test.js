@@ -24,6 +24,7 @@ import { embeddingRow, loadVectors, saveEmbedding } from '../../src/services/vec
 import { contentVersion, identityKeyOf } from '../../src/services/vectors/identity.js'
 import { forgetShelf, searchUserBooks } from '../../src/services/bookIndexService.js'
 import { deleteBook } from '../../src/services/readingService.js'
+import { loadJournal } from '../../src/services/journalService.js'
 
 const withDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip
 const databaseName = `cyber_sister_memory_test_${Date.now()}`
@@ -412,6 +413,34 @@ withDatabase('memory governance on isolated PostgreSQL', () => {
     expect(remembered).toMatchObject({ origin: 'promoted', sources: [{ type: 'message', id: message.id, quote: '又是凌晨三点还醒着', status: 'verified' }] })
     expect(remembered.revisions[0]).toMatchObject({ action: 'accept_suggestion', proposal: expect.objectContaining({ kind: 'promote_inference', inferenceIds: [insight.id] }) })
     expect(await db.inference.findUnique({ where: { id: insight.id } })).toMatchObject({ status: 'closed', outcome: 'accepted', proposedIn: { letterId: letter.id, index: 0 } })
+  })
+
+  it('「她这几天」在真库上拼得出来：回想连起的一对、记下的、来信与处理、翻过的书；别人的对话、没翻书的回复不算', async () => {
+    const a = await create('喜欢火锅')
+    const b = await create('每周五吃火锅')
+    await saveInferences(user.id, [{ kind: 'relation', content: '说的是一回事', payload: { fromMemoryId: a.id, toMemoryId: b.id, relation: 'similar' },
+      basisMemoryIds: [a.id, b.id] }], { producedBy: `reflection:${new Date().toISOString()}` })
+    await db.letter.create({ data: { userId: user.id, periodStart: new Date('2026-09-20T00:00:00.000Z'), freqDays: 7, content: '见信好。',
+      suggestions: [{ kind: 'edit_memory', decided: 'accepted', decidedAt: new Date().toISOString() }] } })
+    const note = [{ book: 'emotional-first-aid', title: '情绪急救', chapters: [{ title: '失败' }] }]
+    const mine = await db.conversation.create({ data: { userId: user.id, title: 'Amie' } })
+    await db.message.create({ data: { conversationId: mine.id, role: 'assistant', content: '慢慢来。', bookNotes: note } })
+    await db.message.create({ data: { conversationId: mine.id, role: 'assistant', content: '没翻书的一句。' } })
+    const stranger = await db.user.create({ data: { phone: '19900000002' } })
+    const theirs = await db.conversation.create({ data: { userId: stranger.id, title: 'Amie' } })
+    await db.message.create({ data: { conversationId: theirs.id, role: 'assistant', content: '别人的。', bookNotes: [{ ...note[0], title: '别人的书' }] } })
+
+    const journal = await loadJournal(user.id)
+    expect(journal).toMatchObject({ windowDays: 7, lettersOn: false })
+    expect(journal.days).toHaveLength(1)
+    expect(journal.days[0].entries.map((entry) => entry.text).sort()).toEqual([
+      '你告诉她「喜欢火锅」，她记下了。',
+      '你告诉她「每周五吃火锅」，她记下了。',
+      '你采纳了她在信里的建议，改了一条记忆。',
+      '回想了你最近说的话，把「喜欢火锅」和「每周五吃火锅」连在了一起。',
+      '给你写了一封信，里面有 1 条建议。',
+      '聊天时翻了《情绪急救》「失败」。',
+    ].sort())
   })
 
   it('定夺矛盾选「都对，不用改」：关系结束为不用，她不会再推出同一条', async () => {

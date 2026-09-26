@@ -3,6 +3,8 @@ import request from 'supertest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const service = vi.hoisted(() => ({ getCompanionState: vi.fn(), recoverCompanionState: vi.fn() }))
 vi.mock('../services/companionService.js', () => service)
+const journal = vi.hoisted(() => ({ loadJournal: vi.fn() }))
+vi.mock('../services/journalService.js', () => journal)
 import router from './user.js'
 const app = express()
 app.use(express.json())
@@ -33,5 +35,20 @@ describe('角色状态 API', () => {
     const failed = await request(app).get('/user/companion')
     expect(failed.status).toBe(500)
     expect(failed.body).toEqual({ error: '读取角色状态失败' })
+  })
+})
+
+describe('「她这几天」手账 API', () => {
+  it('只读当前用户的，禁止缓存；内部错误不泄露内容', async () => {
+    journal.loadJournal.mockResolvedValue({ windowDays: 7, lettersOn: false, days: [] })
+    const response = await request(app).get('/user/companion/journal?userId=other')
+    expect(response.status).toBe(200)
+    expect(response.headers['cache-control']).toBe('no-store')
+    expect(response.body).toEqual({ windowDays: 7, lettersOn: false, days: [] })
+    expect(journal.loadJournal).toHaveBeenCalledWith('authenticated-owner')
+    journal.loadJournal.mockRejectedValue(new Error('private database detail'))
+    const failed = await request(app).get('/user/companion/journal')
+    expect(failed.status).toBe(500)
+    expect(failed.body).toEqual({ error: '读取她这几天的手账失败' })
   })
 })

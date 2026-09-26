@@ -7,6 +7,7 @@ import { previewImport, applyImport } from '../services/importService.js'
 import { deleteAsset, readAsset, saveAsset } from '../services/userAssetService.js'
 import logger from '../utils/logger.js'
 import { getCompanionState, recoverCompanionState } from '../services/companionService.js'
+import { loadJournal } from '../services/journalService.js'
 
 const router = Router()
 
@@ -22,6 +23,15 @@ router.get('/companion', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await getCompanionState(req.user.userId))
   } catch (error) {
     sendError(res, error, '读取角色状态失败')
+  }
+})
+
+// 「她这几天」：最近 7 天她为你做过、有据可查的事（只读，按记录拼出，不调模型）
+router.get('/companion/journal', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store').json(await loadJournal(req.user.userId))
+  } catch (error) {
+    sendError(res, error, '读取她这几天的手账失败')
   }
 })
 

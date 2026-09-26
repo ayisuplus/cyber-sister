@@ -56,6 +56,7 @@ test.beforeEach(async ({ page }) => {
       '/api/work/status': { capabilities: { backgroundTasks: false } },
       '/api/work/tasks': { tasks: [] },
       '/api/user/companion': { revision: 2, state: { protection: { mode: 'open' }, experienceCount: 6, learning: { brevity: 0.5, samples: 3 } } },
+      '/api/user/companion/journal': { windowDays: 7, lettersOn: true, days: [{ date: '2026-09-26', entries: [{ kind: 'book', at: '2026-09-26T01:00:00.000Z', text: '聊天时翻了《情绪急救》「孤独」。' }] }] },
       '/api/memories': { data: [{ id: 'night-memory', type: 'semantic', content: '睡前喜欢听雨声', importance: 6, tags: ['睡眠'], revision: 1, createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z' }], total: 1, page: 1, limit: 20 },
       // 「她猜的」在夜里也要看得清（虚线卡片、依据小字）
       '/api/memories/inferences': { items: [{ id: 'night-guess', kind: 'followup', content: '答辩怎么样了？', because: ['周三要答辩了'], dueOn: '2026-09-24', createdAt: '2026-09-20T00:00:00.000Z' }] },
@@ -161,6 +162,7 @@ test('night mode: settings, chat, her, schedule, notes, style, period and login 
   await expect(page.getByRole('heading', { name: '她的说话方式', exact: true })).toBeVisible()
   await expect(page.getByText('睡前喜欢听雨声')).toBeVisible()
   await expect(page.getByRole('article', { name: '她的来信' }).getByText('想听雨声的时候，我陪你。')).toBeVisible()
+  await expect(page.getByRole('region', { name: '她这几天' }).getByText('聊天时翻了《情绪急救》「孤独」。')).toBeVisible()
   await inspectSurface(page, testInfo, 'night-her')
 
   await page.goto('/tools/calendar')

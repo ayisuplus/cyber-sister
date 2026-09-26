@@ -974,6 +974,11 @@ h1, h2, h3 {
 :root[data-theme="dark"] .decor-sticker { filter: brightness(0.82) saturate(0.85); }
 .decor-doodle { display: inline-block; flex: none; vertical-align: -2px; }
 .letter-date .decor-doodle { margin-right: 6px; }
+/* 「她这几天」每行前的小画：铅笔灰细线，一小块低饱和填色（鼠尾草绿 / 杏色 / 灰玫瑰） */
+.journal-doodle { margin-top: 4px; color: var(--cs-ink-pencil); }
+.journal-doodle .fill-sage { fill: color-mix(in srgb, var(--cs-action-primary) 24%, transparent); }
+.journal-doodle .fill-apricot { fill: color-mix(in srgb, var(--cs-warning) 22%, var(--cs-pastel-apricot)); }
+.journal-doodle .fill-rose { fill: color-mix(in srgb, var(--cs-danger) 20%, transparent); }
 
 /* 纸胶带：杏色半透明底上浅浅的鼠尾草竖纹，两头是撕口 */
 .decor-tape {

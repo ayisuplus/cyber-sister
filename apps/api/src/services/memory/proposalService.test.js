@@ -131,7 +131,7 @@ describe('原来的三种建议：进了同一个事务，改记忆时带来源�
     expect(memoryService.eraseOwnedMemory).not.toHaveBeenCalled()
     expect(reminderService.createScheduledReminder).not.toHaveBeenCalled()
     expect(db.inferenceUpdateMany).not.toHaveBeenCalled()
-    expect(db.letterUpdate).toHaveBeenCalledWith({ where: { id: 'l1' }, data: { suggestions: [{ ...EDIT, decided: 'dismissed' }] } })
+    expect(db.letterUpdate).toHaveBeenCalledWith({ where: { id: 'l1' }, data: { suggestions: [{ ...EDIT, decided: 'dismissed', decidedAt: expect.any(String) }] } })
     expect(result.letter.suggestions[0].decided).toBe('dismissed')
   })
 
