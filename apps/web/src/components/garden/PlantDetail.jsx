@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import CollectionPhoto from '../collection/CollectionPhoto'
 import ConfirmDialog from '../ui/ConfirmDialog'
-import { PlantCaution, PlantExplanation } from './PlantNotes'
+import { ChecklistCredit, ChecklistTag, PlantCaution, PlantExplanation } from './PlantNotes'
 import { dayLabel, HONEST_NOTE, STATUS_LABELS } from '../../features/garden/labels'
 
 const chip = (active) => `min-h-11 rounded-full px-4 text-sm transition-colors duration-300 ease-calm ${active ? 'bg-action-primary text-text-inverse' : 'border border-border-subtle bg-surface-card text-text-secondary hover:bg-surface-muted'}`
@@ -16,6 +16,12 @@ export default function PlantDetail({ entry, onBack, onEdit, onStatus, onDelete 
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // 收进来的是哪一个候选：名录的核对结果按候选排，自己写名字的就没有
+  const picked = (entry.candidates ?? []).findIndex((candidate) => candidate.name === entry.name)
+  // 毒性只写收进来的这一种；自己写名字的不知道是哪一种，候选里有记载的都写上
+  const reference = entry.reference && picked >= 0
+    ? { ...entry.reference, toxic: (entry.reference.toxic ?? []).filter((item) => item.candidate === picked) }
+    : entry.reference
 
   const run = async (task, fallback) => {
     setBusy(true)
@@ -38,11 +44,12 @@ export default function PlantDetail({ entry, onBack, onEdit, onStatus, onDelete 
       <div className="specimen-label mt-4">
         <h2 className="break-words font-hand text-2xl text-text-primary">{entry.name}</h2>
         {entry.scientificName && <p className="mt-0.5 text-sm italic text-text-secondary" lang="la">{entry.scientificName}</p>}
-        <p className="mt-1 text-xs text-text-secondary">{[entry.family, `${dayLabel(entry.createdAt)}收进来`].filter(Boolean).join(' · ')}</p>
+        <p className="mt-1 text-xs text-text-secondary">{[entry.family, `${dayLabel(entry.createdAt)}收进来`].filter(Boolean).join(' · ')}{picked >= 0 && <ChecklistTag reference={entry.reference} index={picked} name={entry.name} />}</p>
       </div>
-      <PlantCaution caution={entry.caution} />
+      <PlantCaution caution={entry.caution} reference={reference} />
       <PlantExplanation explanation={entry.explanation} />
       {entry.identified && <p className="mt-2 text-xs text-text-muted">{HONEST_NOTE}</p>}
+      {picked >= 0 && <ChecklistCredit reference={entry.reference} index={picked} />}
       {entry.note && <p className="mt-3 whitespace-pre-line break-words font-hand text-[15px] leading-relaxed text-text-primary">{entry.note}</p>}
       <div role="group" aria-label="路上遇见还是我养的" className="mt-4 flex gap-2">
         {Object.entries(STATUS_LABELS).map(([value, label]) => (

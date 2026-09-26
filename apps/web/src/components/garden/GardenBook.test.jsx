@@ -189,6 +189,55 @@ describe('花草图鉴：认一认', () => {
   })
 })
 
+describe('花草图鉴：名录与毒性', () => {
+  const REFERENCE = {
+    checked: true, toxicChecked: true,
+    candidates: [{ found: true, standardName: '栀子', scientificName: 'Gardenia jasminoides', scrutiny: '某专家 2020' }, { found: false }],
+    toxic: [{ candidate: 1, name: '白兰', recordedAs: '白兰', level: '剧毒', parts: ['种子'], by: 'species' }],
+    sources: {
+      checklist: { title: 'Catalogue of Life China', database: 'China Checklist of Higher Plants', node: 'Species 2000 China Node' },
+      toxic: { title: '《中国植物志》经济用途 · 中国有毒植物', via: 'iPlant 植物智' },
+    },
+  }
+
+  it('候选旁写名录里有没有（叫法不同写名录里的名字）；有记载的毒性单独写、写明出处，她的提醒另起一行；名录出处写全三层', async () => {
+    const user = userEvent.setup()
+    gardenService.identify.mockResolvedValue({ ...RESULT, reference: REFERENCE })
+    renderBook()
+    await screen.findByText(/路上看到一朵/)
+    await pickFromAlbum(user)
+    const sheet = await resultSheet()
+
+    expect(within(sheet).getByRole('radio', { name: /栀子花.*名录里有，名录作「栀子」/ })).toBeChecked()
+    expect(within(sheet).getByRole('radio', { name: /白兰.*名录里没查到/ })).toBeInTheDocument()
+    expect(within(sheet).getByText('《中国植物志》把「白兰」列为有毒植物，记载种子有剧毒。别入口，也别让猫狗啃。')).toBeInTheDocument()
+    expect(within(sheet).getByText('她还提醒：叶子和果实别让猫啃。')).toBeInTheDocument()
+    expect(within(sheet).getByText(/毒性：《中国植物志》经济用途 · 中国有毒植物，iPlant 植物智/)).toBeInTheDocument()
+    expect(within(sheet).getByText('名录：Catalogue of Life China · China Checklist of Higher Plants（Species 2000 China Node） · 审核：某专家 2020')).toBeInTheDocument()
+  })
+
+  it('没装名录：什么都不标，照旧只有她的提醒', async () => {
+    const user = userEvent.setup()
+    gardenService.identify.mockResolvedValue({ ...RESULT, reference: { checked: false, toxicChecked: false, candidates: [], toxic: [], sources: {} } })
+    renderBook()
+    await screen.findByText(/路上看到一朵/)
+    await pickFromAlbum(user)
+    const sheet = await resultSheet()
+    expect(within(sheet).queryByText(/名录/)).not.toBeInTheDocument()
+    expect(within(sheet).getByText('叶子和果实别让猫啃。')).toBeInTheDocument()
+  })
+
+  it('看收进来的一株：毒性只写收进来的这一种', async () => {
+    const user = userEvent.setup()
+    gardenService.list.mockResolvedValue([entry({ identified: true, candidates: RESULT.candidates, reference: REFERENCE })])
+    renderBook()
+    await user.click(await screen.findByRole('button', { name: '栀子花，路上遇见' }))
+    const detail = screen.getByRole('article', { name: '栀子花' })
+    expect(within(detail).getByText(/名录里有，名录作「栀子」/)).toBeInTheDocument()
+    expect(within(detail).queryByText(/白兰/)).not.toBeInTheDocument()
+  })
+})
+
 describe('花草图鉴：看一株', () => {
   it('手写的名字、学名、要小心的、她的讲解；换成我养的；拿掉先确认', async () => {
     const user = userEvent.setup()

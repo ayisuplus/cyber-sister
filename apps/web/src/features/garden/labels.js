@@ -16,6 +16,26 @@ export const LIKELIHOOD_PHRASES = { 很像: '很像是', 可能是: '可能是',
 
 export const HONEST_NOTE = '她认得不一定准；拿不准的时候，多看两眼再下结论。'
 
+// ---- 本机名录与毒性库（路线图 C27）：有记录才说，出处写明 ----
+
+const SEVERITY = { 剧毒: '有剧毒', 小毒: '有小毒' }
+/** 「《中国植物志》把「夹竹桃」列为有毒植物，记载种子有剧毒。」：摘录里没写清的只说列为有毒植物 */
+export function toxicLine(item) {
+  const detail = item.parts?.length ? `${item.parts.join('、')}${SEVERITY[item.level] ?? '有毒'}` : SEVERITY[item.level]
+  return `《中国植物志》把「${item.name}」列为有毒植物${detail ? `，记载${detail}` : ''}。`
+}
+
+/** 名录的出处要写全三层：整部名录、提供这条记录的数据库、审核这条记录的专家（物种2000中国节点的要求） */
+export function checklistCredit(reference, scrutiny) {
+  const source = reference?.sources?.checklist
+  if (!reference?.checked || !source) return null
+  return `名录：${source.title} · ${source.database}（${source.node}）${scrutiny ? ` · 审核：${scrutiny}` : ''}`
+}
+
+export const toxicCredit = (reference) => (reference?.toxicChecked && reference.sources?.toxic
+  ? `毒性：${reference.sources.toxic.title}，${reference.sources.toxic.via}`
+  : null)
+
 /** 认一认没成：按原因说清楚，没同意云端的给一条去设置的路。 */
 export function identifyFailure(failure) {
   const code = failure?.response?.data?.code

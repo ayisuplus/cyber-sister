@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { PlantCaution, PlantExplanation } from './PlantNotes'
+import { ChecklistCredit, ChecklistTag, PlantCaution, PlantExplanation } from './PlantNotes'
 import { HONEST_NOTE, LIKELIHOOD_PHRASES, STATUS_LABELS } from '../../features/garden/labels'
 
 const chip = (active) => `min-h-11 rounded-full px-3 text-sm transition-colors duration-300 ease-calm ${active ? 'bg-action-primary text-text-inverse' : 'border border-border-subtle bg-surface-card text-text-secondary hover:bg-surface-muted'}`
@@ -51,6 +51,7 @@ function Identified({ result, onCollect, onDiscard }) {
                 <span className="text-sm text-text-primary">{candidate.name}</span>
                 {candidate.scientificName && <i className="ml-2 text-xs text-text-secondary">{candidate.scientificName}</i>}
                 {candidate.family && <span className="ml-2 text-xs text-text-secondary">{candidate.family}</span>}
+                <ChecklistTag reference={result.reference} index={index} name={candidate.name} block />
               </span>
               <span className="shrink-0 text-xs text-text-muted">{candidate.likelihood}</span>
             </label>
@@ -68,10 +69,11 @@ function Identified({ result, onCollect, onDiscard }) {
         )}
       </fieldset>
       <p className="mt-2 text-xs text-text-muted">{HONEST_NOTE}</p>
-      <PlantCaution caution={result.caution} />
+      <PlantCaution caution={result.caution} reference={result.reference} />
       {pick === 0
         ? <PlantExplanation explanation={result.explanation} />
         : result.explanation && <p className="mt-3 text-xs text-text-secondary">她的讲解是照「{top.name}」写的，换了一种就先不放讲解。</p>}
+      {pick !== OWN && <ChecklistCredit reference={result.reference} index={pick} />}
       <div role="group" aria-label="路上遇见还是我养的" className="mt-4 flex gap-2">
         {Object.entries(STATUS_LABELS).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={status === value} onClick={() => setStatus(value)} className={chip(status === value)}>{label}</button>
