@@ -16,6 +16,8 @@
 
 > **2026-09-23 她的来信更新**：「做梦 / 待确认 / 来信」收进一层「她的来信」——按用户设定的频率（`letterFreqDays` = 3/7 或空=不写）由服务器端根据记忆与近况写信，信里带 ≤3 条建议（改记忆 / 删记忆 / 安排一件事），看信时一键「同意采纳」或「带去对话」。`dreamEnabled`/`dreamt_at` 删除；`/api/derived*` 全部下线（派生草稿仍是内部层，写信前的回想产出、进信即消费）；记忆的版本恢复与整库清空接口（`GET /api/memories/:id/revisions`、`POST /api/memories/:id/restore`、`DELETE /api/memories`）一并删除；`/api/letters` 重新上线（见 §十四）。
 
+> **2026-09-27 每日天气**：新增 `/api/weather`（见「八·五、天气」）。城市由用户自己填、从候选里选，不定位；取不到如实 503 `WEATHER_UNAVAILABLE`。旧的 `/api/tools/weather` 假数据路由已于 09-19 删除，不复用。导出的 `user` 段多一项 `weatherPlace`。
+
 > **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)为准。
 
 > **2026-09-12 对话归档更新**：会话列表默认只返回未归档记录；归档筛选、恢复接口与聊天限制见[模型连接与对话归档](../09-参考/历史归档/模型连接与对话归档-20260912.md)。
@@ -709,6 +711,21 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 
 ---
 
+## 八·五、天气 `/api/weather`（2026-09-27 起）
+
+城市是用户在设置里自己填、从候选里选的（名字、省份、国家、坐标、时区，存 `users.weather_place`），**不定位**。数据源 Open-Meteo（免费、无密钥，CC BY 4.0，界面署名）。服务器按坐标（两位小数）缓存 30 分钟。`WEATHER_ENABLED=false` 时关闭。日志只记错误码，不记城市、坐标与查询词。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/weather` | 没填城市：`{ place: null }`。填了：`{ place: {name, admin1, country}, current: {temperature, condition, icon} \| null, today, tomorrow, source: "Open-Meteo" }`，`today`/`tomorrow` 为 `{date, condition, icon, min, max, precipitation}`（温度取整；`icon` ∈ clear/partly/cloudy/fog/rain/snow/thunder）。不回坐标。关闭或数据源失败 503 `WEATHER_UNAVAILABLE`；缺明天也算取不到 |
+| GET | `/api/weather/places?q=` | 按城市名找候选，最多 5 个 `{places: [{name, admin1, country, latitude, longitude, timezone}]}`；空查询 400；每人每分钟 20 次 |
+| PUT | `/api/weather/place` | 存下选中的城市 `{name, admin1?, country?, latitude, longitude, timezone?}`：名字 ≤40 字，纬度 ±90、经度 ±180，否则 400；返回 `{place}`（不带坐标） |
+| DELETE | `/api/weather/place` | 清除城市，返回 `{place: null}` |
+
+聊天时服务端用同一份城市取两天预报，拼成【她那边的天气】放进上下文（1.5 秒超时，取不到就不带，不影响这一轮）。
+
+---
+
 ## 十、模型状态 `/api/llm`
 
 ### GET /api/llm/status
@@ -909,6 +926,10 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           PUT    /api/reading/books/:id/progress (阅读进度)
           GET    /api/reading/notes       (手记时间线)
           POST   /api/reading/notes       (按书名记一笔)
+天气      GET    /api/weather            (没填城市回 place:null；取不到 503)
+          GET    /api/weather/places?q=  (找城市候选)
+          PUT    /api/weather/place      (存下选中的城市)
+          DELETE /api/weather/place
 装扮      GET    /api/collection?shelf=  (衣柜 wardrobe / 化妆间 makeup)
           POST   /api/collection         (multipart：文字字段 + 可选 photo/thumb 两张 JPEG)
           PUT    /api/collection/:id     (同上，柜子不能换)
