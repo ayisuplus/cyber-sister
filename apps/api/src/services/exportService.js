@@ -64,6 +64,7 @@ export async function buildUserExport(userId) {
         externalLlmConsentVersion: true,
         periodConsentAt: true,
         periodToneAt: true,
+        weatherPlace: true,
         createdAt: true,
       },
     }),
@@ -216,6 +217,8 @@ export async function buildUserExport(userId) {
           // 经期的两项单独同意：记录，以及聊天时让她顾及周期
           periodConsentAt: iso(user.periodConsentAt),
           periodToneAt: iso(user.periodToneAt),
+          // 每日天气：你自己填的城市（不定位）
+          weatherPlace: user.weatherPlace ?? null,
           createdAt: iso(user.createdAt),
         }
       : null,

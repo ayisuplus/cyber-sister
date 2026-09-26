@@ -23,6 +23,7 @@ import asrRoutes from './routes/asr.js'
 import collectionRoutes from './routes/collection.js'
 import reminderRoutes from './routes/reminders.js'
 import letterRoutes from './routes/letters.js'
+import weatherRoutes from './routes/weather.js'
 import bridgeRoutes from './routes/bridge.js'
 import adminModelProvidersRoutes from './routes/adminModelProviders.js'
 import { hashSecret } from './services/bridgeService.js'
@@ -180,6 +181,8 @@ app.use('/api/asr', authMiddleware, asrRoutes)
 app.use('/api/collection', authMiddleware, collectionRoutes)
 app.use('/api/reminders', authMiddleware, reminderRoutes)
 app.use('/api/letters', authMiddleware, letterRoutes)
+// 每日天气：用户自己填的城市 + Open-Meteo；旧的 /api/tools/weather 假数据路由已删除，不复用那个路径
+app.use('/api/weather', authMiddleware, weatherRoutes)
 // 本机助手：路由内分别用登录身份（设置页）和助手令牌（取任务/交结果）鉴权
 app.use('/api/bridge', bridgeRoutes)
 // 模型供应商：只有实例管理员能配。authMiddleware 在前，管理员中间件要读 req.user

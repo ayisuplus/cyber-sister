@@ -31,6 +31,7 @@ model User {
   periodConsentAt             DateTime? @map("period_consent_at") // 经期记录单独同意时间（敏感个人信息）；撤回置空
   periodToneAt                DateTime? @map("period_tone_at") // 「聊天时让她顾及你的周期」的单独同意时间；撤回记录同意时一并置空
   letterFreqDays              Int?      @map("letter_freq_days") // 「她的来信」频率（3 或 7 天一封）；空 = 不写信
+  weatherPlace                Json?     @map("weather_place") // 「每日天气」用户自己选的城市（名字/省份/国家/坐标/时区）；空 = 不查天气。不定位
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
