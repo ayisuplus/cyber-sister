@@ -91,9 +91,9 @@ async function chooseNight(page) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 }
 
-async function inspectSurface(page, testInfo, name) {
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+async function inspectSurface(page, testInfo, name, theme = 'dark') {
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+  await expect(page.locator('html')).toHaveCSS('color-scheme', theme)
   await page.waitForLoadState('networkidle')
   const paper = page.locator('.chat-paper')
   if (await paper.count()) await expect(paper).toHaveCSS('opacity', '1')
@@ -203,4 +203,49 @@ test('night mode: the phone navigation drawer stays dark and accessible at 320px
   await expect(page).toHaveURL(/\/tools\/calendar$/)
   await expect(drawer).toHaveCount(0)
   await expect(page.getByText('睡前收好手机')).toBeVisible()
+})
+
+// 主题色（路线图 C25）：换了颜色，日间夜间的对比度照样过 axe；自己调的颜色刷新后还在（启动脚本先贴上）
+test('theme colors: sakura and a custom hue stay readable by day and by night, and survive reload', async ({ page }, testInfo) => {
+  const html = page.locator('html')
+  const primary = () => page.evaluate(() => window.getComputedStyle(document.documentElement).getPropertyValue('--cs-action-primary').trim().toUpperCase())
+  const surfaces = [
+    ['/settings', () => page.getByRole('radio', { name: '主题色：樱花粉' })],
+    ['/her', () => page.getByRole('heading', { name: '她的说话方式', exact: true })],
+    ['/chat', () => page.getByRole('region', { name: '信纸' }).getByText(conversation.messages[1].content)],
+  ]
+
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/settings')
+  await page.getByRole('radio', { name: '日间', exact: true }).check()
+  await page.getByRole('radio', { name: '主题色：樱花粉' }).check()
+  await expect(html).toHaveAttribute('data-palette', 'sakura')
+  expect(await primary()).not.toBe('#5F7049')
+  for (const [path, landmark] of surfaces) {
+    await page.goto(path)
+    await expect(landmark()).toBeVisible()
+    await inspectSurface(page, testInfo, `sakura-day${path.replace('/', '-')}`, 'light')
+  }
+
+  await chooseNight(page)
+  await expect(html).toHaveAttribute('data-palette', 'sakura')
+  for (const [path, landmark] of surfaces) {
+    await page.goto(path)
+    await expect(landmark()).toBeVisible()
+    await inspectSurface(page, testInfo, `sakura-night${path.replace('/', '-')}`)
+  }
+
+  await page.goto('/settings')
+  await page.getByRole('slider', { name: '自己调：色相' }).fill('200')
+  await expect(page.getByRole('radio', { name: '主题色：自己调' })).toBeChecked()
+  const custom = await primary()
+  await page.reload()
+  await expect(html).toHaveAttribute('data-palette', 'custom')
+  expect(await primary()).toBe(custom)
+  await inspectSurface(page, testInfo, 'custom-night-settings')
+
+  // 换回鼠尾草：撤掉覆盖，回到 tokens.css 的样子
+  await page.getByRole('radio', { name: '主题色：鼠尾草' }).check()
+  await expect(html).not.toHaveAttribute('data-palette', /.*/)
+  expect(await page.evaluate(() => document.getElementById('amie-palette'))).toBeNull()
 })

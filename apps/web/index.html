@@ -13,6 +13,18 @@
         const theme = dark ? 'dark' : 'light'
         document.documentElement.dataset.theme = theme
         document.documentElement.style.colorScheme = theme
+        // 主题色：选过别的颜色就把上次算好的样式先贴上（stores/paletteStore.js 写入，启动后按现在的规则重算）
+        try {
+          const saved = JSON.parse(localStorage.getItem('amie-palette') || 'null')
+          const css = localStorage.getItem('amie-palette-css')
+          if (saved && saved.id && css) {
+            const style = document.createElement('style')
+            style.id = 'amie-palette'
+            style.textContent = css
+            document.head.appendChild(style)
+            document.documentElement.dataset.palette = saved.id
+          }
+        } catch {}
       })()
     </script>
     <title>Amie · 你的 AI 闺蜜</title>

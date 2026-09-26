@@ -17,6 +17,7 @@ import LocalBridgeSettings from '../components/profile/LocalBridgeSettings'
 import AboutYouSettings from '../components/profile/AboutYouSettings'
 import LetterFontSetting from '../components/profile/LetterFontSetting'
 import DecorSetting from '../components/profile/DecorSetting'
+import PaletteSetting from '../components/profile/PaletteSetting'
 import MarginNoteSetting from '../components/profile/MarginNoteSetting'
 import CiteBooksSetting from '../components/profile/CiteBooksSetting'
 
@@ -248,6 +249,7 @@ export default function SettingsPage() {
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-text-muted">跟随系统会自动切换日夜配色。选择会保存在这台设备上。</p>
+                <PaletteSetting />
                 <LetterFontSetting />
                 <DecorSetting />
                 <MarginNoteSetting />
