@@ -48,7 +48,6 @@ vi.mock('../../src/prisma/client.js', () => {
       // 评测里她没往书架上传过书（也没有查询向量），聊天时只翻内置书
       book: { findMany: async () => [], findFirst: async () => null },
       bookPassage: { findMany: async () => [] },
-      derivedInsight: { findMany: async () => [] },
       diaryEntry: { findMany: async () => [] },
       periodRecord: { findFirst: async () => null },
       crisisLog: { create: async () => ({ id: 'eval-crisis' }) },
@@ -237,7 +236,7 @@ function prepareScenario(scenario, style) {
   }
   h.memories = (given.memories ?? []).map((memory) => ({
     id: memory.id, revision: 1, content: memory.content, type: memory.type ?? 'semantic', importance: memory.importance ?? 5,
-    tags: memory.tags ?? [], pinned: memory.pinned === true, projection: null, sources: [],
+    tags: memory.tags ?? [], pinned: memory.pinned === true, sources: [],
   }))
   h.nudges = (given.nudges ?? []).map((content, index) => ({ id: `nudge-${index}`, kind: 'reminder', content }))
 }

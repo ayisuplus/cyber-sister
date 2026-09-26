@@ -21,13 +21,11 @@ vi.mock('../prisma/client.js', () => {
     $queryRaw: vi.fn(async () => [{ id: 'u1' }]),
     user: { update: vi.fn() },
     memoryRevision: { create: vi.fn(), findMany: vi.fn(async () => []) },
-    memoryProjection: { updateMany: vi.fn(), deleteMany: vi.fn() },
     // 她的组织层：根被改就作废、被删就一起删（路线图 C23）
     inference: { updateMany: vi.fn(), deleteMany: vi.fn() },
     // 派生索引（路线图 C23）：正文改了、记忆删了，向量一并删
     embedding: { deleteMany: vi.fn() },
     memoryIndexJob: { updateMany: vi.fn() },
-    derivedInsight: { updateMany: vi.fn(), deleteMany: vi.fn() },
     diaryEntry: { findFirst: db.diaryEntryFindFirst },
     readingNote: { findFirst: db.readingNoteFindFirst },
     scheduledReminder: { findFirst: db.scheduledReminderFindFirst },
@@ -67,18 +65,14 @@ beforeEach(() => {
 
 describe('createMemory', () => {
   it('工作台确认真实记忆时可显式关闭嵌入，保留数据保存', async () => {
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
     const memory = await createMemory('u1', { type: 'semantic', content: '用户确认的事实', origin: 'promoted' }, { projectEmbedding: false })
     expect(memory.content).toBe('用户确认的事实')
     expect(db.memoryCreate).toHaveBeenCalled()
     expect(embedding.embedMemory).not.toHaveBeenCalled()
   })
   it('创建记忆并解析 JSON 字段返回', async () => {
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({
-      id: 'm1',
-      ...data,
-      entities: null,
-    }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
     const memory = await createMemory('u1', {
       type: 'semantic',
       content: '  喜欢火锅  ',
@@ -94,11 +88,10 @@ describe('createMemory', () => {
       }),
     })
     expect(memory.tags).toEqual(['美食', '火锅'])
-    expect(memory.entities).toEqual({})
   })
 
   it('创建后 fire-and-forget 触发语义投影，失败不影响保存结果', async () => {
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
 
     const memory = await createMemory('u1', { type: 'semantic', content: '喜欢火锅' })
 
@@ -106,19 +99,8 @@ describe('createMemory', () => {
     expect(memory.content).toBe('喜欢火锅')
   })
 
-  it('响应剥离 embedding/embeddingModel 机器投影字段', async () => {
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({
-      id: 'm1', ...data, entities: null, embedding: [0.1, 0.2], embeddingModel: 'text-embedding-v4',
-    }))
-
-    const memory = await createMemory('u1', { type: 'semantic', content: '喜欢火锅' })
-
-    expect(memory).not.toHaveProperty('embedding')
-    expect(memory).not.toHaveProperty('embeddingModel')
-  })
-
   it('origin/sourceRef 落库并随返回带出；默认 origin 为 manual', async () => {
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
     const memory = await createMemory('u1', {
       type: 'semantic',
       content: '她想要独立书房',
@@ -186,7 +168,7 @@ describe('createMemory：手记/读书/日历/收藏四类痕迹来源', () => {
 
   it('本人手记的原文片段核验通过，落库为 verified', async () => {
     db.diaryEntryFindFirst.mockResolvedValue(DIARY)
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
 
     await createMemory('u1', {
       type: 'semantic',
@@ -222,7 +204,7 @@ describe('createMemory：手记/读书/日历/收藏四类痕迹来源', () => {
 
   it('读书笔记可用 quote 字段里的原文子串通过', async () => {
     db.readingNoteFindFirst.mockResolvedValue(NOTE)
-    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null }))
+    db.memoryCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data }))
 
     await createMemory('u1', {
       type: 'semantic',
@@ -269,13 +251,12 @@ describe('listMemories', () => {
     await expect(listMemories('u1', { type: 'wild' })).rejects.toMatchObject({ statusCode: 400 })
   })
 
-  it('损坏的 JSON 字段回退为空对象与空数组', async () => {
+  it('损坏的标签 JSON 回退为空数组', async () => {
     db.memoryFindMany.mockResolvedValue([
-      { id: 'm1', entities: '{broken', tags: '[oops' },
+      { id: 'm1', tags: '[oops' },
     ])
     db.memoryCount.mockResolvedValue(1)
     const result = await listMemories('u1', {})
-    expect(result.data[0].entities).toEqual({})
     expect(result.data[0].tags).toEqual([])
   })
 })
@@ -290,7 +271,7 @@ describe('updateMemory', () => {
 
   it('只更新传入字段，空更新抛 400', async () => {
     db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 1 })
-    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, entities: null, tags: '[]' }))
+    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', ...data, tags: '[]' }))
 
     await updateMemory('u1', 'm1', { importance: 8, expectedRevision: 1 })
     expect(db.memoryUpdate).toHaveBeenCalledWith({
@@ -316,7 +297,7 @@ describe('updateMemory', () => {
   })
   it('改内容触发投影重建，只改标签/重要度不触发', async () => {
     db.memoryFindFirst.mockResolvedValue({ id: 'm1', userId: 'u1', revision: 1 })
-    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', userId: 'u1', content: '新内容', ...data, entities: null, tags: '[]' }))
+    db.memoryUpdate.mockImplementation(({ data }) => Promise.resolve({ id: 'm1', userId: 'u1', content: '新内容', ...data, tags: '[]' }))
 
     await updateMemory('u1', 'm1', { tags: ['换标签'], expectedRevision: 1 })
     expect(embedding.embedMemory).not.toHaveBeenCalled()
@@ -326,7 +307,7 @@ describe('updateMemory', () => {
   })
 
   it('内容更新与旧向量失效原子保存：旧正文算的向量在同一个事务里删掉，新向量算不成也不会留旧的（路线图 C23）', async () => {
-    let stored = { id: 'm1', userId: 'u1', revision: 1, content: '旧内容', embedding: [1, 2], embeddingModel: 'old-model', entities: null, tags: '[]' }
+    let stored = { id: 'm1', userId: 'u1', revision: 1, content: '旧内容', tags: '[]' }
     db.memoryFindFirst.mockResolvedValue(stored)
     db.memoryUpdate.mockImplementation(({ data }) => {
       stored = { ...stored, ...data }
@@ -358,7 +339,7 @@ describe('deleteMemory', () => {
 })
 
 describe('放在心上', () => {
-  const memory = { id: 'm1', userId: 'u1', type: 'semantic', content: '我对芒果过敏', revision: 3, pinned: false, entities: null, tags: null }
+  const memory = { id: 'm1', userId: 'u1', type: 'semantic', content: '我对芒果过敏', revision: 3, pinned: false, tags: null }
 
   it('放上去不改内容、不升版本、不写修订记录', async () => {
     db.memoryFindFirst.mockResolvedValue(memory)

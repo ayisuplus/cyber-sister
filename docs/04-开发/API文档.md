@@ -14,14 +14,14 @@
 > **2026-09-22 更新**：新增「模型供应商」——实例管理员可在设置页配多家 OpenAI 兼容的聊天模型（`/api/admin/model-providers`，见 §十·五），网关按优先级依次尝试，不再绑死单一家厂商；`GET /api/llm/status` 增加 `isInstanceAdmin` 与 `externalFallback.providers`。没有配置任何自定义供应商时，行为与以前完全一致（仍用 `GATEWAY_QWEN_*`）。
 > 同日还新增只读 `GET /api/chat/openers`（见「三、聊天」）：空白对话那一屏的开场话题从她自己的线索里来（她惦记的事 / 在读的书 / 最近的手记），只读、不发模型、不落库。
 
-> **2026-09-25 非对称记忆架构（路线图 C23，见[非对称记忆架构](../architecture/非对称记忆架构.md)）**：她自己整理的东西——记忆之间的关系、对你的理解、惦记的事——合进一张表 `inferences`（她的组织层），旧表 `memory_edges`、`derived_insights`、`follow_ups` 只读、不再有写入方。新增 `GET /api/memories/inferences`（「她猜的」）与 `DELETE /api/memories/inferences/:id`（删掉即否决，她不会再推出同一条），见 §四。行为变化：
+> **2026-09-25 非对称记忆架构（路线图 C23，见[非对称记忆架构](../architecture/非对称记忆架构.md)）**：她自己整理的东西——记忆之间的关系、对你的理解、惦记的事——合进一张表 `inferences`（她的组织层），旧表 `memory_edges`、`derived_insights`、`follow_ups` 先只读，2026-09-26 删除（第五步）。新增 `GET /api/memories/inferences`（「她猜的」）与 `DELETE /api/memories/inferences/:id`（删掉即否决，她不会再推出同一条），见 §四。行为变化：
 > - **根一改就作废**：记忆的正文或类型一变，以它为依据的关系与理解作废，不再进聊天、不再进信（以前是转「待重审」后进信）；删记忆时连同引文一起删。
 > - **聊天里标成她自己的联想**：有效的关系与理解挂在本轮选中的记忆上，单独成块、标明没经她确认，不再混在记忆数据里；关系不再只读「已确认」的。
 > - **进过信的不再是「消费掉」**：记下 `letteredAt`，下一封不再重复，但仍是她的联想。
 > - **写信移出只读接口**：`GET /api/chat/nudges` 只等写信 1.5 秒，写不完下次再说；同一个人同时只写一封（`POST /api/letters/generate` 走同一个入口）。
 > - **经期卡片只经两项同意进模型**：「记录经期」与「聊天时顾及周期」都开着，关心卡片里的经期才作为「她今天说过的话」交给模型；便签照常显示。
 > - **惦记的事要有原话作依据**：必须逐字出自你说过的话（她自己说的不算）。
-> - **派生索引一张表**：记忆与她上传的书的段落，向量合进 `embeddings`（旧的 `memory_projections`、`book_passages.vector` 只读）；三类向量（含随代码提交的书架索引）共用一种身份写法（地址规范化后取哈希 + 模型 + 维度 + 这类对象的规则版本，`localhost` 与 `127.0.0.1`、末尾的 `/` 不再被当成不同模型）、一份相似度计算与集中登记的阈值。补算任务（`POST /api/memories/index-jobs`）同时补记忆与书段落，换了向量模型后她的书会被重算，不再显示「就绪」却每次被跳过。`POST /api/memories/embeddings/rebuild` 删除，全量重算用 `POST /api/memories/index-jobs` 的 `mode: "rebuild"`；上传书时没配向量模型的错误码统一为 `EMBEDDING_NOT_CONFIGURED`。
+> - **派生索引一张表**：记忆与她上传的书的段落，向量合进 `embeddings`（旧的 `memory_projections`、`book_passages.vector` 与 `memories.embedding` 先只读，2026-09-26 删除）；三类向量（含随代码提交的书架索引）共用一种身份写法（地址规范化后取哈希 + 模型 + 维度 + 这类对象的规则版本，`localhost` 与 `127.0.0.1`、末尾的 `/` 不再被当成不同模型）、一份相似度计算与集中登记的阈值。补算任务（`POST /api/memories/index-jobs`）同时补记忆与书段落，换了向量模型后她的书会被重算，不再显示「就绪」却每次被跳过。`POST /api/memories/embeddings/rebuild` 删除，全量重算用 `POST /api/memories/index-jobs` 的 `mode: "rebuild"`；上传书时没配向量模型的错误码统一为 `EMBEDDING_NOT_CONFIGURED`。
 > - **提议通道**：来信建议新增 `merge_memories`（合并两条）、`resolve_conflict`（标出两条矛盾，处置时带 `keep`）、`promote_inference`（把她猜的记下来）；「同意采纳 / 不用」在一个事务里完成（写根、回写建议、结束她依据的整理），任何一步失败整体回滚；采纳写根的那一版在 `memory_revisions.proposal` 记下来源链 `{letterId, index, kind, inferenceIds}`，`action` 为 `accept_suggestion`。见 §十四。
 > - **导出**：`derivedInsights`、`memoryEdges`、`followUps` 三节合成 `inferences`（不含你删掉的、不带内部 id），并补上会话的前情摘要 `summary`、消息的页边批注 `bookNotes`、来信的 `suggestions` 与 `readAt`；`memoryBundle` 带 `pinned`，关系改从组织层取（有效 → `canonical`，作废 → `needs_review`，v2 格式不变）。
 
@@ -29,7 +29,7 @@
 
 > **2026-09-23 她的来信更新**：「做梦 / 待确认 / 来信」收进一层「她的来信」——按用户设定的频率（`letterFreqDays` = 3/7 或空=不写）由服务器端根据记忆与近况写信，信里带 ≤3 条建议（改记忆 / 删记忆 / 安排一件事），看信时一键「同意采纳」或「带去对话」。`dreamEnabled`/`dreamt_at` 删除；`/api/derived*` 全部下线（派生草稿仍是内部层，写信前的回想产出、进信即消费）；记忆的版本恢复与整库清空接口（`GET /api/memories/:id/revisions`、`POST /api/memories/:id/restore`、`DELETE /api/memories`）一并删除；`/api/letters` 重新上线（见 §十四）。
 
-> **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)为准。
+> **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。当前字段以本文档与[非对称记忆架构](../architecture/非对称记忆架构.md)为准；09-13 的[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)已归档，只作历史证据。
 
 > **2026-09-12 对话归档更新**：会话列表默认只返回未归档记录；归档筛选、恢复接口与聊天限制见[模型连接与对话归档](../09-参考/历史归档/模型连接与对话归档-20260912.md)。
 
@@ -303,12 +303,12 @@ Authorization: Bearer <access_token>
 
 - 导入对象只有两类：人格 id、显式记忆候选（v2 含记忆关系）；其余数据段不导入，`notes` 如实说明
 - 人格 id 非法时 `persona.ok:false`
-- 云端模型同意状态**绝不导入**——须用户主动重新同意 `cloud-primary-v1`
+- 云端模型同意状态**绝不导入**——须用户主动重新同意当前版本（`cloud-primary-v4`）
 - 预览**绝不落库**；记忆候选单批最多 100 条
 
 ### POST /api/user/import/apply — 迁移应用
 
-**2026-09-13 起**，记忆导入必须带预览返回的 `expectedMemoryEpoch`（适用于 v1 候选与 v2 包）。资料在预览后变化返回 409，不执行本批写入；重新预览再确认。v2 的稳定引用与关系请求详见[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)。
+**2026-09-13 起**，记忆导入必须带预览返回的 `expectedMemoryEpoch`（适用于 v1 候选与 v2 包）。资料在预览后变化返回 409，不执行本批写入；重新预览再确认。v2 包里的记忆关系导入后进她的组织层（`inferences`，见 §四「她猜的」），不再单独成表。
 
 **请求**
 
@@ -871,7 +871,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 
 ## 十二、~~「她」的待确认记忆 `/api/derived`~~ — 已下线（2026-09-23）
 
-2026-09-25 起（路线图 C23）：回想产出的理解、记忆之间的关系与惦记的事都在她的组织层 `inferences` 里，旧表 `derived_insights` / `memory_edges` / `follow_ups` 只读。组织层永远不是记忆，信里的建议也要用户点「同意采纳」才动记忆；你能在 `GET /api/memories/inferences`（「她猜的」）看到、删掉（§四）。「她惦记的事」到日子进对话末尾那条时间线（`followup:` 来源），依据必须是你说过的原话。原来的 `/api/derived*` 接口不再恢复。
+2026-09-25 起（路线图 C23）：回想产出的理解、记忆之间的关系与惦记的事都在她的组织层 `inferences` 里，旧表 `derived_insights` / `memory_edges` / `follow_ups` 已于 2026-09-26 删除。组织层永远不是记忆，信里的建议也要用户点「同意采纳」才动记忆；你能在 `GET /api/memories/inferences`（「她猜的」）看到、删掉（§四）。「她惦记的事」到日子进对话末尾那条时间线（`followup:` 来源），依据必须是你说过的原话。原来的 `/api/derived*` 接口不再恢复。
 
 ## 十三、主动关怀 `/api/care`（2026-09-09 起）
 

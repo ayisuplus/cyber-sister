@@ -27,13 +27,9 @@ function parseJson(value, fallback) {
 }
 
 export function formatMemory(memory) {
-  // embedding/embeddingModel 是机器投影：永不进入 API 响应（检索侧由 llmService 剥离）
-  const { embedding: _embedding, embeddingModel: _embeddingModel, projection: _projection, ...rest } = memory
-  return {
-    ...rest,
-    entities: parseJson(memory.entities, {}),
-    tags: parseJson(memory.tags, []),
-  }
+  // 向量在派生索引 embeddings 里，不在记忆行上；检索时挂上的 semantic 由 llmService 剥离，也不进 API 响应
+  const { semantic: _semantic, ...rest } = memory
+  return { ...rest, tags: parseJson(memory.tags, []) }
 }
 
 function validateType(type) {
@@ -263,10 +259,9 @@ export async function getMemory(userId, memoryId) {
 async function eraseMemories(tx, userId, ids) {
   await tx.user.update({ where: { id: userId }, data: { memoryEpoch: { increment: 1 } } })
   await tx.memoryIndexJob.updateMany({ where: { userId, status: { in: ['queued', 'running'] } }, data: { status: 'cancelled' } })
-  // 以这些根为依据的组织层条目连同引文一起删；只读的旧草稿表也一并清掉（旧关系表随外键级联删除）
+  // 以这些根为依据的组织层条目连同引文一起删，向量一起删
   await deleteForMemories(tx, userId, ids)
   await deleteEmbeddings(tx, { subjectType: 'memory', parentIds: ids })
-  await tx.derivedInsight.deleteMany({ where: { userId, OR: [{ promotedMemoryId: { in: ids } }, { sourceMemoryIds: { hasSome: ids } }] } })
   // 删除来源时只擦除依赖副本中的引用，其他用户已确认的正文仍由其自身生命周期管理。
   const scrub = (sources) => (Array.isArray(sources) ? sources : []).filter((source) => !(source.type === 'memory' && ids.includes(source.id)))
   const remaining = await tx.memory.findMany({ where: { userId, id: { notIn: ids } }, select: { id: true, sources: true } })

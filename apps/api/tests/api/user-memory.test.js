@@ -15,11 +15,9 @@ vi.mock('../../src/prisma/client.js', () => {
 
   const client = {
     memoryRevision: { create: async () => ({}), findMany: async () => [] },
-    memoryProjection: { deleteMany: async () => ({}), updateMany: async () => ({}) },
     inference: { updateMany: async () => ({}), deleteMany: async () => ({}) },
     embedding: { deleteMany: async () => ({}) },
     memoryIndexJob: { updateMany: async () => ({}) },
-    derivedInsight: { updateMany: async () => ({}), deleteMany: async () => ({}) },
     user: {
       findUnique: async ({ where, select }) => selectRecord(state.users.get(where.id) || null, select),
       update: async ({ where, data, select }) => {

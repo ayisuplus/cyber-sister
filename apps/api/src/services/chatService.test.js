@@ -24,7 +24,6 @@ const mocks = vi.hoisted(() => ({
   describeRecentNudges: vi.fn(() => Promise.resolve([])),
   memoryFindMany: vi.fn(),
   inferenceFindMany: vi.fn(() => Promise.resolve([])),
-  derivedInsightFindMany: vi.fn(),
   crisisCreate: vi.fn(),
   transaction: vi.fn(),
   generateResponse: vi.fn(),
@@ -67,7 +66,6 @@ vi.mock('../prisma/client.js', () => {
       crisisLog: { create: mocks.crisisCreate },
       memory: { findMany: mocks.memoryFindMany },
       inference: { findMany: mocks.inferenceFindMany },
-      derivedInsight: { findMany: mocks.derivedInsightFindMany },
       $transaction: mocks.transaction.mockImplementation((callback) => callback(tx)),
     },
   }
@@ -302,7 +300,6 @@ describe('chatService.sendMessage', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
       id: data.role === 'user' ? 'user-message' : 'ai-message',
       ...data,
@@ -606,18 +603,6 @@ describe('chatService.sendMessage', () => {
     expect(mocks.generateCompanionNote).not.toHaveBeenCalled()
   })
 
-  it('存在理解草稿时也不查询或传入模型', async () => {
-    const insights = [{ kind: 'pattern', content: '她习惯深夜学习', confidence: 'medium' }]
-    mocks.derivedInsightFindMany.mockResolvedValue(insights)
-
-    const result = await sendMessage('conversation-1', 'user-1', '你好')
-
-    expect(result).toMatchObject({ status: 'ok' })
-    expect(mocks.derivedInsightFindMany).not.toHaveBeenCalled()
-    const options = mocks.generateResponse.mock.calls[0][5]
-    expect(options).not.toHaveProperty('derivedInsights')
-  })
-
   it('聊天选项没有未确认草稿入口', async () => {
     const result = await sendMessage('conversation-1', 'user-1', '你好')
 
@@ -626,10 +611,10 @@ describe('chatService.sendMessage', () => {
     expect(options).not.toHaveProperty('derivedInsights')
   })
 
-  it('记忆查询带出 id/revision，不再读旧投影；同意时 embedQuery 结果注入 queryEmbedding', async () => {
+  it('记忆查询带出 id/revision；同意时 embedQuery 结果注入 queryEmbedding', async () => {
     mocks.embedQuery.mockResolvedValue([0.1, 0.2, 0.3])
     mocks.memoryFindMany.mockResolvedValue([
-      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', embedding: [0.9] },
+      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]' },
     ])
 
     await sendMessage('conversation-1', 'user-1', '今晚吃啥')
@@ -637,15 +622,14 @@ describe('chatService.sendMessage', () => {
     expect(mocks.memoryFindMany).toHaveBeenCalledWith(expect.objectContaining({
       select: expect.objectContaining({ id: true, revision: true }),
     }))
-    expect(mocks.memoryFindMany.mock.calls[0][0].select).not.toHaveProperty('projection')
     expect(mocks.embedQuery).toHaveBeenCalledWith('今晚吃啥', expect.objectContaining({ allowExternal: true, authorizeExternal: expect.any(Function) }))
     expect(mocks.generateResponse.mock.calls[0][5].queryEmbedding).toEqual([0.1, 0.2, 0.3])
   })
 
   it('她的组织层：有效的关系 join 当前记忆内容，一端不在的丢弃；理解只带以根为依据的（路线图 C23）', async () => {
     mocks.memoryFindMany.mockResolvedValue([
-      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', revision: 1, projection: null },
-      { id: 'm2', content: '每周五吃火锅', type: 'episodic', importance: 4, tags: '[]', revision: 1, projection: null },
+      { id: 'm1', content: '喜欢火锅', type: 'semantic', importance: 5, tags: '[]', revision: 1 },
+      { id: 'm2', content: '每周五吃火锅', type: 'episodic', importance: 4, tags: '[]', revision: 1 },
     ])
     mocks.inferenceFindMany.mockResolvedValue([
       { id: 'r1', kind: 'relation', content: '「喜欢火锅」与「每周五吃火锅」有关', payload: { fromMemoryId: 'm1', toMemoryId: 'm2', relation: 'related' }, basisMemoryIds: ['m1', 'm2'] },
@@ -702,7 +686,6 @@ describe('chatService.sendMessageStream', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
       id: data.role === 'user' ? 'user-message' : 'ai-message',
       ...data,
@@ -927,7 +910,6 @@ describe('chatService 智能体工具回路', () => {
     mocks.userFindUnique.mockResolvedValue({ persona: 'toxic', externalLlmConsent: null, externalLlmConsentVersion: null })
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.detectCrisis.mockReturnValue(null)
@@ -1064,7 +1046,6 @@ describe('chatService 图片消息', () => {
     mocks.generateCompanionNote.mockRejectedValue(new Error('斟酌不可用'))
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
@@ -1188,7 +1169,6 @@ describe('chatService 滚动摘要', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({
       id: data.role === 'user' ? 'user-message' : 'ai-message',
       ...data,
@@ -1403,7 +1383,6 @@ describe('伴读问答：书里的原文作为资料进上下文', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
     mocks.conversationUpdate.mockResolvedValue({})
     mocks.generateResponseStream.mockReturnValue(streamOf([
@@ -1479,7 +1458,6 @@ describe('危机小心模式：中级线索不拦她的回应', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
     mocks.conversationUpdate.mockResolvedValue({})
     mocks.crisisCreate.mockResolvedValue({ id: 'crisis-1' })
@@ -1576,7 +1554,6 @@ describe('页边批注：她写这一段时翻过的书', () => {
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
     mocks.conversationUpdate.mockResolvedValue({})
     mocks.generateResponseStream.mockReturnValue(streamOf([
@@ -1779,7 +1756,6 @@ describe('「懂你」检验集（冻结）', () => {
     mocks.messageFindMany.mockResolvedValue([])
     mocks.memoryFindMany.mockResolvedValue([])
     mocks.inferenceFindMany.mockResolvedValue([])
-    mocks.derivedInsightFindMany.mockResolvedValue([])
     mocks.embedQuery.mockResolvedValue(null)
     mocks.retrieveRelevantMemories.mockReturnValue([])
     mocks.describeRecentNudges.mockResolvedValue([])

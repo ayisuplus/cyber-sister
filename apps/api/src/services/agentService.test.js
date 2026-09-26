@@ -777,7 +777,7 @@ describe('改删类动作先出聊天内确认卡', () => {
   })
 
   it('恒需确认清单里的其它改删动作同样只出提案、不落库', async () => {
-    db.memoryFindFirst.mockResolvedValue({ id: 'm1', revision: 4, content: '旧说法', tags: '[]', entities: '{}' })
+    db.memoryFindFirst.mockResolvedValue({ id: 'm1', revision: 4, content: '旧说法', tags: '[]' })
     for (const [name, args, summary] of [
       ['delete_reading_note', { id: 'n1' }, '想删掉这条读书笔记，等你点头'],
       ['delete_collection_item', { id: 'c1' }, '想删掉这件收藏，等你点头'],

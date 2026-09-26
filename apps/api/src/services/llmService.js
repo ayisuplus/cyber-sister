@@ -282,7 +282,7 @@ export function retrieveRelevantMemories(currentText, memories = [], queryEmbedd
       || b.importanceScore - a.importanceScore
       || a.originalIndex - b.originalIndex)
     .slice(0, MAX_RELEVANT_MEMORIES)
-    .map(({ relevance: _relevance, importanceScore: _importanceScore, originalIndex: _index, embedding: _embedding, embeddingModel: _embeddingModel, projection: _projection, semantic: _semantic, ...memory }) => memory)
+    .map(({ relevance: _relevance, importanceScore: _importanceScore, originalIndex: _index, semantic: _semantic, ...memory }) => memory)
 }
 
 const RELATION_HINTS = { similar: '说的可能是一回事', related: '有关', contradicts: '好像互相矛盾（请并列说明并求证，不要自己认定哪条对）' }

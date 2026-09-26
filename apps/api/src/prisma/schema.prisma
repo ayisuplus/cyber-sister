@@ -49,11 +49,9 @@ model User {
   readingNotes      ReadingNote[]
   studySessions     StudySession[]
   refreshTokens     RefreshToken[]
-  derivedInsights   DerivedInsight[]
   makeupPresets     MakeupPreset[] // 旧化妆间滑杆预设：2026-09-21 起只读，仅随导出保留
   wardrobeItems     WardrobeItem[] // 旧 3D 衣柜单品：2026-09-21 起只读，仅随导出保留
   collectionItems   CollectionItem[]
-  memoryEdges       MemoryEdge[]
   careDismissals    CareDismissal[]
   letters           Letter[]
   scheduledReminders ScheduledReminder[]
@@ -61,7 +59,6 @@ model User {
   workArtifacts WorkArtifact[]
   workTasks WorkTask[]
   localBridges       LocalBridge[]
-  followUps          FollowUp[]
   inferences         Inference[]
   embeddings         Embedding[]
 
@@ -197,13 +194,10 @@ model Memory {
   userId     String    @map("user_id")
   type       String // episodic | semantic | procedural
   content    String
-  entities   String? // JSON字符串存储
   importance Int       @default(5)
   tags       String? // JSON数组字符串存储
-  embedding  Float[] // 语义向量投影；可重建，失败留空（Prisma 不支持可选列表，NULL 读取即 []）
-  embeddingModel String? @map("embedding_model")
   origin     String   @default("manual") // manual | suggestion | promoted；定典后不可改
-  sourceRef  String?  @map("source_ref") // suggestion→用户消息 id；promoted→DerivedInsight id；trace 来源放 sources 数组
+  sourceRef  String?  @map("source_ref") // suggestion→用户消息 id；来源（她的原话、采纳的来信建议等）放 sources 数组
   revision   Int      @default(1)
   sources    Json     @default("[]")
   portableId String   @default(uuid()) @map("portable_id")
@@ -215,41 +209,13 @@ model Memory {
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  edgesFrom MemoryEdge[] @relation("edgeFrom")
-  edgesTo   MemoryEdge[] @relation("edgeTo")
   revisions MemoryRevision[]
-  projection MemoryProjection?
 
   @@index([userId])
   @@index([userId, importance, createdAt])
   @@index([userId, pinned])
   @@unique([userId, portableId])
   @@map("memories")
-}
-
-/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=relation），不再有写入方；删记忆时仍随外键级联删除。下一周期另批删除。
-model MemoryEdge {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  fromMemoryId String   @map("from_memory_id")
-  toMemoryId   String   @map("to_memory_id")
-  relation     String // similar | related | contradicts
-  confidence   String   @default("medium") // low | medium | high
-  status       String   @default("derived") // derived | canonical | needs_review | dismissed
-  revision     Int      @default(1)
-  fromRevision Int     @default(1) @map("from_revision")
-  toRevision   Int     @default(1) @map("to_revision")
-  decisions    Json    @default("[]")
-  evidence     String? // JSON数组字符串：支撑片段，最多 2 条
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fromMemory Memory @relation("edgeFrom", fields: [fromMemoryId], references: [id], onDelete: Cascade)
-  toMemory   Memory @relation("edgeTo", fields: [toMemoryId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-  @@map("memory_edges")
 }
 
 // 「她来想你」触点按日忽略记录：key = 规则:实体:本地日，同日同键幂等
@@ -467,7 +433,6 @@ model BookPassage {
   /// 与阅读器同格式的位置串（"<章序>:<字符偏移>"），批注里「翻到这一段」用
   locator      String
   content      String
-  vector       Float[] // 2026-09-25 起不再写（路线图 C23）：段落向量改存 embeddings，下一周期另批删除
   createdAt    DateTime @default(now()) @map("created_at")
 
   book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
@@ -518,29 +483,6 @@ model StudySession {
   @@map("study_sessions")
 }
 
-/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=insight），不再有写入方；下一周期另批删除。
-model DerivedInsight {
-  id               String   @id @default(uuid())
-  userId           String   @map("user_id")
-  kind             String // pattern | hypothesis | conflict | summary
-  content          String
-  evidence         String? // JSON数组字符串：支撑对话片段原文，最多 2 条
-  confidence       String   @default("medium") // low | medium | high
-  status           String   @default("active") // active | promoted | dismissed | resolved
-  resolution       String? // 冲突厘清后的定稿文案（status=resolved 时写入）
-  promotedMemoryId String?  @map("promoted_memory_id")
-  revision         Int      @default(1)
-  sources          Json     @default("[]")
-  sourceMemoryIds  String[] @default([]) @map("source_memory_ids")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-  @@map("derived_insights")
-}
-
 // 正式记忆的确认历史；业务编辑只追加，删除记忆时级联清除。
 model MemoryRevision {
   id          String   @id @default(uuid())
@@ -563,22 +505,6 @@ model MemoryRevision {
 
   @@unique([memoryId, revision])
   @@map("memory_revisions")
-}
-
-// 2026-09-25 起只读（路线图 C23）：记忆向量改存 embeddings，这张表不再有写入方，下一周期另批删除。
-// 旧 Memory.embedding 列同样只作迁移留存，不参与检索。
-model MemoryProjection {
-  memoryId       String   @id @map("memory_id")
-  memoryRevision Int      @map("memory_revision")
-  provider       String
-  model          String
-  dimensions     Int
-  ruleVersion    Int      @default(1) @map("rule_version")
-  vector         Float[]
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  memory         Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
-
-  @@map("memory_projections")
 }
 
 model MemoryIndexJob {
@@ -686,23 +612,6 @@ model LocalBridge {
 
   @@index([userId])
   @@map("local_bridges")
-}
-
-/// 2026-09-25 起只读（路线图 C23）：已迁入 inferences（kind=followup），不再有写入方；下一周期另批删除。
-model FollowUp {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  about     String // 你说过的那件事，≤40 字
-  ask       String // 到时候她问的一句，≤40 字
-  askOn     DateTime @map("ask_on") // 哪天问（北京时间日历日，UTC 零点存储，同日记契约）
-  status    String   @default("active") // active | asked | dismissed
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status, askOn])
-  @@map("follow_ups")
 }
 
 /// 派生索引（路线图 C23）：记忆与她上传的书的段落，向量都在这一张表。只是派生物：可丢弃、可重算、不导出。

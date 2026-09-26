@@ -74,11 +74,10 @@ export function recordRevision(tx, memory, action, restoredFrom = null, proposal
 }
 
 /**
- * 这条根的意思变了：旧正文算的向量删掉待重算（只读的旧投影表也一并清掉）；
+ * 这条根的意思变了：旧正文算的向量删掉待重算；
  * 她靠旧说法整理出的关系与理解一并作废（路线图 C23：你已经纠正过了，旧推断不再进聊天、也不再进信）。
  */
 export async function invalidateMemoryDependencies(tx, userId, memoryId) {
   await deleteEmbeddings(tx, { subjectType: 'memory', parentIds: [memoryId] })
-  await tx.memoryProjection.deleteMany({ where: { memoryId } })
   await markStaleForMemory(tx, userId, memoryId)
 }
