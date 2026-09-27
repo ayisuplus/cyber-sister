@@ -49,6 +49,7 @@ export async function buildUserExport(userId) {
     letters,
     workTasks,
     scheduledTasks,
+    pets,
   ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -65,6 +66,8 @@ export async function buildUserExport(userId) {
         periodConsentAt: true,
         periodToneAt: true,
         weatherPlace: true,
+        petFood: true,
+        activePetSpecies: true,
         createdAt: true,
       },
     }),
@@ -195,6 +198,11 @@ export async function buildUserExport(userId) {
         deliveries: { orderBy: { fireAt: 'asc' }, select: { fireAt: true, status: true, result: true, createdAt: true } },
       },
     }),
+    prisma.pet.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: { species: true, name: true, affection: true, growth: true, createdAt: true },
+    }),
   ])
 
   const bundle = {
@@ -219,6 +227,9 @@ export async function buildUserExport(userId) {
           periodToneAt: iso(user.periodToneAt),
           // 每日天气：你自己填的城市（不定位）
           weatherPlace: user.weatherPlace ?? null,
+          // 宠物：饲料与在养哪一只；每一只的数值在下面的 pets
+          petFood: user.petFood ?? 0,
+          activePetSpecies: user.activePetSpecies ?? null,
           createdAt: iso(user.createdAt),
         }
       : null,
@@ -280,6 +291,8 @@ export async function buildUserExport(userId) {
       updatedAt: iso(t.updatedAt),
       deliveries: (t.deliveries || []).map((d) => ({ fireAt: iso(d.fireAt), status: d.status, result: d.result ?? null, createdAt: iso(d.createdAt) })),
     })),
+    // 宠物：每一只的名字、好感度与成长值
+    pets: pets.map((p) => ({ species: p.species, name: p.name, affection: p.affection, growth: p.growth, createdAt: iso(p.createdAt) })),
     diaryEntries: diaryEntries.map((d) => ({
       day: iso(d.day),
       mood: d.mood,
