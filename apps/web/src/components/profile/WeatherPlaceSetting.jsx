@@ -4,26 +4,23 @@ import Card from '../ui/Card'
 import { weatherService } from '../../services/weatherService'
 import { useWeatherStore } from '../../stores/weatherStore'
 
-const placeLabel = (place) => [place.name, place.admin1, place.country].filter(Boolean).join(' · ')
+export const placeLabel = (place) => [place.name, place.admin1, place.country].filter(Boolean).join(' · ')
 
 const errorText = (error) => (error?.response?.status === 503
   ? '天气数据暂时连不上，稍后再试'
   : error?.response?.data?.error || '没找到，换个写法试试')
 
-// 天气：填一个城市就好，不定位。填了之后页头会有一行天气，她也会知道你那边冷不冷。
-export default function WeatherPlaceSetting() {
-  const weather = useWeatherStore((state) => state.weather)
-  const status = useWeatherStore((state) => state.status)
-  const load = useWeatherStore((state) => state.load)
+/**
+ * 找城市：输入 → 找一找 → 从候选里选一个就存下。不定位。
+ * 设置页的「天气」卡片与天气页（还没填城市、或想换一个时）共用。
+ */
+export function WeatherPlaceForm({ onSaved = undefined, placeholder = '你在哪个城市？比如：杭州' }) {
   const setPlace = useWeatherStore((state) => state.setPlace)
-  const clearPlace = useWeatherStore((state) => state.clearPlace)
   const [query, setQuery] = useState('')
   const [places, setPlaces] = useState(/** @type {any[] | null} */ (null))
   const [busy, setBusy] = useState(false)
   const [tip, setTip] = useState('')
   const [error, setError] = useState('')
-
-  useEffect(() => { load() }, [load])
 
   const search = async (event) => {
     event.preventDefault()
@@ -47,6 +44,7 @@ export default function WeatherPlaceSetting() {
       await setPlace(place)
       setPlaces(null); setQuery('')
       setTip(`记下了：${place.name}`)
+      onSaved?.(place)
     } catch (requestError) {
       setError(errorText(requestError))
     } finally {
@@ -54,13 +52,57 @@ export default function WeatherPlaceSetting() {
     }
   }
 
+  return (
+    <div className="space-y-3">
+      <form role="search" onSubmit={search} className="flex items-center gap-2">
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">城市名</span>
+          <input
+            value={query} onChange={(event) => setQuery(event.target.value)} maxLength={40} disabled={busy}
+            placeholder={placeholder}
+            className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-status-info"
+          />
+        </label>
+        <button type="submit" disabled={busy || !query.trim()} className="min-h-11 shrink-0 rounded-xl bg-action-primary px-4 text-sm font-semibold text-text-inverse disabled:opacity-50">
+          {busy && places === null ? '找…' : '找一找'}
+        </button>
+      </form>
+      {places && places.length > 0 && (
+        <ul aria-label="选一个城市" className="divide-y divide-border-subtle overflow-hidden rounded-xl ring-1 ring-border-hairline">
+          {places.map((place) => (
+            <li key={`${place.latitude},${place.longitude}`}>
+              <button type="button" disabled={busy} onClick={() => choose(place)} className="flex min-h-11 w-full items-center bg-surface-card px-3 text-left text-sm text-text-primary hover:bg-surface-muted disabled:opacity-50">
+                {placeLabel(place)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p aria-live="polite" className="min-h-5 text-xs text-text-secondary">
+        {error ? <span role="alert" className="text-danger">{error}</span> : tip}
+      </p>
+    </div>
+  )
+}
+
+// 设置里的「天气」：填一个城市就好，不定位。填了之后页头与天气页都有天气，她也会知道你那边冷不冷。
+export default function WeatherPlaceSetting() {
+  const weather = useWeatherStore((state) => state.weather)
+  const status = useWeatherStore((state) => state.status)
+  const load = useWeatherStore((state) => state.load)
+  const clearPlace = useWeatherStore((state) => state.clearPlace)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => { load() }, [load])
+
   const clear = async () => {
-    setBusy(true); setTip(''); setError('')
+    setBusy(true); setMessage('')
     try {
       await clearPlace()
-      setTip('清掉了，页头不再显示天气')
+      setMessage('清掉了，页头不再显示天气')
     } catch {
-      setError('没清掉，稍后再试')
+      setMessage('没清掉，稍后再试')
     } finally {
       setBusy(false)
     }
@@ -82,34 +124,9 @@ export default function WeatherPlaceSetting() {
         ) : status === 'error' ? (
           <p className="text-sm text-text-secondary">天气暂时取不到，城市还记着。</p>
         ) : null}
-        <form role="search" onSubmit={search} className="flex items-center gap-2">
-          <label className="min-w-0 flex-1">
-            <span className="sr-only">城市名</span>
-            <input
-              value={query} onChange={(event) => setQuery(event.target.value)} maxLength={40} disabled={busy}
-              placeholder={current ? '换一个城市' : '你在哪个城市？比如：杭州'}
-              className="min-h-11 w-full rounded-xl bg-surface-input px-3 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-status-info"
-            />
-          </label>
-          <button type="submit" disabled={busy || !query.trim()} className="min-h-11 shrink-0 rounded-xl bg-action-primary px-4 text-sm font-semibold text-text-inverse disabled:opacity-50">
-            {busy && places === null ? '找…' : '找一找'}
-          </button>
-        </form>
-        {places && places.length > 0 && (
-          <ul aria-label="选一个城市" className="divide-y divide-border-subtle overflow-hidden rounded-xl ring-1 ring-border-hairline">
-            {places.map((place) => (
-              <li key={`${place.latitude},${place.longitude}`}>
-                <button type="button" disabled={busy} onClick={() => choose(place)} className="flex min-h-11 w-full items-center px-3 text-left text-sm text-text-primary hover:bg-surface-muted disabled:opacity-50">
-                  {placeLabel(place)}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <WeatherPlaceForm placeholder={current ? '换一个城市' : '你在哪个城市？比如：杭州'} onSaved={() => setMessage('')} />
+        {message && <p aria-live="polite" className="text-xs text-text-secondary">{message}</p>}
         <p className="text-xs leading-relaxed text-text-muted">填一个城市就好，不用精确到街道，也不用定位。只用来查天气，也会让她知道你那边冷不冷；天气数据来自 Open-Meteo。</p>
-        <p aria-live="polite" className="min-h-5 text-xs text-text-secondary">
-          {error ? <span role="alert" className="text-danger">{error}</span> : tip}
-        </p>
       </section>
     </Card>
   )

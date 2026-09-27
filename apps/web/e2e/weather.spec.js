@@ -32,6 +32,7 @@ const mockApi = async (page, { placeSet }) => {
       '/api/asr/status': { available: false },
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
       '/api/admin/model-providers': { providers: [] },
+      '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat|avatar)$/.test(path)) return json(route, 404, {})
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) return json(route, 200, { minutes: 0, shouldRemind: false })
@@ -87,4 +88,23 @@ test('每日天气：没填城市时页头没有天气；设置里填了之后�
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(line).toBeFocused()
+})
+
+test('天气页：从导航进来，一大幅简笔画、一行天气和温度、一句温馨提醒；页头小卡片也能过来', async ({ page }) => {
+  await mockApi(page, { placeSet: true })
+  await page.goto('/chat')
+  await page.getByRole('button', { name: '明天 · 晴 6–12°' }).click()
+  await page.getByRole('link', { name: '去天气页看看' }).click()
+  await expect(page).toHaveURL(/\/tools\/weather$/)
+  await expect(page.getByText('杭州 · 明天')).toBeVisible()
+  await expect(page.locator('.weather-scene')).toHaveAttribute('data-kind', 'clear')
+  await expect(page.getByRole('heading', { name: '晴' })).toBeVisible()
+  const note = page.getByRole('button', { name: /点一下换一句/ })
+  await expect(note).toBeVisible()
+  // 明天比今天冷 7 度：先说降温
+  await expect(note).toContainText(/降温|冷一些/)
+  await expect(page.locator('body')).not.toContainText(/湿度|风速|气压|降水/)
+  await page.getByRole('button', { name: '看看今天' }).click()
+  await expect(page.getByText('杭州 · 今天')).toBeVisible()
+  await expect(page.locator('.weather-scene')).toHaveAttribute('data-kind', 'rain')
 })

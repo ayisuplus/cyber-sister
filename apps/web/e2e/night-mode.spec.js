@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
       '/api/admin/model-providers': { providers: [
         { id: 'night-provider', name: '夜里的家', baseUrl: 'https://api.night.example/compatible-mode/v1', model: 'night-chat', scenes: ['chat', 'explain'], priority: 1, enabled: true, hasKey: true },
       ] },
-      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null },
+      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null }, '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] },
       '/api/chat/openers': { openers: [] },
       '/api/asr/status': { available: false },
       '/api/user/profile': { careEnabled: true },
@@ -193,7 +193,7 @@ test('night mode: the phone navigation drawer stays dark and accessible at 320px
   const drawer = page.getByRole('dialog', { name: '导航抽屉', exact: true })
   await expect(drawer).toBeVisible()
   const nav = drawer.getByRole('navigation', { name: '页面导航' })
-  await expect(nav.getByRole('link')).toHaveCount(7)
+  await expect(nav.getByRole('link')).toHaveCount(9)
   await inspectSurface(page, testInfo, 'night-drawer-320')
   await nav.getByRole('link', { name: '日历', exact: true }).click()
   await expect(page).toHaveURL(/\/tools\/calendar$/)

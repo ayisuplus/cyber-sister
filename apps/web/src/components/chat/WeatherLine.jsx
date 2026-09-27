@@ -89,7 +89,7 @@ function WeatherCard({ weather, hour, onClose, triggerRef }) {
       </ul>
       {tip && <p className="mt-2 font-hand text-[14px] leading-relaxed text-text-secondary">{tip}</p>}
       <p className="mt-3 text-[10px] leading-relaxed text-text-muted">
-        数据来自 Open-Meteo · <Link to="/settings" className="underline underline-offset-2 hover:text-text-secondary">在设置里换城市</Link>
+        数据来自 Open-Meteo · <Link to="/tools/weather" className="underline underline-offset-2 hover:text-text-secondary">去天气页看看</Link>
       </p>
     </div>,
     document.body,

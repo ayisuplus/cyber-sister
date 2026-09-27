@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
     const responses = {
       '/api/chat/thread': { id: 'openers-e2e', messages: [] },
       '/api/chat/openers': { openers: OPENERS },
-      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null },
+      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null }, '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] },
       '/api/bridge': { bridges: [] },
       '/api/llm/status': { externalFallback: { configured: false, consent: true } },
       '/api/user/external-llm-consent': { accepted: true, version: 'cloud-primary-v1', updatedAt: null },

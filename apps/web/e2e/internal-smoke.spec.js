@@ -729,7 +729,7 @@ test('navigation: every entry lives in one list under the conversations, and old
 
   if (isMobile) await page.getByRole('button', { name: '打开导航', exact: true }).click()
   const nav = page.getByRole('navigation', { name: '页面导航' }).last()
-  const expected = [['对话', '/chat'], ['她', '/her'], ['日历', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['设置', '/settings']]
+  const expected = [['对话', '/chat'], ['她', '/her'], ['日历', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['天气', '/tools/weather'], ['宠物', '/tools/pet'], ['设置', '/settings']]
   await expect(nav.getByRole('link')).toHaveCount(expected.length)
   for (const [name, href] of expected) {
     await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href)

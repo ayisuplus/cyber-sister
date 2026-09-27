@@ -32,6 +32,7 @@ const mockApi = async (page, { placeSet }) => {
       '/api/asr/status': { available: false },
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
       '/api/admin/model-providers': { providers: [] },
+      '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat|avatar)$/.test(path)) return json(route, 404, {})
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) return json(route, 200, { minutes: 0, shouldRemind: false })
@@ -67,7 +68,7 @@ test('本子角上的小猫：点一下醒、来回摸会呼噜，摸它不翻�
   await page.goto('/chat')
   const cat = page.getByRole('button', { name: '摸摸小猫' })
   await expect(cat).toBeVisible()
-  await expect(cat).toHaveAttribute('data-frame', 'sleep')
+  await expect(cat).toHaveAttribute('data-mood', 'idle')
   // 小猫不挡页头的设置按钮
   const catBox = await cat.boundingBox()
   const settingsBox = await page.getByRole('link', { name: '打开设置' }).boundingBox()
@@ -76,7 +77,7 @@ test('本子角上的小猫：点一下醒、来回摸会呼噜，摸它不翻�
   expect(overlaps).toBe(false)
 
   await cat.click()
-  await expect(cat).toHaveAttribute('data-frame', 'peek')
+  await expect(cat).toHaveAttribute('data-mood', 'peek')
 
   const box = await cat.boundingBox()
   const cx = box.x + box.width / 2
@@ -84,7 +85,7 @@ test('本子角上的小猫：点一下醒、来回摸会呼噜，摸它不翻�
   await page.mouse.move(cx - 20, cy)
   await page.mouse.down()
   for (const dx of [20, -20, 20, -20]) await page.mouse.move(cx + dx, cy, { steps: 4 })
-  await expect(cat).toHaveAttribute('data-frame', 'purr')
+  await expect(cat).toHaveAttribute('data-mood', 'purr')
   await expect(page.getByText('呼噜呼噜…')).toBeVisible()
   await page.mouse.up()
 

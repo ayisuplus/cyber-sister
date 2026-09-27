@@ -15,7 +15,7 @@ describe('AppNav', () => {
     vi.stubEnv('VITE_APP_DISTRIBUTION', 'web')
     renderNav()
 
-    expect(links().map(link => link.textContent)).toEqual(['对话', '她', '日历', '手记', '读书', '装扮', '设置'])
+    expect(links().map(link => link.textContent)).toEqual(['对话', '她', '日历', '手记', '读书', '装扮', '天气', '宠物', '设置'])
     expect(screen.getByRole('link', { name: '对话' })).toHaveAttribute('href', '/chat')
     expect(screen.getByRole('link', { name: '手记' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: '设置' })).toHaveAttribute('href', '/settings')

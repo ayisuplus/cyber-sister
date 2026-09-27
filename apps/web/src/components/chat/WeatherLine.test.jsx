@@ -75,7 +75,7 @@ describe('WeatherLine', () => {
     expect(card).toHaveTextContent('降水 80%')
     expect(card).toHaveTextContent('明天降温了，多穿一件')
     expect(card).toHaveTextContent('数据来自 Open-Meteo')
-    expect(screen.getByRole('link', { name: '在设置里换城市' })).toHaveAttribute('href', '/settings')
+    expect(screen.getByRole('link', { name: '去天气页看看' })).toHaveAttribute('href', '/tools/weather')
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
 
     await user.keyboard('{Escape}')
