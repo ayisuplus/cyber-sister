@@ -16,7 +16,7 @@
 
 > **2026-09-23 她的来信更新**：「做梦 / 待确认 / 来信」收进一层「她的来信」——按用户设定的频率（`letterFreqDays` = 3/7 或空=不写）由服务器端根据记忆与近况写信，信里带 ≤3 条建议（改记忆 / 删记忆 / 安排一件事），看信时一键「同意采纳」或「带去对话」。`dreamEnabled`/`dreamt_at` 删除；`/api/derived*` 全部下线（派生草稿仍是内部层，写信前的回想产出、进信即消费）；记忆的版本恢复与整库清空接口（`GET /api/memories/:id/revisions`、`POST /api/memories/:id/restore`、`DELETE /api/memories`）一并删除；`/api/letters` 重新上线（见 §十四）。
 
-> **2026-09-27 每日天气**：新增 `/api/weather`（见「八·五、天气」）。城市由用户自己填、从候选里选，不定位；取不到如实 503 `WEATHER_UNAVAILABLE`。旧的 `/api/tools/weather` 假数据路由已于 09-19 删除，不复用。导出的 `user` 段多一项 `weatherPlace`。
+> **2026-09-27 每日天气与宠物**：新增 `/api/weather`（见「八·五、天气」）与 `/api/pets`（见「八·六、宠物」）。城市由用户自己填、从候选里选，不定位；取不到如实 503 `WEATHER_UNAVAILABLE`。旧的 `/api/tools/weather` 假数据路由已于 09-19 删除，不复用。导出的 `user` 段多 `weatherPlace`、`petFood`、`activePetSpecies`，另有 `pets` 段（每只的名字、好感度、成长值）。
 
 > **2026-09-13 记忆更新**：正式记忆支持修订、来源与关系重审；新增详情、恢复与数据库索引任务，旧重建接口改为 202。导出升级 v2，记忆导入携带预览版本。完整字段及兼容边界以[记忆系统接口合同](../09-参考/历史归档/记忆系统接口-20260913.md)为准。
 
@@ -726,6 +726,24 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 
 ---
 
+## 八·六、宠物 `/api/pets`（2026-09-27 起）
+
+内置 `cat | dog | rabbit | hamster` 四种，每人每种最多一只。好感度与成长值**只涨不掉**；日子按北京时间算。视图 `pet`：`{species, name, affection, growth, stage: {index, name, from, to|null}, hearts: 0–5, pettedToday, petCap}`。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/pets` | `{food, foodCap: 30, dailyFood: 3, claimedToday, active, pets: [pet]}`；只读，不发零食 |
+| POST | `/api/pets/daily` | 领今天的零食：`{granted, ...同上}`；同一北京日期再领 `granted: 0`，碗满（30）也算领过；并发只生效一次 |
+| POST | `/api/pets` | 领养 `{species, name?}`：名字去控制字符、最多 12 字，空则默认名（团子 / 豆豆 / 棉花 / 栗子）；已有这一种就只是换成在养它；不认识的种类 400 |
+| PUT | `/api/pets/active` | 换成在养 `{species}`；没领养过 404 |
+| PUT | `/api/pets/:species` | 改名 `{name}`；没领养过 404 |
+| POST | `/api/pets/:species/feed` | 用掉一份零食：成长值 +10、好感度 +2，返回 `{pet, food, gained, grewUp}`；没零食 409 `NO_FOOD` |
+| POST | `/api/pets/:species/pet` | 摸一摸：每只每天前 10 次好感度 +1，之后 `gained: 0`；返回 `{pet, gained}` |
+
+喂与摸按用户限流（每分钟 60 次）。前端一段摸的手势只报一次。
+
+---
+
 ## 十、模型状态 `/api/llm`
 
 ### GET /api/llm/status
@@ -930,6 +948,13 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           GET    /api/weather/places?q=  (找城市候选)
           PUT    /api/weather/place      (存下选中的城市)
           DELETE /api/weather/place
+宠物      GET    /api/pets               (零食、在养哪只、每只的数值)
+          POST   /api/pets/daily         (领今天的零食，一天一次)
+          POST   /api/pets               (领养 {species, name})
+          PUT    /api/pets/active        (换一只)
+          PUT    /api/pets/:species      (改名)
+          POST   /api/pets/:species/feed (喂一口；没零食 409)
+          POST   /api/pets/:species/pet  (摸一摸；每天前 10 次算数)
 装扮      GET    /api/collection?shelf=  (衣柜 wardrobe / 化妆间 makeup)
           POST   /api/collection         (multipart：文字字段 + 可选 photo/thumb 两张 JPEG)
           PUT    /api/collection/:id     (同上，柜子不能换)
