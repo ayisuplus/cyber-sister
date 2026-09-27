@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "created": "2026-09-27",
+  "status": "pending_product_owner_review",
+  "use": "Notebook cat on the chat page (roadmap C17). Decorative (alt=\"\"); the button carries aria-label 摸摸小猫.",
+  "generator": "Local ComfyUI (127.0.0.1:8188), template image_flux2_klein_image_edit_9b_distilled",
+  "model": "flux-2-klein-9b-fp8.safetensors",
+  "textEncoder": "qwen_3_8b_fp8mixed.safetensors",
+  "vae": "full_encoder_small_decoder.safetensors",
+  "steps": 4,
+  "styleReference": "Crop of design-assets/empty-state-chat.png (the sleeping cat on the cover), upscaled 3x",
+  "frames": {
+    "sleep": {
+      "source": "style reference",
+      "seed": 927003,
+      "promptId": "c1f71b0b-c7fe-4b24-bbfa-2e653b7a3282",
+      "prompt": "Isolate this sleeping cat as a cute sticker: the same cat, same curled-up sleeping pose, same thick dark navy outline, white fur with light grey tabby stripes, pink ears and pink blush cheeks. Place it alone in the center on a plain flat pale mint green background, with nothing else in the image. Flat pastel colors, no shading, no text."
+    },
+    "peek": {
+      "source": "sleep frame",
+      "seed": 927104,
+      "promptId": "7beabab4-1ca9-43aa-a06f-8b807c2f39fd",
+      "prompt": "Change only the eyes: both eyes open halfway as small round sleepy dots, the cat has just been woken gently and looks up drowsy and sweet, no eyebrows, no frown, tiny neutral mouth. The body stays curled up exactly as before. Keep the same cat, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+    },
+    "purr": {
+      "source": "sleep frame",
+      "seed": 927201,
+      "promptId": "bb7c5813-0d8b-425b-8313-a7ba5c8c0afc",
+      "prompt": "Change only the face: both eyes are closed in happy upward curves like a blissful smile, the mouth is a tiny happy 'w' shape, the blush cheeks are a little pinker, as if the cat is being gently petted and purring. The body stays curled up exactly as before. Keep the same cat, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+    },
+    "stretch": {
+      "source": "sleep frame",
+      "seed": 927301,
+      "promptId": "72f61994-19f8-4056-b2f5-6ebdf120928d",
+      "prompt": "The cat now does a lazy happy stretch while still lying down: front paws stretched forward, body slightly elongated, eyes closed in happy arcs, tail relaxed. Keep the same cat, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+    }
+  },
+  "processing": "Flat mint background keyed out (colour distance < 34 from the border median, regions >= 150 px, so gaps between paws go too), 1.1 px feathered edge; all four frames cropped to one shared box so they line up; resized to 264x192 (88 css px at 3x); WebP q88. Script: asset-work/cat-20260927/cutout.py",
+  "qa": "Contact sheet on light and dark paper at full and on-screen size; in-app screenshots (desktop, Pixel 7, dark theme, reduced motion) checked for legibility and overlap with the header settings button",
+  "rejectedCandidates": [
+    {
+      "frame": "sleep",
+      "seeds": [
+        927001,
+        927002
+      ],
+      "reason": "Near-identical to 927003; 927001 more saturated pinks"
+    },
+    {
+      "frame": "peek",
+      "seeds": [
+        927101,
+        927102
+      ],
+      "reason": "One-eye-open read as grumpy or smug"
+    },
+    {
+      "frame": "peek",
+      "seeds": [
+        927103
+      ],
+      "reason": "Wide eyes with a sad mouth"
+    },
+    {
+      "frame": "purr",
+      "seeds": [
+        927202
+      ],
+      "reason": "Tongue out; 927201 cleaner"
+    },
+    {
+      "frame": "stretch",
+      "seeds": [
+        927302
+      ],
+      "reason": "Stretch too subtle to read at 88 px"
+    }
+  ],
+  "rawWork": "E:/projects/电子闺蜜/asset-work/cat-20260927/ (outside the repo)",
+  "files": [
+    {
+      "file": "cat-sleep.webp",
+      "bytes": 12594,
+      "sha256": "8d3456fc18aa7ad9dea98e2042e9af7f6d73dcea2838f7b09a1b2fb9d08a3fc9"
+    },
+    {
+      "file": "cat-peek.webp",
+      "bytes": 13054,
+      "sha256": "bfa347756a92b32fb3520f918743b1525e911b010b9e0884be43131cd37cc664"
+    },
+    {
+      "file": "cat-purr.webp",
+      "bytes": 13044,
+      "sha256": "3697e06525d83b207ba740aa085b602b9f4578e6e3b20b2359d3961eba3ff1e1"
+    },
+    {
+      "file": "cat-stretch.webp",
+      "bytes": 15088,
+      "sha256": "b4abc6bd9a31ab6d2a83bc93468245abb7d50a3eb599cceaf348526cc1bfc2f3"
+    }
+  ]
+}
