@@ -20,6 +20,7 @@ import UsageReminder from '../components/chat/UsageReminder'
 import AmbientMedia from '../components/work/AmbientMedia'
 import Openers from '../components/chat/Openers'
 import HerNudges from '../components/chat/HerNudges'
+import NotebookCat from '../components/chat/NotebookCat'
 import { DoodleField, LeafSprig, Squiggle } from '../components/chat/Doodles'
 import { useWorkTasks } from '../hooks/useWorkTasks'
 import WorkTaskPanel from '../components/work/WorkTaskPanel'
@@ -196,8 +197,10 @@ export default function ChatPage() {
         <CloudFallbackNotice onClose={() => setFallbackNoticeState(null)} />
       )}
 
-      {/* 一个本子：左边一条封皮，翻页绕它翻；封面是第一页，最底下那一行是你落笔的地方 */}
-      <div className="letter relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-2 pb-1 pt-2 min-[641px]:px-5">
+      {/* 一个本子：左边一条封皮，翻页绕它翻；封面是第一页，最底下那一行是你落笔的地方。
+          本子上面留出一点地方，给趴在右上角的小猫 */}
+      <div className="letter relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-2 pb-1 pt-6 min-[641px]:px-5">
+        <NotebookCat />
         <div className="letter-book min-h-0 flex-1">
           <div aria-hidden="true" className="letter-spine" />
           <div className="letter-sheet min-h-0">

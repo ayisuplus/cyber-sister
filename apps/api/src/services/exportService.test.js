@@ -20,6 +20,7 @@ const db = vi.hoisted(() => ({
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
   scheduledTaskFindMany: vi.fn(),
+  petFindMany: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -46,6 +47,7 @@ vi.mock('../prisma/client.js', () => {
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
     scheduledReminder: { findMany: db.scheduledTaskFindMany },
+    pet: { findMany: db.petFindMany },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -77,7 +79,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'petFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -104,7 +106,7 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.memories).toEqual([])
   })
 
-  it('全部 18 张表按当前用户过滤查询', async () => {
+  it('全部 19 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
@@ -112,7 +114,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'derivedFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'edgeFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'petFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: { userId: 'user-1' },

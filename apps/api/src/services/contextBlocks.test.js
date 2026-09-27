@@ -7,6 +7,7 @@ import {
   momentBlock,
   recentNudgesBlock,
   rememberOfferBlock,
+  weatherBlock,
 } from './contextBlocks.js'
 
 // 2026-09-21 23:40 北京时间 = 15:40 UTC；测试机设在哪个时区都应得出同样的结果
@@ -86,6 +87,43 @@ describe('你今天主动对她说过', () => {
 
   it('今天什么都没说就不占上下文', () => {
     expect(recentNudgesBlock([])).toBeNull()
+  })
+})
+
+describe('她那边的天气', () => {
+  const weather = {
+    place: { name: '杭州', admin1: '浙江', country: '中国' },
+    current: { temperature: 18, condition: '小雨', icon: 'rain' },
+    today: { date: '2026-09-27', condition: '小雨', icon: 'rain', min: 14, max: 19, precipitation: 80 },
+    tomorrow: { date: '2026-09-28', condition: '晴', icon: 'clear', min: 6, max: 12, precipitation: 0 },
+  }
+
+  it('写她自己填的城市、此刻与两天预报，降温要点出来', () => {
+    const { role, content } = weatherBlock(weather)
+    expect(role).toBe('system')
+    expect(content).toContain('「杭州」（她自己填的，不是定位）')
+    expect(content).toContain('现在 18°、小雨')
+    expect(content).toContain('今天小雨 14–19°，降水概率 80%')
+    expect(content).toContain('明天晴 6–12°（明天明显降温）')
+  })
+
+  it('只在相关话题时带到，倾诉时不主动提、不拿来开场', () => {
+    const { content } = weatherBlock(weather)
+    expect(content).toContain('这只是资料')
+    expect(content).toContain('倾诉时不要主动提天气')
+    expect(content).toContain('不要拿天气当开场白')
+  })
+
+  it('降水概率低时不写，没有此刻读数时也不编', () => {
+    const { content } = weatherBlock({ ...weather, current: null })
+    expect(content).not.toContain('现在')
+    expect(content).not.toContain('降水概率 0%')
+  })
+
+  it('没填城市或预报不全时整块不出现', () => {
+    expect(weatherBlock(null)).toBeNull()
+    expect(weatherBlock({ place: null })).toBeNull()
+    expect(weatherBlock({ ...weather, tomorrow: null })).toBeNull()
   })
 })
 

@@ -88,6 +88,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@chinese-fonts/mkwtyt':
+        specifier: 3.0.0
+        version: 3.0.0
       axios:
         specifier: ^1.7.4
         version: 1.20.0
@@ -310,6 +313,9 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
+
+  '@chinese-fonts/mkwtyt@3.0.0':
+    resolution: {integrity: sha512-kCZ1i5X4iRI/usgQqp/tEwH6vBH6A5urBsLAgHq2EI7/15XOSA53c4Hy67OFYCwc/k6NQoidJVsqXOpp5qULBw==}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -4049,6 +4055,8 @@ snapshots:
   '@bcoe/v8-coverage@0.2.3': {}
 
   '@bcoe/v8-coverage@1.0.2': {}
+
+  '@chinese-fonts/mkwtyt@3.0.0': {}
 
   '@csstools/color-helpers@5.1.0': {}
 

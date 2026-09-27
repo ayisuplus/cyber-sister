@@ -1,0 +1,96 @@
+{
+  "generator": "Local ComfyUI (127.0.0.1:8188), template image_flux2_klein_image_edit_9b_distilled",
+  "model": "flux-2-klein-9b-fp8.safetensors",
+  "textEncoder": "qwen_3_8b_fp8mixed.safetensors",
+  "vae": "full_encoder_small_decoder.safetensors",
+  "steps": 4,
+  "styleReference": "The sleeping cat sticker (cat sleep frame, seed 927003), itself drawn from design-assets/empty-state-chat.png",
+  "processing": "Flat mint background keyed out: regions within colour distance 34 of the border median that touch the canvas edge, plus enclosed regions >= 150 px whose mean distance is < 16 (gaps between paws; light-grey clouds stay); 1.1 px feathered edge; WebP. Script: asset-work/pets-weather-20260927/cutout_all.py",
+  "rawWork": "E:/projects/电子闺蜜/asset-work/pets-weather-20260927/ and cat-20260927/ (outside the repo)",
+  "version": 1,
+  "created": "2026-09-27",
+  "status": "pending_product_owner_review",
+  "use": "Weather page scene, centred on a 600 px square; CSS adds the gentle motion (sway, drift, falling drops/flakes). Decorative (alt=\"\").",
+  "frames": {
+    "clear": {
+      "seed": 928102,
+      "promptId": "1b825974-74a9-40aa-bf7f-7e0dcd8a1446",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a cute round smiling sun with short rounded rays, happy closed eyes and pink blush cheeks, soft pastel yellow. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "partly": {
+      "seed": 928112,
+      "promptId": "2dcad3ef-537e-4033-b263-a59fe77c8717",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a cute smiling little sun peeking out from behind a fluffy white cloud; both have tiny happy faces with pink blush. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "cloudy": {
+      "seed": 928121,
+      "promptId": "027b013e-c59b-466a-8d4b-b3d1eef7b853",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a big fluffy soft light grey cloud with a calm sleepy smiling face and pink blush cheeks. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "fog": {
+      "seed": 928132,
+      "promptId": "93c9731d-a51d-41ae-b762-9584baa6752a",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a sleepy soft white cloud with a drowsy face and pink blush, with three gentle wavy mist lines drifting below it. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "rain": {
+      "seed": 928142,
+      "promptId": "684dc249-4133-4e92-bf1e-e174977c17a8",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a soft pale blue-grey cloud with a gentle face and pink blush, holding a tiny pink umbrella, with a few round light blue raindrops falling below it. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "snow": {
+      "seed": 928152,
+      "promptId": "398a599e-62ff-4ae5-b545-c774b875efa8",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a small round cute snowman wearing a soft pink knitted scarf, happy face and pink blush, with a few simple snowflakes around it. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    },
+    "thunder": {
+      "seed": 928162,
+      "promptId": "7ab00368-3a57-457e-84b1-35af03ac5a8e",
+      "source": "c1f71b0b_000.png",
+      "prompt": "Replace the cat with a cute slightly worried grey cloud hugging itself, pink blush cheeks, with one small rounded pastel yellow lightning bolt below it. Gentle and cute, not scary. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+    }
+  },
+  "rejectedCandidates": "The other seed of each pair (a/b) is kept in asset-work only.",
+  "files": [
+    {
+      "file": "weather/clear.webp",
+      "bytes": 38096,
+      "sha256": "68b18744068961443cd5268a67dd97e71166df8677beb3db9e76176f38de1745"
+    },
+    {
+      "file": "weather/partly.webp",
+      "bytes": 25218,
+      "sha256": "c127d76da304bd0477c3b30025bdefc84220db3cf03add4b0c8abc0bb5786d4f"
+    },
+    {
+      "file": "weather/cloudy.webp",
+      "bytes": 22518,
+      "sha256": "18c4414abe2b468cf6c9fbffc45c1faa04ae85d09f417b2a47b3bc8f1026c0be"
+    },
+    {
+      "file": "weather/fog.webp",
+      "bytes": 28612,
+      "sha256": "be075e9fa7ed95b89421081ffe711067eac23edba172ee6d79977765248b2029"
+    },
+    {
+      "file": "weather/rain.webp",
+      "bytes": 31766,
+      "sha256": "09a5b04d2bad43662bd285c8332c49a058e0268f64c04ac2a8bd014d179ba0e9"
+    },
+    {
+      "file": "weather/snow.webp",
+      "bytes": 49012,
+      "sha256": "09baae5e4271667de812f34696602b9b4b21eb97922367bb02da02a3ed280ac8"
+    },
+    {
+      "file": "weather/thunder.webp",
+      "bytes": 26362,
+      "sha256": "bc521d032b30fac0c17897a525f6b2833094e3ecd8276695c8eb2ddcf515aadb"
+    }
+  ]
+}

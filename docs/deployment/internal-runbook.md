@@ -54,6 +54,8 @@ wc -c < /absolute/private/secrets/model_config_key   # 65：64 位十六进制 +
 
 file-backed Compose secrets 会保留宿主机数值 UID/权限。固定镜像中的 Node 用户为 UID/GID `1000:1000`；在普通 rootful Docker 主机上，应由管理员把 `DATABASE_PASSWORD_FILE`、两个 JWT、固定码、测试手机号、实例管理员和模型主密钥这七个文件设为 `1000:1000`、模式 `0400`。`POSTGRES_PASSWORD_FILE` 单独授予固定 PostgreSQL 镜像中的 postgres 用户读取权限并保持 `0400`。私密目录只允许管理员和对应映射用户遍历。TLS 私钥需让 edge 镜像的非 root nginx 用户可读；不要通过放宽为全局可读来解决。rootless/userns-remap 主机必须按其 UID 映射调整，并以启动前预检结果为准。
 
+每日天气（2026-09-27，路线图 C17）默认开启、不需要密钥：API 容器经 `app` 网络直接访问 `geocoding-api.open-meteo.com` 与 `api.open-meteo.com`（HTTPS）。主机或上游防火墙若限制出站，需放行这两个域名；不想开时在私密 env 文件写 `WEATHER_ENABLED=false`，接口如实 503，界面不显示天气，她也不知道天气。首次部署由 `migration` 服务执行 `20260927120000_weather_place`（`users` 加一列 `weather_place`，可空）与 `20260927180000_pets`（新表 `pets`，`users` 加 `pet_food` 默认 0、`pet_food_day` 与 `active_pet_species` 可空），都不改旧数据。
+
 如配置 `CRISIS_RESOURCES_JSON`，只允许使用已批准的资源，不得加入未经核验的热线号码或“24 小时”等可用性声明。私密运行配置本身也应设为 `0600`。
 
 ## 3. 构建、迁移与启动

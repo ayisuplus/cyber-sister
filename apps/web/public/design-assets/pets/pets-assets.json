@@ -1,0 +1,292 @@
+{
+  "generator": "Local ComfyUI (127.0.0.1:8188), template image_flux2_klein_image_edit_9b_distilled",
+  "model": "flux-2-klein-9b-fp8.safetensors",
+  "textEncoder": "qwen_3_8b_fp8mixed.safetensors",
+  "vae": "full_encoder_small_decoder.safetensors",
+  "steps": 4,
+  "styleReference": "The sleeping cat sticker (cat sleep frame, seed 927003), itself drawn from design-assets/empty-state-chat.png",
+  "processing": "Flat mint background keyed out: regions within colour distance 34 of the border median that touch the canvas edge, plus enclosed regions >= 150 px whose mean distance is < 16 (gaps between paws; light-grey clouds stay); 1.1 px feathered edge; WebP. Script: asset-work/pets-weather-20260927/cutout_all.py",
+  "rawWork": "E:/projects/电子闺蜜/asset-work/pets-weather-20260927/ and cat-20260927/ (outside the repo)",
+  "version": 1,
+  "created": "2026-09-27",
+  "status": "pending_product_owner_review",
+  "use": "Pet page (large, 640 px wide) and the notebook corner (-sm, 264 px). Decorative (alt=\"\"); the buttons carry the labels.",
+  "frames": {
+    "cat": {
+      "sleep": {
+        "seed": 927003,
+        "promptId": "c1f71b0b-c7fe-4b24-bbfa-2e653b7a3282"
+      },
+      "awake": {
+        "seed": 927104,
+        "promptId": "7beabab4-1ca9-43aa-a06f-8b807c2f39fd"
+      },
+      "happy": {
+        "seed": 927201,
+        "promptId": "bb7c5813-0d8b-425b-8313-a7ba5c8c0afc"
+      },
+      "stretch": {
+        "seed": 927301,
+        "promptId": "72f61994-19f8-4056-b2f5-6ebdf120928d"
+      },
+      "eat": {
+        "seed": 929020,
+        "promptId": "a714e60c-f16c-49e1-839b-c595c841db55",
+        "source": "c1f71b0b_000.png",
+        "prompt": "The cat is now awake, lifting its head a little and happily eating from a small round pastel pink bowl placed right in front of its face, eyes closed in happy arcs, cheeks a little puffed. Keep the same body pose, size and position. Keep the same cat, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      }
+    },
+    "dog": {
+      "sleep": {
+        "seed": 928202,
+        "promptId": "0d322c94-f9fc-4fae-8e0f-fd4d7691d511",
+        "source": "c1f71b0b_000.png",
+        "prompt": "Replace the cat with a cute round fluffy white puppy with floppy light cream ears and a small cream patch on its back, curled up sleeping in the same pose and the same size, eyes closed, tail wrapped around. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+      },
+      "awake": {
+        "seed": 929001,
+        "promptId": "60a3ce49-669a-417a-9b01-f832163789f5",
+        "source": "dog-sleep-b.png",
+        "prompt": "Change only the eyes: both eyes open as small round shiny dots, the puppy has just woken up and looks up sweet and curious, with a tiny smiling mouth. The body stays curled up exactly as before. Keep the same puppy, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "happy": {
+        "seed": 929004,
+        "promptId": "028abed6-b1bf-4a85-9e0c-6c93a4f5e9b5",
+        "source": "dog-sleep-b.png",
+        "prompt": "Change only the face: both eyes closed in happy upward curves like a blissful smile, a tiny happy mouth, the blush cheeks a little pinker, as if it is being gently petted. The body stays curled up exactly as before. Keep the same puppy, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "eat": {
+        "seed": 929006,
+        "promptId": "6596ffb5-7659-4294-8194-4827cd75855b",
+        "source": "dog-sleep-b.png",
+        "prompt": "The puppy is now awake, lifting its head a little and happily eating from a small round pastel pink bowl placed right in front of its face, eyes closed in happy arcs, cheeks a little puffed. Keep the same body pose, size and position. Keep the same puppy, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      }
+    },
+    "rabbit": {
+      "sleep": {
+        "seed": 928302,
+        "promptId": "71628ced-5604-4e5d-95fc-352692838fec",
+        "source": "c1f71b0b_000.png",
+        "prompt": "Replace the cat with a cute round white bunny with long soft ears lying flat along its back with pink inner ears, curled up sleeping in the same pose and the same size, eyes closed, a small fluffy round tail. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+      },
+      "awake": {
+        "seed": 929007,
+        "promptId": "adaf6f0d-f194-4399-bd28-55de673afa64",
+        "source": "rabbit-sleep-b.png",
+        "prompt": "Change only the eyes: both eyes open as small round shiny dots, the bunny has just woken up and looks up sweet and curious, with a tiny smiling mouth. The body stays curled up exactly as before. Keep the same bunny, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "happy": {
+        "seed": 929009,
+        "promptId": "a82ff84c-7bd9-46c1-9ab1-2fda49236c98",
+        "source": "rabbit-sleep-b.png",
+        "prompt": "Change only the face: both eyes closed in happy upward curves like a blissful smile, a tiny happy mouth, the blush cheeks a little pinker, as if it is being gently petted. The body stays curled up exactly as before. Keep the same bunny, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "eat": {
+        "seed": 929011,
+        "promptId": "07203e1b-813e-484d-bdf0-08ac1479c2bc",
+        "source": "rabbit-sleep-b.png",
+        "prompt": "The bunny is now awake, lifting its head a little and happily eating from a small round pastel pink bowl placed right in front of its face, eyes closed in happy arcs, cheeks a little puffed. Keep the same body pose, size and position. Keep the same bunny, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      }
+    },
+    "hamster": {
+      "sleep": {
+        "seed": 928402,
+        "promptId": "11315c6c-5324-4853-a87f-e7002862f0fa",
+        "source": "c1f71b0b_000.png",
+        "prompt": "Replace the cat with a cute chubby round hamster with soft golden-orange back and white belly, tiny round ears, curled up sleeping like a little ball in the same size, eyes closed. Same cute sticker drawing style as the reference: thick smooth dark navy outline, white sticker border, flat soft pastel colors, pink blush cheeks, no shading, no text. Centered alone on the same plain flat pale mint green background."
+      },
+      "awake": {
+        "seed": 929013,
+        "promptId": "b62eed96-dc89-4b4f-b37a-412262f571c1",
+        "source": "hamster-sleep-b.png",
+        "prompt": "Change only the eyes: both eyes open as small round shiny dots, the hamster has just woken up and looks up sweet and curious, with a tiny smiling mouth. The body stays curled up exactly as before. Keep the same hamster, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "happy": {
+        "seed": 929016,
+        "promptId": "6bb7330a-7996-4ff9-b2d3-f829f6a745d9",
+        "source": "hamster-sleep-b.png",
+        "prompt": "Change only the face: both eyes closed in happy upward curves like a blissful smile, a tiny happy mouth, the blush cheeks a little pinker, as if it is being gently petted. The body stays curled up exactly as before. Keep the same hamster, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      },
+      "eat": {
+        "seed": 929018,
+        "promptId": "f9061e01-fffe-4746-9454-2523fb400fd3",
+        "source": "hamster-sleep-b.png",
+        "prompt": "The hamster is now awake, lifting its head a little and happily eating from a small round pastel pink bowl placed right in front of its face, eyes closed in happy arcs, cheeks a little puffed. Keep the same body pose, size and position. Keep the same hamster, the same drawing style, the same thick dark navy outline and white sticker border, the same size and the same position in the frame, on the same plain flat pale mint green background. Flat pastel colors, no shading, no text."
+      }
+    }
+  },
+  "catPrompts": "Cat sleep/awake/happy/stretch come from the first round (seeds 927003/927104/927201/927301); their prompts are in asset-work/cat-20260927/prompts-variants.json and the earlier cat-assets.json.",
+  "rejectedCandidates": "Each frame had two seeds (a/b); the unchosen seed of every pair is kept in asset-work only. Cat peek seeds 927101-927103 were rejected earlier (grumpy / smug / sad).",
+  "files": [
+    {
+      "file": "pets/cat/sleep.webp",
+      "bytes": 30376,
+      "sha256": "9dc0c3c1110187ec9b8617b150a3ab1a96e428129185e99490fb441617114b72"
+    },
+    {
+      "file": "pets/cat/sleep-sm.webp",
+      "bytes": 12594,
+      "sha256": "8d3456fc18aa7ad9dea98e2042e9af7f6d73dcea2838f7b09a1b2fb9d08a3fc9"
+    },
+    {
+      "file": "pets/cat/awake.webp",
+      "bytes": 30052,
+      "sha256": "1ceac17dea1849f8791bce70736011445a3171fc412faa420716b9d33c84d5d9"
+    },
+    {
+      "file": "pets/cat/awake-sm.webp",
+      "bytes": 13054,
+      "sha256": "bfa347756a92b32fb3520f918743b1525e911b010b9e0884be43131cd37cc664"
+    },
+    {
+      "file": "pets/cat/happy.webp",
+      "bytes": 31310,
+      "sha256": "77b02aaac8f44122661e4b7dfcb13912b9267960daa2e4d8f3b3d6e3742a6682"
+    },
+    {
+      "file": "pets/cat/happy-sm.webp",
+      "bytes": 13044,
+      "sha256": "3697e06525d83b207ba740aa085b602b9f4578e6e3b20b2359d3961eba3ff1e1"
+    },
+    {
+      "file": "pets/cat/stretch.webp",
+      "bytes": 34810,
+      "sha256": "8907ebf6cf0d80ba17f9b8f5e3ff352174704f74271348706b0a530b5720584d"
+    },
+    {
+      "file": "pets/cat/stretch-sm.webp",
+      "bytes": 14070,
+      "sha256": "2b9a310c66990bf1efd4dca7d7f1c8542e9583922581f832fb478f3938ade4e6"
+    },
+    {
+      "file": "pets/cat/eat.webp",
+      "bytes": 31782,
+      "sha256": "b452e8df1e0d814242b3e382a350b8ab6a871bc2822856d6106cc86bac270e20"
+    },
+    {
+      "file": "pets/cat/eat-sm.webp",
+      "bytes": 13480,
+      "sha256": "1c462d9db4c0ad0ab7ac14f30aca15791e760e6e9530f5e181802d2425668baa"
+    },
+    {
+      "file": "pets/dog/sleep.webp",
+      "bytes": 29128,
+      "sha256": "770a5038daa95b26ba1c257e9a7d9895e4d2d1675fb1992922ada1d2637cb680"
+    },
+    {
+      "file": "pets/dog/sleep-sm.webp",
+      "bytes": 11704,
+      "sha256": "d6015121ae84b80cc386937157171cd76159a74e1fd056cf7f0bb8b0d280879b"
+    },
+    {
+      "file": "pets/dog/awake.webp",
+      "bytes": 29366,
+      "sha256": "1fc2896bd05bbad4d02b3f472afc3503aecfa47cf67a4a63ec280cbcbc9a203c"
+    },
+    {
+      "file": "pets/dog/awake-sm.webp",
+      "bytes": 12012,
+      "sha256": "3debc52b00b2bc73c096844fe528b1b583fdd5339ffc265e6deb349a7360c2c7"
+    },
+    {
+      "file": "pets/dog/happy.webp",
+      "bytes": 29226,
+      "sha256": "25606ac1b589034751aad907aacd53b6c9c9cc3e54f2d0caf54abe3b21405d3b"
+    },
+    {
+      "file": "pets/dog/happy-sm.webp",
+      "bytes": 12076,
+      "sha256": "9b41313ebdc741bcd09709a249b908a67967b5629a3b6586e7491aeb2075e9ad"
+    },
+    {
+      "file": "pets/dog/eat.webp",
+      "bytes": 31106,
+      "sha256": "8a4f9d09f1b75f310eeb5ab9ae9bc2c438730b65943cf9421b310ee012161c79"
+    },
+    {
+      "file": "pets/dog/eat-sm.webp",
+      "bytes": 12540,
+      "sha256": "dd0c6594b8b485a0c2e929534f0fc27d0602b02f0c95cdafdd8f7d08092caf91"
+    },
+    {
+      "file": "pets/rabbit/sleep.webp",
+      "bytes": 29062,
+      "sha256": "d3690af543eaa4e47902050bf7407a726cee3e50c6b254673587e3a61da3f2ed"
+    },
+    {
+      "file": "pets/rabbit/sleep-sm.webp",
+      "bytes": 12008,
+      "sha256": "4d9a5378c9b008808bdf5ff8bb14e6ca84b957c447b4d3517ec536fc54020360"
+    },
+    {
+      "file": "pets/rabbit/awake.webp",
+      "bytes": 31156,
+      "sha256": "c9709e704477fb09062d1c8debca506c0f5d2313d7b600bb826c6c39d0ac9aad"
+    },
+    {
+      "file": "pets/rabbit/awake-sm.webp",
+      "bytes": 12536,
+      "sha256": "b4ca94005f84e70d3669a7c6952c2cf875f5a4118040eaa47fe68c7c30f1fb49"
+    },
+    {
+      "file": "pets/rabbit/happy.webp",
+      "bytes": 30114,
+      "sha256": "bfeb5db6bfcba5b299536cb5869b13b29ed9e675210c1fcbf77d3cb8e9051d2f"
+    },
+    {
+      "file": "pets/rabbit/happy-sm.webp",
+      "bytes": 12270,
+      "sha256": "ed53a4a4a79d05e758b583920a75026e39dfee6b27466e6ba2b0fe251caa776f"
+    },
+    {
+      "file": "pets/rabbit/eat.webp",
+      "bytes": 33260,
+      "sha256": "928e1b91ed88bd853361f7e95dc434656ea6bd7686461272f6cd9a58b0e22b47"
+    },
+    {
+      "file": "pets/rabbit/eat-sm.webp",
+      "bytes": 13376,
+      "sha256": "f1e0080546c81ab56041c8d2204e74cbbe356dba5be0fc79707322ed210e0a9f"
+    },
+    {
+      "file": "pets/hamster/sleep.webp",
+      "bytes": 31272,
+      "sha256": "c5e5a9b47ec4fa523f09d048497ff558fdaa4bb74ea5f0f0cf9613529ea7ed62"
+    },
+    {
+      "file": "pets/hamster/sleep-sm.webp",
+      "bytes": 12276,
+      "sha256": "ab7aa14d474d31016de07c624b75f12fe40a64cb45f264bf95a866b0b853a95c"
+    },
+    {
+      "file": "pets/hamster/awake.webp",
+      "bytes": 32768,
+      "sha256": "13738a2c48f1bc6eb6c96cf9d1bbfe7a758881b0618c5502236d57016726312f"
+    },
+    {
+      "file": "pets/hamster/awake-sm.webp",
+      "bytes": 13044,
+      "sha256": "1f7a1ab1a80ea1609d37379c6230a3f729bfc5c804c15e2e6bd151ca1a4380d6"
+    },
+    {
+      "file": "pets/hamster/happy.webp",
+      "bytes": 32046,
+      "sha256": "bc99ff1dee4800413c35987a3042f88460219a0f90b00d55b4d0aac0d55a1217"
+    },
+    {
+      "file": "pets/hamster/happy-sm.webp",
+      "bytes": 12710,
+      "sha256": "2d5b9b914057d18194b433ae8563c6e8da09133d86790f057032c2e151b97a30"
+    },
+    {
+      "file": "pets/hamster/eat.webp",
+      "bytes": 35670,
+      "sha256": "1ce964edac9aea0252e857a694630b8d89a7caaf4ef66e2e26067345e3005762"
+    },
+    {
+      "file": "pets/hamster/eat-sm.webp",
+      "bytes": 14072,
+      "sha256": "36b75a2d2de2b06d8ece63f3e3f65c57afb64c9b3a13acfd0645be3221086c7a"
+    }
+  ]
+}

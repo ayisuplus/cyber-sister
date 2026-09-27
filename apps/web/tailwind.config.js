@@ -65,6 +65,8 @@ export default {
         serif: 'var(--cs-font-display)',
         display: 'var(--cs-font-display)',
         hand: 'var(--cs-font-hand)',
+        // 猫啃网糖圆体：天气页的温馨提醒与宠物页（圆圆的、软软的）；缺字时退回手写体
+        round: ['"MaoKenTangYuan (beta)"', 'var(--cs-font-hand)'],
         mono: ['SFMono-Regular', 'Consolas', 'monospace'],
       },
       boxShadow: {
