@@ -79,7 +79,7 @@ function WeatherCard({ weather, hour, onClose, triggerRef }) {
     >
       <div className="mb-1 flex items-start justify-between gap-2">
         <h3 id={titleId} className="font-hand text-[15px] tracking-[0.04em] text-text-primary">{where}</h3>
-        <button type="button" onClick={onClose} aria-label="收起天气" className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded-full text-text-muted hover:bg-surface-muted">
+        <button type="button" onClick={onClose} aria-label="收起天气" className="-mr-3 -mt-3 flex h-11 w-11 items-center justify-center rounded-full text-text-muted hover:bg-surface-muted">
           <X size={16} aria-hidden="true" />
         </button>
       </div>
@@ -142,7 +142,7 @@ export default function WeatherLine() {
         aria-expanded={open}
         aria-haspopup="dialog"
         title={showsTomorrow(hour) ? '看看明天的天气' : '看看今天的天气'}
-        className="-ml-1 flex max-w-[11rem] items-center gap-1 rounded-full px-1 py-0.5 font-hand text-[12px] leading-tight text-text-muted transition-colors duration-200 ease-calm hover:text-text-secondary min-[400px]:max-w-[14rem]"
+        className="-my-3 -ml-1 flex min-h-11 max-w-[11rem] items-center gap-1 rounded-full px-1 py-3 font-hand text-[12px] leading-tight text-text-muted transition-colors duration-200 ease-calm hover:text-text-secondary min-[400px]:max-w-[14rem]"
       >
         <WeatherIcon icon={line.icon} size={13} className="shrink-0" />
         <span className="truncate">{line.text}</span>
