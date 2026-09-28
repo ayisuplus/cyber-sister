@@ -31,6 +31,7 @@ test.beforeEach(async ({ page }) => {
       '/api/user/profile': { careEnabled: false },
       '/api/asr/status': { available: false },
       '/api/reminders/scheduled': { reminders: [] },
+      '/api/reminders/sleep': { bedtime: null, wake: null, due: [] },
       '/api/diary': [], '/api/reading/notes': { notes: [] }, '/api/collection': { items: [] },
       '/api/derived': { insights: [] }, '/api/derived/edges': { edges: [] }, '/api/derived/followups': { followUps: [] },
       '/api/user/companion': { revision: 1, state: { protection: { mode: 'open' }, experienceCount: 0, learning: { brevity: 0.5, samples: 0 } } },

@@ -48,7 +48,7 @@ export default function App() {
           <Route path="/chat/archives" element={<ProtectedRoute><ConversationArchivePage /></ProtectedRoute>} />
           <Route path="/her" element={<ProtectedRoute><HerPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          {/* 生活功能在 /tools/ 下：日历、手记、读书、装扮、花草 */}
+          {/* 生活功能在 /tools/ 下：日程、手记、读书、装扮、花草 */}
           <Route path="/tools/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
           <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />
@@ -62,7 +62,7 @@ export default function App() {
           <Route path="/profile/memories" element={<Moved to="/her" />} />
           <Route path="/tools" element={<Navigate to="/chat" replace />} />
           <Route path="/tools/workspace" element={<Moved to="/her" />} />
-          {/* 日程、倒数日、提醒、手帐打卡、专注自习与旧的安排/经期入口都收拢到「日历」 */}
+          {/* 日程、倒数日、提醒、手帐打卡、专注自习与旧的安排/经期入口都收拢到「日程」（原「日历」，路径不变） */}
           {['planner', 'todo', 'countdown', 'reminders', 'handbook', 'study', 'schedule', 'period'].map(old => (
             <Route key={old} path={`/tools/${old}`} element={<Navigate to="/tools/calendar" replace />} />
           ))}

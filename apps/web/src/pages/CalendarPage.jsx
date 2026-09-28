@@ -9,6 +9,7 @@ import Card from '../components/ui/Card'
 import EmptyState from '../components/ui/EmptyState'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import PeriodToneSwitch from '../components/period/PeriodToneSwitch'
+import SleepCard from '../components/sleep/SleepCard'
 import { useToolsStore } from '../stores/toolsStore'
 import { toolsService } from '../services/toolsService'
 import { diaryService } from '../services/diaryService'
@@ -198,7 +199,8 @@ function TaskRow({ task, now, upcoming, busy, onChange, onDelete }) {
   )
 }
 
-// 「日历」：安排（日程、倒数日、提醒、每天的小习惯）和经期合成一页。月历看整月，点某天看/加当天的事。
+// 「日程」（原「日历」）：睡眠卡（晚安提醒与早安闹钟，路线图 C28）、安排（日程、倒数日、提醒、每天的小习惯）和经期合成一页。
+// 月历看整月，点某天看/加当天的事。
 export default function CalendarPage() {
   const tasks = useToolsStore(s => s.scheduledReminders)
   const loadTasks = useToolsStore(s => s.loadScheduledReminders)
@@ -248,7 +250,7 @@ export default function CalendarPage() {
     setLoading(true); setLoadError('')
     Promise.all([loadTasks(), toolsService.getPeriodConsent()])
       .then(([, consent]) => { if (alive) setConsented(consent?.accepted === true) })
-      .catch(() => { if (alive) setLoadError('日历没加载出来，请重试') })
+      .catch(() => { if (alive) setLoadError('日程没加载出来，请重试') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [loadTasks, reloadTick])
@@ -260,7 +262,7 @@ export default function CalendarPage() {
     const summaryRequest = consented ? toolsService.getPeriodSummary(format(new Date(), 'yyyy-MM-dd')) : Promise.resolve(null)
     Promise.all([loadPeriodRecords(), summaryRequest])
       .then(([, result]) => { if (alive) setSummary(result) })
-      .catch(() => { if (alive) setLoadError('日历没加载出来，请重试') })
+      .catch(() => { if (alive) setLoadError('日程没加载出来，请重试') })
     return () => { alive = false }
   }, [consented, loadPeriodRecords, reloadTick])
 
@@ -342,7 +344,7 @@ export default function CalendarPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <Header title="日历" showBack />
+      <Header title="日程" showBack />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-5 px-4 py-4">
           {loadError && (
@@ -352,6 +354,8 @@ export default function CalendarPage() {
             </div>
           )}
           {actionError && !deleting && <p role="alert" className="text-sm text-danger">{actionError}</p>}
+
+          <SleepCard />
 
           {/* 月历：安排的小点和经期的底色画在同一张月历上 */}
           <Card className="p-4" role="group" aria-label="月历">
@@ -530,8 +534,8 @@ export default function CalendarPage() {
           {!loading && !loadError && tasks.length === 0 && periodRecords.length === 0 && (
             <EmptyState
               icon={CalendarDays}
-              title="日历还是空的"
-              description="日程、倒数日、每天的小习惯，还有经期，都记在这一页。到点我会轻轻提醒你。也可以在对话里直接说「明天九点提醒我复诊」。"
+              title="日程还是空的"
+              description="日程、倒数日、每天的小习惯，还有经期，都记在这一页。到点会在对话里留一张便签。也可以在对话里直接说「明天九点提醒我复诊」。"
             />
           )}
           {SECTIONS.map(section => groups[section.id].length > 0 && (

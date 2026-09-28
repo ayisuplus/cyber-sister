@@ -114,7 +114,7 @@ describe('buildTouchpoints 规则引擎', () => {
     const one = build({ tasks: [{ id: 't1', content: '复诊', nextFireAt: at(9, 15) }] })
     expect(one).toHaveLength(1)
     expect(one[0]).toMatchObject({ kind: 'task-today', key: 'task-today:all:2026-09-09', title: '今天：「复诊」' })
-    expect(one[0].action).toEqual({ to: '/tools/calendar', label: '看看日历' })
+    expect(one[0].action).toEqual({ to: '/tools/calendar', label: '看看日程' })
 
     const two = build({ tasks: [
       { id: 't1', content: '复诊', nextFireAt: at(9, 8) },

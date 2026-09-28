@@ -5,7 +5,7 @@ import AxeBuilder from '@axe-core/playwright'
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8AAQv//Q0kASMgJ9xYlCaIAAAAASUVORK5CYII=', 'base64')
 // 四个生活入口及其页签：只有一个 Web 版，每一处都能直接打开，也不再挂「云端接口预览」横幅
 const LIFE_ENTRIES = [
-  ['/tools/calendar', '日历'],
+  ['/tools/calendar', '日程'],
   ['/tools/notes', '手记'],
   ['/tools/style?tab=makeup', '装扮'],
   ['/tools/style?tab=wardrobe', '装扮'],
@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
       '/api/chat/nudges': { nudges: [] }, '/api/asr/status': { available: false },
       '/api/chat/openers': { openers: [] },
       '/api/user/profile': { careEnabled: false }, '/api/user/external-llm-consent': { accepted: true },
-      '/api/reminders/scheduled': { reminders: [] }, '/api/tools/period': [],
+      '/api/reminders/scheduled': { reminders: [] }, '/api/reminders/sleep': { bedtime: null, wake: null, due: [] }, '/api/tools/period': [],
       '/api/tools/period/summary': { nextDate: null, daysUntil: null }, '/api/tools/period/consent': { accepted: true }, '/api/tools/period/tone': { enabled: false, updatedAt: null },
       '/api/diary': [], '/api/reading/notes': { notes: [] }, '/api/collection': { items: [] },
       // 模型供应商管理接口（2026-09-22）：普通用户看不到卡片，也就不会请求它，先登记着

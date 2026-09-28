@@ -18,7 +18,16 @@ const letter = {
   suggestions: [{ kind: 'plan', title: '周末早点睡，留一晚给自己', planDate: '2026-09-13' }],
 }
 
+// 睡眠卡（路线图 C28）：夜里日程页顶上的两行也要过对比度；下一次都在很远以后，审查时不会响
+const SLEEP_SET = {
+  bedtime: { id: 'night-bedtime', enabled: true, time: '23:30', weekdays: [0, 1, 2, 3, 4, 5, 6], nextFireAt: '2099-01-01T15:30:00.000Z' },
+  wake: { id: 'night-wake', enabled: true, time: '07:40', weekdays: [1, 2, 3, 4, 5], nextFireAt: '2099-01-02T23:40:00.000Z' },
+  due: [],
+}
+let sleepCard = SLEEP_SET
+
 test.beforeEach(async ({ page }) => {
+  sleepCard = SLEEP_SET
   await page.addInitScript(() => {
     // Seed this isolated browser tab once so reloads really test persisted preferences.
     if (!sessionStorage.getItem('night-e2e-seeded')) {
@@ -49,6 +58,7 @@ test.beforeEach(async ({ page }) => {
         { id: 'night-paused', content: '睡前收好手机', freq: 'daily', time: '22:30', weekdays: [], status: 'paused', nextFireAt: '2026-09-12T14:30:00.000Z' },
         { id: 'night-done', content: '已经读完一章', freq: 'once', time: '20:30', weekdays: [], status: 'done', nextFireAt: '2026-09-12T12:30:00.000Z' },
       ] },
+      '/api/reminders/sleep': sleepCard,
       '/api/tools/period': [{ id: 'night-period-record', startDate: '2026-09-03', endDate: '2026-09-08', cycleDays: 28 }],
       '/api/tools/period/summary': { nextDate: '2026-10-01', daysUntil: 19, source: 'server_calculation' },
       '/api/tools/period/consent': { accepted: true, updatedAt: '2026-09-01T00:00:00.000Z' },
@@ -167,6 +177,7 @@ test('night mode: settings, chat, her, schedule, notes, style, period and login 
 
   await page.goto('/tools/calendar')
   await expect(page.getByText('睡前收好手机')).toBeVisible()
+  await expect(page.getByRole('switch', { name: '早安闹钟' })).toHaveAttribute('aria-checked', 'true')
   await page.getByRole('button', { name: /已完成 · 1/ }).click()
   await expect(page.getByText('已经读完一章')).toBeVisible()
   await page.getByRole('button', { name: /记一件事/ }).first().click()
@@ -199,7 +210,7 @@ test('night mode: the phone navigation drawer stays dark and accessible at 320px
   const nav = drawer.getByRole('navigation', { name: '页面导航' })
   await expect(nav.getByRole('link')).toHaveCount(8)
   await inspectSurface(page, testInfo, 'night-drawer-320')
-  await nav.getByRole('link', { name: '日历', exact: true }).click()
+  await nav.getByRole('link', { name: '日程', exact: true }).click()
   await expect(page).toHaveURL(/\/tools\/calendar$/)
   await expect(drawer).toHaveCount(0)
   await expect(page.getByText('睡前收好手机')).toBeVisible()

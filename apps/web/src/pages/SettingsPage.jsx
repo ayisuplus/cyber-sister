@@ -273,7 +273,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between px-4 py-3">
               <div className="min-w-0 flex-1">
                 <span className="text-sm text-text-primary">她来想你</span>
-                <p className="mt-0.5 text-[11px] text-text-muted">基于你日历上的事与记录，只发有用的关怀卡片（无推送）</p>
+                <p className="mt-0.5 text-[11px] text-text-muted">基于你日程上的事与记录，只发有用的关怀卡片（无推送）</p>
               </div>
               <button type="button" onClick={toggleCare} disabled={careEnabled === null || saving !== null} aria-label="她来想你总开关" role="switch" aria-checked={careEnabled === true} className="flex h-11 w-11 items-center justify-center disabled:opacity-40">
                 {careEnabled ? (

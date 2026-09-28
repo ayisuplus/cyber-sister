@@ -4,7 +4,7 @@ const TOOL_LABELS = {
   read_web: '阅读网页正文', execute_python: '运行代码并核对输出',
   browser_open: '打开网页', browser_act: '操作页面', browser_snapshot: '核对页面与截图',
   generate_image: '生成图片并等待云端结果', get_generated_image: '查询并取回生成图片',
-  add_task: '记一件事', list_tasks: '看日历上的事', update_task: '改一件事', delete_task: '删一件事',
+  add_task: '记一件事', list_tasks: '看日程上的事', update_task: '改一件事', delete_task: '删一件事',
 }
 const STEP_LABELS = { pending: '待处理', in_progress: '进行中', completed: '已完成' }
 

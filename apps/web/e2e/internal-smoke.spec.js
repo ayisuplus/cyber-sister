@@ -19,17 +19,21 @@ const expectNoSeriousAxeFindings = async page => {
   expect(results.violations.filter(item => ['critical', 'serious'].includes(item.impact))).toEqual([])
 }
 
-const seedAuth = page => page.addInitScript(() => {
-  localStorage.setItem('cyber-sister-auth', JSON.stringify({
-    state: {
-      token: 'e2e-access-token',
-      user: { id: 'user-e2e', nickname: '内测用户', persona: 'gentle' },
-      isLoggedIn: true,
-    },
-    version: 0,
-  }))
-  localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
-})
+const seedAuth = async page => {
+  await page.addInitScript(() => {
+    localStorage.setItem('cyber-sister-auth', JSON.stringify({
+      state: {
+        token: 'e2e-access-token',
+        user: { id: 'user-e2e', nickname: '内测用户', persona: 'gentle' },
+        isLoggedIn: true,
+      },
+      version: 0,
+    }))
+    localStorage.setItem('cyber-sister-disclaimer-shown', 'true')
+  })
+  // 睡眠卡（路线图 C28）：登录后每一页都守着闹钟、会问一次；默认还没设过。要别的样子的用例自己再挂一个路由
+  await page.route('**/api/reminders/sleep', route => json(route, 200, { bedtime: null, wake: null, due: [] }))
+}
 
 const mockChatBootstrap = async (page, accepted) => {
   // 只有一段对话：打开即是这段，没有新建
@@ -411,6 +415,46 @@ test('notes: one timeline holds the diary and what she read, written from one co
   await expectNoSeriousAxeFindings(page)
 })
 
+// 睡眠卡（路线图 C28）：日程页最上面，晚安提醒与早安闹钟；什么时候会响、不会响，页面上如实写着
+test('sleep card: the wake alarm and bedtime are set at the top of 日程, survive reload, and say plainly when it can ring', async ({ page }) => {
+  await seedAuth(page)
+  const routine = { bedtime: null, wake: null }
+  const saved = []
+  await page.route('**/api/reminders/sleep', route => {
+    const request = route.request()
+    if (request.method() === 'PUT') {
+      const body = request.postDataJSON()
+      saved.push(body)
+      for (const [kind, setting] of Object.entries(body)) routine[kind] = { id: kind, ...setting, nextFireAt: '2099-01-01T00:00:00.000Z' }
+      return json(route, 200, routine)
+    }
+    return json(route, 200, { ...routine, due: [] })
+  })
+  await page.route('**/api/reminders/scheduled', route => json(route, 200, { reminders: [] }))
+  await routePeriodNotConsented(page)
+  await page.goto('/tools/calendar')
+
+  await expect(page.getByRole('heading', { name: '日程', exact: true })).toBeVisible()
+  const card = page.getByRole('group', { name: '睡眠' })
+  await expect(card.getByText('明早会有一句话等你。')).toBeVisible()
+  await expect(card.getByText(/浏览器里开着 Amie 才会响/)).toContainText('手机上也不响')
+  await expect(card.getByText(/到点不出声/)).toBeVisible()
+
+  await card.getByRole('switch', { name: '早安闹钟' }).click()
+  await expect(card.getByRole('switch', { name: '早安闹钟' })).toHaveAttribute('aria-checked', 'true')
+  expect(saved[0]).toEqual({ wake: { enabled: true, time: '07:30', weekdays: [1, 2, 3, 4, 5] } })
+
+  await card.getByRole('switch', { name: '晚安提醒' }).click()
+  await expect(card.getByRole('switch', { name: '晚安提醒' })).toHaveAttribute('aria-checked', 'true')
+  await card.getByRole('button', { name: '晚安提醒：周六' }).click()
+  await expect.poll(() => saved.at(-1)).toEqual({ bedtime: { enabled: true, time: '23:30', weekdays: [0, 1, 2, 3, 4, 5] } })
+
+  await page.reload()
+  await expect(card.getByRole('switch', { name: '早安闹钟' })).toHaveAttribute('aria-checked', 'true')
+  await expect(card.getByRole('button', { name: '晚安提醒：周六' })).toHaveAttribute('aria-pressed', 'false')
+  await expectNoSeriousAxeFindings(page)
+})
+
 test('schedule: a one-off for tomorrow lands under upcoming, and handing it to her stays honest', async ({ page }) => {
   await seedAuth(page)
   const tasks = []
@@ -426,13 +470,13 @@ test('schedule: a one-off for tomorrow lands under upcoming, and handing it to h
   await routePeriodNotConsented(page)
   await page.goto('/tools/calendar')
 
-  await expect(page.getByText('日历还是空的')).toBeVisible()
+  await expect(page.getByText('日程还是空的')).toBeVisible()
   await page.getByRole('button', { name: /记一件事/ }).first().click()
   await page.getByLabel('要记的事').fill('给妈妈打电话')
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
   const day = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
   await page.getByLabel('日期').fill(day)
-  await page.getByLabel('时间').fill('18:30')
+  await page.getByLabel('时间', { exact: true }).fill('18:30')
   await page.getByRole('button', { name: '保存' }).click()
 
   const upcoming = page.getByRole('region', { name: '接下来' })
@@ -441,9 +485,9 @@ test('schedule: a one-off for tomorrow lands under upcoming, and handing it to h
 
   await page.getByRole('button', { name: /记一件事/ }).first().click()
   await page.getByRole('button', { name: '交给她去做' }).click()
-  await page.getByRole('button', { name: '每天' }).click()
+  await page.getByRole('button', { name: '每天', exact: true }).click()
   await page.getByLabel('这件事叫什么').fill('晨间简报')
-  await page.getByLabel('时间').fill('08:00')
+  await page.getByLabel('时间', { exact: true }).fill('08:00')
   await page.getByLabel('要她做什么').fill('看看今天的安排，提醒我最要紧的一件')
   await page.getByRole('button', { name: '保存' }).click()
   await expect(page.getByRole('region', { name: '重复' }).getByText('云端执行未接通 · 到点暂不执行')).toBeVisible()
@@ -748,14 +792,14 @@ test('navigation: every entry lives in one list under the conversations, and old
 
   if (isMobile) await page.getByRole('button', { name: '打开导航', exact: true }).click()
   const nav = page.getByRole('navigation', { name: '页面导航' }).last()
-  const expected = [['对话', '/chat'], ['她', '/her'], ['日历', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['花草', '/tools/garden'], ['设置', '/settings']]
+  const expected = [['对话', '/chat'], ['她', '/her'], ['日程', '/tools/calendar'], ['手记', '/tools/notes'], ['读书', '/tools/reading'], ['装扮', '/tools/style'], ['花草', '/tools/garden'], ['设置', '/settings']]
   await expect(nav.getByRole('link')).toHaveCount(expected.length)
   for (const [name, href] of expected) {
     await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('href', href)
   }
-  await nav.getByRole('link', { name: '日历', exact: true }).click()
+  await nav.getByRole('link', { name: '日程', exact: true }).click()
   await expect(page).toHaveURL(/\/tools\/calendar$/)
-  await expect(page.getByRole('heading', { name: '日历', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '日程', exact: true })).toBeVisible()
 
   for (const [legacy, target] of [
     ['/tools/handbook', /\/tools\/calendar$/],
@@ -1163,8 +1207,8 @@ test('she speaks in the conversation: reminder, care and the weekly letter in on
   await seedAuth(page)
   await mockChatBootstrap(page, true)
   const nudges = [
-    { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日历上定的（每天 10:00）' },
-    { id: 'care:task-soon:t1:2026-09-20', kind: 'care', content: '「面试」还有 1 天\n还有几天呢，不用惦记，到点我提醒你。', reason: '你在日历上记的日子', action: { to: '/tools/calendar', label: '看看日历' } },
+    { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日程里定的（每天 10:00）' },
+    { id: 'care:task-soon:t1:2026-09-20', kind: 'care', content: '「面试」还有 1 天\n还有几天呢，不用惦记，到点我提醒你。', reason: '你在日程里记的日子', action: { to: '/tools/calendar', label: '看看日程' } },
     { id: 'letter:l1', kind: 'letter', content: '内测用户，见信好。\n\n你们聊了 23 轮；新记下了 1 件事：「喜欢火锅」。\n\n—— 你的姐妹', reason: '她写给你的信' },
   ]
   const acked = []
@@ -1184,11 +1228,11 @@ test('she speaks in the conversation: reminder, care and the weekly letter in on
   // 三条加起来不止一页，而本子一次只有一页：翻到最早那一页再点
   await flipToFirstPage(page)
   await expect(said.getByText('该喝水啦')).toBeVisible()
-  await expect(said.getByText('为什么看到这条：你在日历上定的（每天 10:00）')).toBeVisible()
+  await expect(said.getByText('为什么看到这条：你在日程里定的（每天 10:00）')).toBeVisible()
   await expect(said.getByText(/「面试」还有 1 天/)).toBeAttached()
   await expect(said.getByText(/你们聊了 23 轮/)).toBeAttached()
   await expect(said.getByText('—— 你的姐妹', { exact: false })).toBeAttached()
-  await expect(said.getByRole('link', { name: '看看日历 →' })).toHaveAttribute('href', '/tools/calendar')
+  await expect(said.getByRole('link', { name: '看看日程 →' })).toHaveAttribute('href', '/tools/calendar')
 
   await said.getByRole('button', { name: '知道了' }).first().click()
   await expect(said.getByText('该喝水啦')).toHaveCount(0)
@@ -1541,7 +1585,7 @@ test('a sense of measure: her state says only what changed, tool work is one qui
   await expect(page.getByText('记录经期之前')).toBeVisible()
   await expect(toneSwitch).toHaveCount(0)
 
-  // 最窄的手机上，「她」页和日历都不横向滚
+  // 最窄的手机上，「她」页和日程都不横向滚
   await page.setViewportSize({ width: 320, height: 740 })
   for (const path of ['/her', '/tools/calendar']) {
     await page.goto(path)

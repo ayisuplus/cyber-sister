@@ -77,8 +77,8 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
     push(20, 'task-today', 'all', {
       title: today.length === 1 ? `今天：「${today[0].content}」` : `今天有 ${today.length} 件事`,
       body: today.length === 1 ? voice.taskToday : voice.taskTodayMany(today[0].content),
-      reason: '你在日历上记的今天',
-      action: { to: '/tools/calendar', label: '看看日历' },
+      reason: '你在日程里记的今天',
+      action: { to: '/tools/calendar', label: '看看日程' },
     })
   }
   for (const task of tasks) {
@@ -87,8 +87,8 @@ export function buildTouchpoints({ user, tasks = [], latestPeriod, yesterdayDiar
     push(20 + until, 'task-soon', task.id, {
       title: `「${task.content}」还有 ${until} 天`,
       body: voice.taskSoon,
-      reason: '你在日历上记的日子',
-      action: { to: '/tools/calendar', label: '看看日历' },
+      reason: '你在日程里记的日子',
+      action: { to: '/tools/calendar', label: '看看日程' },
     })
   }
 
@@ -113,7 +113,7 @@ function pushPeriodCard(push, latestPeriod, todayUtc, voice) {
   )), latestPeriod.cycleDays)
   const until = daysUntil(nextUtc, todayUtc)
   const basis = `按上次 ${cnDate(latestPeriod.startDate)}、周期 ${latestPeriod.cycleDays} 天估的`
-  const action = { to: '/tools/calendar', label: '看看日历' }
+  const action = { to: '/tools/calendar', label: '看看日程' }
   if (until >= 0 && until <= SOON_DAYS) {
     push(10, 'period', latestPeriod.id, {
       sensitive: 'period',

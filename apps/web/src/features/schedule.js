@@ -2,7 +2,7 @@ import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { FREQ_OPTIONS, WEEKDAY_LABELS, DATED_FREQS, daysLeft, occursOn } from 'schedule-logic'
 
-// 「日历」里的事：日程、倒数日、提醒、每天的小习惯共用一种定时任务（后端 ScheduledReminder）。
+// 「日程」里的事：日程、倒数日、提醒、每天的小习惯共用一种定时任务（后端 ScheduledReminder）。
 // 带日子的（一次、每年）按「今天 / 接下来」排，例行的（每天、每周、每月）归「重复」。
 
 export { FREQ_OPTIONS, WEEKDAY_LABELS, DATED_FREQS, daysLeft, occursOn }

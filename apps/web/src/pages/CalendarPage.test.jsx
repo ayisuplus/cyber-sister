@@ -12,6 +12,10 @@ vi.mock('../services/reminderService', () => ({
     ack: vi.fn(),
   },
 }))
+// 睡眠卡另有自己的测试（components/sleep/SleepCard.test.jsx）；这里只让它安静地加载成「还没设过」
+vi.mock('../services/sleepService', () => ({
+  sleepService: { get: vi.fn(async () => ({ bedtime: null, wake: null, due: [] })), save: vi.fn() },
+}))
 vi.mock('../services/toolsService', () => ({
   toolsService: {
     getPeriodRecords: vi.fn(),
@@ -393,12 +397,12 @@ describe('事的列表', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('记录还在')
     expect(screen.getAllByText('取快递').length).toBeGreaterThan(0)
     await clickWhenReady('删除：取快递')
-    expect(await screen.findByText('日历还是空的')).toBeInTheDocument()
+    expect(await screen.findByText('日程还是空的')).toBeInTheDocument()
   })
 
   it('空列表给出安静的引导，也提示可以在对话里说', async () => {
     renderPage()
-    expect(await screen.findByText('日历还是空的')).toBeInTheDocument()
+    expect(await screen.findByText('日程还是空的')).toBeInTheDocument()
     expect(screen.getByText(/明天九点提醒我复诊/)).toBeInTheDocument()
   })
 
@@ -406,7 +410,7 @@ describe('事的列表', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     reminderService.list.mockRejectedValueOnce(new Error('offline'))
     renderPage()
-    expect(await screen.findByRole('alert')).toHaveTextContent('日历没加载出来')
+    expect(await screen.findByRole('alert')).toHaveTextContent('日程没加载出来')
     reminderService.list.mockResolvedValue([makeTask({})])
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
     expect(await screen.findByRole('region', { name: '今天' })).toBeInTheDocument()
@@ -416,7 +420,7 @@ describe('事的列表', () => {
 describe('记一件事的表单', () => {
   it('一次的事缺日期、时间已过都拦在前端，不调接口', async () => {
     renderPage()
-    await screen.findByText('日历还是空的')
+    await screen.findByText('日程还是空的')
     openForm()
     fireEvent.change(screen.getByLabelText('要记的事'), { target: { value: '取快递' } })
     fireEvent.change(screen.getByLabelText('时间'), { target: { value: '18:00' } })
@@ -432,7 +436,7 @@ describe('记一件事的表单', () => {
 
   it('每天的小习惯：保存后收起表单并出现在「重复」里', async () => {
     renderPage()
-    await screen.findByText('日历还是空的')
+    await screen.findByText('日程还是空的')
     openForm()
     fireEvent.click(screen.getByRole('button', { name: '每天', exact: true }))
     fireEvent.change(screen.getByLabelText('要记的事'), { target: { value: '放下手机' } })
@@ -446,7 +450,7 @@ describe('记一件事的表单', () => {
 
   it('每年的事要选日期；每年的日子适合生日和纪念日', async () => {
     renderPage()
-    await screen.findByText('日历还是空的')
+    await screen.findByText('日程还是空的')
     openForm()
     fireEvent.click(screen.getByRole('button', { name: '每年', exact: true }))
     expect(screen.getByText(/适合生日和纪念日/)).toBeInTheDocument()
@@ -461,7 +465,7 @@ describe('记一件事的表单', () => {
 
   it('先写下要记的事才能存', async () => {
     renderPage()
-    await screen.findByText('日历还是空的')
+    await screen.findByText('日程还是空的')
     openForm()
     fireEvent.change(screen.getByLabelText('时间'), { target: { value: '18:00' } })
     save()
@@ -472,7 +476,7 @@ describe('记一件事的表单', () => {
   it('交给她：缺指令拦截；保存后如实标注云端执行未接通', async () => {
     reminderService.create.mockRejectedValueOnce(new Error('offline'))
     renderPage()
-    await screen.findByText('日历还是空的')
+    await screen.findByText('日程还是空的')
     openForm()
     fireEvent.click(screen.getByRole('button', { name: '交给她去做' }))
     expect(screen.getByText(/云端执行还没接通，到点不会自动去做/)).toBeInTheDocument()
