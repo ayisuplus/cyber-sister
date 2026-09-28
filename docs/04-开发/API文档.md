@@ -372,7 +372,7 @@ Authorization: Bearer <access_token>
 
 ### GET /api/chat/nudges（2026-09-20 起）
 
-她主动说的话：到点的安排投递、她惦记的事（写信开着时）、「她来想你」触点与她的来信合成一条时间线 `{nudges:[{id, kind, content, reason, detail?, action?}]}`。`id` 形如 `reminder:<投递 id>` / `followup:<惦记 id>` / `care:<触点键>` / `letter:<信 id>`；`followup` 的 `reason` 是「你之前说过：…」，`ack` 后记为问过。信只在没读过（`read_at` 为空）时出现。打开对话时拉取，没有推送通道。
+她主动说的话：到点的安排投递、她惦记的事（写信开着时）、「她来想你」触点与她的来信合成一条时间线 `{nudges:[{id, kind, content, reason, detail?, action?}]}`。`id` 形如 `reminder:<投递 id>` / `followup:<惦记 id>` / `care:<触点键>` / `letter:<信 id>`；`followup` 的 `reason` 是「你之前说过：…」，`ack` 后记为问过。信只在没读过（`read_at` 为空）时出现。打开对话时拉取，没有推送通道。睡眠卡的两条（2026-09-28 起）另带 `sleep: 'bedtime'|'wake'`，`content` 是那句话（古诗词另起一行注出处），`reason` 如「你在日程里定的早安闹钟（工作日 07:40）」，见 §六「睡眠卡」；早安闹钟的铃声与系统通知由开着的网页自己发，服务端仍没有推送。
 
 ### POST /api/chat/nudges/:id/ack
 
@@ -765,6 +765,23 @@ Web 版可用（2026-09-19 起不再按分发拦截）。用户可见名为「�
 
 ~~`/api/habits`、`/api/study`~~：2026-09-15 下线（404），数据只随导出带出。
 
+### 睡眠卡：晚安提醒与早安闹钟（2026-09-28 起，路线图 C28）
+
+日程页（原「日历」）顶上的两行。两条就是 `ScheduledReminder`，`kind` 为 `bedtime` / `wake`（日程里的事是 `plain`），每人各至多一条。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/reminders/sleep` | `{bedtime, wake, due}`。`bedtime` / `wake` 为 `{id, enabled, time, weekdays, nextFireAt}` 或 `null`（没设过）；每天的 `weekdays` 是 0–6 全部。读取时顺带为到点的这两条幂等建投递并推进到下一次（与对话页便签同一个「读的时候生成」）。`due` 是还在有效期、没收起的睡眠便签 `[{id:'reminder:<投递 id>', kind:'bedtime'|'wake', fireAt, line:{text, source}}]`：早安是那天早上的一句（古诗词的 `source` 为「作者《篇名》」，原创为空串）；晚安是一句晚安话，明早 14 小时内开着闹钟就补「明早 HH:mm 叫你。」 |
+| PUT | `/api/reminders/sleep` | `{bedtime?, wake?}`，每项 `{enabled:boolean, time:'HH:mm', weekdays:[0–6，至少一天]}` → `{bedtime, wake}`。七天全选存成 `daily`，否则存成 `weekly`；`enabled:false` 存成 `paused`，时间保留；改过的那一类还没收起的便签一并收起。什么都没传或校验不过返回 400 |
+
+- `GET /api/reminders/scheduled`、聊天工具 `list_tasks` / `day_review` 只返回 `plain`；对这两条调 `PUT` / `DELETE /api/reminders/scheduled/:id` 返回 400「闹钟和晚安提醒在日程页的睡眠卡里改」。
+- 到点不等确认就推进：好几天没打开，只给最近一次建投递。有效期是早安响后 4 小时、晚安到次日凌晨 5 点，过了的不再出现在 `due` 和对话便签里。
+- 「起来了」「知道了」走 `POST /api/chat/nudges/:id/ack`。
+- 句子与抽法见[早安句库](../02-设计/早安句库.md)：按「用户 + 季节」固定洗牌，同一天总是同一句，不落库。
+- 响铃（Web Audio 合成）与系统通知（浏览器 `Notification`）都由开着的网页自己发，服务端没有推送。
+- 过了开着的晚安提醒的钟点（5 小时内）还在聊，这一轮的分寸里多一句「她给自己定了 23:30 睡……只说一次」，取代「聊了一个多小时」那一句。
+- 导出的 `scheduledTasks` 每条多一个 `kind`。
+
 ---
 
 ## 七、经期 `/api/tools`
@@ -1050,6 +1067,7 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
 她说的话  GET    /api/chat/nudges        (提醒 + 关怀 + 来信，只在对话里)
           POST   /api/chat/nudges/:id/ack
 安排      CRUD   /api/reminders/scheduled
+睡眠卡    GET/PUT /api/reminders/sleep     (晚安提醒 + 早安闹钟；GET 带到点的便签)
 经期      CRUD   /api/tools/period        (含 /summary；/consent 单独同意)
 日记      CRUD   /api/diary/:day
 读书      CRUD   /api/reading/books       (书架；书默认在浏览器里)
