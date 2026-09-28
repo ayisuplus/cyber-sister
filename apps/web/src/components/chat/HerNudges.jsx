@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import SuggestionActions from '../letter/SuggestionActions'
 import { Sticker } from '../letter/Decor'
 import { nudgeService } from '../../services/nudgeService'
+import { NUDGE_ACKED_EVENT, announceNudgeAcked } from '../../stores/sleepStore'
 
 const POLL_INTERVAL_MS = 60_000
 
@@ -30,15 +31,23 @@ export default function HerNudges({ onComposeDraft }) {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') load() }, POLL_INTERVAL_MS)
     const onVisible = () => { if (document.visibilityState === 'visible') load() }
     document.addEventListener('visibilitychange', onVisible)
+    // 早安卡、晚安便签收起的是同一张：那边收起了，这里跟着拿掉
+    const onAcked = (event) => {
+      const id = /** @type {CustomEvent} */ (event).detail?.id
+      if (id) setNudges((current) => current.filter((nudge) => nudge.id !== id))
+    }
+    window.addEventListener(NUDGE_ACKED_EVENT, onAcked)
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener(NUDGE_ACKED_EVENT, onAcked)
     }
   }, [load])
 
   const dismiss = (id) => {
     // 乐观收起；失败不打扰——条件仍成立时下次打开还会出现
     setNudges((current) => current.filter((nudge) => nudge.id !== id))
+    announceNudgeAcked(id)
     nudgeService.ack(id).catch(() => {})
   }
 

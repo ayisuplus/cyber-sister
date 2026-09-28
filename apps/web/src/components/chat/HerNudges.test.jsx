@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,6 +8,7 @@ vi.mock('../../services/letterService', () => ({ letterService: { decide: vi.fn(
 
 import { nudgeService } from '../../services/nudgeService'
 import { letterService } from '../../services/letterService'
+import { NUDGE_ACKED_EVENT, announceNudgeAcked } from '../../stores/sleepStore'
 import HerNudges from './HerNudges'
 
 const renderNudges = (props = {}) => render(<MemoryRouter><HerNudges {...props} /></MemoryRouter>)
@@ -34,7 +35,7 @@ describe('HerNudges', () => {
   it('shows the reminder, her care and the weekly letter in one place, each with a reason', async () => {
     nudgeService.list.mockResolvedValue({
       nudges: [
-        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日历上定的（每天 10:00）' },
+        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日程里定的（每天 10:00）' },
         { id: 'care:mood:2026-09-20', kind: 'care', content: '昨天不太好过', reason: '昨天的心情', action: { to: '/tools/notes', label: '去写两句' } },
         { id: 'letter:l1', kind: 'letter', content: '见信好。\n这周你们聊了 23 轮。', reason: '她每周写给你的信' },
       ],
@@ -43,17 +44,39 @@ describe('HerNudges', () => {
     renderNudges()
 
     expect(await screen.findByText('该喝水啦')).toBeInTheDocument()
-    expect(screen.getByText('为什么看到这条：你在日历上定的（每天 10:00）')).toBeInTheDocument()
+    expect(screen.getByText('为什么看到这条：你在日程里定的（每天 10:00）')).toBeInTheDocument()
     expect(screen.getByText(/这周你们聊了 23 轮/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '去写两句 →' })).toHaveAttribute('href', '/tools/notes')
     expect(screen.getAllByRole('button', { name: '知道了' })).toHaveLength(3)
+  })
+
+  it('早安卡或晚安便签在别处收起了，对话里同一张便签也跟着拿掉；这里收起也告诉那边', async () => {
+    const user = userEvent.setup()
+    nudgeService.list.mockResolvedValue({
+      nudges: [
+        { id: 'reminder:d1', kind: 'reminder', sleep: 'wake', content: '慢慢来，今天会等你。', reason: '你在日程里定的早安闹钟（工作日 07:40）' },
+        { id: 'reminder:d2', kind: 'reminder', sleep: 'bedtime', content: '月亮上班了，你可以下班了。', reason: '你在日程里定的晚安提醒（每天 23:30）' },
+      ],
+    })
+    renderNudges()
+    expect(await screen.findByText('慢慢来，今天会等你。')).toBeInTheDocument()
+
+    act(() => announceNudgeAcked('reminder:d1'))
+    expect(screen.queryByText('慢慢来，今天会等你。')).not.toBeInTheDocument()
+
+    const heard = vi.fn()
+    window.addEventListener(NUDGE_ACKED_EVENT, heard)
+    await user.click(screen.getByRole('button', { name: '知道了' }))
+    window.removeEventListener(NUDGE_ACKED_EVENT, heard)
+    expect(heard.mock.calls[0][0].detail).toEqual({ id: 'reminder:d2' })
+    expect(nudgeService.ack).toHaveBeenCalledWith('reminder:d2')
   })
 
   it('takes one away as soon as the user says 知道了, and keeps the rest', async () => {
     const user = userEvent.setup()
     nudgeService.list.mockResolvedValue({
       nudges: [
-        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日历上定的' },
+        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日程里定的' },
         { id: 'letter:l1', kind: 'letter', content: '见信好。', reason: '她每周写给你的信' },
       ],
     })
@@ -131,7 +154,7 @@ describe('HerNudges 的小装饰', () => {
   it('只有她的来信压一枚火漆印；提醒和关心的便签不压', async () => {
     nudgeService.list.mockResolvedValue({
       nudges: [
-        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日历上定的' },
+        { id: 'reminder:d1', kind: 'reminder', content: '该喝水啦', reason: '你在日程里定的' },
         { id: 'letter:l1', kind: 'letter', content: '见信好。', reason: '她写给你的信' },
       ],
     })

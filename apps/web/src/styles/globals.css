@@ -1250,3 +1250,27 @@ h1, h2, h3 {
   .specimen-card { transition: none; }
   .specimen-card:hover { transform: none; }
 }
+
+/* ===== 睡眠卡：早安卡与晚安便签（2026-09-28，路线图 C28）=====
+ * 早安卡盖满整屏，像天刚亮：纸色往杏色、柔雾绿慢慢过渡，字是墨色，那句话用手写体。
+ * 夜里跟着纸变暗；减少动态时不做淡入。晚安便签是贴在页脚的一张小纸条，不挡正文、不出声。 */
+.wake-card {
+  background: linear-gradient(180deg, var(--cs-paper) 0%, color-mix(in srgb, var(--cs-paper) 40%, var(--cs-pastel-apricot)) 55%, var(--cs-pastel-blush) 100%);
+  color: var(--cs-ink-her);
+  animation: wakeIn 1200ms var(--cs-ease-calm) backwards;
+}
+.wake-card__line { color: var(--cs-ink-her); }
+.wake-card__source,
+.wake-card__meta { color: var(--cs-ink-pencil); }
+@keyframes wakeIn { from { opacity: 0; } to { opacity: 1; } }
+.bedtime-note {
+  background: color-mix(in srgb, var(--cs-paper) 55%, var(--cs-pastel-apricot));
+  box-shadow: var(--cs-paper-shadow);
+  color: var(--cs-ink-her);
+  animation: revealUp var(--cs-dur-settle) var(--cs-ease-calm) backwards;
+}
+.bedtime-note .decor-doodle { color: var(--cs-ink-pencil); }
+@media (prefers-reduced-motion: reduce) {
+  .wake-card,
+  .bedtime-note { animation: none; }
+}

@@ -82,6 +82,10 @@ test.beforeEach(async ({ page }) => {
       expect(route.request().method()).toBe('POST')
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ minutes: 0, shouldRemind: false }) })
     }
+    // 早安卡「起来了」收起那张便签
+    if (route.request().method() === 'POST' && /^\/api\/chat\/nudges\/[^/]+\/ack$/.test(path)) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+    }
     // 打开「她」页先幂等地问一句要不要写信（还没到日子），看信时记下读过
     if (route.request().method() === 'POST' && path === '/api/letters/generate') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ letter, created: false, reason: 'not_due' }) })
@@ -214,6 +218,33 @@ test('night mode: the phone navigation drawer stays dark and accessible at 320px
   await expect(page).toHaveURL(/\/tools\/calendar$/)
   await expect(drawer).toHaveCount(0)
   await expect(page.getByText('睡前收好手机')).toBeVisible()
+})
+
+// 早安卡（路线图 C28）：页面开着、到点盖满整屏；夜间主题下天刚亮那一刻也要看得清
+test('night mode: at the alarm time the wake card covers the page, reads clearly, and 起来了 puts it away', async ({ page }, testInfo) => {
+  const wake = { id: 'night-wake', enabled: true, time: '07:40', weekdays: [1, 2, 3, 4, 5] }
+  sleepCard = { bedtime: null, wake: { ...wake, nextFireAt: '2026-09-28T23:40:00.000Z' }, due: [] }
+  await page.clock.install({ time: new Date('2026-09-29T07:39:00+08:00') })
+  await chooseNight(page)
+  await expect(page.getByRole('dialog', { name: '早安' })).toHaveCount(0)
+
+  // 到点：服务端建好便签、推进到明天
+  sleepCard = {
+    bedtime: null,
+    wake: { ...wake, nextFireAt: '2026-09-29T23:40:00.000Z' },
+    due: [{ id: 'reminder:night-wake-1', kind: 'wake', fireAt: '2026-09-28T23:40:00.000Z', line: { text: '已讶衾枕冷，复见窗户明。', source: '白居易《夜雪》' } }],
+  }
+  await page.clock.fastForward('01:30')
+  const card = page.getByRole('dialog', { name: '早安' })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('已讶衾枕冷，复见窗户明。')).toBeVisible()
+  await expect(card.getByText('——白居易《夜雪》')).toBeVisible()
+  await inspectSurface(page, testInfo, 'night-wake-card')
+
+  const acked = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/chat/nudges/reminder%3Anight-wake-1/ack'))
+  await card.getByRole('button', { name: '起来了' }).click()
+  await acked
+  await expect(card).toHaveCount(0)
 })
 
 // 主题色（路线图 C25）：换了颜色，日间夜间的对比度照样过 axe；自己调的颜色刷新后还在（启动脚本先贴上）

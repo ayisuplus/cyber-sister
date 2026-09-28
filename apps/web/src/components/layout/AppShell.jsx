@@ -5,6 +5,7 @@ import { useAppearanceStore } from '../../stores/appearanceStore'
 import useGlobalShortcuts from '../../hooks/useGlobalShortcuts'
 import ShortcutHelpModal from '../chat/ShortcutHelpModal'
 import AmbientMist from '../ui/AmbientMist'
+import SleepAlarm from '../sleep/SleepAlarm'
 import AppSidebar from './AppSidebar'
 
 /**
@@ -14,6 +15,7 @@ import AppSidebar from './AppSidebar'
  * 平板/桌面（>640px）：左侧会话栏 + 居中宽内容区（不再是手机模拟器）
  * 裸路由（/login）：无侧栏，居中卡片 + 晨雾底
  * 自定义主页背景：铺满 main，叠加层保证文字可读；未设置时由晨雾环境光铺底
+ * 登录后挂着睡眠卡的闹钟（路线图 C28）：哪一页都守着早安闹钟与晚安便签
  */
 const BARE_PREFIXES = ['/login']
 
@@ -49,6 +51,7 @@ export default function AppShell({ children }) {
         {children}
       </main>
       <ShortcutHelpModal open={helpOpen} onClose={closeHelp} />
+      {isLoggedIn && <SleepAlarm />}
     </div>
   )
 }
