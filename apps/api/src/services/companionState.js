@@ -138,21 +138,26 @@ const PACING = {
 }
 
 const isLateNight = (hour) => Number.isInteger(hour) && (hour >= 22 || hour < 5)
+// 她自己在睡眠卡上定的睡觉钟点（'HH:mm'），过了才有值；别的一概不认
+const bedtimeOf = (value) => (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value) ? value : null)
 
 /**
  * 这一轮该怎么说——「她用什么节奏跟你说话」只在这里决定。
  * moment 是本轮的临时输入（北京时间几点、隔了多久、这次聊了多久、这一句的要求、心情、经期），
  * 只影响这一轮，不写进状态。按优先级排好：她这一句明确的要求永远在最前。
- * @param {{ hour?: number, gapMs?: number, sessionMinutes?: number, asksShort?: boolean, asksLong?: boolean, lowMood?: boolean, cyclePhase?: 'period' | null }} [moment]
+ * @param {{ hour?: number, gapMs?: number, sessionMinutes?: number, asksShort?: boolean, asksLong?: boolean, lowMood?: boolean, cyclePhase?: 'period' | null, pastBedtime?: string | null }} [moment]
  */
 export function companionPacing(state, moment = {}) {
   const late = isLateNight(moment.hour)
+  // 过了她定的点：按她定的说；这时就不再按「聊了一个多小时」另说一遍
+  const bedtime = bedtimeOf(moment.pastBedtime)
   return [
     moment.asksShort ? '她这一句要你简短：三句以内，只说最要紧的。' : null,
     !moment.asksShort && moment.asksLong ? '她这一句想听详细的：可以展开说，但保持条理。' : null,
     PACING[state.protection.mode] ?? null,
     late ? '现在很晚了：说得短一点、慢一点，少给建议和待办，不催她做事；她想聊就陪着。' : null,
-    late && moment.sessionMinutes >= 60 ? '你们已经聊了一个多小时：合适的时候轻轻说一句早点休息，只说一次，不要赶她走。' : null,
+    bedtime ? `她给自己定了 ${bedtime} 睡，现在已经过了：合适的时候轻轻提一句，只说一次，不赶她走；她正难过就先陪着，晚点再说。` : null,
+    late && !bedtime && moment.sessionMinutes >= 60 ? '你们已经聊了一个多小时：合适的时候轻轻说一句早点休息，只说一次，不要赶她走。' : null,
     moment.gapMs >= 3 * DAY_MS ? '隔了好几天她才来：先回应她现在说的，不追问她为什么没来，也不要一上来接着上次的话题。' : null,
     moment.lowMood ? '她这会儿心情不太好：先陪着、先听，少讲道理，建议最多一条。' : null,
     moment.cyclePhase === 'period' ? '她这几天在经期，身体可能不太舒服：更软、更有耐心，少安排事情。不要提起经期或身体，除非她自己说起；也不要把她的情绪归因于经期。' : null,

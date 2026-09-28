@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   bookFindFirst: vi.fn(),
   diaryFindMany: vi.fn(() => Promise.resolve([])),
   periodFindFirst: vi.fn(() => Promise.resolve(null)),
+  bedtimeFindFirst: vi.fn(() => Promise.resolve(null)),
   describeRecentNudges: vi.fn(() => Promise.resolve([])),
   memoryFindMany: vi.fn(),
   inferenceFindMany: vi.fn(() => Promise.resolve([])),
@@ -63,6 +64,7 @@ vi.mock('../prisma/client.js', () => {
       book: { findFirst: mocks.bookFindFirst },
       diaryEntry: { findMany: mocks.diaryFindMany },
       periodRecord: { findFirst: mocks.periodFindFirst },
+      scheduledReminder: { findFirst: mocks.bedtimeFindFirst },
       crisisLog: { create: mocks.crisisCreate },
       memory: { findMany: mocks.memoryFindMany },
       inference: { findMany: mocks.inferenceFindMany },
@@ -1761,6 +1763,7 @@ describe('「懂你」检验集（冻结）', () => {
     mocks.describeRecentNudges.mockResolvedValue([])
     mocks.diaryFindMany.mockResolvedValue([])
     mocks.periodFindFirst.mockResolvedValue(null)
+    mocks.bedtimeFindFirst.mockResolvedValue(null)
     mocks.messageCreate.mockImplementation(({ data }) => Promise.resolve({ id: data.role === 'user' ? 'user-message' : 'ai-message', ...data }))
     mocks.conversationUpdate.mockResolvedValue({})
     mocks.crisisCreate.mockResolvedValue({ id: 'crisis-1' })
@@ -1792,6 +1795,12 @@ describe('「懂你」检验集（冻结）', () => {
       }
       if (given.crisis) mocks.detectCrisis.mockReturnValue(given.crisis)
       if (given.periodRecord) mocks.periodFindFirst.mockResolvedValue({ startDate: new Date(Date.now() - 2 * day), endDate: null })
+      // 睡眠卡上每天的晚安提醒，定在「此刻往前 N 分钟」的钟点（负数是还没到）：用例不依赖跑测试的时刻
+      if (given.bedtimeMinutesAgo !== undefined) {
+        const at = new Date(Date.now() - given.bedtimeMinutesAgo * 60_000)
+        const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+        mocks.bedtimeFindFirst.mockResolvedValue({ freq: 'daily', time, weekdays: [] })
+      }
 
       await collectEvents(sendMessageStream('conversation-1', 'user-1', scenario.text, `req-${scenario.id}`))
 

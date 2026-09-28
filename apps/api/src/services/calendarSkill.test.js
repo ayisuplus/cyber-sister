@@ -10,6 +10,14 @@ describe('calendar skill', () => {
     expect(result[0].content).toContain('day_review')
   })
 
+  it('「叫醒我」「闹钟」也注入：口径里写明对话里记下的不会响、要去睡眠卡开早安闹钟', () => {
+    for (const text of ['明早七点叫醒我', '帮我定个闹钟']) {
+      const [block] = CALENDAR_SKILL.buildContext(text)
+      expect(block.content).toContain('不会响')
+      expect(block.content).toContain('早安闹钟')
+    }
+  })
+
   it.each(['推荐一部电影', '比较两个数组', '谢谢'])('无关话题不注入：%s', (text) => {
     expect(CALENDAR_SKILL.buildContext(text)).toEqual([])
   })

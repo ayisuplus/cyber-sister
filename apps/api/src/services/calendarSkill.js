@@ -131,7 +131,8 @@ export const CALENDAR_SKILL = {
   },
   buildContext(text, _history = [], scene = 'chat') {
     if (scene !== 'chat' || typeof text !== 'string') return []
-    if (!/日历|日程|安排|提醒我|倒数|打卡|改期/.test(text)) return []
+    // 叫醒、闹钟也算：她要如实说对话里记下的不会响，要响得去睡眠卡开早安闹钟（路线图 C28）
+    if (!/日历|日程|安排|提醒我|倒数|打卡|改期|叫醒|闹钟/.test(text)) return []
     return [{ role: 'system', content: `[Amie 内置技能：日历 v1]\n${core}` }]
   },
 }

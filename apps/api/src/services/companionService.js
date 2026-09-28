@@ -5,6 +5,7 @@ import { advanceCompanionState, companionStatePrompt, createCompanionState } fro
 import { localClock } from './contextBlocks.js'
 import { detectEmotion } from './detection.js'
 import { periodConsentsOf } from './consents.js'
+import { latestFireAtOrBefore } from './reminderService.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const SESSION_GAP_MS = 30 * 60 * 1000
@@ -12,6 +13,8 @@ const LOW_MOODS = new Set(['sad', 'angry', 'anxious'])
 // 没填结束日的经期按 5 天算；填了也最多看 10 天，免得一条忘了收尾的记录让她一直「在经期」
 const DEFAULT_PERIOD_DAYS = 5
 const MAX_PERIOD_DAYS = 10
+// 过了她定的睡觉时间多久以内算「过了点」：再往后就是另一回事了（天快亮了）
+const PAST_BEDTIME_MS = 5 * 60 * 60 * 1000
 
 // 转述别人的话（「她说谢谢你」「他骂我：你真蠢」）和被否定的说法（「不要简短一点」）都不算她对你说的
 const REPORTED = /(?:说|讲|问|回|叫|骂)[：:，,]?\s*[「“"']?$/u
@@ -84,12 +87,24 @@ function momentOf(text, prior, preview, observation, now, inputs) {
     asksLong: observation.brevity === 0,
     lowMood: LOW_MOODS.has(detectEmotion(text)) || inputs.recentLowMood === true,
     cyclePhase: inputs.cyclePhase === 'period' ? 'period' : null,
+    pastBedtime: pastBedtimeOf(inputs.bedtime, now),
   }
 }
 
 /**
+ * 她在睡眠卡上定的睡觉时间过了没有（路线图 C28）：最近一次该睡的时刻在 5 小时以内就算过了，返回那个钟点。
+ * 没开晚安提醒、今天不在她选的日子里、或还没到点，都是 null。
+ */
+export function pastBedtimeOf(bedtime, now) {
+  if (!bedtime?.time) return null
+  const at = new Date(now)
+  const fire = latestFireAtOrBefore(bedtime, at)
+  return fire && at - fire < PAST_BEDTIME_MS ? bedtime.time : null
+}
+
+/**
  * 准备这一轮：先感受再说话，但只有成功提交时才成为下一轮的持久状态。
- * inputs 来自 loadCompanionInputs（最近两天的日记心情；两个经期同意都开时的经期阶段）。
+ * inputs 来自 loadCompanionInputs（最近两天的日记心情；两个经期同意都开时的经期阶段；睡眠卡上开着的晚安提醒）。
  */
 export function prepareCompanionTurn(userId, user, content, relevantMemories = [], { now = Date.now(), inputs = {} } = {}) {
   const base = snapshot(user, now)
@@ -132,15 +147,18 @@ const quietly = async (label, userId, task, fallback) => {
 export async function loadCompanionInputs(userId, user, now = new Date()) {
   const today = localClock(now).dayKey
   const cycleAllowed = periodConsentsOf(user).tone
-  const [moods, period] = await Promise.all([
+  const [moods, period, bedtime] = await Promise.all([
     quietly('diary', userId, () => prisma.diaryEntry.findMany({ where: { userId, day: { gte: new Date(today - DAY_MS) } }, select: { mood: true } }), []),
     cycleAllowed
       ? quietly('period', userId, () => prisma.periodRecord.findFirst({ where: { userId }, orderBy: { startDate: 'desc' }, select: { startDate: true, endDate: true } }), null)
       : null,
+    // 睡眠卡上开着的晚安提醒：过了她定的点还在聊，她轻轻提一句
+    quietly('bedtime', userId, () => prisma.scheduledReminder.findFirst({ where: { userId, kind: 'bedtime', status: 'active' }, select: { freq: true, time: true, weekdays: true } }), null),
   ])
   return {
     recentLowMood: moods.some((entry) => LOW_MOODS.has(entry.mood)),
     cyclePhase: cycleAllowed ? cyclePhaseOn(period, today) : null,
+    bedtime: bedtime ?? null,
   }
 }
 

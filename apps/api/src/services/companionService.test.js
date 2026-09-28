@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const db = vi.hoisted(() => ({ findUnique: vi.fn(), update: vi.fn(), query: vi.fn(), diaryFindMany: vi.fn(), periodFindFirst: vi.fn() }))
+const db = vi.hoisted(() => ({ findUnique: vi.fn(), update: vi.fn(), query: vi.fn(), diaryFindMany: vi.fn(), periodFindFirst: vi.fn(), bedtimeFindFirst: vi.fn() }))
 vi.mock('../prisma/client.js', () => {
   const tx = { user: { findUnique: db.findUnique, update: db.update }, $queryRaw: db.query }
-  return { default: { ...tx, diaryEntry: { findMany: db.diaryFindMany }, periodRecord: { findFirst: db.periodFindFirst }, $transaction: (operation) => operation(tx) } }
+  return { default: { ...tx, diaryEntry: { findMany: db.diaryFindMany }, periodRecord: { findFirst: db.periodFindFirst }, scheduledReminder: { findFirst: db.bedtimeFindFirst }, $transaction: (operation) => operation(tx) } }
 })
 vi.mock('../utils/logger.js', () => ({ default: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() } }))
 import { createCompanionState } from './companionState.js'
-import { cyclePhaseOn, loadCompanionInputs, prepareCompanionTurn, commitCompanionTurn, getCompanionState, recoverCompanionState } from './companionService.js'
+import { cyclePhaseOn, loadCompanionInputs, pastBedtimeOf, prepareCompanionTurn, commitCompanionTurn, getCompanionState, recoverCompanionState } from './companionService.js'
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   row = { companionRevision: 0, companionState: createCompanionState(Date.now()) }
   db.query.mockResolvedValue([{ id: 'one' }])
+  db.bedtimeFindFirst.mockResolvedValue(null)
   db.findUnique.mockImplementation(async () => row)
   db.update.mockImplementation(async ({ data }) => { row = { ...row, ...data }; return row })
   tx = { user: { findUnique: db.findUnique, update: db.update }, $queryRaw: db.query }
@@ -98,20 +99,52 @@ describe('角色经历持久化接口', () => {
     expect(cyclePhaseOn(null, today)).toBeNull()
   })
 
+  it('睡眠卡上开着的晚安提醒进这一轮的输入；取不到只是少一项', async () => {
+    const now = new Date(AFTERNOON)
+    db.diaryFindMany.mockResolvedValue([])
+    db.bedtimeFindFirst.mockResolvedValue({ freq: 'daily', time: '23:30', weekdays: [] })
+    const inputs = await loadCompanionInputs('one', {}, now)
+    expect(inputs.bedtime).toEqual({ freq: 'daily', time: '23:30', weekdays: [] })
+    expect(db.bedtimeFindFirst).toHaveBeenCalledWith({ where: { userId: 'one', kind: 'bedtime', status: 'active' }, select: { freq: true, time: true, weekdays: true } })
+    db.bedtimeFindFirst.mockRejectedValueOnce(new Error('down'))
+    expect((await loadCompanionInputs('one', {}, now)).bedtime).toBeNull()
+  })
+
+  it('过了她定的睡觉时间 5 小时以内才算过了点；没到点、不在她选的日子里都不算', () => {
+    const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
+    const daily = { freq: 'daily', time: '23:30', weekdays: [] }
+    expect(pastBedtimeOf(daily, at(2026, 9, 28, 23, 45))).toBe('23:30')
+    expect(pastBedtimeOf(daily, at(2026, 9, 29, 1, 0))).toBe('23:30')
+    expect(pastBedtimeOf(daily, at(2026, 9, 28, 23, 0))).toBeNull()
+    expect(pastBedtimeOf(daily, at(2026, 9, 29, 5, 0))).toBeNull()
+    // 只在周日到周四晚上（第二天要上课）；2026-09-26 是周六
+    const schoolNights = { freq: 'weekly', time: '23:30', weekdays: [0, 1, 2, 3, 4] }
+    expect(pastBedtimeOf(schoolNights, at(2026, 9, 26, 23, 45))).toBeNull()
+    expect(pastBedtimeOf(schoolNights, at(2026, 9, 27, 23, 45))).toBe('23:30')
+    expect(pastBedtimeOf(null, at(2026, 9, 28, 23, 45))).toBeNull()
+  })
+
+  it('过了点的那一轮，分寸里写着她定的钟点', () => {
+    const late = new Date(2026, 8, 28, 23, 50).getTime()
+    const prepared = prepareCompanionTurn('one', row, '还不想睡', [], { now: late, inputs: { bedtime: { freq: 'daily', time: '23:30', weekdays: [] } } })
+    expect(prepared.systemMessage.content).toContain('她给自己定了 23:30 睡')
+    expect(prepareCompanionTurn('one', row, '还不想睡', [], { now: late }).systemMessage.content).not.toContain('定了')
+  })
+
   it('两个经期同意缺一个就不读经期；日记或经期取不到只是少一项输入', async () => {
     const now = new Date(AFTERNOON)
     db.diaryFindMany.mockResolvedValue([{ mood: 'happy' }, { mood: 'sad' }])
     db.periodFindFirst.mockResolvedValue({ startDate: new Date(Date.UTC(2026, 8, 20)), endDate: null })
-    expect(await loadCompanionInputs('one', { periodConsentAt: new Date(), periodToneAt: null }, now)).toEqual({ recentLowMood: true, cyclePhase: null })
-    expect(await loadCompanionInputs('one', { periodConsentAt: null, periodToneAt: new Date() }, now)).toEqual({ recentLowMood: true, cyclePhase: null })
+    expect(await loadCompanionInputs('one', { periodConsentAt: new Date(), periodToneAt: null }, now)).toEqual({ recentLowMood: true, cyclePhase: null, bedtime: null })
+    expect(await loadCompanionInputs('one', { periodConsentAt: null, periodToneAt: new Date() }, now)).toEqual({ recentLowMood: true, cyclePhase: null, bedtime: null })
     expect(db.periodFindFirst).not.toHaveBeenCalled()
     expect(db.diaryFindMany).toHaveBeenCalledWith({ where: { userId: 'one', day: { gte: new Date(Date.UTC(2026, 8, 20)) } }, select: { mood: true } })
 
     const both = { periodConsentAt: new Date(), periodToneAt: new Date() }
-    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: true, cyclePhase: 'period' })
+    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: true, cyclePhase: 'period', bedtime: null })
     db.diaryFindMany.mockRejectedValueOnce(new Error('down'))
     db.periodFindFirst.mockRejectedValueOnce(new Error('down'))
-    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: false, cyclePhase: null })
+    expect(await loadCompanionInputs('one', both, now)).toEqual({ recentLowMood: false, cyclePhase: null, bedtime: null })
   })
 
   it('锁后重读最新状态，两个基于同一旧版本的完成也不会丢失经历', async () => {

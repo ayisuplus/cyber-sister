@@ -100,6 +100,26 @@
         "absent": [],
         "model": false
       }
+    },
+    {
+      "id": "past-her-bedtime",
+      "title": "过了她在睡眠卡上定的睡觉时间还在聊：她知道这是你自己定的点，只轻轻提一次（路线图 C28，2026-09-28 产品负责人批准加入）",
+      "text": "还不想睡",
+      "given": { "bedtimeMinutesAgo": 20 },
+      "expect": {
+        "contain": ["她给自己定了", "只说一次，不赶她走"],
+        "absent": []
+      }
+    },
+    {
+      "id": "before-her-bedtime",
+      "title": "还没到她定的睡觉时间：不提睡觉的事（路线图 C28，2026-09-28 产品负责人批准加入）",
+      "text": "还不想睡",
+      "given": { "bedtimeMinutesAgo": -60 },
+      "expect": {
+        "contain": [],
+        "absent": ["她给自己定了"]
+      }
     }
   ]
 }
