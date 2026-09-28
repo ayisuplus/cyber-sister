@@ -303,7 +303,7 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.scheduledTasks).toEqual([{
       content: '妈妈生日', instruction: null, freq: 'yearly', time: '09:00',
       fireAt: '2026-10-01T01:00:00.000Z', weekdays: [], monthDay: null,
-      nextFireAt: '2026-10-01T01:00:00.000Z', status: 'active',
+      nextFireAt: '2026-10-01T01:00:00.000Z', status: 'active', kind: 'plain',
       createdAt: '2026-09-15T00:00:00.000Z', updatedAt: '2026-09-15T00:00:00.000Z',
       deliveries: [{ fireAt: '2025-10-01T01:00:00.000Z', status: 'shown', result: null, createdAt: '2025-10-01T01:00:05.000Z' }],
     }])

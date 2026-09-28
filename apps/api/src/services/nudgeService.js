@@ -6,7 +6,8 @@
  * 她主动说的（惦记的事 → 关心 → 信）一天至多三条，已经问过、点过的也占位；你自己定的到点提醒不算在内。
  * 任何一处出问题都不该让对话打不开：单个来源失败就当这次没有，记一条日志。
  */
-import { ackDelivery, listDueReminders, listTodaysDeliveries } from './reminderService.js'
+import { ackDelivery, getSleepRoutine, listDueReminders, listTodaysDeliveries } from './reminderService.js'
+import { describeSleepDays, formatLine, sleepLineFor, SLEEP_KINDS, SLEEP_LABELS } from './sleepLines.js'
 import { dismissTouchpoint, listTodaysCare } from './careService.js'
 import { findLatestLetter, scheduleDueLetter } from './letterService.js'
 import { listAskedToday, listDueFollowUps, markFollowUpAsked } from './followUpService.js'
@@ -29,14 +30,25 @@ const settled = async (label, userId, task, fallback) => {
   }
 }
 
-function reminderNudge(delivery) {
+function reminderNudge(delivery, { userId, wake } = {}) {
   const reminder = delivery.reminder ?? {}
+  // 睡眠卡的两条：早安便签是那天早上的一句，晚安便签是一句晚安话（静音，不出声不通知）
+  if (SLEEP_KINDS.includes(reminder.kind)) {
+    return {
+      id: `reminder:${delivery.id}`,
+      kind: 'reminder',
+      sleep: reminder.kind,
+      content: formatLine(sleepLineFor(delivery, userId, wake)) || SLEEP_LABELS[reminder.kind],
+      reason: `你在日程里定的${SLEEP_LABELS[reminder.kind]}（${describeSleepDays(reminder)} ${reminder.time ?? ''}）`.replace(' ）', '）'),
+      detail: null,
+    }
+  }
   const when = FREQ_LABELS[reminder.freq] ? `${FREQ_LABELS[reminder.freq]} ${reminder.time ?? ''}`.trim() : ''
   return {
     id: `reminder:${delivery.id}`,
     kind: 'reminder',
     content: reminder.content ?? '到点啦',
-    reason: reminder.instruction ? `你交给她的事${when ? `（${when}）` : ''}` : `你在日历上定的${when ? `（${when}）` : ''}`,
+    reason: reminder.instruction ? `你交给她的事${when ? `（${when}）` : ''}` : `你在日程里定的${when ? `（${when}）` : ''}`,
     detail: delivery.result ?? null,
   }
 }
@@ -90,6 +102,10 @@ export async function listNudges(userId, now = new Date()) {
     settled('followup', userId, () => listAskedToday(userId, now), []),
     settled('care', userId, () => listTodaysCare(userId), []),
   ])
+  // 晚安便签要知道明早开没开闹钟（「明早 07:40 叫你。」）；没有晚安便签就不多查
+  const wake = deliveries.some((delivery) => delivery.reminder?.kind === 'bedtime')
+    ? (await settled('sleep', userId, () => getSleepRoutine(userId), null))?.wake ?? null
+    : null
   // 她的来信：到日子才写（沉默期不写），同一个人同时只写一封；只等一小会儿，写不完就下次再说。
   // 这是只读的拉取：写信在后台跑完，不让到点提醒排在云端调用后面（路线图 C23）
   await settled('letter', userId, () => waitBriefly(scheduleDueLetter(userId, { now }), LETTER_WAIT_MS), null)
@@ -97,7 +113,8 @@ export async function listNudges(userId, now = new Date()) {
 
   return [
     // 云端执行未接入的任务保持待处理，不在这里出现
-    ...deliveries.filter((delivery) => delivery.status === 'pending' && (!delivery.reminder?.instruction || delivery.result != null)).map(reminderNudge),
+    ...deliveries.filter((delivery) => delivery.status === 'pending' && (!delivery.reminder?.instruction || delivery.result != null))
+      .map((delivery) => reminderNudge(delivery, { userId, wake })),
     ...todaysUnprompted({ askedFollowUps, dueFollowUps, care, letter }).filter((slot) => !slot.shown).map((slot) => slot.nudge),
   ]
 }
@@ -107,6 +124,14 @@ function waitBriefly(task, ms) {
   let timer
   return Promise.race([task, new Promise((resolve) => { timer = setTimeout(resolve, ms, null) })])
     .finally(() => clearTimeout(timer))
+}
+
+// 睡眠便签给她自己看的那一行：「早安闹钟：……」，让她知道早上送过哪一句
+function reminderContextLine(delivery, userId) {
+  const kind = delivery.reminder?.kind
+  if (!SLEEP_KINDS.includes(kind)) return delivery.reminder?.content ?? '到点啦'
+  const text = sleepLineFor(delivery, userId)?.text
+  return text ? `${SLEEP_LABELS[kind]}：${text}` : SLEEP_LABELS[kind]
 }
 
 /** 这封信算不算今天对话里的：今天写的，或者还没读（正压在对话末尾），或者今天才读。 */
@@ -132,7 +157,7 @@ export async function describeRecentNudges(userId, now = new Date()) {
   ])
   const letterKind = letterInToday(letter, now) ? 'letter' : 'letter_earlier'
   return [
-    ...deliveries.map((delivery) => ({ kind: 'reminder', content: delivery.reminder?.content ?? '到点啦' })),
+    ...deliveries.map((delivery) => ({ kind: 'reminder', content: reminderContextLine(delivery, userId) })),
     // 与对话末尾同一个口径：一天至多三条
     ...todaysUnprompted({ askedFollowUps, dueFollowUps, care, letter }).map(({ nudge }) => ({
       kind: nudge.kind === 'letter' ? letterKind : nudge.kind, content: nudge.content, ...(nudge.sensitive ? { sensitive: nudge.sensitive } : {}),

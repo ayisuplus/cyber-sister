@@ -74,7 +74,8 @@ async function loadTraceBundles(userId, now) {
       orderBy: { createdAt: 'desc' }, take: 4,
     }),
     prisma.scheduledReminder.findMany({
-      where: { userId, OR: [{ status: 'done', updatedAt: { gte: since } }, { status: 'active', nextFireAt: { lte: soon } }] },
+      // 睡眠卡那两条天天到点，不算素材，也不能占掉 4 个名额
+      where: { userId, kind: 'plain', OR: [{ status: 'done', updatedAt: { gte: since } }, { status: 'active', nextFireAt: { lte: soon } }] },
       take: 4,
     }),
     prisma.collectionItem.findMany({ where: { userId, createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, take: 2 }),

@@ -7,6 +7,7 @@ const reminders = vi.hoisted(() => ({
   claimTaskDelivery: vi.fn(),
   completeTaskDelivery: vi.fn(),
   failTaskDelivery: vi.fn(),
+  getSleepRoutine: vi.fn(),
 }))
 const care = vi.hoisted(() => ({ listTodaysCare: vi.fn(), dismissTouchpoint: vi.fn() }))
 const letters = vi.hoisted(() => ({ scheduleDueLetter: vi.fn(), findLatestLetter: vi.fn() }))
@@ -20,6 +21,7 @@ vi.mock('./letterService.js', () => letters)
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
 import { ackNudge, describeRecentNudges, listNudges } from './nudgeService.js'
+import { bedtimeLineFor, formatLine, morningLineFor } from './sleepLines.js'
 
 const NOW = new Date('2026-09-20T09:00:00.000Z')
 const task = (overrides = {}) => ({ id: 'd1', status: 'pending', result: null, reminder: { id: 'r1', content: '总结日记', instruction: '帮我总结' }, ...overrides })
@@ -44,7 +46,7 @@ describe('她主动说的话', () => {
     const nudges = await listNudges('user-1', NOW)
 
     expect(nudges.map((nudge) => nudge.id)).toEqual(['reminder:d9', 'care:birthday:profile:2026-09-20', 'letter:l1'])
-    expect(nudges[0]).toMatchObject({ kind: 'reminder', content: '喝水', reason: '你在日历上定的（每天 10:00）' })
+    expect(nudges[0]).toMatchObject({ kind: 'reminder', content: '喝水', reason: '你在日程里定的（每天 10:00）' })
     expect(nudges[1]).toMatchObject({ kind: 'care', content: '今天是你生日\n生日快乐。', reason: '你在资料里填的生日', action: { to: '/chat', label: '去找她聊聊' } })
     expect(nudges[2]).toMatchObject({ kind: 'letter', content: '见信好。', reason: '她写给你的信' })
     expect(letters.scheduleDueLetter).toHaveBeenCalledWith('user-1', { now: NOW })
@@ -119,6 +121,44 @@ describe('她主动说的话', () => {
       await expect(ackNudge('user-1', id)).rejects.toMatchObject({ statusCode: 404 })
     }
     expect(reminders.ackDelivery).not.toHaveBeenCalled()
+  })
+})
+
+describe('睡眠卡的便签（路线图 C28）', () => {
+  const wakeAt = new Date('2026-09-28T07:40:00+08:00')
+  const bedAt = new Date('2026-09-28T23:30:00+08:00')
+  const wakeDelivery = { id: 'd1', status: 'pending', result: null, fireAt: wakeAt, reminder: { kind: 'wake', content: '早安闹钟', freq: 'weekly', weekdays: [1, 2, 3, 4, 5], time: '07:40', instruction: null } }
+  const bedDelivery = { id: 'd2', status: 'pending', result: null, fireAt: bedAt, reminder: { kind: 'bedtime', content: '晚安提醒', freq: 'daily', weekdays: [], time: '23:30', instruction: null } }
+
+  it('早安便签是那天早上的一句，说得清是你在日程里定的', async () => {
+    reminders.listDueReminders.mockResolvedValue([wakeDelivery])
+    const [nudge] = await listNudges('u1', NOW)
+    expect(nudge).toEqual({
+      id: 'reminder:d1', kind: 'reminder', sleep: 'wake',
+      content: formatLine(morningLineFor('u1', wakeAt)),
+      reason: '你在日程里定的早安闹钟（工作日 07:40）',
+      detail: null,
+    })
+    // 没有晚安便签就不多查一次睡眠卡
+    expect(reminders.getSleepRoutine).not.toHaveBeenCalled()
+  })
+
+  it('晚安便签明早开着闹钟就补一句；查睡眠卡失败也照样出便签', async () => {
+    reminders.listDueReminders.mockResolvedValue([bedDelivery])
+    reminders.getSleepRoutine.mockResolvedValue({ bedtime: null, wake: { enabled: true, time: '07:40', nextFireAt: new Date('2026-09-29T07:40:00+08:00') } })
+    const [nudge] = await listNudges('u1', NOW)
+    expect(nudge.content).toBe(`${bedtimeLineFor('u1', bedAt).text}明早 07:40 叫你。`)
+    expect(nudge.reason).toBe('你在日程里定的晚安提醒（每天 23:30）')
+
+    reminders.getSleepRoutine.mockRejectedValue(new Error('db down'))
+    const [quiet] = await listNudges('u1', NOW)
+    expect(quiet.content).toBe(bedtimeLineFor('u1', bedAt).text)
+  })
+
+  it('给她自己的上下文里写明早上送过哪一句', async () => {
+    reminders.listTodaysDeliveries.mockResolvedValue([wakeDelivery])
+    const said = await describeRecentNudges('u1', NOW)
+    expect(said[0]).toEqual({ kind: 'reminder', content: `早安闹钟：${morningLineFor('u1', wakeAt).text}` })
   })
 })
 

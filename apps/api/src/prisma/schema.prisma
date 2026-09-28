@@ -572,6 +572,8 @@ model ScheduledReminder {
   monthDay   Int?     @map("month_day") // 每月：1-31
   nextFireAt DateTime @map("next_fire_at") // 预计算下次触发（UTC），支撑无 worker 轮询
   status     String   @default("active") // active | paused | done
+  // plain = 日程里的一件事；bedtime / wake = 日程页睡眠卡的晚安提醒与早安闹钟（每人各至多一条，只在睡眠卡里改）
+  kind       String   @default("plain")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

@@ -66,7 +66,8 @@ const quoteList = (items) => items.map((item) => `「${item}」`).join('')
 
 /** 收集窗口内的近况统计：聊天与记忆、日记心情、读书笔记、做完的安排、最近的一个日子。 */
 export async function collectPeriodStats(userId, since, now = new Date()) {
-  const doneInPeriod = { userId, status: 'done', updatedAt: { gte: since } }
+  // 只算日程里的事：睡眠卡的晚安提醒与早安闹钟不是「做完的事」
+  const doneInPeriod = { userId, kind: 'plain', status: 'done', updatedAt: { gte: since } }
   const [
     messageCount,
     newMemories,
@@ -99,7 +100,7 @@ export async function collectPeriodStats(userId, since, now = new Date()) {
     // 往前看：两周内最近的一个日子（交给她执行的任务不算）
     prisma.scheduledReminder.findFirst({
       where: {
-        userId, status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
+        userId, kind: 'plain', status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
         nextFireAt: { gte: now, lte: new Date(now.getTime() + UPCOMING_DAYS * DAY_MS) },
       },
       orderBy: { nextFireAt: 'asc' },

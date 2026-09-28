@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   rdFindUnique: vi.fn(),
   rdUpdateMany: vi.fn(),
   transaction: vi.fn(),
+  queryRaw: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -33,6 +34,7 @@ vi.mock('../prisma/client.js', () => {
       updateMany: mocks.rdUpdateMany,
     },
     $transaction: mocks.transaction,
+    $queryRaw: mocks.queryRaw,
   }
   mocks.transaction.mockImplementation((run) => run(db))
   return { default: db }
@@ -51,6 +53,11 @@ import {
   claimTaskDelivery,
   completeTaskDelivery,
   failTaskDelivery,
+  getSleepRoutine,
+  latestFireAtOrBefore,
+  listScheduledReminders,
+  saveSleepRoutine,
+  sleepDeliveryFresh,
 } from './reminderService.js'
 
 const local = (y, mo, d, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi)
@@ -452,5 +459,145 @@ describe('定时任务领取与并发边界', () => {
     mocks.rdFindUnique.mockResolvedValue({ ...task(), result: '历史真实结果', reminder: { ...task().reminder, nextFireAt: local(2026, 9, 15, 20, 0) } })
     await ackDelivery('d1', 'u1', 'dismissed')
     expect(mocks.srUpdateMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('睡眠卡：晚安提醒与早安闹钟（路线图 C28）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.srUpdateMany.mockResolvedValue({ count: 1 })
+    mocks.rdUpdateMany.mockResolvedValue({ count: 1 })
+    mocks.srFindMany.mockResolvedValue([])
+  })
+
+  const WORKDAYS = [1, 2, 3, 4, 5]
+  const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
+
+  it('日程列表只看 plain：睡眠卡的两条不出现在日历与聊天工具里', async () => {
+    await listScheduledReminders('u1')
+    expect(mocks.srFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'u1', kind: 'plain' } }))
+  })
+
+  it('七天全选存成每天、否则每周；关掉存成暂停但留着时间；内容是固定的名字', async () => {
+    mocks.srFindFirst.mockResolvedValue(null)
+    await saveSleepRoutine('u1', {
+      bedtime: { enabled: true, time: '23:30', weekdays: EVERY_DAY },
+      wake: { enabled: false, time: '07:40', weekdays: WORKDAYS },
+    })
+    const created = mocks.srCreate.mock.calls.map(([{ data }]) => data)
+    expect(created).toEqual([
+      expect.objectContaining({ userId: 'u1', kind: 'bedtime', content: '晚安提醒', freq: 'daily', time: '23:30', status: 'active' }),
+      expect.objectContaining({ userId: 'u1', kind: 'wake', content: '早安闹钟', freq: 'weekly', weekdays: WORKDAYS, time: '07:40', status: 'paused' }),
+    ])
+    expect(created.every((data) => data.nextFireAt instanceof Date)).toBe(true)
+    // 锁住这个人再查有没有：同时两次保存也只会各有一条
+    expect(mocks.queryRaw).toHaveBeenCalled()
+  })
+
+  it('已经有了就改那一条，并收起还没收起的旧便签', async () => {
+    mocks.srFindFirst.mockResolvedValue({ id: 'w1', userId: 'u1', kind: 'wake' })
+    await saveSleepRoutine('u1', { wake: { enabled: true, time: '08:00', weekdays: WORKDAYS } })
+    expect(mocks.srCreate).not.toHaveBeenCalled()
+    expect(mocks.srUpdate).toHaveBeenCalledWith({ where: { id: 'w1' }, data: expect.objectContaining({ time: '08:00', status: 'active', kind: 'wake' }) })
+    expect(mocks.rdUpdateMany).toHaveBeenCalledWith({ where: { reminderId: 'w1', status: 'pending' }, data: { status: 'dismissed' } })
+  })
+
+  it('校验：什么都没传、缺 enabled、没选星期、时间不对都报 400，且一条都不写', async () => {
+    await expect(saveSleepRoutine('u1', {})).rejects.toMatchObject({ statusCode: 400 })
+    await expect(saveSleepRoutine('u1', { wake: { time: '07:40', weekdays: WORKDAYS } })).rejects.toMatchObject({ statusCode: 400 })
+    await expect(saveSleepRoutine('u1', { wake: { enabled: true, time: '07:40', weekdays: [] } })).rejects.toMatchObject({ statusCode: 400 })
+    await expect(saveSleepRoutine('u1', {
+      bedtime: { enabled: true, time: '23:30', weekdays: EVERY_DAY },
+      wake: { enabled: true, time: '7:40', weekdays: WORKDAYS },
+    })).rejects.toMatchObject({ statusCode: 400 })
+    expect(mocks.srCreate).not.toHaveBeenCalled()
+    expect(mocks.srUpdate).not.toHaveBeenCalled()
+  })
+
+  it('读出来是 { bedtime, wake }：每天的换回七天，暂停的 enabled 为 false，没设过的是 null', async () => {
+    const next = local(2026, 9, 29, 7, 40)
+    mocks.srFindMany.mockResolvedValue([
+      { id: 'w1', kind: 'wake', freq: 'daily', time: '07:40', weekdays: [], status: 'paused', nextFireAt: next },
+    ])
+    await expect(getSleepRoutine('u1')).resolves.toEqual({
+      bedtime: null,
+      wake: { id: 'w1', enabled: false, time: '07:40', weekdays: EVERY_DAY, nextFireAt: next },
+    })
+    expect(mocks.srFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'u1', kind: { in: ['bedtime', 'wake'] } } }))
+  })
+
+  it('睡眠卡的两条不能从日程或聊天工具里改、删', async () => {
+    mocks.srFindFirst.mockResolvedValue({ id: 'w1', userId: 'u1', kind: 'wake' })
+    await expect(updateScheduledReminder('w1', 'u1', { status: 'paused' })).rejects.toMatchObject({ statusCode: 400, message: '闹钟和晚安提醒在日程页的睡眠卡里改' })
+    await expect(deleteScheduledReminder('w1', 'u1')).rejects.toMatchObject({ statusCode: 400 })
+    expect(mocks.srUpdate).not.toHaveBeenCalled()
+    expect(mocks.srDelete).not.toHaveBeenCalled()
+  })
+
+  describe('到点：只认最近这一次，当场推进，不等她确认', () => {
+    const wake = (nextFireAt) => ({
+      id: 'w1', userId: 'u1', kind: 'wake', status: 'active', freq: 'daily', time: '07:40', weekdays: [],
+      nextFireAt, updatedAt: local(2026, 9, 1),
+    })
+
+    it('当天早上到点：建投递并推进到明天，推进带条件防重', async () => {
+      const reminder = wake(local(2026, 9, 28, 7, 40))
+      mocks.srFindMany.mockResolvedValue([reminder])
+      mocks.rdCreate.mockResolvedValue({})
+      mocks.rdFindMany.mockResolvedValue([])
+      await listDueReminders('u1', local(2026, 9, 28, 7, 41), { kinds: ['bedtime', 'wake'] })
+      expect(mocks.srFindMany).toHaveBeenCalledWith({ where: { userId: 'u1', status: 'active', nextFireAt: { lte: local(2026, 9, 28, 7, 41) }, kind: { in: ['bedtime', 'wake'] } } })
+      expect(mocks.rdCreate).toHaveBeenCalledWith({ data: { reminderId: 'w1', fireAt: local(2026, 9, 28, 7, 40) } })
+      expect(mocks.srUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'w1', userId: 'u1', status: 'active', nextFireAt: reminder.nextFireAt, updatedAt: reminder.updatedAt },
+        data: { nextFireAt: local(2026, 9, 29, 7, 40) },
+      })
+    })
+
+    it('好几天没打开：只给今天这一次建投递，下一次直接到明天', async () => {
+      mocks.srFindMany.mockResolvedValue([wake(local(2026, 9, 24, 7, 40))])
+      mocks.rdCreate.mockResolvedValue({})
+      mocks.rdFindMany.mockResolvedValue([])
+      await listDueReminders('u1', local(2026, 9, 28, 9, 0))
+      expect(mocks.rdCreate).toHaveBeenCalledTimes(1)
+      expect(mocks.rdCreate).toHaveBeenCalledWith({ data: { reminderId: 'w1', fireAt: local(2026, 9, 28, 7, 40) } })
+      expect(mocks.srUpdateMany.mock.calls[0][0].data).toEqual({ nextFireAt: local(2026, 9, 29, 7, 40) })
+    })
+
+    it('过了时候（下午才打开）：不再建早安便签，但照样推进', async () => {
+      mocks.srFindMany.mockResolvedValue([wake(local(2026, 9, 28, 7, 40))])
+      mocks.rdFindMany.mockResolvedValue([])
+      await listDueReminders('u1', local(2026, 9, 28, 15, 0))
+      expect(mocks.rdCreate).not.toHaveBeenCalled()
+      expect(mocks.srUpdateMany.mock.calls[0][0].data).toEqual({ nextFireAt: local(2026, 9, 29, 7, 40) })
+    })
+
+    it('过了时候的睡眠便签不再返回；日程里的提醒照旧', async () => {
+      mocks.rdFindMany.mockResolvedValue([
+        { id: 'd1', fireAt: local(2026, 9, 28, 7, 40), reminder: { kind: 'wake' } },
+        { id: 'd2', fireAt: local(2026, 9, 27, 23, 30), reminder: { kind: 'bedtime' } },
+        { id: 'd3', fireAt: local(2026, 9, 20, 9, 0), reminder: { kind: 'plain', content: '喝水' } },
+      ])
+      const out = await listDueReminders('u1', local(2026, 9, 28, 13, 0))
+      expect(out.map((delivery) => delivery.id)).toEqual(['d3'])
+    })
+  })
+
+  it('睡眠便签的有效期：早安响后 4 小时；晚安到次日凌晨 5 点，凌晨定的到当天 5 点', () => {
+    expect(sleepDeliveryFresh('wake', local(2026, 9, 28, 7, 40), local(2026, 9, 28, 11, 39))).toBe(true)
+    expect(sleepDeliveryFresh('wake', local(2026, 9, 28, 7, 40), local(2026, 9, 28, 11, 41))).toBe(false)
+    expect(sleepDeliveryFresh('bedtime', local(2026, 9, 27, 23, 30), local(2026, 9, 28, 4, 59))).toBe(true)
+    expect(sleepDeliveryFresh('bedtime', local(2026, 9, 27, 23, 30), local(2026, 9, 28, 5, 1))).toBe(false)
+    expect(sleepDeliveryFresh('bedtime', local(2026, 9, 28, 0, 30), local(2026, 9, 28, 4, 0))).toBe(true)
+    expect(sleepDeliveryFresh('bedtime', local(2026, 9, 28, 0, 30), local(2026, 9, 28, 6, 0))).toBe(false)
+  })
+
+  it('最近一次触发：每周的跳过没选的日子', () => {
+    // 2026-09-28 是周一；工作日 07:40
+    const workdays = { freq: 'weekly', time: '07:40', weekdays: WORKDAYS }
+    expect(latestFireAtOrBefore(workdays, local(2026, 9, 28, 9, 0))).toEqual(local(2026, 9, 28, 7, 40))
+    // 周一 07:00 看，最近一次是上周五
+    expect(latestFireAtOrBefore(workdays, local(2026, 9, 28, 7, 0))).toEqual(local(2026, 9, 25, 7, 40))
+    expect(latestFireAtOrBefore({ freq: 'daily', time: '23:30' }, local(2026, 9, 28, 0, 10))).toEqual(local(2026, 9, 27, 23, 30))
   })
 })

@@ -404,12 +404,12 @@ describe('collectPeriodStats', () => {
       moodCounts: { happy: 2, sad: 1 }, diaryDays: 3, readingNoteCount: 2, readingBookTitle: '小王子',
       doneTaskCount: 1, doneTaskContents: ['交房租'], upcomingTask: { content: '英语面试' },
     })
-    const doneInPeriod = { userId: USER_ID, status: 'done', updatedAt: { gte: since } }
+    const doneInPeriod = { userId: USER_ID, kind: 'plain', status: 'done', updatedAt: { gte: since } }
     expect(mocks.taskCount).toHaveBeenCalledWith({ where: doneInPeriod })
     expect(mocks.taskFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: doneInPeriod, take: 3 }))
     expect(mocks.taskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: {
-        userId: USER_ID, status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
+        userId: USER_ID, kind: 'plain', status: 'active', instruction: null, freq: { in: ['once', 'yearly'] },
         nextFireAt: { gte: NOW, lte: new Date(NOW.getTime() + 14 * DAY_MS) },
       },
     }))

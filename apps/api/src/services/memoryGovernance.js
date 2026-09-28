@@ -35,7 +35,7 @@ const SOURCE_SPECS = {
   memory:       { find: (tx, userId, id) => tx.memory.findFirst({ where: { id, userId } }), text: (r) => r.content, revisioned: true },
   diary:        { find: (tx, userId, id) => tx.diaryEntry.findFirst({ where: { id, userId } }), text: (r) => r.content ?? '' },
   reading_note: { find: (tx, userId, id) => tx.readingNote.findFirst({ where: { id, userId } }), text: (r) => [r.quote, r.content].filter(Boolean).join('\n') },
-  task:         { find: (tx, userId, id) => tx.scheduledReminder.findFirst({ where: { id, userId } }), text: (r) => r.content ?? '' },
+  task:         { find: (tx, userId, id) => tx.scheduledReminder.findFirst({ where: { id, userId, kind: 'plain' } }), text: (r) => r.content ?? '' },
   collection:   { find: (tx, userId, id) => tx.collectionItem.findFirst({ where: { id, userId } }), text: (r) => [r.name, r.note].filter(Boolean).join('\n') },
 }
 

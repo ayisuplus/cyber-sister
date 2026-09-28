@@ -241,7 +241,7 @@ describe('executeToolCall', () => {
     expect(second.items).toHaveLength(5)
     expect(second).toMatchObject({ hasMore: false, nextOffset: null })
     expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(25)
-    expect(db.taskFindMany).toHaveBeenLastCalledWith({ where: { userId: 'u1', status: 'active' }, orderBy: [{ nextFireAt: 'asc' }, { id: 'asc' }], skip: 20, take: 21 })
+    expect(db.taskFindMany).toHaveBeenLastCalledWith({ where: { userId: 'u1', kind: 'plain', status: 'active' }, orderBy: [{ nextFireAt: 'asc' }, { id: 'asc' }], skip: 20, take: 21 })
     const done = parseFeedback(await executeToolCall('u1', { name: 'list_tasks', args: { status: 'done' } })).result
     expect(done.items.every(item => item.status === 'done')).toBe(true)
   })

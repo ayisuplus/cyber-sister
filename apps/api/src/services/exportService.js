@@ -201,7 +201,7 @@ export async function buildUserExport(userId) {
       orderBy: { createdAt: 'asc' },
       select: {
         content: true, instruction: true, freq: true, time: true, fireAt: true, weekdays: true, monthDay: true,
-        nextFireAt: true, status: true, createdAt: true, updatedAt: true,
+        nextFireAt: true, status: true, kind: true, createdAt: true, updatedAt: true,
         deliveries: { orderBy: { fireAt: 'asc' }, select: { fireAt: true, status: true, result: true, createdAt: true } },
       },
     }),
@@ -289,6 +289,8 @@ export async function buildUserExport(userId) {
       monthDay: t.monthDay ?? null,
       nextFireAt: iso(t.nextFireAt),
       status: t.status,
+      // plain = 日程里的事；bedtime / wake = 睡眠卡的晚安提醒与早安闹钟
+      kind: t.kind ?? 'plain',
       createdAt: iso(t.createdAt),
       updatedAt: iso(t.updatedAt),
       deliveries: (t.deliveries || []).map((d) => ({ fireAt: iso(d.fireAt), status: d.status, result: d.result ?? null, createdAt: iso(d.createdAt) })),
