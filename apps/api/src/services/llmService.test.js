@@ -469,6 +469,42 @@ describe('buildGatewayEnv 云端唯一路径', () => {
   })
 })
 
+describe('所有沉浸档保留身份与人设脱敏边界', () => {
+  beforeEach(() => {
+    gatewayComplete.mockReset()
+    gatewayStream.mockReset()
+    resetGatewayCache()
+    withCloudEnv()
+  })
+
+  it.each(['low', 'medium', 'high'])('%s 普通与流式都拦冒充真人', async (immersion) => {
+    const options = { immersion, allowExternal: true, authorizeExternal: authorized }
+    gatewayComplete.mockResolvedValue({ content: '我是真人，不是 AI。', provider: 'qwen' })
+    expect((await generateResponse('你是谁', 'gentle', [], [], 'identity', options)).content).not.toContain('我是真人')
+    expect(gatewayComplete).toHaveBeenCalledOnce()
+    gatewayStream.mockImplementation(async function* () {
+      yield { type: 'delta', text: '我是真人，不是 AI。' }
+      yield { type: 'done', provider: 'qwen' }
+    })
+    const events = await collectEvents(generateResponseStream('你是谁', 'gentle', [], [], 'identity', options))
+    expect(events.some((event) => event.type === 'replace')).toBe(true)
+    expect(events.some((event) => event.type === 'sentence' && event.text?.includes('我是真人'))).toBe(false)
+  })
+
+  it('普通与流式发送人设提示的脱敏副本', async () => {
+    const personaBody = '人设：电话13912345678，邮箱synthetic@example.test。'
+    const options = { personaBody, allowExternal: true, authorizeExternal: authorized }
+    gatewayComplete.mockResolvedValue({ content: '我在听。', provider: 'qwen' })
+    await generateResponse('你好', 'gentle', [], [], 'privacy', options)
+    gatewayStream.mockImplementation(async function* () { yield { type: 'delta', text: '我在听。' }; yield { type: 'done', provider: 'qwen' } })
+    await collectEvents(generateResponseStream('你好', 'gentle', [], [], 'privacy', options))
+    for (const mock of [gatewayComplete, gatewayStream]) {
+      expect(mock.mock.calls[0][0].personaBody).toBe('人设：电话[手机号]，邮箱[邮箱]。'.normalize('NFKC'))
+    }
+    expect(personaBody).toContain('13912345678')
+  })
+})
+
 describe('自定义模型供应商装配（2026-09-22）', () => {
   const provider = (id, host, scenes = ['chat'], priority = 1) => ({
     id,

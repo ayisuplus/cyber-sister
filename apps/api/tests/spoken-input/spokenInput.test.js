@@ -2,7 +2,7 @@
  * 口语检验集（见 docs/04-开发/语音输入评测.md）：同一句话打出来和说出来（语音转写的样子），
  * 倾诉识别与危机检测要判得一样。不联网、不花钱，进 CI。
  * 场景与期望在 spoken.cases.json：冻结后改期望要产品负责人确认，不在实现里默默改。
- * knownGap 是登记在案、这一轮不修的缺口，用 it.fails 断言它「还没修」：哪天修好了这里会变红，提醒把登记摘掉。
+ * 每条冻结期望都是硬门禁，已知缺口也不能用预期失败掩盖。
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -50,12 +50,11 @@ describe('口语检验集的数据', () => {
 describe('说出来和打出来判得一样', () => {
   for (const item of suite.cases) {
     const utterances = [
-      { label: '打字', text: item.typed, knownGap: item.knownGap },
-      ...item.spoken.map((variant) => ({ label: variant.kinds.join('+'), text: variant.text, knownGap: item.knownGap ?? variant.knownGap })),
+      { label: '打字', text: item.typed },
+      ...item.spoken.map((variant) => ({ label: variant.kinds.join('+'), text: variant.text })),
     ]
     for (const utterance of utterances) {
-      const test = utterance.knownGap ? it.fails : it
-      test(`${item.id}（${utterance.label}）「${utterance.text}」${utterance.knownGap ? `——已知缺口：${utterance.knownGap}` : ''}`, () => {
+      it(`${item.id}（${utterance.label}）「${utterance.text}」`, () => {
         const got = judge(utterance.text)
         expect(got.crisis).toBe(item.expect.crisis)
         if (item.expect.feeling !== null) expect(got.feeling).toBe(item.expect.feeling)

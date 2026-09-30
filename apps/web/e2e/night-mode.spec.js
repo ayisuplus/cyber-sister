@@ -54,6 +54,7 @@ test.beforeEach(async ({ page }) => {
       '/api/chat/openers': { openers: [] },
       '/api/asr/status': { available: false },
       '/api/user/profile': { careEnabled: true },
+      '/api/user/personas': { personas: [{ id: 'gentle', name: '姐妹', active: true, card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }] },
       '/api/reminders/scheduled': { reminders: [
         { id: 'night-paused', content: '睡前收好手机', freq: 'daily', time: '22:30', weekdays: [], status: 'paused', nextFireAt: '2026-09-12T14:30:00.000Z' },
         { id: 'night-done', content: '已经读完一章', freq: 'once', time: '20:30', weekdays: [], status: 'done', nextFireAt: '2026-09-12T12:30:00.000Z' },

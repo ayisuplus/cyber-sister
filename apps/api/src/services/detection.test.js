@@ -33,6 +33,15 @@ describe('detectCrisis 危机检测', () => {
       expect(detectCrisis('今晚就想跳楼，一了百了')).toBe('high')
     })
 
+    it.each(['我真的不想，嗯，活了。', '我真的不像活了。', '我不想，就是，活了。'])('口语与限定的同音误写：%s', (text) => {
+      expect(detectCrisis(text)).toBe('high')
+    })
+
+    it('普通比喻不按同音误写改成危机', () => {
+      expect(detectCrisis('这段表演不像活人')).toBeNull()
+      expect(detectCrisis('我不像活泼的同学')).toBeNull()
+    })
+
     it.each([
       '今晚准备吃安眠药结束自己',
       '我已经准备好去死了',

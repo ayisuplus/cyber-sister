@@ -146,6 +146,10 @@ describe('只是倾诉的一轮', () => {
   })
 
   it('拿不准的都按办事：有办事的线索、平常的话、带图或文件、空消息', () => {
+    expect(isFeelingTurn('他们都说我矫情，你看下我是不是真的很矫情')).toBe(true)
+    expect(isFeelingTurn('今天又被领导当着大家的面骂了')).toBe(true)
+    expect(isFeelingTurn('被领导骂了，帮我查一下劳动法')).toBe(false)
+    expect(isFeelingTurn('你看下我是不是矫情，再帮我写个请假条')).toBe(false)
     for (const text of ['好难过，帮我定个明早 7 点的闹钟', '烦死了，提醒我吃药', '焦虑，查一下明天天气', '好焦虑，帮我整理一下明天的提纲', '你好', '今天吃了火锅', '']) {
       expect(isFeelingTurn(text)).toBe(false)
     }

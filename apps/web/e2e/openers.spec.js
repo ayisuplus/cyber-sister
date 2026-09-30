@@ -29,6 +29,7 @@ test.beforeEach(async ({ page }) => {
       '/api/llm/status': { externalFallback: { configured: false, consent: true } },
       '/api/user/external-llm-consent': { accepted: true, version: 'cloud-primary-v1', updatedAt: null },
       '/api/user/profile': { careEnabled: false },
+      '/api/user/personas': { personas: [{ id: 'gentle', name: '姐妹', active: true, card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }] },
       '/api/asr/status': { available: false },
       '/api/reminders/scheduled': { reminders: [] },
       '/api/reminders/sleep': { bedtime: null, wake: null, due: [] },

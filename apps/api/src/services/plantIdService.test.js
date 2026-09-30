@@ -58,8 +58,8 @@ describe('认一认', () => {
     expect(request).toMatchObject({ scene: 'chat', persona: 'cool', immersion: 'high', requestId: 'req-1', allowExternal: true })
     // 口吻底子来自她这张卡，人设层就是这张卡的 personaBody
     expect(db.personaFindFirst).toHaveBeenCalledWith({ where: { id: 'cool', userId: 'u1' } })
-    expect(request.personaBody).toContain('人设：安静。')
-    expect(request.personaBody).toContain('怎么说话：话不多，一句是一句；不绕弯子。')
+    expect(request.personaBody).toContain('人设：安静。'.normalize('NFKC'))
+    expect(request.personaBody).toContain('怎么说话：话不多，一句是一句；不绕弯子。'.normalize('NFKC'))
     expect(typeof request.authorizeExternal).toBe('function')
     expect(request.systemAppend[0].content).toContain('【认花草】')
     const [text, image] = request.messages[0].content

@@ -411,7 +411,7 @@ describe.runIf(MODE === 'ci')('回复质量评测装置（离线：只看发出�
     expect(body).toContain('[Amie 内置技能：身体呵护 v1]')
     const emotion = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'cool'))
     expect(emotion).toContain('[Amie 内置技能：情绪与关系梳理 v1]')
-    expect(emotion).toContain('人设：安静型闺蜜')
+    expect(emotion).toContain('人设：安静型闺蜜'.normalize('NFKC'))
   })
 
   it('小心模式的场景带上小心模式块，深夜的场景知道现在是凌晨', async () => {

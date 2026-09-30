@@ -43,13 +43,13 @@ export const PERSONA_FIELDS = [
 ]
 export const REQUIRED_FIELDS = ['name', 'speech']
 
-// 沉浸深度：她承认多少「自己是 AI」这件事（说明要诚实，不粉饰）
+// 沉浸深度：角色表达方式不同，真实身份边界一致。
 export const IMMERSIONS = ['low', 'medium', 'high']
 export const IMMERSION_LABELS = { low: '浅', medium: '中', high: '深' }
 export const IMMERSION_DESCRIPTIONS = {
   low: '被问到就承认自己是 AI。',
   medium: '平时在角色里，聊到要紧事也能出来直说。',
-  high: '完全在角色里，连身份也不出戏。',
+  high: '平时沉浸在角色里，被问到真实身份时说明自己是 AI。',
 }
 
 // 口吻底子：只影响她固定句式（关怀、来信）的底色

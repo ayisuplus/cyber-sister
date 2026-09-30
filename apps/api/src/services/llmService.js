@@ -15,6 +15,7 @@ import logger from '../utils/logger.js'
 import { cosineSimilarity } from './embeddingConfig.js'
 import { VECTOR_POLICIES } from './vectors/policies.js'
 import { identityKeyOf } from './vectors/identity.js'
+import { redactSensitiveText } from '../utils/redactSensitiveText.js'
 import { vectorFits } from './vectors/vectorStore.js'
 // 余弦相似度放在没有依赖的 embeddingConfig.js（书架选章也要用，免得循环引用）；这里照旧导出
 export { cosineSimilarity }
@@ -181,15 +182,7 @@ export function imagePart(image) {
   return { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.buffer.toString('base64')}` } }
 }
 
-/** 仅处理确定性高的常见直接标识符，不声称能够匿名化任意自由文本。 */
-export function redactSensitiveText(value) {
-  return String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[邮箱]')
-    .replace(/\b\d{6}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]\b/g, '[证件号]')
-    .replace(/\b\d{15}\b/g, '[证件号]')
-    .replace(/(?:\+?86[-\s]?)?1[3-9](?:[-\s]?\d){9}/g, '[手机号]')
-}
+export { redactSensitiveText }
 
 function modelText(value, maxChars = MAX_MODEL_MESSAGE_CHARS) {
   return redactSensitiveText(value).trim().slice(0, maxChars)
@@ -466,18 +459,18 @@ function hits(text, pattern, excused) {
 
 /**
  * 这段话有没有真的越过红线：劝阻、她自己的拒绝、转述与反问她的话不算。
- * identityClaims=false 跳过「冒充真人」判定（沉浸档 high：人设就在角色里），危害红线两种取值都拦。
+ * 沉浸档只调整表达方式，所有档位都保留真实身份与危害红线。
  */
-export function crossesRedLine(text, { identityClaims = true } = {}) {
+export function crossesRedLine(text) {
   const harm = (before, after) => (NEGATED_BEFORE.test(before) && !QUESTION_AFTER.test(after)) || REFUSED_AFTER.test(after)
   const reported = (before, after) => REPORTED_BEFORE.test(before) || QUESTION_AFTER.test(after)
   return HARM_PATTERNS.some((pattern) => hits(text, pattern, harm))
-    || (identityClaims && hits(text, HUMAN_CLAIM, reported))
+    || hits(text, HUMAN_CLAIM, reported)
 }
 
-export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false, { identityClaims = true } = {}) {
+export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false) {
   const normalized = redactSensitiveText(content).trim()
-  if (!normalized || crossesRedLine(normalized, { identityClaims })) {
+  if (!normalized || crossesRedLine(normalized)) {
     return { ...generateLocalTemplateResponse(currentText, persona), filtered: true }
   }
   return { content: normalized.slice(0, messageLimit(agent)), source, filtered: false }
@@ -527,7 +520,7 @@ export async function generateResponse(
       tools,
       requestId,
       persona: safePersona,
-      personaBody,
+      personaBody: typeof personaBody === 'string' ? redactSensitiveText(personaBody) : personaBody,
       immersion,
       messages,
       systemAppend: [...systemAppend, ...contextResult.appendSystem.map((content) => ({ role: 'system', content }))],
@@ -552,7 +545,7 @@ export async function generateResponse(
   const replyTool = parseToolReply(result.content)
   const filtered = replyTool
     ? { content: JSON.stringify({ tool: replyTool.name, args: replyTool.args }), source: responseSource }
-    : filterModelOutput(result.content, text, safePersona, responseSource, agent, { identityClaims: immersion !== 'high' })
+    : filterModelOutput(result.content, text, safePersona, responseSource, agent)
   return {
     content: filtered.content,
     emotion,
@@ -573,8 +566,8 @@ function nextSentenceEnd(text, from) {
 }
 
 /** 与 filterModelOutput 同款的累计安全判定（不含空内容分支）。 */
-function isUnsafeAccumulation(accumulated, identityClaims) {
-  return crossesRedLine(redactSensitiveText(accumulated), { identityClaims })
+function isUnsafeAccumulation(accumulated) {
+  return crossesRedLine(redactSensitiveText(accumulated))
 }
 
 /**
@@ -659,7 +652,7 @@ export async function* generateResponseStream(
     for (;;) {
       const end = nextSentenceEnd(fullText, consumed)
       if (end === -1) return false
-      if (isUnsafeAccumulation(fullText.slice(0, end), immersion !== 'high')) return true
+      if (isUnsafeAccumulation(fullText.slice(0, end))) return true
       const sentence = redactSensitiveText(fullText.slice(consumed, end))
         .slice(0, messageLimit(agent) - displayedText.length)
       if (sentence) {
@@ -686,7 +679,7 @@ export async function* generateResponseStream(
       tools,
       requestId,
       persona: safePersona,
-      personaBody,
+      personaBody: typeof personaBody === 'string' ? redactSensitiveText(personaBody) : personaBody,
       immersion,
       messages,
       systemAppend: [...systemAppend, ...contextResult.appendSystem.map((content) => ({ role: 'system', content }))],
@@ -757,7 +750,7 @@ export async function* generateResponseStream(
 
   const responseSource = 'qwen'
   // 尾段随流结束做最终整体过滤，覆盖空内容与跨句命中。
-  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, agent, { identityClaims: immersion !== 'high' })
+  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, agent)
   if (filtered.filtered) {
     yield { type: 'replace', content: filtered.content, source: filtered.source }
     yield {

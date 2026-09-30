@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一次发布：预检 → 备份数据库 → 构建镜像 → 迁移并起服务 → 健康检查 → 记录；失败自动回滚镜像。
+# 一次发布：预检 → 备份数据库与附件 → 构建镜像 → 迁移并起服务 → 健康检查 → 记录；失败自动回滚镜像。
 #
 # 用法（在仓库根目录的检出上执行，前端产物必须已放好）：
 #   RUNTIME_ENV_FILE=/opt/amie/runtime.env IMAGE_TAG=sha-1a2b3c4d deploy/scripts/release.sh
@@ -16,6 +16,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 BACKUP_KEEP="${BACKUP_KEEP:-7}"
 BACKUP_FILE=""
+ASSET_BACKUP_FILE=""
+API_STOPPED=0
 
 require_env_file
 [ -n "${IMAGE_TAG:-}" ] || fail "未设置 IMAGE_TAG"
@@ -48,6 +50,10 @@ rollback_on_failure() {
   if [ -n "$BACKUP_FILE" ]; then
     log "数据库备份保留在：$BACKUP_FILE（数据回滚需人工确认，脚本不自动执行）"
   fi
+  [ -z "$ASSET_BACKUP_FILE" ] || log "附件备份保留在：$ASSET_BACKUP_FILE"
+  if [ "$API_STOPPED" = "1" ]; then
+    compose start api || log "原 API 恢复启动失败，需要人工介入"
+  fi
   if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
     log "回滚到上一个镜像标签：$PREVIOUS_TAG"
     RUNTIME_ENV_FILE="$RUNTIME_ENV_FILE" STATE_DIR="$STATE_DIR" \
@@ -62,10 +68,23 @@ trap rollback_on_failure EXIT
 # ---- 2. 备份（迁移之前，失败即止）----
 if [ "${SKIP_BACKUP:-0}" = "1" ]; then
   log "按 SKIP_BACKUP=1 跳过备份（只应在首次部署时使用）"
-elif [ -z "$(compose ps -q postgres 2>/dev/null || true)" ]; then
-  log "postgres 容器尚未运行，判定为首次部署，跳过备份"
+elif [ -z "$(compose ps -a -q postgres 2>/dev/null || true)" ]; then
+  log "postgres 容器尚未创建，判定为首次部署，跳过备份"
 else
+  [ -n "$(compose ps -q postgres)" ] || fail "已有数据库容器尚未运行，不能跳过备份；先恢复原数据库再发布"
   BACKUP_FILE="$STATE_DIR/backups/pre-$IMAGE_TAG-$(date +%Y%m%d-%H%M%S).dump"
+  ASSET_BACKUP_FILE="${BACKUP_FILE%.dump}.assets.tar"
+  api_container="$(compose ps -a -q api)"
+  [ -n "$api_container" ] || fail "已有数据库但缺少 API 容器，无法确定附件卷；先恢复原部署再发布"
+  api_image="$(docker inspect --format '{{.Image}}' "$api_container")"
+  # 暂停应用写入，数据库与附件来自同一个维护窗口；用原镜像只读挂载原卷，不执行应用。
+  API_STOPPED=1
+  compose stop api
+  log "备份附件 → $ASSET_BACKUP_FILE"
+  docker run --rm --pull=never --network=none --volumes-from "$api_container:ro" \
+    --entrypoint tar "$api_image" -C /workspace/apps/api/data -cf - . > "$ASSET_BACKUP_FILE"
+  [ -s "$ASSET_BACKUP_FILE" ] || fail "附件备份为空：$ASSET_BACKUP_FILE"
+  tar -tf "$ASSET_BACKUP_FILE" > /dev/null || fail "附件备份无法解析"
   log "备份数据库 → $BACKUP_FILE"
   compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > "$BACKUP_FILE"
   [ -s "$BACKUP_FILE" ] || fail "备份文件为空：$BACKUP_FILE"
@@ -74,7 +93,7 @@ else
   # 只保留最近 N 份
   ls -1t "$STATE_DIR/backups"/pre-*.dump 2>/dev/null | tail -n "+$((BACKUP_KEEP + 1))" | while read -r old; do
     log "清理旧备份：$old"
-    rm -f "$old"
+    rm -f "$old" "${old%.dump}.assets.tar"
   done
 fi
 
@@ -86,6 +105,7 @@ compose build api web
 # migration 是一次性服务，compose 里已声明 api 依赖它 service_completed_successfully
 log "应用迁移并启动服务"
 compose up -d --remove-orphans
+API_STOPPED=0
 
 # ---- 5. 健康检查 ----
 if ! wait_healthy; then

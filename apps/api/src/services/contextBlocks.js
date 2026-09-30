@@ -131,7 +131,7 @@ const TASK_ASKS = /帮我(?:定|做|写|查|搜|找|算|翻译|整理|总结|安
 const FEELINGS = new Set(['sad', 'angry', 'anxious'])
 // 情绪词表只认得少数几种说法。倾诉里常见的这些也算：孤单、愧疚、丢脸、委屈、紧张、被人说「笨」「矫情」……
 // （2026-09-23 回复质量基线：30 个场景里 22 个倾诉被当成办事，带上了整份工具目录，还有一条回复整个跑偏）
-const FEELING_CUES = /孤独|孤单|寂寞|内疚|愧疚|自责|丢人|丢脸|难堪|尴尬|委屈|心累|好累|想哭|睡不着|失眠|心里.{0,3}酸|嫉妒|眼红|又爱又恨|差劲|搞砸|这辈子|吓坏|吓死|好怕|不敢|嫌弃|难受|失落|扛不住|撑不住|不开心|好烦|紧张|没人懂|(?:挺|好|真)没用|说我(?:矫情|笨|胖|丑|懒|没用|太挑)|不让我/u
+const FEELING_CUES = /孤独|孤单|寂寞|内疚|愧疚|自责|丢人|丢脸|难堪|尴尬|委屈|心累|好累|想哭|睡不着|失眠|心里.{0,3}酸|嫉妒|眼红|又爱又恨|差劲|搞砸|这辈子|吓坏|吓死|好怕|不敢|嫌弃|难受|失落|扛不住|撑不住|不开心|好烦|紧张|没人懂|(?:挺|好|真)没用|说我(?:矫情|笨|胖|丑|懒|没用|太挑)|被[^，。！？,.!?\n]{0,12}(?:骂|训|批评)|不让我/u
 
 /**
  * 这一轮只是倾诉、不办事：小心模式，或带着情绪（难过 / 生气 / 焦虑，或上面这些常见说法）且没有明说交代办事，也没带图片和文件。
@@ -141,7 +141,9 @@ export function isFeelingTurn(text, { careful = false, image = false, attachment
   const value = String(text ?? '')
   if (image || attachments > 0 || !value.trim()) return false
   const emotional = careful || FEELINGS.has(detectEmotion(value)) || FEELING_CUES.test(value)
-  return emotional ? !TASK_ASKS.test(value) : false
+  // 「你看下我是不是很矫情」是在寻求情绪回应；同句里的明确办事请求仍优先。
+  const tasks = value.replace(/你看(?:一)?下我(?:是不是|是否)/u, '')
+  return emotional ? !TASK_ASKS.test(tasks) : false
 }
 
 /** 这一轮回复下面会自动出现「帮我记住」确认卡：请她确认，不能说已经记住了。 */

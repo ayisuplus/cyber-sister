@@ -15,8 +15,11 @@ if [ "$1" = compose ]; then
   shift
   while [ "$1" = -f ] || [ "$1" = --env-file ]; do shift 2; done
   case "$1" in
-    version|config) exit 0 ;;
-    ps) echo fake-container ;;
+    version|config|stop|start) exit 0 ;;
+    ps)
+      if [ "$SCENARIO" = postgres-stopped ] && [[ "$*" == 'ps -q postgres' ]]; then exit 0;
+      elif [ "$SCENARIO" = missing-api ] && [[ "$*" == *' -q api' ]]; then exit 0;
+      else echo fake-container; fi ;;
     exec)
       if [[ "$*" == *pg_dump* ]]; then
         [ "$SCENARIO" = empty-backup ] || echo fake-dump
@@ -27,7 +30,12 @@ if [ "$1" = compose ]; then
     *) exit 99 ;;
   esac
 elif [ "$1" = inspect ]; then
-  if [ "$SCENARIO" = unhealthy ] && [ "$IMAGE_TAG" = new ]; then echo unhealthy; else echo healthy; fi
+  if [[ "$*" == *'{{.Image}}'* ]]; then echo sha256:fixture;
+  elif [ "$SCENARIO" = unhealthy ] && [ "$IMAGE_TAG" = new ]; then echo unhealthy; else echo healthy; fi
+elif [ "$1" = run ]; then
+  if [ "$SCENARIO" = empty-assets ]; then exit 0;
+  elif [ "$SCENARIO" = invalid-assets ]; then echo invalid-tar;
+  else tar -cf - --files-from /dev/null; fi
 elif [ "$1" = image ]; then
   [ "$SCENARIO" != rollback-failure ]
 else exit 99; fi
@@ -69,7 +77,7 @@ exec bash deploy/scripts/release.sh
   return { result, commandLog, output, root }
 }
 
-for (const [scenario, exitCode] of Object.entries({ unhealthy: 1, 'build-failure': 17, 'start-failure': 18, 'empty-backup': 1, 'invalid-backup': 1 })) {
+for (const [scenario, exitCode] of Object.entries({ unhealthy: 1, 'build-failure': 17, 'start-failure': 18, 'empty-backup': 1, 'invalid-backup': 1, 'empty-assets': 1, 'invalid-assets': 1, 'postgres-stopped': 1, 'missing-api': 1 })) {
   test(`release rolls back exactly once on ${scenario}`, t => {
     const { result, commandLog, output, root } = runRelease(t, scenario)
     assert.equal(result.status, exitCode, output)
@@ -77,6 +85,7 @@ for (const [scenario, exitCode] of Object.entries({ unhealthy: 1, 'build-failure
     assert.equal(readFileSync(join(root, 'state/current-tag'), 'utf8'), 'old\n')
     assert.doesNotMatch(output, /发布完成：new/)
     assert.doesNotMatch(commandLog, /pg_restore.*--clean|prisma.*reset/)
+    if (['postgres-stopped', 'missing-api'].includes(scenario)) assert.doesNotMatch(commandLog, /new compose.*build|pg_dump/)
   })
 }
 
@@ -86,6 +95,8 @@ test('successful release records its tag and never rolls back', t => {
   assert.doesNotMatch(commandLog, /^old /m)
   assert.equal(readFileSync(join(root, 'state/current-tag'), 'utf8'), 'new\n')
   assert.equal(readFileSync(join(root, 'state/previous-tag'), 'utf8'), 'old\n')
+  assert.ok(commandLog.indexOf(' stop api') < commandLog.indexOf('pg_dump'), 'backup quiesces API writes first')
+  assert.match(commandLog, /--network=none --volumes-from fake-container:ro --entrypoint tar sha256:fixture/)
 })
 
 test('first release failure has no previous image to roll back', t => {

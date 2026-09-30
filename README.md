@@ -131,6 +131,6 @@ pnpm dev
 
 当前部署入口是 `compose.yaml` + `deploy/compose.server.yaml`，由 `.github/workflows/ci.yml` 验证、`deploy.yml` 接力部署；见 [CI/CD 流水线](docs/04-开发/CI-CD流水线.md)和[内测部署手册](docs/deployment/internal-runbook.md)。旧 Sites + 独立 API 方案仅保留为迁移历史。域名、证书、只读密钥与经批准的危机文案仍须按部署手册配置；装扮已改为收藏，构建产物里不再有 MediaPipe/WASM 模型或 3D 查看器。
 
-审查发现的发布失败回滚缺口已修复，`pnpm test:deploy` 用隔离命令覆盖 8 种发布场景；Windows 需将 `BASH_BINARY` 指向 Git Bash 的 `bash.exe`。这不替代真实主机的镜像/数据库恢复演练，见[修复记录](docs/architecture/project-review-20260917.md)。本轮未连接部署主机，未确认线上服务状态。
+审查发现的发布失败回滚缺口已修复，`pnpm test:deploy` 用隔离命令覆盖 12 种发布场景；Windows 需将 `BASH_BINARY` 指向 Git Bash 的 `bash.exe`。发布脚本会停止 API 写入并成对备份数据库与附件，默认升级也会自动回填旧人设。2026-09-30 的代码修复、浏览器与合成恢复验证见[发行审查复验记录](docs/architecture/release-review-20260930.md)。这不替代真实主机的完整部署验收；本轮未连接部署主机，未确认线上服务状态。
 
 该版本是 VPN/可信私网中的受限内测，不代表公开生产发布、医疗服务或法律合规认证。

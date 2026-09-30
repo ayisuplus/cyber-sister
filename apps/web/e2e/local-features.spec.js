@@ -12,6 +12,59 @@ const LIFE_ENTRIES = [
 ]
 const json =(route, status, data) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
 
+test('人设库可创建、修改、切换与删除，最后一个保留并显示原因', async ({ page }) => {
+  let active = 'gentle'
+  let personas = [{ id: active, name: '姐妹', card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }]
+  const list = () => ({ personas: personas.map((persona) => ({ ...persona, active: persona.id === active })) })
+  await page.route('**/api/user/personas**', route => {
+    const method = route.request().method()
+    const path = new URL(route.request().url()).pathname
+    const id = path.split('/').at(-1)
+    if (method === 'GET') return json(route, 200, list())
+    if (method === 'POST') {
+      const card = route.request().postDataJSON()
+      active = 'created-e2e'
+      const persona = { id: active, name: card.name, card }
+      personas.push(persona)
+      return json(route, 201, { ...persona, persona: active })
+    }
+    if (method === 'PUT') {
+      const card = route.request().postDataJSON()
+      const persona = personas.find((item) => item.id === id)
+      Object.assign(persona, { name: card.name, card })
+      return json(route, 200, { ...persona, persona: active })
+    }
+    expect(method).toBe('DELETE')
+    if (personas.length === 1) return json(route, 400, { error: '至少留一个她' })
+    personas = personas.filter((persona) => persona.id !== id)
+    if (active === id) active = personas[0].id
+    return json(route, 200, list())
+  })
+  await page.route('**/api/user/persona', route => {
+    expect(route.request().method()).toBe('PUT')
+    active = route.request().postDataJSON().persona
+    return json(route, 200, { persona: active })
+  })
+  await page.goto('/her')
+  const library = page.getByRole('region', { name: '她的样子' })
+  await library.getByRole('button', { name: '手写一个她', exact: true }).click()
+  await library.getByLabel('她叫什么', { exact: true }).fill('小雨')
+  await library.getByLabel('她怎么说话', { exact: true }).fill('慢慢听我说')
+  await library.getByRole('button', { name: '建好她', exact: true }).click()
+  await expect(library.getByRole('button', { name: /^小雨/ })).toHaveAttribute('aria-pressed', 'true')
+  await library.getByRole('button', { name: '改一改「小雨」', exact: true }).click()
+  await library.getByLabel('她叫什么', { exact: true }).fill('雨雨')
+  await library.getByRole('button', { name: '存好改动', exact: true }).click()
+  await expect(library.getByRole('button', { name: /^雨雨/ })).toHaveAttribute('aria-pressed', 'true')
+  await library.getByRole('button', { name: /^姐妹/ }).click()
+  await expect(library.getByRole('button', { name: /^姐妹/ })).toHaveAttribute('aria-pressed', 'true')
+  await library.getByRole('button', { name: '删掉「姐妹」', exact: true }).click()
+  await expect(library.getByRole('button', { name: /^雨雨/ })).toHaveAttribute('aria-pressed', 'true')
+  await library.getByRole('button', { name: '删掉「雨雨」', exact: true }).click()
+  await expect(library.getByRole('alert')).toHaveText('至少留一个她')
+  await expect(library.getByRole('button', { name: /^雨雨/ })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('cyber-sister-auth', JSON.stringify({ state: { token: 'local-features-e2e', user: { id: 'local-features-e2e', nickname: '内测用户', persona: 'gentle' }, isLoggedIn: true }, version: 0 }))
@@ -27,6 +80,7 @@ test.beforeEach(async ({ page }) => {
       '/api/chat/nudges': { nudges: [] }, '/api/asr/status': { available: false },
       '/api/chat/openers': { openers: [] },
       '/api/user/profile': { careEnabled: false }, '/api/user/external-llm-consent': { accepted: true },
+      '/api/user/personas': { personas: [{ id: 'gentle', name: '姐妹', active: true, card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }] },
       '/api/reminders/scheduled': { reminders: [] }, '/api/reminders/sleep': { bedtime: null, wake: null, due: [] }, '/api/tools/period': [],
       '/api/tools/period/summary': { nextDate: null, daysUntil: null }, '/api/tools/period/consent': { accepted: true }, '/api/tools/period/tone': { enabled: false, updatedAt: null },
       '/api/diary': [], '/api/reading/notes': { notes: [] }, '/api/collection': { items: [] },

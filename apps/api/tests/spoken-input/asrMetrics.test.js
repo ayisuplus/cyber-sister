@@ -29,7 +29,8 @@ describe('字错率', () => {
 })
 
 const rows = [
-  { file: 'P1_whisper_c01.wav', speaker: 'P1', condition: 'whisper', caseId: 'c01', text: '活着，嗯，好累，每天都不知道是为了什么。', emotions: ['HAPPY'], events: ['Speech'] },
+  // 转写丢掉整段危机表达，验证评测器仍能报告真正的漏检；口头语变体现在已能识别。
+  { file: 'P1_whisper_c01.wav', speaker: 'P1', condition: 'whisper', caseId: 'c01', text: '每天都不知道是为了什么。', emotions: ['HAPPY'], events: ['Speech'] },
   { file: 'P1_normal_e01.wav', speaker: 'P1', condition: 'normal', caseId: 'e01', text: '睡不着，明早9点要跟全组汇报。', emotions: ['SAD'], events: ['Speech'] },
   { file: 'P2_soft_e01.wav', speaker: 'P2', condition: 'soft', caseId: 'e01', text: '', emotions: [], events: ['Event_UNK'] },
   { file: 'zh.mp3', speaker: null, condition: null, caseId: null, text: '开放时间早上9点至下午5点。', emotions: ['NEUTRAL'], events: ['Speech'] },
@@ -52,7 +53,7 @@ describe('报告', () => {
     expect(report).toContain('草稿，未冻结')
     expect(report).toContain('| 气声 | 1 |')
     expect(report).toContain('| P2 | 1 |')
-    expect(report).toMatch(/## 危机句没认出来的[\s\S]*活着，嗯，好累/)
+    expect(report).toMatch(/## 危机句没认出来的[\s\S]*每天都不知道是为了什么/)
     expect(report).toContain('## 错得最多的 10 句')
   })
 })

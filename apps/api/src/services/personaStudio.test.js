@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   gatewayComplete: vi.fn(),
+  researchTurn: vi.fn(),
+  researchNotes: '',
 }))
 
 vi.mock('../prisma/client.js', () => ({ default: { user: { findUnique: vi.fn() } } }))
@@ -14,6 +16,10 @@ vi.mock('./llmService.js', () => ({
   getGateway: () => ({ complete: mocks.gatewayComplete }),
   generateResponse: vi.fn(),
   imagePart: (image) => ({ type: 'image_url', image_url: { url: `data:${image.mime};base64,xxx` } }),
+}))
+vi.mock('./agentTurn.js', () => ({
+  createAgentTurn: mocks.researchTurn,
+  runAgentLoop: async function* () { yield { type: 'done', content: mocks.researchNotes } },
 }))
 
 import {
@@ -53,6 +59,7 @@ const CARD = {
 function fakeDb(personas = [], active = null) {
   const state = { personas: personas.map((persona, index) => ({ id: persona.id ?? `p${index + 1}`, userId: 'u1', createdAt: new Date(2026, 0, index + 1), ...persona })), active }
   const db = {
+    $queryRaw: vi.fn(() => Promise.resolve([{ id: 'u1' }])),
     persona: {
       findFirst: vi.fn(({ where }) => {
         const match = (persona) => (!where.id || persona.id === where.id)
@@ -120,6 +127,14 @@ describe('validatePersonaCard：只做女孩子的她，不设风格门槛', () 
     expect(() => validatePersonaCard({ ...CARD, speech: '撒娇、贴贴、有点暧昧' })).not.toThrow()
   })
 
+  it.each(['约炮', '脱光衣服', '想上你'])('重复和交错提交始终拒绝：%s', (speech) => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      expect(() => validatePersonaCard({ ...CARD, speech })).toThrow(VULGAR_REFUSAL)
+      expect(() => validatePersonaCard({ ...CARD, speech })).toThrow(VULGAR_REFUSAL)
+      expect(() => validatePersonaCard(CARD)).not.toThrow()
+    }
+  })
+
   it('落库前 trim，空字符串补齐结构', () => {
     const card = validatePersonaCard({ name: ' 小柔 ', speech: ' 轻声细语 ' })
     expect(card.name).toBe('小柔')
@@ -131,14 +146,14 @@ describe('validatePersonaCard：只做女孩子的她，不设风格门槛', () 
 describe('personaCardPrompt：人设层文本', () => {
   it('固定格式，空字段整行省略，示例句带引号', () => {
     const prompt = personaCardPrompt(validatePersonaCard(CARD))
-    expect(prompt).toContain('人设：小柔。')
-    expect(prompt).toContain('身份：大学同宿舍的姐妹')
-    expect(prompt).toContain('怎么说话：轻声细语，先抱抱再讲道理')
-    expect(prompt).toContain('示例句：「抱抱，我在。」')
-    expect(prompt).not.toContain('怎么想：\n')
+    expect(prompt).toContain('人设：小柔。'.normalize('NFKC'))
+    expect(prompt).toContain('身份：大学同宿舍的姐妹'.normalize('NFKC'))
+    expect(prompt).toContain('怎么说话：轻声细语，先抱抱再讲道理'.normalize('NFKC'))
+    expect(prompt).toContain('示例句：「抱抱，我在。」'.normalize('NFKC'))
+    expect(prompt).not.toContain('怎么想：\n'.normalize('NFKC'))
 
     const minimal = personaCardPrompt(validatePersonaCard({ name: '小柔', speech: '轻声细语' }))
-    expect(minimal).toBe('人设：小柔。\n怎么说话：轻声细语')
+    expect(minimal).toBe('人设：小柔。\n怎么说话：轻声细语'.normalize('NFKC'))
   })
 })
 
@@ -163,7 +178,7 @@ describe('personaContextOf：模型与句库要用的她', () => {
     const persona = await personaContextOf('u1', 'p1', db)
     expect(persona.tone).toBe('gentle')
     expect(persona.immersion).toBe('medium')
-    expect(persona.personaBody).toContain('人设：小柔。')
+    expect(persona.personaBody).toContain('人设：小柔。'.normalize('NFKC'))
   })
 
   it('卡不一致时按默认卡兜底，不炸聊天', async () => {
@@ -171,7 +186,18 @@ describe('personaContextOf：模型与句库要用的她', () => {
     const persona = await personaContextOf('u1', 'gone', db)
     expect(persona.tone).toBe('gentle')
     expect(persona.card).toEqual(DEFAULT_PERSONA_CARD)
-    expect(persona.personaBody).toContain(`人设：${DEFAULT_PERSONA_CARD.name}。`)
+    expect(persona.personaBody).toContain(`人设：${DEFAULT_PERSONA_CARD.name}。`.normalize('NFKC'))
+  })
+
+  it('发给模型的人设副本脱敏，存储的卡不变', async () => {
+    const card = validatePersonaCard({ ...CARD, identity: '电话13912345678，邮箱synthetic@example.test' })
+    const { db } = fakeDb([{ id: 'p1', name: card.name, card }])
+    const persona = await personaContextOf('u1', 'p1', db)
+    expect(persona.card.identity).toBe(card.identity)
+    expect(persona.personaBody).toContain('[手机号]')
+    expect(persona.personaBody).toContain('[邮箱]')
+    expect(persona.personaBody).not.toContain('13912345678')
+    expect(persona.personaBody).not.toContain('synthetic@example.test')
   })
 })
 
@@ -241,6 +267,39 @@ describe('人设库增删改查', () => {
 describe('蒸馏「造一个她」', () => {
   beforeEach(() => {
     mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify({ ...CARD }) })
+  })
+
+  it('素材外发前脱敏，含图片时文本也用同一个脱敏副本', async () => {
+    for (const images of [[], [{ buffer: Buffer.from('a'), mime: 'image/jpeg' }]]) {
+      await distillPersona('u1', { material: '电话13912345678，邮箱synthetic@example.test', images, research: false })
+      const request = mocks.gatewayComplete.mock.calls.at(-1)[0]
+      const sent = JSON.stringify(request.messages)
+      expect(sent).toContain('[手机号]')
+      expect(sent).toContain('[邮箱]')
+      expect(sent).not.toContain('13912345678')
+      expect(sent).not.toContain('synthetic@example.test')
+      expect(request.authorizeExternal).toBeTypeOf('function')
+    }
+  })
+
+  it('联网素材与调研笔记的发送副本都脱敏', async () => {
+    vi.stubEnv('SEARCH_ENABLED', 'true')
+    mocks.researchTurn.mockImplementation((turn) => turn)
+    mocks.researchNotes = '调研中的电话13912345678与synthetic@example.test'
+    try {
+      await distillPersona('u1', { material: '联系13912345678与synthetic@example.test', research: true })
+      const material = mocks.researchTurn.mock.calls[0][0].currentText
+      const prompt = JSON.stringify(mocks.gatewayComplete.mock.calls[0][0].messages)
+      expect(prompt).toContain('调研中的电话[手机号]与[邮箱]')
+      for (const sent of [material, prompt]) {
+        expect(sent).toContain('[手机号]')
+        expect(sent).toContain('[邮箱]')
+        expect(sent).not.toContain('13912345678')
+        expect(sent).not.toContain('synthetic@example.test')
+      }
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('素材都不给就先要素材；超长也拦', async () => {

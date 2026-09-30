@@ -153,13 +153,25 @@ docker compose --env-file "$RUNTIME_ENV_FILE" up -d --no-build --pull never
 
 初始内测没有历史数据，可重建基线数据库；进入基线后不得重写已发布迁移。备份文件包含用户数据，必须按敏感数据保管，禁止提交仓库。
 
-**用户上传的图片（2026-09-21 起）**：头像、首页/对话背景、聊天里发的照片，以及装扮里收藏的照片（`data/collection/`）存在命名卷 `api-data`（挂在 api 容器的 `/workspace/apps/api/data`），重建容器不再丢失。**上面的 `pg_dump` 不包含这个卷**，`release.sh` 的自动备份也不包含。需要连图片一起备份时另行导出，例如：
+**用户上传的图片**：头像、首页/对话背景、聊天里发的照片，以及装扮里收藏的照片（`data/collection/`）存在命名卷 `api-data`（挂在 api 容器的 `/workspace/apps/api/data`）。`pg_dump` 不包含这个卷。2026-09-30 起，`release.sh` 会停止 API 写入，在同一个维护窗口生成同名 `.dump` 与 `.assets.tar`，任一归档为空或无法解析即中止；失败时恢复原 API，成功时启用新版本。发布期间不要另开写入任务。保留策略按两份配对清理，默认保留 7 对。手工迁移同样要先停止应用写入并备份附件：
 
 ```bash
-docker run --rm -v cyber-sister-internal_api-data:/data:ro -v "$PWD":/backup alpine tar czf /backup/cyber-sister-api-data.tgz -C /data .
+docker compose --env-file "$RUNTIME_ENV_FILE" stop api
+API_CONTAINER=$(docker compose --env-file "$RUNTIME_ENV_FILE" ps -a -q api)
+API_IMAGE=$(docker inspect --format '{{.Image}}' "$API_CONTAINER")
+docker run --rm --pull=never --network=none --volumes-from "$API_CONTAINER:ro" --entrypoint tar "$API_IMAGE" -C /workspace/apps/api/data -cf - . > cyber-sister-before-migration.assets.tar
+tar -tf cyber-sister-before-migration.assets.tar > /dev/null
 ```
 
-卷名以 `docker volume ls` 实际显示为准；导出的归档同样含个人数据，按敏感数据保管。
+数据库与附件必须按同一备份时间成对恢复。先在**新建的空验证卷**解包，校验文件数量、哈希和数据库里的图片引用；禁止直接覆盖正在使用的附件卷。验证卷的名字要事先确定：
+
+```bash
+export RESTORE_ASSET_VOLUME=amie_restore_assets_20260930
+docker volume create "$RESTORE_ASSET_VOLUME"
+docker run -i --rm --pull=never --network=none -v "$RESTORE_ASSET_VOLUME:/restore" --entrypoint tar "$API_IMAGE" -C /restore -xf - < cyber-sister-before-migration.assets.tar
+```
+
+真正恢复时将 API 挂载改到已验证的恢复卷，并配套使用第 5 节恢复的新数据库与对应模型主密钥。原库与原卷保留到验收完成。归档含个人数据，按敏感数据保管。只检查 tar/pg_restore 能解析不等于恢复验收通过。
 
 **模型主密钥不在任何备份里（2026-09-22 起）**：`MODEL_CONFIG_KEY_FILE` 指向的只读文件既不在上面的 `pg_dump` 里，也不在 `release.sh` 的自动备份里；而库里的 `model_providers.api_key_encrypted` 没有它解不开。按第 2 节单独保管一份离线副本，并记下它是哪一天启用、什么时候轮换过。回滚到旧库时，要配回**那个库当时**用的那把主密钥；轮换过的旧密钥在确认不再需要之前不要删。
 

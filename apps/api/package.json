@@ -14,7 +14,7 @@
     "pretest:coverage": "pnpm db:generate",
     "test:coverage": "vitest run --coverage",
     "pretest:postgres": "pnpm db:generate",
-    "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js tests/integration/thread-postgres.test.js tests/integration/bridge-postgres.test.js",
+    "test:postgres": "vitest run tests/integration/postgres.test.js tests/integration/memory-postgres.test.js tests/integration/companion-postgres.test.js tests/integration/work-tasks-postgres.test.js tests/integration/work-actions-postgres.test.js tests/integration/thread-postgres.test.js tests/integration/bridge-postgres.test.js tests/integration/personas-postgres.test.js",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
@@ -55,7 +55,7 @@
     "ipaddr.js": "2.5.0",
     "jsonwebtoken": "^9.0.2",
     "linkedom": "0.18.13",
-    "multer": "^2.3.0",
+    "multer": "2.4.0",
     "playwright-core": "^1.62.1",
     "prisma": "^5.18.0"
   },

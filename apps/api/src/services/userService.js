@@ -103,15 +103,17 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
  * 记忆跨她共享：这里只切「谁在陪她」，不动任何记忆。
  */
 export async function switchPersona(userId, personaId, database = prisma) {
-  const persona = await database.persona.findFirst({ where: { id: personaId, userId } })
-  if (!persona) throw new HttpError('没有这个她', 404)
-
-  const user = await database.user.update({
-    where: { id: userId },
-    data: { persona: persona.id },
-    select: { persona: true },
-  })
-  logger.info('切换她', { userId, persona: persona.id })
+  const { withPersonaUserLock } = await import('./personaStudio.js')
+  const user = await withPersonaUserLock(userId, async (tx) => {
+    const persona = await tx.persona.findFirst({ where: { id: personaId, userId } })
+    if (!persona) throw new HttpError('没有这个她', 404)
+    return tx.user.update({
+      where: { id: userId },
+      data: { persona: persona.id },
+      select: { persona: true },
+    })
+  }, database)
+  logger.info('切换她', { userId, persona: user.persona })
   return user
 }
 
