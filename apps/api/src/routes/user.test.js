@@ -8,7 +8,6 @@ const service = vi.hoisted(() => ({
   switchPersona: vi.fn(),
   getExternalLlmConsent: vi.fn(),
   updateExternalLlmConsent: vi.fn(),
-  PERSONAS: ['toxic', 'gentle', 'rational', 'energetic', 'sister', 'cool'],
 }))
 
 const assetService = vi.hoisted(() => ({
@@ -21,9 +20,18 @@ const exportService = vi.hoisted(() => ({
   buildUserExport: vi.fn(),
 }))
 
+const personaStudio = vi.hoisted(() => ({
+  listPersonas: vi.fn(),
+  createPersona: vi.fn(),
+  distillPersona: vi.fn(),
+  updatePersonaCard: vi.fn(),
+  removePersona: vi.fn(),
+}))
+
 vi.mock('../services/userService.js', () => service)
 vi.mock('../services/userAssetService.js', () => assetService)
 vi.mock('../services/exportService.js', () => exportService)
+vi.mock('../services/personaStudio.js', () => personaStudio)
 vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -96,24 +104,77 @@ describe('资料路由', () => {
   })
 })
 
-describe('人格路由', () => {
-  it('非法人格在参数校验层被拦截', async () => {
-    const response = await request(app).put('/persona').send({ persona: 'wild' })
-    expect(response.status).toBe(400)
-    expect(response.body.error).toBe('参数验证失败')
-    expect(service.switchPersona).not.toHaveBeenCalled()
+describe('人设库路由', () => {
+  const CARD = { name: '小柔', speech: '轻声细语', samples: [], immersion: 'medium', tone: 'gentle' }
+
+  it('GET /personas 返回她的列表，service 错误透传', async () => {
+    personaStudio.listPersonas.mockResolvedValue([{ id: 'p1', name: '小柔', card: CARD, active: true }])
+    const ok = await request(app).get('/personas')
+    expect(ok.status).toBe(200)
+    expect(ok.body.personas[0]).toMatchObject({ id: 'p1', active: true })
+
+    personaStudio.listPersonas.mockRejectedValue(new Error('db down'))
+    const fail = await request(app).get('/personas')
+    expect(fail.status).toBe(500)
+    expect(fail.body).toEqual({ error: '读取人设库失败' })
   })
 
-  it('合法人格切换成功，service 错误透传', async () => {
-    service.switchPersona.mockResolvedValue({ persona: 'gentle' })
-    const ok = await request(app).put('/persona').send({ persona: 'gentle' })
+  it('POST /personas 建卡并启用；卡不合法 400 透传', async () => {
+    personaStudio.createPersona.mockResolvedValue({ id: 'p1', name: '小柔', card: CARD, persona: 'p1' })
+    const ok = await request(app).post('/personas').send(CARD)
     expect(ok.status).toBe(200)
-    expect(service.switchPersona).toHaveBeenCalledWith('user-1', 'gentle')
+    expect(personaStudio.createPersona).toHaveBeenCalledWith('user-1', expect.objectContaining({ name: '小柔' }))
 
-    service.switchPersona.mockRejectedValue(new Error('db down'))
-    const fail = await request(app).put('/persona').send({ persona: 'gentle' })
-    expect(fail.status).toBe(500)
-    expect(fail.body).toEqual({ error: '切换人格失败' })
+    personaStudio.createPersona.mockRejectedValue(httpError('这是闺蜜产品，不开展男性的服务', 400))
+    const bad = await request(app).post('/personas').send(CARD)
+    expect(bad.status).toBe(400)
+    expect(bad.body).toEqual({ error: '这是闺蜜产品，不开展男性的服务' })
+  })
+
+  it('POST /personas/distill：素材走蒸馏，只回草稿不落库', async () => {
+    personaStudio.distillPersona.mockResolvedValue({ card: CARD, researched: true })
+    const ok = await request(app).post('/personas/distill').field('material', '她叫小柔').field('research', 'false')
+    expect(ok.status).toBe(200)
+    expect(ok.body).toEqual({ card: CARD, researched: true })
+    expect(personaStudio.distillPersona).toHaveBeenCalledWith('user-1', { material: '她叫小柔', research: false, images: [] })
+
+    personaStudio.distillPersona.mockResolvedValue({ refused: 'male' })
+    const refused = await request(app).post('/personas/distill').field('material', '一个男生')
+    expect(refused.status).toBe(200)
+    expect(refused.body).toEqual({ refused: 'male' })
+  })
+
+  it('PUT /personas/:id 改她、DELETE /personas/:id 删她；service 错误透传', async () => {
+    personaStudio.updatePersonaCard.mockResolvedValue({ id: 'p1', name: '小棉', card: CARD, persona: 'p1' })
+    const ok = await request(app).put('/personas/p1').send({ ...CARD, name: '小棉' })
+    expect(ok.status).toBe(200)
+    expect(ok.body.name).toBe('小棉')
+
+    personaStudio.removePersona.mockResolvedValue({ personas: [] })
+    const removed = await request(app).delete('/personas/p1')
+    expect(removed.status).toBe(200)
+
+    personaStudio.removePersona.mockRejectedValue(httpError('至少留一个她', 400))
+    const last = await request(app).delete('/personas/p1')
+    expect(last.status).toBe(400)
+    expect(last.body).toEqual({ error: '至少留一个她' })
+  })
+
+  it('PUT /persona 换她：缺 persona 拦在参数校验层；没有这个她 404；成功返回', async () => {
+    const missing = await request(app).put('/persona').send({})
+    expect(missing.status).toBe(400)
+    expect(missing.body.error).toBe('参数验证失败')
+    expect(service.switchPersona).not.toHaveBeenCalled()
+
+    service.switchPersona.mockResolvedValue({ persona: 'p1' })
+    const ok = await request(app).put('/persona').send({ persona: 'p1' })
+    expect(ok.status).toBe(200)
+    expect(service.switchPersona).toHaveBeenCalledWith('user-1', 'p1')
+
+    service.switchPersona.mockRejectedValue(httpError('没有这个她', 404))
+    const gone = await request(app).put('/persona').send({ persona: 'p9' })
+    expect(gone.status).toBe(404)
+    expect(gone.body).toEqual({ error: '没有这个她' })
   })
 })
 

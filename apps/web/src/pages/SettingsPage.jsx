@@ -27,7 +27,7 @@ const BACKGROUND_SLOTS = [
 ]
 
 // 设置：原「我的」与「设置」合并为一处——形象、外观、聊天模型（唯一授权开关）、关怀、数据与隐私、退出。
-// 说话方式与记忆在「她」页面；只保留真实可用的开关。
+// 她的人设与记忆在「她」页面；只保留真实可用的开关。
 export default function SettingsPage() {
   const navigate = useNavigate()
   const { preference, setPreference } = useThemeStore()
@@ -162,7 +162,7 @@ export default function SettingsPage() {
         <div className="mx-auto max-w-3xl space-y-4">
           <div className="px-1 pb-1">
             <p className="display-serif text-xl font-semibold text-text-primary">让 Amie 更合你的习惯</p>
-            <p className="mt-2 text-xs text-text-muted">她怎么叫你、形象、外观、模型和关怀，都可以在这里调整。她的说话方式和记忆在「她」页面。</p>
+            <p className="mt-2 text-xs text-text-muted">她怎么叫你、形象、外观、模型和关怀，都可以在这里调整。她的人设和记忆在「她」页面。</p>
           </div>
 
           {error && <p role="alert" className="rounded-control bg-pastel-blush p-3 text-sm text-danger">{error}</p>}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const db = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
+  personaFindFirst: vi.fn(),
   memoryFindMany: vi.fn(),
   conversationFindMany: vi.fn(),
   todoFindMany: vi.fn(),
@@ -25,6 +26,7 @@ const db = vi.hoisted(() => ({
 vi.mock('../prisma/client.js', () => {
   const client = {
     user: { findUnique: db.userFindUnique },
+    persona: { findFirst: db.personaFindFirst },
     memory: { findMany: async (args) => {
       const rows = await db.memoryFindMany(args)
       return args.include?.revisions ? rows.map((memory, index) => ({ ...memory, id: 'm' + index, portableId: 'portable' + index, revision: 1, revisions: [] })) : rows
@@ -57,12 +59,26 @@ vi.mock('../utils/logger.js', () => ({
 
 import { buildUserExport, EXPORT_VERSION } from './exportService.js'
 
+// 新契约（2026-09-29 人设库）：users.persona 指向 Persona.id，导出的 user.persona 是整张人设卡（查不到则 null）
+const PERSONA_CARD = {
+  name: '小毒舌',
+  identity: '嘴上不饶人，心里一直护着你',
+  relationship: '跟你互怼多年的闺蜜',
+  speech: '先损你两句，再把事给你说明白。',
+  thinking: '',
+  decisions: '',
+  never: '不拿你的痛处开玩笑。',
+  samples: ['这都能踩坑？来，我给你捋捋。'],
+  immersion: 'high',
+  tone: 'toxic',
+}
+
 describe('exportService.buildUserExport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.userFindUnique.mockResolvedValue({
       nickname: '小赛',
-      persona: 'toxic',
+      persona: 'persona-1',
       roleName: '同桌的你',
       roleSetting: '爱吐槽但会帮我讲题',
       birthDate: null,
@@ -81,6 +97,7 @@ describe('exportService.buildUserExport', () => {
     ]) {
       db[key].mockResolvedValue([])
     }
+    db.personaFindFirst.mockResolvedValue({ card: PERSONA_CARD })
   })
 
   it('导出包带版本号与产品标识，user 段不含内部 id 与凭据字段', async () => {
@@ -89,7 +106,11 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.version).toBe(EXPORT_VERSION)
     expect(bundle.product).toBe('Amie cyber-sister')
     expect(typeof bundle.exportedAt).toBe('string')
-    expect(bundle.user).toMatchObject({ nickname: '小赛', persona: 'toxic', roleName: '同桌的你', periodConsentAt: '2026-09-01T00:00:00.000Z', periodToneAt: null })
+    expect(bundle.user).toMatchObject({ nickname: '小赛', persona: PERSONA_CARD, roleName: '同桌的你', periodConsentAt: '2026-09-01T00:00:00.000Z', periodToneAt: null })
+    // persona 是整张人设卡：按当前用户 + users.persona 从 Persona 表取 card，不再是 id 字符串
+    expect(db.personaFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'persona-1', userId: 'user-1' }),
+    }))
     expect(JSON.stringify(bundle.user)).not.toContain('phone')
     expect(JSON.stringify(bundle.user)).not.toContain('password')
     expect(JSON.stringify(bundle)).not.toContain('refreshToken')
@@ -102,9 +123,12 @@ describe('exportService.buildUserExport', () => {
     expect(bundle.companion).toEqual({ revision: 3, state: { schemaVersion: 1, experienceCount: 3 } })
     expect(bundle.conversations[0].messages[0].companionExperience).toMatchObject({ revision: 3 })
     expect(bundle.memories).toEqual([])
+    // users.persona 为空时不查 Persona 表，user.persona 如实为 null
+    expect(bundle.user.persona).toBeNull()
+    expect(db.personaFindFirst).not.toHaveBeenCalled()
   })
 
-  it('全部 18 张表按当前用户过滤查询', async () => {
+  it('全部 19 张表按当前用户过滤查询', async () => {
     await buildUserExport('user-1')
 
     for (const key of [
@@ -112,7 +136,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'inferenceFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'plantFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'personaFindFirst',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({ userId: 'user-1' }),

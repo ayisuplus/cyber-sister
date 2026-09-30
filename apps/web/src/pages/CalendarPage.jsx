@@ -142,7 +142,7 @@ function TaskForm({ initial, onDone }) {
             aria-label="要她做什么"
             className={`w-full ${field}`}
           />
-          <p className="text-xs text-status-info">可以先存下来；云端执行还没接通，到点不会自动去做。</p>
+          <p className="text-xs text-status-info">可以先存下来。这一步还没接上：到点她不会真的去做，只会提醒你一声。</p>
         </>
       )}
 
@@ -168,7 +168,7 @@ function TaskRow({ task, now, upcoming, busy, onChange, onDelete }) {
         {task.instruction && !done && (
           <>
             <p title={task.instruction} className="mt-0.5 truncate text-xs text-text-muted">要她做：{task.instruction}</p>
-            <p className="mt-1 text-xs text-text-secondary">云端执行未接通 · 到点暂不执行</p>
+            <p className="mt-1 text-xs text-text-secondary">到点只提醒 · 这件事她还做不了</p>
           </>
         )}
       </div>

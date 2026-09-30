@@ -173,7 +173,7 @@ test('night mode: settings, chat, her, schedule, notes, style, period and login 
   await inspectSurface(page, testInfo, 'night-chat')
 
   await page.goto('/her')
-  await expect(page.getByRole('heading', { name: '她的说话方式', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '她的样子', exact: true })).toBeVisible()
   await expect(page.getByText('睡前喜欢听雨声')).toBeVisible()
   await expect(page.getByRole('article', { name: '她的来信' }).getByText('想听雨声的时候，我陪你。')).toBeVisible()
   await expect(page.getByRole('region', { name: '她这几天' }).getByText('聊天时翻了《情绪急救》「孤独」。')).toBeVisible()
@@ -253,7 +253,7 @@ test('theme colors: sakura and a custom hue stay readable by day and by night, a
   const primary = () => page.evaluate(() => window.getComputedStyle(document.documentElement).getPropertyValue('--cs-action-primary').trim().toUpperCase())
   const surfaces = [
     ['/settings', () => page.getByRole('radio', { name: '主题色：樱花粉' })],
-    ['/her', () => page.getByRole('heading', { name: '她的说话方式', exact: true })],
+    ['/her', () => page.getByRole('heading', { name: '她的样子', exact: true })],
     ['/chat', () => page.getByRole('region', { name: '信纸' }).getByText(conversation.messages[1].content)],
   ]
 

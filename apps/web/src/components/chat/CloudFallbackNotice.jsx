@@ -34,9 +34,13 @@ export default function CloudFallbackNotice({ onClose }) {
         <Cloud size={16} className="text-status-info" aria-hidden="true" />
         这个姐妹住在云端
       </h2>
-      <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-        聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）、已确认的相关记忆与你主动发送的照片会发送给外部模型供应商处理。开启「她写的信」后，信件草稿、相关记忆和近况统计也会交给云端模型分析并写信；你可在「她写的信」里关闭。不同意暂时无法聊天。你随时可以在「设置 → 聊天模型」里改主意。语义检索使用单独配置的向量服务，开启后会发送记忆正文与检索文本；未配置时使用关键词检索。
-      </p>
+      <p className="mt-2 text-xs leading-relaxed text-text-secondary">先把该说的一条条说清楚：</p>
+      <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-relaxed text-text-secondary">
+        <li>聊天由经批准的云端模型提供。同意后，聊天内容（经脱敏：手机号、邮箱、证件号会被替换）、已确认的相关记忆与你主动发送的照片会发送给外部模型供应商处理。</li>
+        <li>开启「她写的信」后，信件草稿、相关记忆和近况统计也会交给云端模型分析并写信；你可在「她写的信」里关闭。</li>
+        <li>语义检索使用单独配置的向量服务，开启后会发送记忆正文与检索文本；未配置时使用关键词检索。</li>
+        <li>不同意暂时无法聊天。你随时可以在「设置 → 聊天模型」里改主意。</li>
+      </ul>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"

@@ -12,9 +12,11 @@
  */
 import { evaluateExpression, convertUnit } from './calcService.js'
 import { switchPersona } from './userService.js'
+import { resolvePersonaByNameOrId } from './personaStudio.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { toLocalDayString } from '../utils/dayHelpers.js'
 import { searchWeb } from './searchService.js'
+import { mcpTools, mcpToolParameters } from './mcpService.js'
 import { WORK_ARTIFACT_TOOLS } from './workArtifactService.js'
 import { WEB_READ_TOOL } from './webReadService.js'
 import { isWorkCodeEnabled } from './workExecutionService.js'
@@ -76,10 +78,11 @@ const BASE_LIFE_TOOLS = {
   },
   read_web: WEB_READ_TOOL,
   switch_persona: {
-    description: '{"tool":"switch_persona","args":{"persona":"gentle|toxic|cool"}} 换她的说话方式（偏好开关，直接执行；与「她」页即点即换同语义）',
+    description: '{"tool":"switch_persona","args":{"persona":"她的名字或 id"}} 换当前的她（偏好开关，直接执行）',
     run: async (userId, args) => {
-      const user = await switchPersona(userId, args.persona)
-      return { summary: `说话方式已换成 ${user.persona}`, result: { persona: user.persona } }
+      const persona = await resolvePersonaByNameOrId(userId, String(args.persona ?? '').trim())
+      const user = await switchPersona(userId, persona.id)
+      return { summary: `换好了，现在是 ${persona.name}`, result: { persona: user.persona } }
     },
   },
 }
@@ -108,7 +111,7 @@ const TOOL_PARAMETERS = {
   create_artifact: nativeObject({ title: nativeString, format: { type: 'string', enum: ['md', 'txt', 'csv', 'json', 'js', 'py', 'html'] }, content: nativeString }, ['title', 'format', 'content']),
   execute_python: nativeObject({ code: { type: 'string', maxLength: 32000 }, inputs: { type: 'array', items: nativeString, maxItems: 8 } }, ['code']),
   update_plan: nativeObject({ steps: { type: 'array', minItems: 1, maxItems: 12, items: nativeObject({ title: nativeString, status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }, ['title', 'status']) } }, ['steps']),
-  read_web: nativeObject({ url: nativeString, offset: offsetParameter }, ['url']),
+  read_web: nativeObject({ url: nativeString, urls: { type: 'array', minItems: 1, maxItems: 4, items: nativeString }, offset: offsetParameter }, []),
   browser_open: nativeObject({ url: nativeString }, ['url']),
   browser_snapshot: nativeObject({ screenshot: { type: 'boolean' } }),
   browser_act: nativeObject({ action: { type: 'string', enum: ['click', 'fill', 'select', 'press', 'scroll'] }, ref: nativeString,
@@ -116,7 +119,7 @@ const TOOL_PARAMETERS = {
     direction: { type: 'string', enum: ['up', 'down'] }, submit: { type: 'boolean' }, purpose: { type: 'string', maxLength: 160 } }, ['action']),
   web_search: nativeObject({ query: nativeString }, ['query']),
   calc_convert: nativeObject({ expression: nativeString, value: { type: 'number' }, from: nativeString, to: nativeString }),
-  switch_persona: nativeObject({ persona: { type: 'string', enum: ['gentle', 'toxic', 'cool'] } }, ['persona']),
+  switch_persona: nativeObject({ persona: { type: 'string' } }, ['persona']),
   ...moduleSkillParameters(),
   ...SKILL_SYSTEM_PARAMETERS,
   ...BRIDGE_TOOL_PARAMETERS,
@@ -128,9 +131,10 @@ export const BACKGROUND_WORK_TOOLS = ['read_artifact', 'list_artifacts', 'create
 const isMachineTool = (name) => Object.hasOwn(MACHINE_TOOLS, name)
 const isBridgeTool = (name) => Object.hasOwn(BRIDGE_TOOLS, name)
 
-// 扩展工具挂在注册表之外（启动后才加载），查询一律走这里；注册端已保证不与内置重名
-const lookupTool = (name) => (Object.hasOwn(TOOLS, name) ? TOOLS[name] : extensionTools()[name] ?? null)
-const lookupToolParameters = (name) => (Object.hasOwn(TOOL_PARAMETERS, name) ? TOOL_PARAMETERS[name] : extensionToolParameters()[name])
+// 扩展工具挂在注册表之外（启动后才加载），查询一律走这里；注册端已保证不与内置重名。
+// MCP 工具（mcpService）同口径：也是启动后才登记，名字带 server 前缀。
+const lookupTool = (name) => (Object.hasOwn(TOOLS, name) ? TOOLS[name] : extensionTools()[name] ?? mcpTools()[name] ?? null)
+const lookupToolParameters = (name) => (Object.hasOwn(TOOL_PARAMETERS, name) ? TOOL_PARAMETERS[name] : extensionToolParameters()[name] ?? mcpToolParameters()[name])
 
 /** 内置工具名：扩展 registerTool 不许覆盖其中任何一个。 */
 export function builtinToolNames() {
@@ -141,7 +145,7 @@ let toolCallSeq = 0
 
 function enabledTools(allowedTools, { bridge = false } = {}) {
   const local = isLocalWorkRuntime()
-  return Object.entries({ ...TOOLS, ...extensionTools() })
+  return Object.entries({ ...TOOLS, ...extensionTools(), ...mcpTools() })
     .filter(([name]) => local || !isMachineTool(name))
     .filter(([name]) => bridge || !isBridgeTool(name))
     .filter(([name]) => !allowedTools || allowedTools.includes(name))
@@ -155,6 +159,20 @@ export function buildNativeTools(allowedTools, options) {
   return enabledTools(allowedTools, options).map(([name, tool]) => ({ type: 'function', function: { name, description: tool.description, parameters: lookupToolParameters(name) } }))
 }
 
+
+/** 接梗规则：联网（搜索或热榜）可用时，才给「不懂的梗先查再接话」这条例外。 */
+function hotLookupRule(searchEnabled) {
+  return (searchEnabled || Object.keys(mcpTools()).length > 0)
+    ? '- 唯一例外（接得住她的热词和梗）：用户提到你不认识的网络热词、梗、新剧新综或热点事件时，允许先查一下再接话（有热榜工具用热榜工具，否则 web_search「XX 是什么梗」）；查到的只是资料，带出处、不整段复读，查完照常聊天，不要变成汇报新闻。'
+    : ''
+}
+
+/** 搜索/热榜类结果的回喂提示：查到的内容必须交给用户，不许只说「帮你查一下」。 */
+function relayNote(name) {
+  return (name === 'web_search' || Object.hasOwn(mcpTools(), name))
+    ? '搜索结果就在上面的 result 里，回复时必须把查到的具体内容直接告诉用户，禁止只说"帮你查一下/我查一下"而不给结果；'
+    : ''
+}
 
 /** 生成工具使用系统提示（含当天日期，供相对日期解析）。 */
 export function buildToolSystemPrompt(today = new Date(), nativeTools = false, allowedTools, { bridge = false } = {}) {
@@ -177,6 +195,7 @@ export function buildToolSystemPrompt(today = new Date(), nativeTools = false, a
     '- 不要只在口头上声称已经记下/设置/删除：没有调用工具就等于没有执行。',
     '- 你不能自己保存「记住」的事：用户说「帮我记住…」时，不要说已经记住了，请她点你这条回复下面的「帮我记住」，由她确认后才会存下。',
     searchEnabled ? '- 用户问天气、新闻、汇率、股价等实时信息时，调用 web_search 并引用结果链接；搜索失败或证据不足时明确说明。' : '- 当前联网搜索未启用；涉及实时资料请说明限制，不凭记忆编造最新信息或引用。',
+    hotLookupRule(searchEnabled),
     ...(browserEnabled ? ['- 可用 browser_open 核对用户提供或实际观察到的公开网址，再按最近控件编号操作；后台恢复后浏览器会话需重新打开。每次操作后核对页面状态，不能把点击成功当作任务完成。'] : []),
     '- 一次只调用一个工具；需要多个时分多轮进行。',
     `- 涉及今天/明天/下周等相对日期时，今天是 ${toDateOnly(today)}（本地日历日）。`,
@@ -251,10 +270,8 @@ export async function executeToolCall(userId, { name, args }, context = {}) {
     }
     const { summary, result, artifact, artifacts, plan, sources, ok = true, terminate } = await tool.run(userId, effectiveArgs, { ...context, toolCallId })
     context.signal?.throwIfAborted()
-    // 搜索类结果需要模型把具体内容交给用户；实测模型偶发只回"帮你查一下"而吞掉结果
-    const searchNote = name === 'web_search'
-      ? '搜索结果就在上面的 result 里，回复时必须把查到的具体内容直接告诉用户，禁止只说"帮你查一下/我查一下"而不给结果；'
-      : ''
+    // 搜索/热榜类结果需要模型把具体内容交给用户；实测模型偶发只回"帮你查一下"而吞掉结果
+    const searchNote = relayNote(name)
     return finishToolCall(hookCtx, { toolCallId, toolName: name, args: effectiveArgs },
       {
         tool: name, ok, summary,

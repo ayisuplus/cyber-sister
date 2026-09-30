@@ -151,7 +151,7 @@ test('a blocked crisis response is rendered without a provider reply', async ({ 
   await expectNoSeriousAxeFindings(page)
 })
 
-test('her page: speaking style switches immediately and explicit memories support CRUD', async ({ page }) => {
+test('her page: persona switches immediately and explicit memories support CRUD', async ({ page }) => {
   await seedAuth(page)
   let memories = []
   await page.route('**/api/user/external-llm-consent', route => json(route, 200, {
@@ -161,6 +161,13 @@ test('her page: speaking style switches immediately and explicit memories suppor
   }))
   await page.route('**/api/user/persona', route => json(route, 200, {
     persona: route.request().postDataJSON().persona,
+  }))
+  // 人设库：她的样子全是用户自己写的卡，进页面拉一次清单
+  await page.route('**/api/user/personas', route => json(route, 200, {
+    personas: [
+      { id: 'p1', name: '小柔', card: { name: '小柔', speech: '包容、耐心，慢慢听你说。', samples: ['抱抱，这事儿确实委屈你了。'], immersion: 'medium', tone: 'gentle' }, active: true },
+      { id: 'p2', name: '毒牙', card: { name: '毒牙', speech: '有话直说，护短。', samples: ['你清醒一点。'], immersion: 'high', tone: 'toxic' }, active: false },
+    ],
   }))
   await page.route('**/api/memories**', route => {
     const request = route.request()
@@ -185,11 +192,11 @@ test('her page: speaking style switches immediately and explicit memories suppor
     return json(route, 400, { error: 'unexpected memory request' })
   })
 
-  // 说话方式与记忆同在「她」页面，不再需要跳转
+  // 人设库与记忆同在「她」页面，不再需要跳转
   await page.goto('/her')
-  await page.getByRole('button', { name: /安静/ }).click()
-  await expect(page.getByText('换好了，下一条消息就用这种方式和你说话')).toBeVisible()
-  await expect(page.getByRole('button', { name: /安静/ })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: /你清醒一点。/ }).click()
+  await expect(page.getByText('换好了，下一条消息就换她来和你说话')).toBeVisible()
+  await expect(page.getByRole('button', { name: /你清醒一点。/ })).toHaveAttribute('aria-pressed', 'true')
   await expectNoSeriousAxeFindings(page)
 
   await expect(page.getByText('她还没记住什么')).toBeVisible()
@@ -198,7 +205,7 @@ test('her page: speaking style switches immediately and explicit memories suppor
   await expect(page.getByText('记住了')).toBeVisible()
   await expect(page.getByText('我喜欢低饱和豆沙色')).toBeVisible()
 
-  await page.getByRole('button', { name: '改一改' }).click()
+  await page.getByRole('button', { name: '改一改', exact: true }).click()
   await page.getByLabel('记忆内容').fill('我偏爱低饱和豆沙色')
   await page.getByRole('button', { name: '保存' }).click()
   await expect(page.getByText('改好了')).toBeVisible()
@@ -490,7 +497,7 @@ test('schedule: a one-off for tomorrow lands under upcoming, and handing it to h
   await page.getByLabel('时间', { exact: true }).fill('08:00')
   await page.getByLabel('要她做什么').fill('看看今天的安排，提醒我最要紧的一件')
   await page.getByRole('button', { name: '保存' }).click()
-  await expect(page.getByRole('region', { name: '重复' }).getByText('云端执行未接通 · 到点暂不执行')).toBeVisible()
+  await expect(page.getByRole('region', { name: '重复' }).getByText(/她还做不了/)).toBeVisible()
   await expectNoSeriousAxeFindings(page)
 })
 
@@ -1487,9 +1494,10 @@ test('landing: only promises what she can do today', async ({ page }) => {
   await expect(body).toContainText('周三晚上打开对话，她问我答辩怎么样了')
   await expect(body).toContainText('她写信时想到')
   await expect(body).not.toContainText('她主动问我')
-  // 收拢之后是 3 种说话方式，不是 6 个人格
+  // 人设纯自定义（2026-09-29）：不再有可切换人格，也不再有内置说话方式
   await expect(body).not.toContainText('可切换人格')
-  await expect(body).toContainText('种说话方式')
+  await expect(body).not.toContainText('种说话方式')
+  await expect(body).toContainText('她的人设由你亲手写')
   // 前情摘要和写信前的回想都是模型推断，不能再说「不由模型推断」
   await expect(body).not.toContainText('不由模型推断')
   await expect(body).toContainText('条推送，她只在你来时说话')

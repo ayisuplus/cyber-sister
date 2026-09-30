@@ -45,7 +45,10 @@ vi.mock('../services/memoryService', () => ({
 }))
 
 vi.mock('../services/nudgeService', () => ({ nudgeService: { list: vi.fn(), ack: vi.fn() } }))
-vi.mock('../services/userService', () => ({ userService: { fetchAssetUrl: vi.fn(async () => null) } }))
+vi.mock('../services/userService', () => ({
+  userService: { fetchAssetUrl: vi.fn(async () => null) },
+  personaService: { list: vi.fn() },
+}))
 
 import { chatService } from '../services/chatService'
 import { complianceService } from '../services/complianceService'
@@ -53,11 +56,21 @@ import { consentService } from '../services/consentService'
 import { modelStatusService } from '../services/modelStatusService'
 import { memoryService } from '../services/memoryService'
 import { nudgeService } from '../services/nudgeService'
+import { personaService } from '../services/userService'
 import { useChatStore } from '../stores/chatStore'
+import { useAuthStore } from '../stores/authStore'
 import { useComplianceStore } from '../stores/complianceStore'
+import { PERSONA_SWITCHED, PERSONA_SWITCH_FAILED } from '../features/personas'
 import ChatPage from './ChatPage'
 
 const renderPage = () => render(<MemoryRouter><ChatPage /></MemoryRouter>)
+
+// 封面上列的是人设库里的她：名字 + 一句示例句；第三张卡没写示例句，落回「她怎么说话」的第一句
+const COVER_PERSONAS = [
+  { id: 'p1', name: '小柔', card: { name: '小柔', speech: '包容、耐心。', samples: ['抱抱，这事儿确实委屈你了。'] }, active: true },
+  { id: 'p2', name: '毒牙', card: { name: '毒牙', speech: '有话直说。', samples: ['你清醒一点。'] }, active: false },
+  { id: 'p3', name: '安静', card: { name: '安静', speech: '嗯，我在。想说就说。', samples: [] }, active: false },
+]
 
 describe('ChatPage', () => {
   beforeEach(() => {
@@ -84,6 +97,7 @@ describe('ChatPage', () => {
     })
     nudgeService.list.mockResolvedValue({ nudges: [] })
     nudgeService.ack.mockResolvedValue({ success: true })
+    personaService.list.mockResolvedValue({ personas: COVER_PERSONAS })
   })
 
   it('shows the AI disclaimer dialog on the very first visit', async () => {
@@ -108,6 +122,48 @@ describe('ChatPage', () => {
       expect(screen.getByRole('button', { name: topic })).toBeInTheDocument()
     }
     expect(screen.queryByText('聊天预设 · 身体与情绪')).not.toBeInTheDocument()
+  })
+
+  it('封面先开口：人设库里的她各带一句示例句，点一下就换，成功说换好了', async () => {
+    const user = userEvent.setup()
+    const updatePersona = vi.fn().mockResolvedValue({})
+    useAuthStore.setState({ user: { persona: 'p1' }, updatePersona })
+    renderPage()
+
+    expect(await screen.findByText('嗨，我是你的Amie')).toBeInTheDocument()
+    const hers = within(screen.getByRole('group', { name: '你的她' })).getAllByRole('button')
+    expect(hers).toHaveLength(3)
+    expect(hers[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(hers[1]).toHaveAttribute('aria-pressed', 'false')
+    expect(hers[2]).toHaveAttribute('aria-pressed', 'false')
+    for (const line of ['抱抱，这事儿确实委屈你了。', '你清醒一点。']) {
+      expect(screen.getByText(line)).toBeInTheDocument()
+    }
+    // 没写示例句的她：落回「她怎么说话」的第一句
+    expect(screen.getByText('嗯，我在。')).toBeInTheDocument()
+
+    await user.click(hers[1])
+
+    expect(updatePersona).toHaveBeenCalledTimes(1)
+    expect(updatePersona).toHaveBeenCalledWith('p2')
+    expect(await screen.findByText(PERSONA_SWITCHED)).toBeInTheDocument()
+    expect(hers[1]).toHaveAttribute('aria-pressed', 'true')
+    expect(hers[0]).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('封面换她没成功：照实说没换成功，选中停在原来那个', async () => {
+    const user = userEvent.setup()
+    const updatePersona = vi.fn().mockRejectedValue(new Error('offline'))
+    useAuthStore.setState({ user: { persona: 'p1' }, updatePersona })
+    renderPage()
+
+    const hers = within(await screen.findByRole('group', { name: '你的她' })).getAllByRole('button')
+    await user.click(hers[1])
+
+    expect(await screen.findByText(PERSONA_SWITCH_FAILED)).toBeInTheDocument()
+    expect(hers[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(hers[1]).toHaveAttribute('aria-pressed', 'false')
+    expect(hers.every((button) => !button.disabled)).toBe(true)
   })
 
   it('a sensitive opener only drafts into the composer and never sends on its own', async () => {

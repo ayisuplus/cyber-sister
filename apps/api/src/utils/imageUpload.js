@@ -30,6 +30,35 @@ export function createImageUpload({ field, typeMessage, limitMessage, fallbackMe
 }
 
 /**
+ * 造她的蒸馏素材：material 文本 + ≤4 张图片（内存流转，不落盘），multer 错误统一转 400 JSON。
+ */
+const personaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 4, fields: 2, fieldSize: 64 * 1024, parts: 8 },
+  fileFilter: (_req, file, cb) => {
+    if (file.fieldname === 'images' && IMAGE_MIME_TYPES.has(file.mimetype)) return cb(null, true)
+    cb(Object.assign(new Error('仅支持 JPEG/PNG/WebP 图片'), { statusCode: 400 }))
+  },
+}).fields([{ name: 'images', maxCount: 4 }])
+
+export function personaMaterialUpload(req, res, next) {
+  return personaUpload(req, res, (error) => {
+    if (error) {
+      const message = error instanceof multer.MulterError
+        ? (error.code === 'LIMIT_FILE_SIZE' ? '图片不能超过 8MB' : '图片最多 4 张')
+        : (error.message || '上传失败：请检查文件格式和大小')
+      return res.status(400).json({ error: message })
+    }
+    req.personaMaterial = {
+      material: typeof req.body.material === 'string' ? req.body.material : '',
+      research: req.body.research !== 'false',
+      images: (req.files?.images || []).map((file) => ({ buffer: file.buffer, mime: file.mimetype })),
+    }
+    return next()
+  })
+}
+
+/**
  * 收藏与花草图鉴用：一次最多两张 JPEG（photo 原图 + thumb 缩略图），都可省略；其余是文字字段。
  * 文件签名与大小由服务再查一遍（改了扩展名的文件骗不过去）。花草图鉴收藏时要带回识别结果（一段 JSON），字段上限放宽一些。
  */

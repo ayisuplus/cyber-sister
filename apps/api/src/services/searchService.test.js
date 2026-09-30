@@ -9,7 +9,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 import { execFile } from 'node:child_process'
-import { isSearchEnabled, parseResults, searchWeb } from './searchService.js'
+import { clearSearchCache, isSearchEnabled, parseResults, searchWeb } from './searchService.js'
 import logger from '../utils/logger.js'
 
 const BING_HTML = `
@@ -54,6 +54,7 @@ describe('searchService', () => {
   })
   beforeEach(() => {
     delete process.env.SEARCH_ENABLED
+    clearSearchCache()
     vi.restoreAllMocks()
   })
 
@@ -169,5 +170,60 @@ describe('searchService', () => {
     const [item] = parseResults(html)
     expect(item.title).toHaveLength(81)
     expect(item.snippet).toHaveLength(201)
+  })
+
+  it('配了 SearXNG 就走 JSON 聚合结果，不再抓必应整页', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        results: [
+          { title: '标题一', url: 'https://a.example/1', content: '摘要一' },
+          { title: '非法协议', url: 'javascript:void(0)', content: 'x' },
+          { title: '标题二', url: 'https://b.example/2', content: '摘要二' },
+        ],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    execFile.mockClear()
+
+    const result = await searchWeb('u1', '春天养花', { SEARCH_ENABLED: 'true', SEARCH_SEARXNG_URL: 'http://searxng.local:8888/' })
+
+    expect(fetchMock.mock.calls[0][0]).toContain('http://searxng.local:8888/search?q=')
+    expect(fetchMock.mock.calls[0][0]).toContain('format=json')
+    expect(fetchMock.mock.calls[0][1].headers.accept).toBe('application/json')
+    expect(execFile).not.toHaveBeenCalled()
+    expect(result.results).toEqual([
+      { title: '标题一', url: 'https://a.example/1', snippet: '摘要一' },
+      { title: '标题二', url: 'https://b.example/2', snippet: '摘要二' },
+    ])
+  })
+
+  it('SearXNG 挂了回退必应抓取；同关键词随后命中缓存不再联网', async () => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    vi.stubGlobal('fetch', fetchMock)
+    mockCliSuccess(BING_HTML)
+
+    const first = await searchWeb('u1', '周末去哪玩', { SEARCH_ENABLED: 'true', SEARCH_SEARXNG_URL: 'http://searxng.local:8888' })
+    expect(first.results).toHaveLength(2)
+    expect(logger.warn).toHaveBeenCalledWith('SearXNG 搜索失败，回退必应抓取', { userId: 'u1', code: 'SEARCH_UNAVAILABLE' })
+
+    execFile.mockClear()
+    const second = await searchWeb('u1', '周末去哪玩', { SEARCH_ENABLED: 'true', SEARCH_SEARXNG_URL: 'http://searxng.local:8888' })
+    expect(second.results).toEqual(first.results)
+    expect(execFile).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('已取消的信号：配了 SearXNG 也不发任何请求、不回退必应', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    execFile.mockClear()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(searchWeb('u1', 'x', { SEARCH_ENABLED: 'true', SEARCH_SEARXNG_URL: 'http://searxng.local:8888' }, { signal: controller.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(execFile).not.toHaveBeenCalled()
   })
 })

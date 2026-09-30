@@ -9,14 +9,17 @@ vi.mock('../../services/memoryService', () => ({
 vi.mock('../../services/letterService', () => ({
   letterService: Object.fromEntries(['generate', 'list', 'get', 'read', 'decide'].map((name) => [name, vi.fn()])),
 }))
-vi.mock('../../services/userService', () => ({ profileService: { get: vi.fn(), update: vi.fn() } }))
-// 「她」页面里的说话方式与节奏面板各有测试；这里只看来信建议与最小记忆列表
+vi.mock('../../services/userService', () => ({
+  profileService: { get: vi.fn(), update: vi.fn() },
+  personaService: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), distill: vi.fn() },
+}))
+// 「她」页面里的人设库与节奏面板各有测试；这里只看来信建议与最小记忆列表
 vi.mock('../chat/CompanionStatePanel', () => ({ default: () => null }))
 vi.mock('../services/authService', () => ({ authService: { updatePersona: vi.fn() } }))
 
 import { memoryService } from '../../services/memoryService'
 import { letterService } from '../../services/letterService'
-import { profileService } from '../../services/userService'
+import { personaService, profileService } from '../../services/userService'
 import { useAuthStore } from '../../stores/authStore'
 import HerPage from '../../pages/HerPage'
 
@@ -53,7 +56,8 @@ const renderPage = () => render(
 
 beforeEach(() => {
   vi.resetAllMocks()
-  useAuthStore.setState({ token: 't', isLoggedIn: true, user: { id: 'u1', persona: 'gentle' } })
+  useAuthStore.setState({ token: 't', isLoggedIn: true, user: { id: 'u1', persona: 'p1' } })
+  personaService.list.mockResolvedValue({ personas: [{ id: 'p1', name: '小柔', card: { name: '小柔', speech: '慢慢听你说。', samples: [] }, active: true }] })
   profileService.get.mockResolvedValue({ letterFreqDays: 3 })
   profileService.update.mockImplementation(async (payload) => payload)
   letterService.generate.mockResolvedValue({ letter: LETTER, created: false, reason: 'not_due' })

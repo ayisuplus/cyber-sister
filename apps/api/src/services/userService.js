@@ -98,22 +98,22 @@ export async function updateProfile(userId, { nickname, avatarUrl, birthDate, ca
   return user
 }
 
-export async function switchPersona(userId, persona, database = prisma) {
-  if (!PERSONAS.includes(persona)) {
-    throw new HttpError(`人格必须是以下值之一: ${PERSONAS.join(', ')}`, 400)
-  }
+/**
+ * 换当前的她：personaId 必须是该用户的一张 Persona 卡（2026-09-29 人设库），不属于该用户或不存在 → 404「没有这个她」。
+ * 记忆跨她共享：这里只切「谁在陪她」，不动任何记忆。
+ */
+export async function switchPersona(userId, personaId, database = prisma) {
+  const persona = await database.persona.findFirst({ where: { id: personaId, userId } })
+  if (!persona) throw new HttpError('没有这个她', 404)
 
   const user = await database.user.update({
     where: { id: userId },
-    data: { persona },
+    data: { persona: persona.id },
     select: { persona: true },
   })
-  logger.info('人格切换', { userId, persona })
+  logger.info('切换她', { userId, persona: persona.id })
   return user
 }
-
-// 角色扮演已取消（2026-09 功能收拢）：一个 Amie、三种说话方式。
-// users.role_name/role_setting 列保留且只随数据导出带出旧值，聊天不再读取。
 
 export async function getExternalLlmConsent(userId) {
   const consent = await prisma.user.findUnique({

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   describeRecentNudges: vi.fn(() => Promise.resolve([])),
   memoryFindMany: vi.fn(),
   inferenceFindMany: vi.fn(() => Promise.resolve([])),
+  personaFindFirst: vi.fn(),
   crisisCreate: vi.fn(),
   transaction: vi.fn(),
   generateResponse: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock('../prisma/client.js', () => {
       crisisLog: { create: mocks.crisisCreate },
       memory: { findMany: mocks.memoryFindMany },
       inference: { findMany: mocks.inferenceFindMany },
+      persona: { findFirst: mocks.personaFindFirst },
       $transaction: mocks.transaction.mockImplementation((callback) => callback(tx)),
     },
   }
@@ -128,12 +130,36 @@ import {
   sendMessage,
   sendMessageStream,
 } from './chatService.js'
+import { DEFAULT_PERSONA_CARD } from './personaStudio.js'
 import { EXTERNAL_LLM_CONSENT_VERSION } from './userService.js'
 import { detectRememberIntent } from './contextBlocks.js'
 import { initExtensions, shutdownExtensions } from './extensionRuntime.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+
+// users.persona 现在是人设卡 id（2026-09-29 人设库）：personaContextOf 按 (id, userId) 找卡。
+// 这里按 id 回一张真卡，tone 与 id 对应（'toxic' → 毒舌口吻底子），找不到回 null 走默认卡兜底。
+const TOXIC_CARD = {
+  ...DEFAULT_PERSONA_CARD,
+  name: '毒舌互怼',
+  tone: 'toxic',
+  speech: '嘴上不饶人，先损你两句，再帮你把事儿办了。',
+  immersion: 'high',
+}
+const GENTLE_CARD = {
+  ...DEFAULT_PERSONA_CARD,
+  name: '温柔姐姐',
+  tone: 'gentle',
+  speech: '轻声细语，先抱抱再讲道理。',
+  immersion: 'low',
+}
+const PERSONA_CARDS = { toxic: TOXIC_CARD, gentle: GENTLE_CARD }
+
+mocks.personaFindFirst.mockImplementation(({ where }) => {
+  const card = PERSONA_CARDS[where?.id]
+  return Promise.resolve(card ? { id: where.id, userId: where.userId, name: card.name, card } : null)
+})
 
 describe('chatService 会话管理', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -328,7 +354,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'), immersion: 'high', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -344,7 +370,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'), immersion: 'low', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -370,6 +396,8 @@ describe('chatService.sendMessage', () => {
       allowExternal: true,
       citeBooks: false,
       authorizeExternal: expect.any(Function),
+      personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'),
+      immersion: 'high',
       bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }],
       scene: 'chat',
       agent: true,
@@ -784,7 +812,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], herInsights: [], signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'), immersion: 'high', signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
   })
 
@@ -885,7 +913,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'), immersion: 'low', signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })

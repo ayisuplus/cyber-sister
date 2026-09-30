@@ -1,11 +1,11 @@
 import { Buffer } from 'node:buffer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const db = vi.hoisted(() => ({ findUnique: vi.fn() }))
+const db = vi.hoisted(() => ({ findUnique: vi.fn(), personaFindFirst: vi.fn() }))
 const gateway = vi.hoisted(() => ({ complete: vi.fn() }))
 
 const reference = vi.hoisted(() => ({ index: null }))
-vi.mock('../prisma/client.js', () => ({ default: { user: { findUnique: db.findUnique } } }))
+vi.mock('../prisma/client.js', () => ({ default: { user: { findUnique: db.findUnique }, persona: { findFirst: db.personaFindFirst } } }))
 // 测试不读这台电脑上真的名录：按用例给一份小索引或者没有
 vi.mock('./plantReference.js', async (importOriginal) => ({ ...(await importOriginal()), loadPlantReference: () => reference.index }))
 vi.mock('../utils/logger.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
@@ -20,6 +20,7 @@ vi.mock('./llmService.js', async (importOriginal) => {
 })
 
 import { identifyPlant, readIdentification } from './plantIdService.js'
+import { DEFAULT_PERSONA_CARD } from './personaStudio.js'
 import { indexReference } from './plantReference.js'
 
 const segment = (marker, body) => {
@@ -31,6 +32,8 @@ const segment = (marker, body) => {
 const SCAN = Buffer.from([0xff, 0xda, 0x00, 0x04, 0x01, 0x00, 0x12, 0x34, 0xff, 0xd9])
 const JPEG_WITH_GPS = Buffer.concat([Buffer.from([0xff, 0xd8]), segment(0xe1, 'Exif GPS 31.23N'), segment(0xdb, [1, 2]), SCAN])
 const photo = (buffer = JPEG_WITH_GPS) => ({ photo: [{ buffer }] })
+// users.persona 现在是人设卡 id：「cool」这张卡的口吻底子是 cool，人设层与沉浸档随请求给模型
+const COOL_CARD = { ...DEFAULT_PERSONA_CARD, name: '安静', speech: '话不多，一句是一句；不绕弯子。', tone: 'cool', immersion: 'high' }
 const CONSENTED = { persona: 'cool', externalLlmConsent: true, externalLlmConsentVersion: 'cloud-primary-v4' }
 const ANSWER = JSON.stringify({
   isPlant: true,
@@ -43,6 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   reference.index = null
   db.findUnique.mockResolvedValue(CONSENTED)
+  db.personaFindFirst.mockResolvedValue({ id: 'cool', userId: 'u1', name: COOL_CARD.name, card: COOL_CARD })
   gateway.complete.mockResolvedValue({ content: ANSWER, model: 'qwen-vl-max' })
 })
 
@@ -51,7 +55,11 @@ describe('认一认', () => {
     const result = await identifyPlant('u1', photo(), { requestId: 'req-1' })
 
     const request = gateway.complete.mock.calls[0][0]
-    expect(request).toMatchObject({ scene: 'chat', persona: 'cool', requestId: 'req-1', allowExternal: true })
+    expect(request).toMatchObject({ scene: 'chat', persona: 'cool', immersion: 'high', requestId: 'req-1', allowExternal: true })
+    // 口吻底子来自她这张卡，人设层就是这张卡的 personaBody
+    expect(db.personaFindFirst).toHaveBeenCalledWith({ where: { id: 'cool', userId: 'u1' } })
+    expect(request.personaBody).toContain('人设：安静。')
+    expect(request.personaBody).toContain('怎么说话：话不多，一句是一句；不绕弯子。')
     expect(typeof request.authorizeExternal).toBe('function')
     expect(request.systemAppend[0].content).toContain('【认花草】')
     const [text, image] = request.messages[0].content

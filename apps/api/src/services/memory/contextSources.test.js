@@ -10,6 +10,8 @@ const db = vi.hoisted(() => ({
 vi.mock('../../prisma/client.js', () => ({
   default: {
     user: { findUnique: vi.fn(() => Promise.resolve(db.user)) },
+    // 人设卡查找：null → 默认卡（关怀卡的句库按它的口吻底子取）
+    persona: { findFirst: vi.fn(() => Promise.resolve(null)) },
     scheduledReminder: { findMany: vi.fn(() => Promise.resolve([])) },
     periodRecord: { findFirst: vi.fn(() => Promise.resolve(db.period)) },
     diaryEntry: { findFirst: vi.fn(() => Promise.resolve(null)), findMany: vi.fn(() => Promise.resolve([])) },

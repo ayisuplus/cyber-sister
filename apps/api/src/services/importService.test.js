@@ -4,6 +4,9 @@ const db = vi.hoisted(() => ({
   memoryFindMany: vi.fn(),
   memoryCreate: vi.fn(),
   userUpdate: vi.fn(),
+  personaCreate: vi.fn(),
+  personaUpdate: vi.fn(),
+  personaFindFirst: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -11,9 +14,13 @@ vi.mock('../prisma/client.js', () => {
     $queryRaw: vi.fn(async () => [{ id: 'user-1' }]),
     memoryRevision: { create: vi.fn() },
     memory: { findMany: db.memoryFindMany, create: db.memoryCreate },
+    persona: { create: db.personaCreate, update: db.personaUpdate, findFirst: db.personaFindFirst },
     user: { update: db.userUpdate, findUnique: vi.fn(async () => ({ memoryEpoch: 0 })) },
   }
-  client.$transaction = vi.fn((operation) => operation(client))
+  // Prisma 交互事务客户端（itx）不含 $transaction/$connect：mock 忠实一点，
+  // 防「事务里再套一层事务」这类只在真库炸的回潮（personaStudio.inTransaction）
+  const tx = { ...client }
+  client.$transaction = vi.fn((operation) => operation(tx))
   return { default: client }
 })
 
@@ -26,6 +33,7 @@ const applyImport = (userId, payload) => applyWithPreview(userId, payload && typ
   ? { expectedMemoryEpoch: 0, ...payload } : payload)
 
 const USER_ID = 'user-1'
+const NEW_PERSONA_ID = 'persona-new-1'
 
 const BUNDLE = {
   version: 1,
@@ -121,6 +129,7 @@ describe('importService.applyImport', () => {
     db.memoryFindMany.mockResolvedValue([])
     db.userUpdate.mockImplementation(({ data }) => Promise.resolve(data))
     db.memoryCreate.mockImplementation(({ data }) => Promise.resolve(data))
+    db.personaCreate.mockImplementation(({ data }) => Promise.resolve({ id: NEW_PERSONA_ID, ...data }))
   })
 
   it('人格 + 记忆落库并计数；即使负载里带旧角色也绝不写入角色字段', async () => {
@@ -131,12 +140,37 @@ describe('importService.applyImport', () => {
     })
 
     expect(result).toEqual({ personaApplied: true, memoriesApplied: 1, memoriesSkipped: 0 })
-    expect(db.userUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ roleName: expect.anything() }) }))
-    expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { persona: 'toxic' } }))
+    // 旧包人格 id 按迁移映射折成卡：建新卡（毒舌互怼/toxic）并启用，不再直写人格枚举
+    expect(db.personaCreate).toHaveBeenCalledWith({
+      data: {
+        userId: USER_ID,
+        name: '毒舌互怼',
+        card: expect.objectContaining({ name: '毒舌互怼', tone: 'toxic', immersion: 'medium', samples: [] }),
+      },
+    })
+    expect(db.userUpdate).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { persona: NEW_PERSONA_ID } })
+    // 即使负载里带旧角色（role/roleName/roleSetting），也绝不写入角色字段
+    for (const [{ data }] of db.userUpdate.mock.calls) {
+      expect(data).not.toHaveProperty('roleName')
+      expect(data).not.toHaveProperty('roleSetting')
+    }
     expect(db.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { memoryEpoch: { increment: 1 } } }))
     expect(db.memoryCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: 'semantic', content: '喜欢火锅' }),
     }))
+
+    // 新包直接带人设卡：同样建成新卡并启用
+    const custom = await applyImport(USER_ID, {
+      persona: { name: '阿岚', speech: '有话直说，不绕弯子。', tone: 'cool', immersion: 'high' },
+    })
+    expect(custom).toEqual({ personaApplied: true, memoriesApplied: 0, memoriesSkipped: 0 })
+    expect(db.personaCreate).toHaveBeenCalledWith({
+      data: {
+        userId: USER_ID,
+        name: '阿岚',
+        card: expect.objectContaining({ name: '阿岚', speech: '有话直说，不绕弯子。', tone: 'cool', immersion: 'high' }),
+      },
+    })
   })
 
   it('记忆与现有内容去重：重复项按 skipped 计数不报错', async () => {

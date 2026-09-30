@@ -25,6 +25,19 @@ const h = vi.hoisted(() => ({
   logs: [],
 }))
 
+// 人设卡（人设库，2026-09-29）：users.persona 是卡 id，评测里每个口吻一张卡（'cool' 名字冻结在 C 组断言里）
+const STYLE_CARDS = vi.hoisted(() => {
+  const card = (name, speech, tone) => ({
+    name, identity: '', relationship: '陪你聊天的姐妹', speech,
+    thinking: '', decisions: '', never: '', samples: [], immersion: 'medium', tone,
+  })
+  return {
+    gentle: card('温柔姐姐', '先接住情绪，再轻轻梳理事情。', 'gentle'),
+    toxic: card('毒舌互怼', '话糙理不糙，损完照样陪你。', 'toxic'),
+    cool: card('安静型闺蜜', '话少，但每句都算数。', 'cool'),
+  }
+})
+
 vi.mock('../../src/prisma/client.js', () => {
   const tx = {
     user: { findUnique: async () => ({ companionState: null, companionRevision: 0 }), update: async () => ({}) },
@@ -36,6 +49,13 @@ vi.mock('../../src/prisma/client.js', () => {
   return {
     default: {
       user: { findUnique: async () => h.user },
+      // 人设卡：users.persona 指向卡 id（评测里就是口吻名），查得到就用这张卡的人设层
+      persona: {
+        findFirst: async ({ where }) => {
+          const card = STYLE_CARDS[where.id]
+          return card ? { id: where.id, name: card.name, card } : null
+        },
+      },
       conversation: {
         findFirst: async () => ({ id: 'eval-thread', userId: 'eval-user', mode: 'chat', archivedAt: null }),
         findUnique: async () => ({ summary: null, summaryUpToAt: null }),
@@ -216,7 +236,7 @@ function prepareScenario(scenario, style) {
   const now = new Date(`${EVAL_DAY}T${given.localTime ?? DEFAULT_LOCAL_TIME}:00+08:00`)
   vi.setSystemTime(now)
   h.user = {
-    persona: style,
+    persona: style, // 人设卡 id（STYLE_CARDS 的键）
     nickname: given.nickname ?? null,
     birthDate: null,
     periodConsentAt: null,

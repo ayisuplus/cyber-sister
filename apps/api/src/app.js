@@ -30,7 +30,8 @@ import adminModelProvidersRoutes from './routes/adminModelProviders.js'
 import { hashSecret } from './services/bridgeService.js'
 import { loadCloudProviders } from './services/llmService.js'
 import { builtinToolNames } from './services/agentService.js'
-import { initExtensions, shutdownExtensions } from './services/extensionRuntime.js'
+import { initExtensions, shutdownExtensions, extensionTools } from './services/extensionRuntime.js'
+import { initMcp, shutdownMcp } from './services/mcpService.js'
 import { authMiddleware } from './middleware/auth.js'
 import { instanceAdminMiddleware } from './middleware/instanceAdmin.js'
 import logger from './utils/logger.js'
@@ -262,6 +263,10 @@ if (!isTestEnv) {
   }
   // 仓库内扩展：装配完成后、开始监听前加载（工具注册不得覆盖内置工具）
   await initExtensions({ reservedToolNames: builtinToolNames() })
+  // MCP stdio server（MCP_SERVERS_JSON）：与扩展工具同口径登记，单个失败不阻塞启动
+  await initMcp({ reservedToolNames: [...builtinToolNames(), ...Object.keys(extensionTools())] })
+    .then((count) => count && logger.info('MCP 工具已登记', { tools: count }))
+    .catch((error) => logger.warn('MCP 装配失败', { code: error?.code || 'MCP_ERROR' }))
   // 内测环境 BIND_ADDRESS 已经 validateRuntimeConfig 强制校验为具体私网 IPv4；
   // 开发环境未设置时保持 Node 默认绑定行为。
   // 容器化部署里进程的监听地址与宿主机暴露地址是两件事：API 不发布宿主机端口，
@@ -284,6 +289,7 @@ async function gracefulShutdown(signal) {
   stopMemoryIndexWorker()
   const closeDependencies = async () => {
     try {
+      await shutdownMcp()
       await shutdownExtensions()
       await stopWorkTaskWorker()
       await stopWorkContainerReaper()

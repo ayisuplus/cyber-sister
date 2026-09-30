@@ -23,7 +23,7 @@ export default function AIDisclaimer() {
         </div>
         <h2 id="ai-disclaimer-title" className="text-lg font-bold text-text-primary mb-3">我是AI，不是真人</h2>
         <p id="ai-disclaimer-description" className="text-sm text-text-secondary leading-relaxed mb-6">
-          我会一直陪着你，但我不是真人。如果你需要真正的帮助，请联系身边的朋友或专业机构。
+          我不是真人。我能陪你聊、记住你说过的事；我不做心理咨询，不是你的恋人，也不替你做重大决定。真要有人搭把手的时候，去找身边信得过的人，或者专业的人。
         </p>
         <button
           ref={closeRef}

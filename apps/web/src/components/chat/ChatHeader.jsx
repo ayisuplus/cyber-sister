@@ -26,7 +26,7 @@ export default function ChatHeader({ onOpenDrawer }) {
             <img src="/design-assets/ai-avatar-v2.png" alt="Amie AI" className="absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.style.display = 'none' }} />
           </div>
 
-          {/* 只写她的名字；说话方式在「她」页面里选，不在页头展示 */}
+          {/* 只写她的名字；换她在「她」页面的人设库，不在页头展示 */}
           <div className="flex flex-col">
             <h2 className="font-display text-[18px] font-normal italic leading-tight tracking-[0.02em] text-text-primary">Amie</h2>
           </div>

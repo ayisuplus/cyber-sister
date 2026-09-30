@@ -464,16 +464,20 @@ function hits(text, pattern, excused) {
   return false
 }
 
-/** 这段话有没有真的越过红线：劝阻、她自己的拒绝、转述与反问她的话不算。 */
-export function crossesRedLine(text) {
+/**
+ * 这段话有没有真的越过红线：劝阻、她自己的拒绝、转述与反问她的话不算。
+ * identityClaims=false 跳过「冒充真人」判定（沉浸档 high：人设就在角色里），危害红线两种取值都拦。
+ */
+export function crossesRedLine(text, { identityClaims = true } = {}) {
   const harm = (before, after) => (NEGATED_BEFORE.test(before) && !QUESTION_AFTER.test(after)) || REFUSED_AFTER.test(after)
   const reported = (before, after) => REPORTED_BEFORE.test(before) || QUESTION_AFTER.test(after)
-  return HARM_PATTERNS.some((pattern) => hits(text, pattern, harm)) || hits(text, HUMAN_CLAIM, reported)
+  return HARM_PATTERNS.some((pattern) => hits(text, pattern, harm))
+    || (identityClaims && hits(text, HUMAN_CLAIM, reported))
 }
 
-export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false) {
+export function filterModelOutput(content, currentText, persona, source = 'qwen', agent = false, { identityClaims = true } = {}) {
   const normalized = redactSensitiveText(content).trim()
-  if (!normalized || crossesRedLine(normalized)) {
+  if (!normalized || crossesRedLine(normalized, { identityClaims })) {
     return { ...generateLocalTemplateResponse(currentText, persona), filtered: true }
   }
   return { content: normalized.slice(0, messageLimit(agent)), source, filtered: false }
@@ -485,7 +489,7 @@ export async function generateResponse(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
 ) {
   signal?.throwIfAborted()
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
@@ -496,15 +500,13 @@ export async function generateResponse(
   const userMessage = typeof userText === 'string' ? userText : text
   const messages = buildModelMessages(userMessage, history, promptInHistory, agent)
   if (image) {
-    // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL）；历史旧图不重送模型
+    // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL，可带多张）；历史旧图不重送模型
     const textPart = modelText(userMessage, messageLimit(agent)) || '（用户发来一张照片，什么也没说）'
+    const imageParts = (Array.isArray(image) ? image : [image]).map((item) => imagePart(item))
     const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(agent))) : messages.length - 1
     messages[imageIndex] = {
       role: 'user',
-      content: [
-        { type: 'text', text: textPart },
-        imagePart(image),
-      ],
+      content: [{ type: 'text', text: textPart }, ...imageParts],
     }
   }
   assertCloudCallable(allowExternal)
@@ -525,6 +527,8 @@ export async function generateResponse(
       tools,
       requestId,
       persona: safePersona,
+      personaBody,
+      immersion,
       messages,
       systemAppend: [...systemAppend, ...contextResult.appendSystem.map((content) => ({ role: 'system', content }))],
       allowExternal,
@@ -548,7 +552,7 @@ export async function generateResponse(
   const replyTool = parseToolReply(result.content)
   const filtered = replyTool
     ? { content: JSON.stringify({ tool: replyTool.name, args: replyTool.args }), source: responseSource }
-    : filterModelOutput(result.content, text, safePersona, responseSource, agent)
+    : filterModelOutput(result.content, text, safePersona, responseSource, agent, { identityClaims: immersion !== 'high' })
   return {
     content: filtered.content,
     emotion,
@@ -569,8 +573,8 @@ function nextSentenceEnd(text, from) {
 }
 
 /** 与 filterModelOutput 同款的累计安全判定（不含空内容分支）。 */
-function isUnsafeAccumulation(accumulated) {
-  return crossesRedLine(redactSensitiveText(accumulated))
+function isUnsafeAccumulation(accumulated, identityClaims) {
+  return crossesRedLine(redactSensitiveText(accumulated), { identityClaims })
 }
 
 /**
@@ -593,7 +597,7 @@ export async function* generateResponseStream(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
   const emotion = detectEmotion(text)
@@ -603,15 +607,13 @@ export async function* generateResponseStream(
   const userMessage = typeof userText === 'string' ? userText : text
   const messages = buildModelMessages(userMessage, history, promptInHistory, agent)
   if (image) {
-    // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL）；历史旧图不重送模型
+    // 多模态：仅当前 user 消息替换为 parts（text + image_url data URL，可带多张）；历史旧图不重送模型
     const textPart = modelText(userMessage, messageLimit(agent)) || '（用户发来一张照片，什么也没说）'
+    const imageParts = (Array.isArray(image) ? image : [image]).map((item) => imagePart(item))
     const imageIndex = promptInHistory ? messages.findLastIndex((message) => message.role === 'user' && message.content === modelText(textPart, messageLimit(agent))) : messages.length - 1
     messages[imageIndex] = {
       role: 'user',
-      content: [
-        { type: 'text', text: textPart },
-        imagePart(image),
-      ],
+      content: [{ type: 'text', text: textPart }, ...imageParts],
     }
   }
   if (!isCloudProviderConfigured()) {
@@ -657,7 +659,7 @@ export async function* generateResponseStream(
     for (;;) {
       const end = nextSentenceEnd(fullText, consumed)
       if (end === -1) return false
-      if (isUnsafeAccumulation(fullText.slice(0, end))) return true
+      if (isUnsafeAccumulation(fullText.slice(0, end), immersion !== 'high')) return true
       const sentence = redactSensitiveText(fullText.slice(consumed, end))
         .slice(0, messageLimit(agent) - displayedText.length)
       if (sentence) {
@@ -684,6 +686,8 @@ export async function* generateResponseStream(
       tools,
       requestId,
       persona: safePersona,
+      personaBody,
+      immersion,
       messages,
       systemAppend: [...systemAppend, ...contextResult.appendSystem.map((content) => ({ role: 'system', content }))],
       allowExternal,
@@ -753,7 +757,7 @@ export async function* generateResponseStream(
 
   const responseSource = 'qwen'
   // 尾段随流结束做最终整体过滤，覆盖空内容与跨句命中。
-  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, agent)
+  const filtered = filterModelOutput(fullText, text, safePersona, responseSource, agent, { identityClaims: immersion !== 'high' })
   if (filtered.filtered) {
     yield { type: 'replace', content: filtered.content, source: filtered.source }
     yield {

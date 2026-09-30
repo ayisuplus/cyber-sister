@@ -473,13 +473,13 @@ describe('记一件事的表单', () => {
     expect(reminderService.create).not.toHaveBeenCalled()
   })
 
-  it('交给她：缺指令拦截；保存后如实标注云端执行未接通', async () => {
+  it('交给她：缺指令拦截；保存后如实标注到点只提醒', async () => {
     reminderService.create.mockRejectedValueOnce(new Error('offline'))
     renderPage()
     await screen.findByText('日程还是空的')
     openForm()
     fireEvent.click(screen.getByRole('button', { name: '交给她去做' }))
-    expect(screen.getByText(/云端执行还没接通，到点不会自动去做/)).toBeInTheDocument()
+    expect(screen.getByText(/不会真的去做/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '每天', exact: true }))
     fireEvent.change(screen.getByLabelText('这件事叫什么'), { target: { value: '早安打气' } })
     fireEvent.change(screen.getByLabelText('时间'), { target: { value: '08:00' } })
@@ -492,7 +492,7 @@ describe('记一件事的表单', () => {
     expect(screen.getByLabelText('要她做什么')).toHaveValue('给我一句带劲的早安加油')
 
     save()
-    await vi.waitFor(() => expect(screen.getAllByText('云端执行未接通 · 到点暂不执行').length).toBeGreaterThan(0))
+    await vi.waitFor(() => expect(screen.getAllByText(/她还做不了/).length).toBeGreaterThan(0))
     expect(reminderService.create).toHaveBeenLastCalledWith({ content: '早安打气', freq: 'daily', time: '08:00', instruction: '给我一句带劲的早安加油' })
   })
 })

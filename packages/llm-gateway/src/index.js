@@ -6,7 +6,9 @@
  *   const result = await gateway.complete({
  *     scene,            // 'chat' | 'explain'（对应 GATEWAY_SCENE_<scene> 路由）
  *     requestId,        // 仅用于日志关联
- *     persona,          // chat 场景可选：toxic | gentle | rational
+ *     persona,          // chat 场景可选：toxic | gentle | rational（无 personaBody 时按它取内置说话方式）
+ *     personaBody,      // chat 场景可选：用户自定义人设卡文本（非空即人设层，覆盖内置说话方式）
+ *     immersion,        // chat 场景可选：身份线分档 low | medium | high，未知档回落 medium
  *     messages,         // [{ role: 'user'|'assistant', content }]
  *     systemAppend,     // 追加的 system 消息（如记忆上下文），置于人格提示词之后
  *     allowExternal,    // 用户级开关：本次请求是否允许使用外部模型
@@ -103,10 +105,10 @@ function parseProviderConfig(env, name) {
   }
 }
 
-function buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble = true }) {
+function buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble = true, personaBody = null, immersion = 'medium' }) {
   const systemMessages = []
   if (scene === 'chat') {
-    systemMessages.push({ role: 'system', content: getPersonaSystemPrompt(persona, { shared: sharedPreamble }) })
+    systemMessages.push({ role: 'system', content: getPersonaSystemPrompt(persona, { shared: sharedPreamble, styleBody: personaBody, immersion }) })
   }
   if (Array.isArray(systemAppend)) {
     for (const item of systemAppend) {
@@ -303,6 +305,8 @@ export async function createGateway(env = process.env, { logger } = {}) {
       scene,
       requestId,
       persona,
+      personaBody,
+      immersion,
       messages = [],
       systemAppend = [],
       timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -313,7 +317,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
     if (!scene || !Array.isArray(messages) || messages.length === 0) return null
 
     const candidates = routeForScene(scene)
-    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble })
+    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble, personaBody, immersion })
 
     for (const provider of candidates) {
       const maxAttempts = provider.scope === 'external' ? EXTERNAL_MAX_ATTEMPTS : LOCAL_MAX_ATTEMPTS
@@ -370,6 +374,8 @@ export async function createGateway(env = process.env, { logger } = {}) {
       scene,
       requestId,
       persona,
+      personaBody,
+      immersion,
       messages = [],
       systemAppend = [],
       timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -384,7 +390,7 @@ export async function createGateway(env = process.env, { logger } = {}) {
     if (signal?.aborted) return
 
     const candidates = routeForScene(scene)
-    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble })
+    const finalMessages = buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble, personaBody, immersion })
 
     // 不变量：一旦已产出任何 delta，禁止重试与切换供应商；
     // 此后任何上游异常都直接以 error 事件结束流。

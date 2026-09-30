@@ -13,6 +13,7 @@ import {
   generateRefreshToken,
   REFRESH_TOKEN_AGE_MS,
 } from '../middleware/auth.js'
+import { DEFAULT_PERSONA_CARD } from './personaStudio.js'
 
 const APP_ENV = process.env.APP_ENV || 'development'
 export const IS_INTERNAL = APP_ENV === 'internal'
@@ -109,8 +110,13 @@ export async function findOrCreateInternalUser(phone) {
   let user = await prisma.user.findUnique({ where: { phone } })
   if (user) return user
   try {
-    user = await prisma.user.create({
-      data: { phone, nickname: '内测用户', persona: 'gentle' },
+    // 建用户事务里同时建初始「她」（人设库，2026-09-29）：users.persona 从注册起就指向 personas.id
+    user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({ data: { phone, nickname: '内测用户' } })
+      const persona = await tx.persona.create({
+        data: { userId: created.id, name: DEFAULT_PERSONA_CARD.name, card: DEFAULT_PERSONA_CARD },
+      })
+      return tx.user.update({ where: { id: created.id }, data: { persona: persona.id } })
     })
     logger.info('新内测用户注册', { userId: user.id })
     return user

@@ -18,7 +18,7 @@ import ImportMigration from './ImportMigration'
 
 const PREVIEW = {
   format: 'cyber-sister-export',
-  persona: { id: 'toxic', ok: true },
+  persona: { id: 'toxic', name: '毒舌互怼', ok: true },
   memoryCandidates: [
     { type: 'semantic', content: '喜欢吃火锅', importance: 8, tags: [] },
     { type: 'episodic', content: '上周和老板吵架了', importance: 6, tags: [] },
@@ -50,7 +50,7 @@ describe('ImportMigration', () => {
     await user.click(await screen.findByRole('button', { name: '解析预览' }))
 
     expect(mocks.previewImport).toHaveBeenCalledWith(bundle)
-    expect(await screen.findByText(/说话方式 toxic：可导入/)).toBeInTheDocument()
+    expect(await screen.findByText(/她「毒舌互怼」：可导入（会建成新的一张人设卡并启用）/)).toBeInTheDocument()
     expect(screen.getByText(/1 条重复或非法候选已自动跳过/)).toBeInTheDocument()
 
     // 只保留第二条记忆
@@ -61,7 +61,29 @@ describe('ImportMigration', () => {
       memories: [{ type: 'episodic', content: '上周和老板吵架了', importance: 6, tags: [] }],
       persona: 'toxic',
     })
-    expect(await screen.findByText(/已导入说话方式、1 条记忆/)).toBeInTheDocument()
+    expect(await screen.findByText(/已导入她（人设卡）、1 条记忆/)).toBeInTheDocument()
+  })
+
+  it('新导出包带人设卡：确认导入提交整张卡（不是 id）', async () => {
+    const user = userEvent.setup()
+    const card = { name: '小柔', speech: '轻声细语', samples: ['抱抱，我在。'], immersion: 'medium', tone: 'gentle' }
+    mocks.previewImport.mockResolvedValue({
+      format: 'cyber-sister-export',
+      persona: { id: null, name: '小柔', card, ok: true },
+      memoryCandidates: [],
+      memoriesSkipped: 0,
+      notes: [],
+    })
+    mocks.applyImport.mockResolvedValue({ personaApplied: true, memoriesApplied: 0, memoriesSkipped: 0 })
+    render(<ImportMigration />)
+
+    const bundle = { version: 1, product: 'Amie cyber-sister' }
+    await user.upload(screen.getByLabelText('选择导出包文件'), new File([JSON.stringify(bundle)], 'export.json', { type: 'application/json' }))
+    await user.click(await screen.findByRole('button', { name: '解析预览' }))
+    expect(await screen.findByText(/她「小柔」：可导入/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认导入' }))
+
+    expect(mocks.applyImport.mock.calls[0][0].persona).toEqual(card)
   })
 
   it('无效 JSON 文件给出明确提示，不发起预览', async () => {

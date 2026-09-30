@@ -16,6 +16,7 @@ import { HttpError } from '../utils/dbHelpers.js'
 import { localTodayUtc, toUtcDayString } from '../utils/dayHelpers.js'
 import logger from '../utils/logger.js'
 import { voiceOf } from './voice.js'
+import { personaContextOf } from './personaStudio.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_TOUCHPOINTS = 3
@@ -169,7 +170,9 @@ async function todaysTouchpoints(userId) {
     prisma.careDismissal.findMany({ where: { userId }, select: { key: true } }),
   ])
 
-  return { cards: buildTouchpoints({ user, tasks, latestPeriod, yesterdayDiary, todayUtc, now }), dismissals }
+  // 句库取口吻底子：voice.js 三套确定性句子按 tone 走（温柔/直爽/安静），不看人设卡全文
+  const persona = await personaContextOf(userId, user.persona)
+  return { cards: buildTouchpoints({ user: { ...user, persona: persona.tone }, tasks, latestPeriod, yesterdayDiary, todayUtc, now }), dismissals }
 }
 
 /**

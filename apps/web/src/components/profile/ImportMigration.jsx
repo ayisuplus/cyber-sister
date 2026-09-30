@@ -80,10 +80,10 @@ export default function ImportMigration() {
           && selected.some((item) => item.id === edge.from) && selected.some((item) => item.id === edge.to)).map((edge) => edge.id),
       } : { memories: selected }
       payload.expectedMemoryEpoch = preview.memoryEpoch
-      if (preview.persona?.ok) payload.persona = preview.persona.id
+      if (preview.persona?.ok) payload.persona = preview.persona.card ?? preview.persona.id
       const result = await migrationService.applyImport(payload)
       const parts = []
-      if (result.personaApplied) parts.push('说话方式')
+      if (result.personaApplied) parts.push('她（人设卡）')
       if (result.memoriesApplied > 0) parts.push(`${result.memoriesApplied} 条记忆`)
       if (result.edgesApplied > 0) parts.push(`${result.edgesApplied} 条关系`)
       const skipped = result.memoriesSkipped > 0 ? `；${result.memoriesSkipped} 条重复或非法已跳过` : ''
@@ -123,7 +123,7 @@ export default function ImportMigration() {
         <div className="mt-3 rounded-2xl bg-surface-muted p-3">
           {preview.persona && (
             <p className={`text-xs ${preview.persona.ok ? 'text-text-primary' : 'text-danger'}`}>
-              说话方式 {preview.persona.id}{preview.persona.ok ? '：可导入' : `：${preview.persona.error}`}
+              她「{preview.persona.name || preview.persona.id}」{preview.persona.ok ? '：可导入（会建成新的一张人设卡并启用）' : `：${preview.persona.error}`}
             </p>
           )}
           {preview.memoryCandidates?.length > 0 && (

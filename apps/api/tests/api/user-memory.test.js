@@ -4,6 +4,7 @@ import request from 'supertest'
 const state = vi.hoisted(() => ({
   users: new Map(),
   memories: [],
+  personas: [],
   nextMemoryId: 1,
 }))
 
@@ -71,6 +72,11 @@ vi.mock('../../src/prisma/client.js', () => {
         return { count: before - state.memories.length }
       },
     },
+    persona: {
+      findFirst: async ({ where }) => state.personas.find(
+        (persona) => persona.id === where.id && persona.userId === where.userId,
+      ) || null,
+    },
     $queryRaw: async () => [{ '?column?': 1 }],
     $disconnect: async () => {},
   }
@@ -97,6 +103,7 @@ describe('用户、同意与显式记忆 API', () => {
   beforeEach(() => {
     state.users.clear()
     state.memories = []
+    state.personas = []
     state.nextMemoryId = 1
     state.users.set('user-1', {
       id: 'user-1',
@@ -160,19 +167,41 @@ describe('用户、同意与显式记忆 API', () => {
     expect(res.body).toEqual({ accepted: null, version: 'cloud-primary-v4', updatedAt: null })
   })
 
-  it('人格只接受 toxic、gentle 和 rational', async () => {
+  it('人格切到她的某张人设卡；没有这个她就是 404', async () => {
+    state.personas.push(
+      { id: 'persona-1', userId: 'user-1', name: '小柔', card: { name: '小柔', tone: 'gentle' } },
+      { id: 'persona-2', userId: 'user-2', name: '别家的她', card: { name: '别家的她', tone: 'cool' } },
+    )
+
+    const missing = await request(app)
+      .put('/api/user/persona')
+      .set(authed())
+      .send({})
     const valid = await request(app)
       .put('/api/user/persona')
       .set(authed())
-      .send({ persona: 'rational' })
-    const invalid = await request(app)
+      .send({ persona: 'persona-1' })
+    const foreign = await request(app)
       .put('/api/user/persona')
       .set(authed())
-      .send({ persona: 'wild' })
+      .send({ persona: 'persona-2' })
+    const absent = await request(app)
+      .put('/api/user/persona')
+      .set(authed())
+      .send({ persona: 'persona-404' })
 
+    // 现在收 Persona.id，必填：缺 id 拦在参数校验层（不再是旧的枚举校验）
+    expect(missing.status).toBe(400)
+    expect(missing.body.error).toBe('参数验证失败')
+    // 切到该用户的这张卡：返回与落库的 persona 都是这张卡的 id
     expect(valid.status).toBe(200)
-    expect(valid.body.persona).toBe('rational')
-    expect(invalid.status).toBe(400)
+    expect(valid.body.persona).toBe('persona-1')
+    expect(state.users.get('user-1').persona).toBe('persona-1')
+    // 不属于这个用户的卡、不存在的卡都是「没有这个她」
+    expect(foreign.status).toBe(404)
+    expect(foreign.body).toEqual({ error: '没有这个她' })
+    expect(absent.status).toBe(404)
+    expect(absent.body).toEqual({ error: '没有这个她' })
   })
 
   it('新用户记忆为空且不会注入虚构数据', async () => {

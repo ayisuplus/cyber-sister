@@ -6,7 +6,9 @@ import { Prisma } from '@prisma/client'
 const state = vi.hoisted(() => ({
   users: new Map(),
   refreshTokens: [],
+  personas: [],
   nextUserId: 1,
+  nextPersonaId: 1,
   databaseReady: true,
   failRefreshUpdate: false,
   crisisWrites: 0,
@@ -50,6 +52,27 @@ vi.mock('../../src/prisma/client.js', () => {
         state.users.set(data.phone, user)
         return user
       },
+      update: async ({ where, data }) => {
+        const user = [...state.users.values()].find((item) => item.id === where.id)
+        if (!user) throw new Error('missing user')
+        Object.assign(user, data, { updatedAt: new Date() })
+        return user
+      },
+    },
+    persona: {
+      create: async ({ data }) => {
+        const persona = {
+          id: `persona-${state.nextPersonaId++}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...data,
+        }
+        state.personas.push(persona)
+        return persona
+      },
+      findFirst: async ({ where }) => state.personas.find(
+        (persona) => persona.id === where.id && persona.userId === where.userId,
+      ) || null,
     },
     refreshToken: {
       create: async ({ data }) => {
@@ -102,6 +125,7 @@ vi.mock('../../src/utils/usageTracker.js', () => ({
 import app from '../../src/app.js'
 import { generateRefreshToken } from '../../src/middleware/auth.js'
 import { loginAttempts, sweepLoginAttempts } from '../../src/services/authService.js'
+import { DEFAULT_PERSONA_CARD } from '../../src/services/personaStudio.js'
 
 describe('Auth API', () => {
   const allowedPhone = '13800138000'
@@ -109,7 +133,9 @@ describe('Auth API', () => {
   beforeEach(() => {
     state.users.clear()
     state.refreshTokens.length = 0
+    state.personas.length = 0
     state.nextUserId = 1
+    state.nextPersonaId = 1
     state.databaseReady = true
     state.failRefreshUpdate = false
     state.crisisWrites = 0
@@ -124,8 +150,17 @@ describe('Auth API', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.token).toBeTypeOf('string')
-    expect(res.body.user).toMatchObject({ phone: allowedPhone, persona: 'gentle' })
+    expect(res.body.user).toMatchObject({ phone: allowedPhone })
     expect(res.body.user).not.toHaveProperty('roleName')
+    // 注册事务建了初始「她」并启用：users.persona 指向新卡 id，卡就是 DEFAULT_PERSONA_CARD
+    expect(state.personas).toHaveLength(1)
+    expect(state.personas[0]).toMatchObject({
+      userId: res.body.user.id,
+      name: '姐妹',
+      card: DEFAULT_PERSONA_CARD,
+    })
+    expect(state.personas[0].card.tone).toBe('gentle')
+    expect(res.body.user.persona).toBe(state.personas[0].id)
     expect(res.headers['set-cookie'][0]).toContain('HttpOnly')
     expect(res.headers['set-cookie'][0]).toContain('Secure')
     expect(state.refreshTokens).toHaveLength(1)

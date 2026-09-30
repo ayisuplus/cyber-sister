@@ -26,6 +26,7 @@ import { describeBookNotes, selectBookCards, userBookSearch } from './bookSkills
 import { searchUserBooks } from './bookIndexService.js'
 import { assertWorkCloudConnected } from './workCloudService.js'
 import { CONSENT_FIELDS, consentsOf } from './consents.js'
+import { personaContextOf } from './personaStudio.js'
 import logger from '../utils/logger.js'
 import { saveChatImage, deleteChatImages } from './chatImageService.js'
 
@@ -292,15 +293,22 @@ async function loadUserModelOptions(userId) {
   if (!user) throw new HttpError('用户不存在', 404)
 
   const consents = consentsOf(userId, user)
+  // 她是谁（人设库，2026-09-29）：人设层与沉浸档随模型选项走，句库取口吻底子
+  const persona = await personaContextOf(userId, user.persona)
   // citeBooks：「回答里提到书」，翻到书时回答里可以提书名（默认不提）
-  const modelOptions = { allowExternal: consents.cloud.allowExternal, citeBooks: user.citeBooks === true }
+  const modelOptions = {
+    allowExternal: consents.cloud.allowExternal,
+    citeBooks: user.citeBooks === true,
+    personaBody: persona.personaBody,
+    immersion: persona.immersion,
+  }
   if (consents.cloud.authorizeExternal) modelOptions.authorizeExternal = consents.cloud.authorizeExternal
-  return { user, modelOptions, consents }
+  return { user, modelOptions, consents, persona }
 }
 
 /** 用户同意装配 + 历史/记忆查询，JSON 与流式路径共用同一套语义。 */
 async function loadModelContext(conversationId, userId, now = new Date()) {
-  const { user, modelOptions, consents } = await loadUserModelOptions(userId)
+  const { user, modelOptions, consents, persona } = await loadUserModelOptions(userId)
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -319,7 +327,7 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     momentBlock({ now, lastMessageAt: descendingHistory[0]?.createdAt ?? null }),
     recentNudgesBlock(recentNudges),
   ]
-  return { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary: conversation?.summary ?? null }
+  return { user, persona, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary: conversation?.summary ?? null }
 }
 
 const SUMMARY_INSTRUCTION = '你是对话归档员。把给定对话压缩成一段前情摘要，供后续聊天延续上下文。区分用户明确陈述与助手推测，不得把助手推测改写成用户事实。保留：用户的约定与承诺、重要事实（称呼/喜好/禁忌）、情绪线索、未决事项；丢弃寒暄与重复。若提供已有摘要，将其与新对话合并为一段更新的摘要。只输出摘要正文，不超过 400 字。'
@@ -451,7 +459,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   }
   const modelText = await buildModelText(content, { userId, conversationId, signal })
 
-  const { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
+  const { user, persona, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
   signal?.throwIfAborted()
   if (await blocksMediumCrisis(crisisLevel, modelOptions, userId, conversationId)) {
     return persistBlockedCrisis(conversationId, userId, content, crisisLevel)
@@ -469,7 +477,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   const careful = crisisLevel === 'medium'
   const offerTools = !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
   const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding })
-  for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, careful, context, offerMemory, offerTools, bookSelection })) {
+  for await (const event of runConversationAgent({ content, modelText, persona, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, careful, context, offerMemory, offerTools, bookSelection })) {
     if (event.type === 'done') aiResponse = event
   }
   signal?.throwIfAborted()
@@ -526,7 +534,7 @@ function withBookNotes(response, bookSelection) {
 }
 
 /** 两种模型接口适配到相同事件协议；内部状态只在模型调用边界转为提示上下文。 */
-function runConversationAgent({ content, modelText = null, user, history, memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments = [], stream = false, durable = null, reading = null, careful = false, context = [], offerMemory, offerTools, bookSelection = [] }) {
+function runConversationAgent({ content, modelText = null, persona, history, memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments = [], stream = false, durable = null, reading = null, careful = false, context = [], offerMemory, offerTools, bookSelection = [] }) {
   const prompt = turnPrompt(content, attachments)
   // 发给模型的用户消息是展开后的 modelText；detectEmotion/记忆检索/技能话题命中等判定仍以原文为源
   const userMessage = modelText || prompt
@@ -542,7 +550,7 @@ function runConversationAgent({ content, modelText = null, user, history, memori
     signal: modelOptions.signal,
     // 工具轮数用尽时如实交代已完成的操作；没有调用过工具才退回她的说话方式模板
     fallback: () => {
-      const response = generateLocalTemplateResponse(content, user.persona)
+      const response = generateLocalTemplateResponse(content, persona.tone)
       if (turn.toolRuns.length) {
         const completed = turn.toolRuns.filter((run) => run.ok).map((run) => run.summary)
         response.content = `这轮先到这儿。${completed.length ? `已经办好：${completed.join('；')}。` : '刚才那几件都没办成。'}剩下的先放着，你想继续我们再接着弄。`
@@ -551,7 +559,7 @@ function runConversationAgent({ content, modelText = null, user, history, memori
     },
     generate: async function* (currentTurn) {
       await durable?.assertActive()
-      const args = [prompt, user.persona, currentTurn.history, memories, requestId,
+      const args = [prompt, persona.tone, currentTurn.history, memories, requestId,
         { ...modelOptions, bookSelection, memoriesSelected: true, promptInHistory: currentTurn.promptInHistory, extraSystem: currentTurn.extraSystem,
           ...(userMessage !== prompt ? { userText: userMessage } : {}),
           ...(currentTurn.tools.length && !currentTurn.forcedFinal ? { tools: currentTurn.tools } : {}), scene: currentTurn.scene, agent: currentTurn.agent, ...(image ? { image } : {}) }]
@@ -592,7 +600,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   }
   const modelText = await buildModelText(content, { userId, conversationId, signal })
 
-  const { user, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
+  const { user, persona, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary } = await loadModelContext(conversationId, userId)
   if (signal?.aborted) return
   if (await blocksMediumCrisis(crisisLevel, modelOptions, userId, conversationId, durable)) {
     const blocked = await persistBlockedCrisis(conversationId, userId, content, crisisLevel, durable)
@@ -619,7 +627,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   const offerTools = Boolean(durable) || !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
   const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding, reading: readingContext })
   if (signal?.aborted) return
-  for await (const event of runConversationAgent({ content, modelText, user, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, stream: true, durable, reading: readingContext, careful, context, offerMemory, offerTools, bookSelection })) {
+  for await (const event of runConversationAgent({ content, modelText, persona, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, stream: true, durable, reading: readingContext, careful, context, offerMemory, offerTools, bookSelection })) {
     if (signal?.aborted) return
     if (event.type !== 'done') { yield event; continue }
     const saved = await persistTurn(conversationId, userId, content, withBookNotes(event, bookSelection), event.toolRuns, image, signal, companion, attachments, durable)

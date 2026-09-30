@@ -6,6 +6,7 @@ afterEach(() => vi.unstubAllEnvs())
 
 const search = vi.hoisted(() => ({ searchWeb: vi.fn() }))
 const gateway = vi.hoisted(() => ({ complete: vi.fn(), stream: vi.fn() }))
+const mcp = vi.hoisted(() => ({ mcpTools: vi.fn(() => ({})), mcpToolParameters: vi.fn(() => ({})) }))
 
 vi.mock('@cyber-sister/llm-gateway', () => ({
   createGateway: vi.fn(() => Promise.resolve({ complete: gateway.complete, stream: gateway.stream, getHealth: () => [] })),
@@ -89,6 +90,7 @@ vi.mock('../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 vi.mock('./searchService.js', () => ({ searchWeb: search.searchWeb }))
+vi.mock('./mcpService.js', () => mcp)
 
 import {
   buildNativeTools,
@@ -570,6 +572,40 @@ describe('唯一工具目录', () => {
     const prompt = buildToolSystemPrompt()
     expect(prompt).not.toContain('"tool":"web_search"')
     expect(prompt).toContain('联网搜索未启用')
+  })
+
+  describe('MCP 热榜工具（接住热词与梗）', () => {
+    const newsTool = (run = vi.fn(() => Promise.resolve({ summary: '已查询', result: { output: '1. 热榜第一条', untrusted: true } }))) => ({
+      description: '{"tool":"newsnow_get_hottest_latest_news","args":{"id":"..."}} 「newsnow」的查询工具：查询热榜',
+      parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      needsConfirm: () => false,
+      run,
+    })
+    afterEach(() => {
+      mcp.mcpTools.mockReturnValue({})
+      mcp.mcpToolParameters.mockReturnValue({})
+    })
+
+    it('MCP 工具进同一目录，热词/梗「先查再接话」的例外写进规则', () => {
+      vi.stubEnv('SEARCH_ENABLED', 'false')
+      const tool = newsTool()
+      mcp.mcpTools.mockReturnValue({ newsnow_get_hottest_latest_news: tool })
+      mcp.mcpToolParameters.mockReturnValue({ newsnow_get_hottest_latest_news: tool.parameters })
+      const prompt = buildToolSystemPrompt()
+      expect(prompt).toContain('"tool":"newsnow_get_hottest_latest_news"')
+      expect(prompt).toContain('接得住她的热词和梗')
+      expect(prompt).toContain('先查一下再接话')
+    })
+
+    it('热榜工具的查询结果必须直接交给用户，禁止只说「帮你查一下」', async () => {
+      const tool = newsTool()
+      mcp.mcpTools.mockReturnValue({ newsnow_get_hottest_latest_news: tool })
+      mcp.mcpToolParameters.mockReturnValue({ newsnow_get_hottest_latest_news: tool.parameters })
+      const outcome = await executeToolCall('u1', { name: 'newsnow_get_hottest_latest_news', args: { id: 'weibo' } })
+      expect(outcome.ok).toBe(true)
+      expect(tool.run).toHaveBeenCalledWith('u1', { id: 'weibo' }, expect.anything())
+      expect(outcome.feedback).toContain('把查到的具体内容直接告诉用户')
+    })
   })
 
   it('原型属性不是可执行工具，取消的请求不再执行', async () => {

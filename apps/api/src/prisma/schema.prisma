@@ -14,6 +14,7 @@ model User {
   phone                       String    @unique
   nickname                    String?
   avatarUrl                   String?   @map("avatar_url")
+  // 当前启用的「她」：personas.id（2026-09-29 起；此前是说话方式枚举，db:migrate:personas 一次性迁移）
   persona                     String    @default("gentle")
   externalLlmConsent          Boolean?  @map("external_llm_consent")
   externalLlmConsentVersion   String?   @map("external_llm_consent_version")
@@ -37,6 +38,7 @@ model User {
 
   conversations     Conversation[]
   memories          Memory[]
+  personas          Persona[]
   todos             Todo[]
   countdowns        Countdown[]
   periodRecords     PeriodRecord[]
@@ -716,6 +718,22 @@ model PlantEntry {
 
   @@index([userId, createdAt])
   @@map("plant_entries")
+}
+
+/// 用户自定义的「她」（2026-09-29 裁定：人设纯自定义）。整卡存 card（形状见 services/personaStudio.js），
+/// name 是 card.name 的副本（列表展示用）；users.persona 指向当前启用的那张卡，所有她共享同一份记忆。
+model Persona {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String
+  card      Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("personas")
 }
 
 /// 自定义模型供应商（2026-09-22）：实例管理员在应用里配置的多家 OpenAI 兼容服务，网关按 priority 依次切换。

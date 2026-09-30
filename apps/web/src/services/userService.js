@@ -41,6 +41,28 @@ export const profileService = {
   update: async (payload) => (await api.put('/user/profile', payload)).data,
 }
 
+// 人设库：用户自己定义的「她」（GET/POST /user/personas、PUT/DELETE /user/personas/:id）；
+// 换她走 authService.updatePersona（PUT /user/persona），不在这里。
+export const personaService = {
+  list: async () => (await api.get('/user/personas')).data,
+  // 建卡即启用：body 就是人设卡字段
+  create: async (card) => (await api.post('/user/personas', card)).data,
+  // 改一改这张卡；不改变谁在启用
+  update: async (id, card) => (await api.put(`/user/personas/${id}`, card)).data,
+  // 删她：只剩一个时服务端回 400「至少留一个她」，原样展示
+  remove: async (id) => (await api.delete(`/user/personas/${id}`)).data,
+
+  // 蒸馏草稿（不落库）：素材文字 + 最多 4 张图片 + 是否顺手查公开资料（'false' 才关）
+  distill: async ({ material = '', images = [], research = true } = {}) => {
+    const form = new FormData()
+    form.append('material', material)
+    form.append('research', research ? 'true' : 'false')
+    for (const image of images) form.append('images', image)
+    // postForm 显式 multipart：实例默认 Content-Type 是 JSON，直接 post(FormData) 会让 multer 解析不到文件
+    return (await api.postForm('/user/personas/distill', form)).data
+  },
+}
+
 export const userService = {
   // putForm 显式 multipart：实例默认 Content-Type 是 JSON，直接 put(FormData) 会让 multer 解析不到文件
   uploadAsset: async (slot, file) => {

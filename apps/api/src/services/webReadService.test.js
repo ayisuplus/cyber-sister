@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
-import { publicUrl, resolvePublicTarget, readWebPage, readWebResource, extractWebText, submitWebResource } from './webReadService.js'
+import { publicUrl, resolvePublicTarget, readWebPage, readWebPages, readWebResource, extractWebText, submitWebResource, WEB_READ_TOOL } from './webReadService.js'
 
 const publicAddress = { address: '93.184.216.34', family: 4 }
 const lookup = vi.fn(async () => [publicAddress])
@@ -174,5 +174,50 @@ describe('public web reading', () => {
   it('browser can render public HTTP error pages while static article reading still rejects them', async () => {
     expect((await readWebResource('https://example.com', { lookup, request: pages({ status: 404, body: 'Not found' }) })).status).toBe(404)
     await expect(readWebPage('https://example.com', { lookup, request: pages({ status: 404 }) })).rejects.toMatchObject({ statusCode: 503 })
+  })
+})
+
+describe('read_web 的 urls 模式：一次并发读多页', () => {
+  const page = (url) => ({ source: { url, title: url }, content: '正文'.repeat(10) })
+
+  it('并发读取、一页失败不拖垮其它页，结果与 hrefs 同序', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    const readPage = vi.fn((href) => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      return new Promise((resolve, reject) => setTimeout(() => {
+        inFlight -= 1
+        if (href.includes('bad')) reject(new Error('网页暂时无法读取，请换一个来源'))
+        else resolve(page(href))
+      }, 10))
+    })
+
+    const outcomes = await readWebPages(['https://a.example/1', 'https://bad.example/2', 'https://c.example/3'], { readPage })
+
+    expect(maxInFlight).toBe(3)
+    expect(outcomes.map((outcome) => Boolean(outcome.page))).toEqual([true, false, true])
+    expect(outcomes[0].page.source.url).toBe('https://a.example/1')
+    expect(outcomes[1]).toEqual({ href: 'https://bad.example/2', error: '网页暂时无法读取，请换一个来源' })
+    expect(outcomes[2].page.source.url).toBe('https://c.example/3')
+  })
+
+  it('urls 模式每页先给 6000 字符并标 untrusted，全部读不成如实 503（这里只验未注入 reader 的失败口径）', async () => {
+    // 公共地址但不存在的域名：读取失败走全失败分支，不碰真实网络之外的桩
+    await expect(WEB_READ_TOOL.run('u1', { urls: ['https://nonexistent-domain-for-test.example/1'] }, { workspace: {} }))
+      .rejects.toMatchObject({ statusCode: 503 })
+  })
+
+  it('url 与 urls 互斥、空 urls、超上限与非法 offset 都拦在读取前', async () => {
+    await expect(WEB_READ_TOOL.run('u1', { url: 'https://a.example', urls: ['https://b.example'] }, { workspace: {} }))
+      .rejects.toMatchObject({ message: 'url 与 urls 只能给一个' })
+    await expect(WEB_READ_TOOL.run('u1', { urls: [] }, { workspace: {} }))
+      .rejects.toMatchObject({ message: 'urls 不能为空' })
+    await expect(WEB_READ_TOOL.run('u1', { urls: Array.from({ length: 5 }, (_, i) => 'https://a.example/' + i) }, { workspace: {} }))
+      .rejects.toMatchObject({ message: '一次最多读取 4 个网页' })
+    await expect(WEB_READ_TOOL.run('u1', {}, { workspace: {} }))
+      .rejects.toMatchObject({ message: '缺少 url 或 urls' })
+    await expect(WEB_READ_TOOL.run('u1', { url: 'https://a.example', offset: -1 }, { workspace: {} }))
+      .rejects.toMatchObject({ message: '读取偏移无效' })
   })
 })

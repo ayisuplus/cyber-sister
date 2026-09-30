@@ -176,7 +176,7 @@ test('life entries: the wardrobe keeps a photo compressed on this device, with n
 test('life entries: the her page keeps five quiet sections, with no pending panel or mock buttons', async ({ page }, testInfo) => {
   // 旧的「待确认」深链接也落在这一页；做梦、待确认与记忆整理已收进来信（2026-09-23）；「她这几天」2026-09-26 加入（路线图 C24）
   await page.goto('/her?tab=pending')
-  for (const name of ['她的说话方式', '她的状态', '她这几天', '她的来信', '她记得的你']) {
+  for (const name of ['她的样子', '她的状态', '她这几天', '她的来信', '她记得的你']) {
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   }
   await expect(page.getByText('她还没写好第一封，到了日子她会写的。')).toBeVisible()

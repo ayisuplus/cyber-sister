@@ -1,7 +1,8 @@
 import { Router } from 'express'
-import { createImageUpload } from '../utils/imageUpload.js'
-import { validateEnum, validate } from '../utils/validate.js'
+import { createImageUpload, personaMaterialUpload } from '../utils/imageUpload.js'
+import { validateRequired, validate } from '../utils/validate.js'
 import * as userService from '../services/userService.js'
+import * as personaStudio from '../services/personaStudio.js'
 import { buildUserExport } from '../services/exportService.js'
 import { previewImport, applyImport } from '../services/importService.js'
 import { deleteAsset, readAsset, saveAsset } from '../services/userAssetService.js'
@@ -93,14 +94,63 @@ router.put('/profile', async (req, res) => {
   }
 })
 
+// 人设库（2026-09-29 裁定）：用户自己定义的「她」；卡片校验与蒸馏都在 personaStudio
+router.get('/personas', async (req, res) => {
+  try {
+    res.json({ personas: await personaStudio.listPersonas(req.user.userId) })
+  } catch (error) {
+    if (!error.statusCode) logger.error('读取人设库失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '读取人设库失败')
+  }
+})
+
+// 造一个她：建卡并立即启用
+router.post('/personas', async (req, res) => {
+  try {
+    res.json(await personaStudio.createPersona(req.user.userId, req.body))
+  } catch (error) {
+    if (!error.statusCode) logger.error('造她失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '造她失败')
+  }
+})
+
+// 蒸馏草稿（不落库）：素材 → 可选联网调研 → 人设卡草稿
+router.post('/personas/distill', personaMaterialUpload, async (req, res) => {
+  try {
+    res.json(await personaStudio.distillPersona(req.user.userId, req.personaMaterial))
+  } catch (error) {
+    if (!error.statusCode) logger.error('蒸馏她失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '蒸馏她失败')
+  }
+})
+
+router.put('/personas/:id', async (req, res) => {
+  try {
+    res.json(await personaStudio.updatePersonaCard(req.user.userId, req.params.id, req.body))
+  } catch (error) {
+    if (!error.statusCode) logger.error('改她失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '改她失败')
+  }
+})
+
+router.delete('/personas/:id', async (req, res) => {
+  try {
+    res.json(await personaStudio.removePersona(req.user.userId, req.params.id))
+  } catch (error) {
+    if (!error.statusCode) logger.error('删她失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '删她失败')
+  }
+})
+
+// 换她：按 Persona.id 激活（不属于该用户或不存在 → 404「没有这个她」）
 router.put('/persona', validate([
-  { field: 'persona', validate: (value) => validateEnum(value, '人格', userService.PERSONAS) },
+  { field: 'persona', validate: (value) => validateRequired(value, 'persona') },
 ]), async (req, res) => {
   try {
     res.json(await userService.switchPersona(req.user.userId, req.body.persona))
   } catch (error) {
-    logger.error('切换人格失败', { error: error.message, userId: req.user.userId })
-    sendError(res, error, '切换人格失败')
+    if (!error.statusCode) logger.error('换她失败', { error: error.message, userId: req.user.userId })
+    sendError(res, error, '换她失败')
   }
 })
 

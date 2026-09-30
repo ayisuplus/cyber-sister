@@ -5,6 +5,7 @@
  */
 import prisma from '../prisma/client.js'
 import { cloudAuthorization } from './consents.js'
+import { personaContextOf } from './personaStudio.js'
 import { assertCloudCallable, crossesRedLine, getGateway, imagePart, redactSensitiveText } from './llmService.js'
 import { extractJsonObject } from './letterService.js'
 import {
@@ -47,11 +48,15 @@ export async function identifyPlant(userId, files = {}, { requestId, signal } = 
   })
   const { allowExternal, authorizeExternal } = cloudAuthorization(userId, user)
   assertCloudCallable(allowExternal)
+  // 讲解是她平时的口吻：人设卡的人设层与沉浸档随 chat 场景一起给模型，句库/回退取口吻底子
+  const persona = await personaContextOf(userId, user?.persona)
 
   const gateway = await getGateway()
   const result = await gateway.complete({
     scene: 'chat',
-    persona: user?.persona,
+    persona: persona.tone,
+    personaBody: persona.personaBody,
+    immersion: persona.immersion,
     requestId,
     systemAppend: [{ role: 'system', content: PLANT_ID_PROMPT }],
     messages: [{ role: 'user', content: [{ type: 'text', text: IDENTIFY_ASK }, imagePart(image)] }],

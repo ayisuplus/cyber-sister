@@ -1,4 +1,4 @@
-# 本地开发专用：只起 PostgreSQL，应用进程用 pnpm dev 跑在宿主机。
+# 本地开发专用：只起 PostgreSQL 与 SearXNG，应用进程用 pnpm dev 跑在宿主机。
 # 用法：docker compose -f compose.dev.yaml up -d
 # 仅供本地开发，口令为公开占位值，禁止用于任何共享/部署环境。
 name: cyber-sister-dev
@@ -20,5 +20,41 @@ services:
     volumes:
       - postgres-dev-data:/var/lib/postgresql/data
 
+  # agent 的 web_search 后端（开源元搜索）：JSON API 一次拿聚合结果，省掉抓整页 HTML 再抠结果。
+  # 已验证版本 2026.9.29-4e2c1ea7f；UWSGI_WORKERS=1 压到 ~150MB，再给 256MB 上限。
+  searxng:
+    image: searxng/searxng:latest
+    environment:
+      SEARXNG_BASE_URL: http://127.0.0.1:8888/
+      UWSGI_WORKERS: "1"
+    ports:
+      - "127.0.0.1:8888:8080"
+    mem_limit: 256m
+    volumes:
+      - ./deploy/dev/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # 热榜聚合（NewsNow，开源，MIT）：agent 查热词/梗/热点的后端，经 MCP 桥（newsnow-mcp-server）接入。
+  # 时效性：默认 30 分钟缓存 + 按源更新频率自适应爬取（最快 2 分钟）；数据落 SQLite 卷。
+  newsnow:
+    image: ghcr.io/ourongxing/newsnow:latest
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4444
+      NODE_ENV: production
+      INIT_TABLE: "true"
+      ENABLE_CACHE: "true"
+      JWT_SECRET: cyber-sister-dev-newsnow
+    ports:
+      - "127.0.0.1:4444:4444"
+    mem_limit: 256m
+    volumes:
+      - newsnow-data:/usr/app/.data
+
 volumes:
   postgres-dev-data:
+  newsnow-data:

@@ -207,6 +207,11 @@ export async function buildUserExport(userId) {
     }),
   ])
 
+  // 人设卡随导出带走（2026-09-29 人设库）：user.persona 存整张卡；旧包（人格 id）导入仍走迁移映射
+  const personaCard = user?.persona
+    ? await prisma.persona.findFirst({ where: { id: user.persona, userId }, select: { card: true } })
+    : null
+
   const bundle = {
     version: EXPORT_VERSION,
     memoryBundle: await exportMemoryBundle(userId),
@@ -218,7 +223,7 @@ export async function buildUserExport(userId) {
     user: user
       ? {
           nickname: user.nickname,
-          persona: user.persona,
+          persona: personaCard?.card ?? null,
           roleName: user.roleName,
           roleSetting: user.roleSetting,
           birthDate: iso(user.birthDate),

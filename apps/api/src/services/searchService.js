@@ -20,6 +20,13 @@ const MAX_QUERY_CHARS = 100
 const MAX_TITLE_CHARS = 80
 const MAX_SNIPPET_CHARS = 200
 const SEARCH_ENDPOINT = 'https://www.bing.com/search'
+// SearXNG（自托管开源元搜索，compose.dev.yaml 里的 searxng）走 JSON API：一次请求拿聚合结果，
+// 不用抓整页 HTML 再抠 b_algo。没配 SEARCH_SEARXNG_URL 或它失败时回退必应抓取。
+const SEARCH_SEARXNG_TIMEOUT_MS = 8_000
+// 同一关键词 5 分钟内不重复联网（agent 常反复问同一批词）；命中即回缓存副本
+const SEARCH_CACHE_TTL_MS = 5 * 60_000
+const SEARCH_CACHE_MAX = 50
+const searchCache = new Map()
 const SEARCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 // Windows：npm 全局 bin 是 .cmd shim，而 Node 安全更新后 execFile 禁裸跑 .cmd；
 // 用 where.exe 找到 shim 再推回包里的原生 exe（agent-browser 是 Rust 二进制），
@@ -171,16 +178,75 @@ async function fetchHtml(url, userId, options) {
 /**
  * 搜索一次并返回结构化结果：{ query, results: [{ title, url, snippet }] }。
  * 未启用抛 503 SEARCH_UNAVAILABLE；关键词为空抛 400。
+ * 顺序：短缓存 → SearXNG JSON（配了 SEARCH_SEARXNG_URL）→ 必应 HTML 抓取（agent-browser / 直连）。
  */
+export function clearSearchCache() {
+  searchCache.clear()
+}
+
+async function searchViaSearXNG(base, keyword, options) {
+  await assertSearchAuthorized(options)
+  const url = `${base.replace(/\/+$/, '')}/search?q=${encodeURIComponent(keyword)}&format=json&language=zh-CN`
+  let response
+  try {
+    response = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': SEARCH_USER_AGENT },
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(SEARCH_SEARXNG_TIMEOUT_MS)])
+        : AbortSignal.timeout(SEARCH_SEARXNG_TIMEOUT_MS),
+    })
+  } catch {
+    options.signal?.throwIfAborted()
+    throw unavailable()
+  }
+  if (!response.ok) throw unavailable()
+  const data = await response.json().catch(() => null)
+  const items = Array.isArray(data?.results) ? data.results : []
+  return items
+    .filter((item) => typeof item?.url === 'string' && /^https?:\/\//.test(item.url))
+    .slice(0, MAX_RESULTS)
+    .map((item) => ({
+      url: item.url,
+      title: clip(String(item.title ?? ''), MAX_TITLE_CHARS),
+      snippet: clip(String(item.content ?? ''), MAX_SNIPPET_CHARS),
+    }))
+}
+
+/** 真正联网取结果：SearXNG JSON 优先，没配或失败回退必应抓取。 */
+async function fetchSearchResults(keyword, env, options, userId) {
+  const searxng = String(env.SEARCH_SEARXNG_URL || '').trim()
+  if (searxng) {
+    try {
+      return await searchViaSearXNG(searxng, keyword, options)
+    } catch (error) {
+      options.signal?.throwIfAborted()
+      // 只记稳定错误码，不记关键词与地址
+      logger.warn('SearXNG 搜索失败，回退必应抓取', { userId, code: error.code || 'SEARCH_ERROR' })
+    }
+  }
+  const url = `${SEARCH_ENDPOINT}?q=${encodeURIComponent(keyword)}&setlang=zh-CN&mkt=zh-CN`
+  const html = await fetchHtml(url, userId, options)
+  options.signal?.throwIfAborted()
+  return parseResults(html)
+}
+
 export async function searchWeb(userId, query, env = process.env, options = {}) {
   options.signal?.throwIfAborted()
   if (!isSearchEnabled(env)) throw new HttpError('联网搜索未启用', 503)
   const keyword = String(query ?? '').trim().slice(0, MAX_QUERY_CHARS)
   if (!keyword) throw new HttpError('搜索关键词不能为空', 400)
+
+  const cached = searchCache.get(keyword)
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) {
+    logger.info('联网搜索命中缓存', { userId, queryLength: keyword.length })
+    return { query: keyword, results: cached.results.map((item) => ({ ...item })) }
+  }
   logger.info('联网搜索', { userId, queryLength: keyword.length })
 
-  const url = `${SEARCH_ENDPOINT}?q=${encodeURIComponent(keyword)}&setlang=zh-CN&mkt=zh-CN`
-  const html = await fetchHtml(url, userId, options)
-  options.signal?.throwIfAborted()
-  return { query: keyword, results: parseResults(html) }
+  const results = await fetchSearchResults(keyword, env, options, userId)
+  if (results.length > 0) {
+    searchCache.set(keyword, { at: Date.now(), results: results.map((item) => ({ ...item })) })
+    if (searchCache.size > SEARCH_CACHE_MAX) searchCache.delete(searchCache.keys().next().value)
+  }
+  return { query: keyword, results }
 }

@@ -20,6 +20,7 @@
     "db:migrate": "prisma migrate dev --name init",
     "db:migrate:deploy": "node src/prisma/migrateDeploy.js",
     "db:migrate:plans": "node src/prisma/migratePlansToTasks.js",
+    "db:migrate:personas": "node scripts/migrate-personas.mjs",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "eval:replies": "node scripts/eval-replies.mjs",

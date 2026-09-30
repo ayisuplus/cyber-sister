@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useChatStore } from '../stores/chatStore'
+import { useAuthStore } from '../stores/authStore'
 import { useAppearanceStore } from '../stores/appearanceStore'
 import { useComplianceStore } from '../stores/complianceStore'
 import { modelStatusService } from '../services/modelStatusService'
@@ -25,6 +26,8 @@ import { DoodleField, LeafSprig, Squiggle } from '../components/chat/Doodles'
 import { useWorkTasks } from '../hooks/useWorkTasks'
 import WorkTaskPanel from '../components/work/WorkTaskPanel'
 import { isLocalWorkClient } from '../features/distribution'
+import { PERSONA_SWITCHED, PERSONA_SWITCH_FAILED, sampleLineOf } from '../features/personas'
+import { personaService } from '../services/userService'
 
 const getSendErrorMessage = (requestError) => {
   const responseError = requestError.response?.data?.error
@@ -54,6 +57,40 @@ const greetingFor = (hour) => {
 // 封面：本子的第 0 页，也是空白对话打开时看到的那一页。
 // 手写问候（旁边一个时段小画）、用纸胶带贴上去的一张她的小照片、角落一枝压花，开场话题用铅笔写在下面；翻开它才是第一封信。
 function CoverPage({ greeting, phase, onSend, onDraft, draftLocked }) {
+  const user = useAuthStore(state => state.user)
+  const updatePersona = useAuthStore(state => state.updatePersona)
+  const [personas, setPersonas] = useState([])
+  const [listError, setListError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [activeId, setActiveId] = useState(user?.persona)
+  const [message, setMessage] = useState('')
+  // user 迟到加载、或在「她」页换过她时，选中态跟着数据走
+  useEffect(() => { setActiveId(user?.persona) }, [user?.persona])
+  // 封面列的是人设库里的她：进页面拉一次清单，读不到就照实说
+  useEffect(() => {
+    let alive = true
+    personaService.list()
+      .then((data) => { if (alive) setPersonas(Array.isArray(data?.personas) ? data.personas : []) })
+      .catch(() => { if (alive) setListError('她的人设暂时读不到，请稍后再试。') })
+    return () => { alive = false }
+  }, [])
+
+  // 换她：成功才挪选中态，失败停在原处、照实说没换成功
+  const choose = async (id) => {
+    if (saving || id === activeId) return
+    setSaving(true)
+    setMessage('')
+    try {
+      await updatePersona(id)
+      setActiveId(id)
+      setMessage(PERSONA_SWITCHED)
+    } catch {
+      setMessage(PERSONA_SWITCH_FAILED)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="flex min-h-full flex-col items-center justify-center pb-4">
       <p className="animate-reveal-up mb-4 font-hand text-[15px] tracking-[0.2em] text-text-secondary">
@@ -80,9 +117,34 @@ function CoverPage({ greeting, phase, onSend, onDraft, draftLocked }) {
         <Squiggle />
       </div>
       <p className="animate-reveal-up max-w-[280px] text-center text-sm leading-[1.8] text-text-secondary" style={{ animationDelay: '240ms' }}>
-        有什么想聊的，随时写给我。<br />
-        <span className="text-xs text-text-muted">我是 AI，聊天由经批准的云端模型提供。</span>
+        我是 AI，不是真人——这点我不瞒你。<br />
+        你说过的事我记着，下次不用重说；想让我记牢哪件，随时告诉我。<br />
+        有什么想聊的，随时写给我。
       </p>
+      <div className="mt-4 w-full">
+        <p className="text-xs text-text-muted">先挑一个她来陪你；不挑也行，就现在这个她。</p>
+        {listError && <p role="alert" className="mt-2 text-xs text-danger">{listError}</p>}
+        <div role="group" aria-label="你的她" className="mt-3 grid grid-cols-3 gap-2">
+          {personas.map(persona => {
+            const active = persona.id === activeId
+            return (
+              <button
+                key={persona.id}
+                type="button"
+                aria-pressed={active}
+                disabled={saving}
+                onClick={() => choose(persona.id)}
+                className={`min-h-[112px] rounded-control border p-3 text-left transition-colors duration-300 ease-calm disabled:opacity-50 ${active ? 'border-action-primary bg-pastel-blush' : 'border-border-subtle bg-surface-card hover:bg-surface-muted'}`}
+              >
+                <span className="block font-display text-base text-text-primary">{persona.name}</span>
+                <span className="mt-1.5 block font-hand text-[11px] leading-relaxed text-text-muted">{sampleLineOf(persona.card)}</span>
+              </button>
+            )
+          })}
+        </div>
+        <p aria-live="polite" className="mt-2 min-h-5 text-xs text-text-secondary">{message}</p>
+        <p className="text-[11px] text-text-muted">随时能改：「她」页的人设库。</p>
+      </div>
       <div className="mt-5 w-full">
         <Openers onSend={onSend} onDraft={onDraft} draftLocked={draftLocked} />
       </div>

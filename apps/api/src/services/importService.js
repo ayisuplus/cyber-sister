@@ -2,7 +2,7 @@
  * 数据迁移导入服务：POST /api/user/import/preview 与 /apply 的执行体。
  *
  * 范围（自家导出包回灌）：
- * - 导入对象只有两类：人格 id、显式记忆候选（v2 含记忆关系）。
+ * - 导入对象只有两类：人设卡（旧包是人格 id，按迁移映射折成卡）、显式记忆候选（v2 含记忆关系）。
  * - 角色扮演已取消（2026-09 功能收拢）：导出包里的旧角色值与外部人设文本都不再导入。
  * - 预览绝不落库；应用只落用户逐条确认的候选，记忆经 createMemory 既有校验——导入不能绕过任何一道闸。
  * - 对话/日记/手帐等其余数据段不导入（无规范目标形态，v1 边界如实说明）。
@@ -12,7 +12,7 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { createMemory } from './memoryService.js'
-import { PERSONAS, switchPersona } from './userService.js'
+import { createPersona, legacyPersonaCard, LEGACY_PERSONA_IDS, validatePersonaCard } from './personaStudio.js'
 import { EXPORT_VERSION } from './exportService.js'
 import { previewMemoryImport, applyMemoryImport } from './memoryTransferService.js'
 import { conflict, withMemoryTransaction } from './memoryGovernance.js'
@@ -69,11 +69,36 @@ function dedupeCandidates(items, existingKeys) {
   return { candidates, skipped }
 }
 
+/**
+ * 人设候选（2026-09-29 人设库）：旧包是人格 id（按迁移映射折成一张卡），新包是整张人设卡。
+ * 她的记忆跨她共享：导入的她会建成一张新卡并启用。卡不合法 → ok:false，应用时同样拦下。
+ */
 function personaPreview(persona) {
-  if (typeof persona !== 'string' || !persona) return null
-  return PERSONAS.includes(persona)
-    ? { id: persona, ok: true }
-    : { id: persona, ok: false, error: `人格必须是以下值之一: ${PERSONAS.join(', ')}` }
+  if (typeof persona === 'string' && persona) {
+    const card = legacyPersonaCard(persona)
+    return card
+      ? { id: persona, name: card.name, ok: true }
+      : { id: persona, ok: false, error: `人格 id 无法识别，只能是: ${LEGACY_PERSONA_IDS.join(', ')}（旧包）或一张人设卡（新包）` }
+  }
+  if (persona && typeof persona === 'object' && !Array.isArray(persona)) {
+    try {
+      const card = validatePersonaCard(persona)
+      return { id: null, name: card.name, card, ok: true }
+    } catch (error) {
+      return { id: null, ok: false, error: error.message }
+    }
+  }
+  return null
+}
+
+/** 应用侧把候选还原成一张可落库的卡；还原不了 → 400（预览已标 ok:false 的不会再送进来）。 */
+function personaCardOf(persona) {
+  if (typeof persona === 'string' && persona) {
+    const card = legacyPersonaCard(persona)
+    if (!card) throw new HttpError(`人格 id 无法识别，只能是: ${LEGACY_PERSONA_IDS.join(', ')}（旧包）或一张人设卡（新包）`, 400)
+    return card
+  }
+  return validatePersonaCard(persona)
 }
 
 /** 预览：解析导入负载为结构化候选，绝不落库。 */
@@ -127,7 +152,8 @@ export async function applyImport(userId, payload) {
   }
 
   if (payload.persona) {
-    await switchPersona(userId, payload.persona, tx)
+    // 导入的她建为新卡并启用（旧包人格 id 已折成卡）；记忆跨她共享，不动既有记忆
+    await createPersona(userId, personaCardOf(payload.persona), tx)
     result.personaApplied = true
   }
 
