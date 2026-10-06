@@ -18,6 +18,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
+COPY packages/persona-card/package.json packages/persona-card/package.json
 COPY packages/schedule-logic/package.json packages/schedule-logic/package.json
 
 RUN pnpm install --frozen-lockfile --prod --filter cyber-sister-server...
@@ -25,6 +26,7 @@ RUN pnpm install --frozen-lockfile --prod --filter cyber-sister-server...
 COPY --chown=node:node apps/api apps/api
 COPY --chown=node:node deploy/runninghub/workflows.json deploy/runninghub/workflows.json
 COPY --chown=node:node packages/llm-gateway packages/llm-gateway
+COPY --chown=node:node packages/persona-card packages/persona-card
 COPY --chown=node:node packages/schedule-logic packages/schedule-logic
 
 RUN pnpm --filter cyber-sister-server exec prisma generate --schema src/prisma/schema.prisma

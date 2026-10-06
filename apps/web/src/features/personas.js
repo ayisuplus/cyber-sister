@@ -1,35 +1,34 @@
 // 人设库（2026-09-29 裁定：人设纯自定义）：内置说话方式预设全部下线，「她」由用户自己写人设卡。
-// 字数上限、字段标签与错误口径跟 apps/api/src/services/personaStudio.js 一致（那边是校验权威）；
-// web 不 import 服务端模块（会拖进 prisma 等运行时），两侧同值写死，漂移由 personas.test.js 的值守测试拦截。
+// 字数上限、字段标签、枚举与结构校验在 packages/persona-card，API 与 Web 共用这一份（不再各抄一份再靠测试防漂移）；
+// 这里再导出，组件与测试的 import 不变。男性与低俗两道启发式只在服务端。
+import {
+  IMMERSIONS,
+  MAX_DISTILL_IMAGES,
+  MAX_MATERIAL_CHARS,
+  MAX_SAMPLES,
+  MALE_REFUSAL,
+  PERSONA_CARD_LIMITS,
+  PERSONA_FIELD_LABELS,
+  REQUIRED_FIELDS,
+  SAMPLE_LABEL,
+  TONES,
+  VULGAR_REFUSAL,
+  checkPersonaCard,
+} from 'persona-card'
 
-/** 人设卡各字段字数上限（与后端 PERSONA_CARD_LIMITS 同值）。 */
-export const PERSONA_CARD_LIMITS = {
-  name: 20,
-  identity: 300,
-  relationship: 200,
-  speech: 400,
-  thinking: 400,
-  decisions: 300,
-  never: 300,
-  sample: 80,
+export {
+  IMMERSIONS,
+  MAX_DISTILL_IMAGES,
+  MAX_MATERIAL_CHARS,
+  MAX_SAMPLES,
+  MALE_REFUSAL,
+  PERSONA_CARD_LIMITS,
+  PERSONA_FIELD_LABELS,
+  REQUIRED_FIELDS,
+  SAMPLE_LABEL,
+  TONES,
+  VULGAR_REFUSAL,
 }
-export const MAX_SAMPLES = 5
-
-/** 造她的素材上限（与后端 personaStudio 同值）：文字 5000 字、图片最多 4 张。 */
-export const MAX_MATERIAL_CHARS = 5000
-export const MAX_DISTILL_IMAGES = 4
-
-// 字段标签（与后端 FIELDS 一致）：表单 label 与预校验错误文案共用同一份，免得两处口径漂移
-export const PERSONA_FIELD_LABELS = {
-  name: '她叫什么',
-  identity: '她是谁',
-  relationship: '她和你什么关系',
-  speech: '她怎么说话',
-  thinking: '她怎么看事情',
-  decisions: '她遇事怎么判断',
-  never: '她绝不做什么',
-}
-export const SAMPLE_LABEL = '示例句'
 
 /** 表单字段顺序：名字、身份、关系、怎么说话、怎么看、怎么判断、绝不做什么。 */
 export const PERSONA_FIELDS = [
@@ -41,10 +40,8 @@ export const PERSONA_FIELDS = [
   { field: 'decisions', multiline: true },
   { field: 'never', multiline: true },
 ]
-export const REQUIRED_FIELDS = ['name', 'speech']
 
 // 沉浸深度：角色表达方式不同，真实身份边界一致。
-export const IMMERSIONS = ['low', 'medium', 'high']
 export const IMMERSION_LABELS = { low: '浅', medium: '中', high: '深' }
 export const IMMERSION_DESCRIPTIONS = {
   low: '被问到就承认自己是 AI。',
@@ -53,13 +50,10 @@ export const IMMERSION_DESCRIPTIONS = {
 }
 
 // 口吻底子：只影响她固定句式（关怀、来信）的底色
-export const TONES = ['gentle', 'toxic', 'cool']
 export const TONE_LABELS = { gentle: '温柔', toxic: '直爽', cool: '安静' }
 export const TONE_NOTE = '口吻底子只影响她固定句式（关怀、来信）的底色。'
 
 // 错误文案与后端同口径：表单预校验直接用这些句子，服务端 error 也照这个展示
-export const MALE_REFUSAL = '这是闺蜜产品，不开展男性的服务'
-export const VULGAR_REFUSAL = '这段写得有点太过了，改一改'
 export const AT_LEAST_ONE_HER = '至少留一个她'
 export const NO_SUCH_HER = '没有这个她'
 export const DISTILL_FAILED = '没整理出来，你可以自己动手写'
@@ -102,21 +96,7 @@ export const sampleLineOf = (card) => {
  * 返回错误文案（直接展示），通过返回 null。男性与低俗两道线保存时由服务端把关，这里只做字数与必填。
  */
 export function validatePersonaCard(draft) {
-  for (const [field, label] of Object.entries(PERSONA_FIELD_LABELS)) {
-    const value = typeof draft?.[field] === 'string' ? draft[field].trim() : ''
-    if (!value && REQUIRED_FIELDS.includes(field)) return `${label}不能为空`
-    if (value.length > PERSONA_CARD_LIMITS[field]) {
-      return `${label}不能超过${PERSONA_CARD_LIMITS[field]}个字符`
-    }
-  }
-  const samples = (Array.isArray(draft?.samples) ? draft.samples : [])
-    .filter((sample) => typeof sample === 'string' && sample.trim())
-    .map((sample) => sample.trim())
-  if (samples.length > MAX_SAMPLES) return `${SAMPLE_LABEL}最多${MAX_SAMPLES}条`
-  if (samples.some((sample) => sample.length > PERSONA_CARD_LIMITS.sample)) {
-    return `每条${SAMPLE_LABEL}不能超过${PERSONA_CARD_LIMITS.sample}个字符`
-  }
-  return null
+  return checkPersonaCard(draft, { lenient: true }).error ?? null
 }
 
 /** 提交前的归一（与后端同口径）：trim、示例句去空、枚举缺省。 */

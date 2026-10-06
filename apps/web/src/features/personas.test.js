@@ -16,7 +16,7 @@ import {
 const filled = (overrides = {}) => ({ ...emptyPersonaCard(), name: '小柔', speech: '有话直说。', ...overrides })
 
 describe('人设卡常量与预校验', () => {
-  it('字数/条数上限与字段标签跟服务端 personaStudio 同值（漂移守卫）', () => {
+  it('字数/条数上限与字段标签来自共享包 persona-card（API 与 Web 同源）', () => {
     expect(PERSONA_CARD_LIMITS).toEqual({
       name: 20, identity: 300, relationship: 200, speech: 400, thinking: 400, decisions: 300, never: 300, sample: 80,
     })
@@ -34,7 +34,7 @@ describe('人设卡常量与预校验', () => {
     })
   })
 
-  it('沉浸深度与口吻底子就是服务端那三个枚举值', () => {
+  it('沉浸深度与口吻底子是共享包里的那三个枚举值', () => {
     expect(IMMERSIONS).toEqual(['low', 'medium', 'high'])
     expect(TONES).toEqual(['gentle', 'toxic', 'cool'])
   })

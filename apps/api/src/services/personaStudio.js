@@ -10,6 +10,17 @@
 import prisma from '../prisma/client.js'
 import { HttpError } from '../utils/dbHelpers.js'
 import { redactSensitiveText } from '../utils/redactSensitiveText.js'
+import {
+  IMMERSIONS,
+  MALE_REFUSAL,
+  MAX_DISTILL_IMAGES,
+  MAX_MATERIAL_CHARS,
+  MAX_SAMPLES,
+  PERSONA_CARD_LIMITS,
+  TONES,
+  VULGAR_REFUSAL,
+  checkPersonaCard,
+} from 'persona-card'
 import { getPersonaSystemPrompt } from '@cyber-sister/llm-gateway'
 import { CONSENT_FIELDS, consentsOf } from './consents.js'
 import { assertCloudCallable, generateResponse, getGateway, imagePart } from './llmService.js'
@@ -17,20 +28,8 @@ import { assertCloudCallable, generateResponse, getGateway, imagePart } from './
 // moduleSkills → letterSkill → letterService → 这里 → agentTurn → agentService → moduleSkills 的初始化环
 // (静态引入会让 moduleSkills 在 MODULE_SKILLS 初始化完成前被求值)
 
-/** 人设卡各字段字数上限（与 apps/web/src/features/personas.js 的 PERSONA_CARD_LIMITS 同值）。 */
-export const PERSONA_CARD_LIMITS = {
-  name: 20,
-  identity: 300,
-  relationship: 200,
-  speech: 400,
-  thinking: 400,
-  decisions: 300,
-  never: 300,
-  sample: 80,
-}
-export const MAX_SAMPLES = 5
-export const IMMERSIONS = ['low', 'medium', 'high']
-export const TONES = ['gentle', 'toxic', 'cool']
+// 字段上限、枚举、标签与结构校验在 packages/persona-card（API 与 Web 共用一份）；这里再导出，调用方的 import 不变。
+export { IMMERSIONS, MALE_REFUSAL, MAX_DISTILL_IMAGES, MAX_MATERIAL_CHARS, MAX_SAMPLES, PERSONA_CARD_LIMITS, TONES, VULGAR_REFUSAL }
 
 /** 注册时的初始「她」（逐字，2026-09-29 裁定）；迁移与导入的兜底卡也用它。 */
 export const DEFAULT_PERSONA_CARD = {
@@ -45,19 +44,6 @@ export const DEFAULT_PERSONA_CARD = {
   immersion: 'medium',
   tone: 'gentle',
 }
-
-const FIELDS = {
-  name: { label: '她叫什么', required: true },
-  identity: { label: '她是谁' },
-  relationship: { label: '她和你什么关系' },
-  speech: { label: '她怎么说话', required: true },
-  thinking: { label: '她怎么看事情' },
-  decisions: { label: '她遇事怎么判断' },
-  never: { label: '她绝不做什么' },
-}
-
-export const MALE_REFUSAL = '这是闺蜜产品，不开展男性的服务'
-export const VULGAR_REFUSAL = '这段写得有点太过了，改一改'
 
 // 明说「这个角色是男性」：只看名字/身份/关系/怎么说话这四段（不做性别判断调用，中文名字拦不全，界面如实说明）。
 // 只拦「我 / 这 / 她 / 人设 / 角色 + 是 + 男生…」和「男闺蜜」，**不拦单独提到男人**：
@@ -84,49 +70,13 @@ function crossesVulgarLine(card) {
   return VULGAR_PATTERNS.some((pattern) => pattern.test(full))
 }
 
-function readCardFields(source) {
-  const card = {}
-  for (const [field, rule] of Object.entries(FIELDS)) {
-    const value = typeof source[field] === 'string' ? source[field].trim() : ''
-    if (!value && rule.required) throw new HttpError(`${rule.label}不能为空`, 400)
-    if (value.length > PERSONA_CARD_LIMITS[field]) {
-      throw new HttpError(`${rule.label}不能超过${PERSONA_CARD_LIMITS[field]}个字符`, 400)
-    }
-    card[field] = value
-  }
-  return card
-}
-
-function readSamples(source) {
-  const samples = (Array.isArray(source.samples) ? source.samples : [])
-    .filter((sample) => typeof sample === 'string')
-    .map((sample) => sample.trim())
-    .filter(Boolean)
-  if (samples.length > MAX_SAMPLES) throw new HttpError(`示例句最多${MAX_SAMPLES}条`, 400)
-  if (samples.some((sample) => sample.length > PERSONA_CARD_LIMITS.sample)) {
-    throw new HttpError(`每条示例句不能超过${PERSONA_CARD_LIMITS.sample}个字符`, 400)
-  }
-  return samples
-}
-
-function readEnum(value, allowed, fallback, label) {
-  const picked = (typeof value === 'string' ? value.trim() : '') || fallback
-  if (!allowed.includes(picked)) throw new HttpError(`${label}必须是以下值之一: ${allowed.join(', ')}`, 400)
-  return picked
-}
-
 /**
  * 归一化（trim、samples 去空）+ 校验：必填 name/speech、各字段上限、immersion/tone 枚举、
  * 只做女孩子的角色、拒绝低俗。任一不过 → HttpError 400；通过返回可直接落库的卡。
  */
 export function validatePersonaCard(input) {
-  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
-  const card = {
-    ...readCardFields(source),
-    samples: readSamples(source),
-    immersion: readEnum(source.immersion, IMMERSIONS, 'medium', '沉浸深度'),
-    tone: readEnum(source.tone, TONES, 'gentle', '口吻底子'),
-  }
+  const { card, error } = checkPersonaCard(input)
+  if (error) throw new HttpError(error, 400)
 
   if (looksMale(card)) throw new HttpError(MALE_REFUSAL, 400)
   if (crossesVulgarLine(card)) throw new HttpError(VULGAR_REFUSAL, 400)
@@ -311,8 +261,6 @@ export async function migrateLegacyPersonas({ database = prisma, dryRun = false 
 
 // ===================== 蒸馏「造一个她」 =====================
 
-export const MAX_MATERIAL_CHARS = 5000
-export const MAX_DISTILL_IMAGES = 4
 const DISTILL_TIMEOUT_MS = 120000
 const DISTILL_MAX_TOKENS = 1500
 export const DISTILL_FAILED = '没整理出来，你可以自己动手写'

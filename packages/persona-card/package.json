@@ -1,0 +1,12 @@
+{
+  "name": "persona-card",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "人设卡的字段、上限、标签与结构校验（零依赖纯函数）：API 与 Web 共用一份，不再各抄一份再靠值守测试防漂移。",
+  "main": "src/card.js",
+  "exports": "./src/card.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

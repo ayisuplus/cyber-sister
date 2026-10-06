@@ -60,6 +60,9 @@ importers:
       multer:
         specifier: 2.4.0
         version: 2.4.0
+      persona-card:
+        specifier: workspace:*
+        version: link:../../packages/persona-card
       playwright-core:
         specifier: ^1.62.1
         version: 1.62.1
@@ -108,6 +111,9 @@ importers:
       lxgw-wenkai-screen-webfont:
         specifier: 1.7.0
         version: 1.7.0
+      persona-card:
+        specifier: workspace:*
+        version: link:../../packages/persona-card
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -201,6 +207,8 @@ importers:
       ipaddr.js:
         specifier: 2.5.0
         version: 2.5.0
+
+  packages/persona-card: {}
 
   packages/schedule-logic: {}
 
