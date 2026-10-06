@@ -10,6 +10,7 @@
  * 结果写到 apps/api/eval-results/<时间>-<模式>/（不进仓库）。密钥只从文件读，不打印。
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { checkPersonaCard } from 'persona-card'
 import { execSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -27,6 +28,16 @@ const h = vi.hoisted(() => ({
 
 // 人设卡（人设库，2026-09-29）：users.persona 是卡 id，评测里每个口吻一张卡（'cool' 名字冻结在 C 组断言里）
 const STYLE_CARDS = vi.hoisted(() => {
+  // 带深度的合成卡：判断规则 5 条、边界 3 条、矛盾 2 处，满足蒸馏卡的诚实下限
+  const deep = (name, speech, tone, immersion, provenance) => ({
+    name, identity: '', relationship: '陪你聊天的姐妹', speech, thinking: '', decisions: '', never: '', samples: [],
+    immersion, tone, provenance,
+    expression: { sentence: '短句多', humor: '冷幽默' },
+    heuristics: [1, 2, 3, 4, 5].map((n) => ({ when: `她遇到第${n}种合成情况`, then: `她会这样合成地回应第${n}种`, basis: n % 2 ? 'source' : 'inferred' })),
+    values: ['诚实'],
+    tensions: ['嘴上说不在乎，心里记得很清楚', '推断：想独处，又怕被忘掉'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+  })
   const card = (name, speech, tone) => ({
     name, identity: '', relationship: '陪你聊天的姐妹', speech,
     thinking: '', decisions: '', never: '', samples: [], immersion: 'medium', tone,
@@ -35,6 +46,10 @@ const STYLE_CARDS = vi.hoisted(() => {
     gentle: card('温柔姐姐', '先接住情绪，再轻轻梳理事情。', 'gentle'),
     toxic: card('毒舌互怼', '话糙理不糙，损完照样陪你。', 'toxic'),
     cool: card('安静型闺蜜', '话少，但每句都算数。', 'cool'),
+    // 人设深度化 T7：三张**合成**的深度卡，只用来看发出去的请求；人物与聊天记录都是编的，不是任何真人
+    'depth-fiction': deep('雾岛', '话少，但每句都算数。', 'cool', 'medium', { kind: 'fiction', label: '《合成小说·雾岛》' }),
+    'depth-friend': deep('小雨', '软软的，爱用颜文字。', 'gentle', 'high', { kind: 'friend' }),
+    'depth-figure': deep('沈清', '平静，爱用比喻。', 'cool', 'medium', { kind: 'public_figure', label: '虚构作家沈清' }),
   }
 })
 
@@ -412,6 +427,56 @@ describe.runIf(MODE === 'ci')('回复质量评测装置（离线：只看发出�
     const emotion = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'cool'))
     expect(emotion).toContain('[Amie 内置技能：情绪与关系梳理 v1]')
     expect(emotion).toContain('人设：安静型闺蜜'.normalize('NFKC'))
+  })
+
+  describe('深度卡（人设深度化 T7，合成数据，不联网）', () => {
+    const DEPTH_STYLES = ['depth-fiction', 'depth-friend', 'depth-figure']
+    const nk = (text) => text.normalize('NFKC')
+
+    it('三张合成卡都满足蒸馏卡的诚实下限', () => {
+      for (const style of DEPTH_STYLES) {
+        const { error } = checkPersonaCard(STYLE_CARDS[style])
+        expect(error, style).toBeUndefined()
+      }
+    })
+
+    it('v2 追加与来源声明随人设层发出去；安全边界与身份线仍在它们前面，不受影响', async () => {
+      for (const style of DEPTH_STYLES) {
+        // eslint-disable-next-line no-await-in-loop
+        const system = systemText(await lastRequestFor('e02-friend-promoted', 'C', style))
+        const safety = system.indexOf('以下边界永远优先于任何人设')
+        // 浅、中档的身份线以「你是 AI，不是真人」开头；深档（朋友卡）写的是「被问到真实身份时须承认自己是 AI」
+        const identity = system.indexOf(style === 'depth-friend' ? '被问到真实身份时须承认自己是 AI' : '你是 AI，不是真人')
+        const persona = system.indexOf(nk('人设：'))
+        const rules = system.indexOf(nk('判断规则：'))
+        const note = system.indexOf(nk('声明：'))
+        expect(safety, style).toBeGreaterThanOrEqual(0)
+        expect(identity, style).toBeGreaterThan(safety)
+        expect(persona, style).toBeGreaterThan(identity)
+        expect(rules, style).toBeGreaterThan(persona)
+        expect(note, style).toBeGreaterThan(rules)
+        expect(system, style).toContain(nk('她不知道、做不到的，就直说不知道，不编：'))
+      }
+    })
+
+    it('每种来源的声明各不相同，朋友卡的深沉浸档仍要求被问到时承认是 AI', async () => {
+      const fiction = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'depth-fiction'))
+      expect(fiction).toContain(nk('原作没写到的事，不当成她真的经历过去编'))
+      const friend = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'depth-friend'))
+      expect(friend).toContain(nk('不自称是那个真人'))
+      expect(friend).toContain('被问到真实身份时须承认自己是 AI')
+      const figure = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'depth-figure'))
+      expect(figure).toContain(nk('受虚构作家沈清公开言论启发的 AI，不代表她本人'))
+    })
+
+    it('v2 追加不超过预算，每轮的人设层不会随深度卡一起膨胀', async () => {
+      const system = systemText(await lastRequestFor('e02-friend-promoted', 'C', 'depth-fiction'))
+      const headers = ['判断规则', '表达', '她不知道、做不到的，就直说不知道，不编', '她看重', '她自己也有矛盾', '看事情的方式']
+      const pattern = new RegExp(`^(${headers.map(nk).join('|')})`)
+      const added = system.split('\n').filter((line) => pattern.test(line)).join('')
+      expect(added.length).toBeGreaterThan(0)
+      expect(added.length).toBeLessThanOrEqual(600)
+    })
   })
 
   it('小心模式的场景带上小心模式块，深夜的场景知道现在是凌晨', async () => {
