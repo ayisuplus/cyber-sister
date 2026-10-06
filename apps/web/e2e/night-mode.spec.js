@@ -166,6 +166,8 @@ test('night mode: explicit choices survive reload and system changes only affect
 })
 
 test('night mode: settings, chat, her, schedule, notes, style, period and login remain readable', async ({ page }, testInfo) => {
+  // 日历默认打开「当月」，这条的经期数据落在 2026 年 9 月：固定当天，不然一过 9 月底就找不到「9月x日」
+  await page.clock.setFixedTime(new Date('2026-09-15T12:00:00+08:00'))
   await chooseNight(page)
   await inspectSurface(page, testInfo, 'night-settings')
 

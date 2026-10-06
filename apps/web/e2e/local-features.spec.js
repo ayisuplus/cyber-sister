@@ -258,6 +258,8 @@ test('life entries: period asks for separate consent before anything can be reco
 })
 
 test('life entries: period record controls remain readable at 320px in night mode', async ({ page }, testInfo) => {
+  // 日历默认打开「当月」，这条的经期数据落在 2026 年 9 月：固定当天，不然一过 9 月底就找不到「9月x日」
+  await page.clock.setFixedTime(new Date('2026-09-15T12:00:00+08:00'))
   await page.setViewportSize({ width: 320, height: 740 })
   await page.route('**/api/tools/period', route => json(route, 200, [{ id: 'period-e2e', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-09-05T00:00:00.000Z', cycleDays: 28 }]))
   await page.goto('/tools/calendar')

@@ -33,6 +33,8 @@ const mockApi = async (page, { placeSet }) => {
       '/api/work/status': { capabilities: { backgroundTasks: false } }, '/api/work/tasks': { tasks: [] },
       '/api/admin/model-providers': { providers: [] },
       '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] },
+      '/api/user/personas': { personas: [{ id: 'gentle', name: '姐妹', active: true, card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }] },
+      '/api/reminders/sleep': { bedtime: null, wake: null, due: [] },
     }
     if (/^\/api\/user\/assets\/(bg-home|bg-chat|avatar)$/.test(path)) return json(route, 404, {})
     if (/^\/api\/compliance\/usage\/(start|heartbeat|end)$/.test(path)) return json(route, 200, { minutes: 0, shouldRemind: false })
