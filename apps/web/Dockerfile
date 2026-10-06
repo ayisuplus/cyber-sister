@@ -11,10 +11,12 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/llm-gateway/package.json packages/llm-gateway/package.json
 COPY packages/persona-card/package.json packages/persona-card/package.json
+COPY packages/schedule-logic/package.json packages/schedule-logic/package.json
 RUN pnpm install --frozen-lockfile --filter cyber-sister-client...
 
 COPY packages/design-tokens packages/design-tokens
 COPY packages/persona-card packages/persona-card
+COPY packages/schedule-logic packages/schedule-logic
 COPY apps/web apps/web
 RUN pnpm --filter cyber-sister-client build
 

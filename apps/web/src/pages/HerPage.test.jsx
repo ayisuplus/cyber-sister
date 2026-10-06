@@ -256,6 +256,37 @@ describe('HerPage', () => {
       expect(sent.boundaries).toEqual([...DEEP_CARD.boundaries, '不知道她以后会怎么选'])
     })
 
+    it('手写表单开着（这一栏收着）时再蒸馏出深度草稿：这一栏按新草稿展开，不沿用旧状态', async () => {
+      const user = userEvent.setup()
+      personaService.distill.mockResolvedValue({ card: DEEP_CARD, researched: false })
+      renderPage()
+      await user.click(await screen.findByRole('button', { name: '手写一个她' }))
+      expect(screen.getByText('她更深一点的样子（可不填）').closest('details')).not.toHaveAttribute('open')
+
+      await user.click(screen.getByRole('button', { name: '造一个她' }))
+      await user.click(screen.getByRole('radio', { name: /虚构角色/ }))
+      await user.type(screen.getByRole('textbox', { name: /她的素材/ }), '一部小说里的她')
+      await user.click(screen.getByRole('button', { name: '帮我整理' }))
+
+      expect(screen.getByText('她更深一点的样子（可不填）').closest('details')).toHaveAttribute('open')
+      expect(screen.getByText(/判断规则至少 3 条/)).toBeInTheDocument()
+    })
+
+    it('来源缺失的规则不装成「我写的」：下拉显示「请选来源」，选了才有值', async () => {
+      const user = userEvent.setup()
+      const card = { ...DEEP_CARD, heuristics: [{ when: '她累了', then: '先陪着' }, ...DEEP_CARD.heuristics.slice(0, 2)] }
+      personaService.list.mockResolvedValue({ personas: [...PERSONAS, { id: 'p3', name: '雾岛', card, active: false }] })
+      renderPage()
+      await user.click(await screen.findByRole('button', { name: '改一改「雾岛」' }))
+
+      const basis = screen.getByRole('combobox', { name: '判断规则第 1 条的来源' })
+      expect(basis).toHaveValue('')
+      expect(within(basis).getByRole('option', { name: '请选来源' })).toBeDisabled()
+      await user.selectOptions(basis, 'authored')
+      expect(basis).toHaveValue('authored')
+      expect(within(basis).queryByRole('option', { name: '请选来源' })).not.toBeInTheDocument()
+    })
+
     it('旧卡与深度卡一起列出，深度卡带着来源标注，原创卡没有', async () => {
       personaService.list.mockResolvedValue({
         personas: [...PERSONAS, { id: 'p3', name: '雾岛', card: DEEP_CARD, active: false }],

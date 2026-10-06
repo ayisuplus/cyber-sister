@@ -46,6 +46,10 @@ export const DEPTH_LIMITS = Object.freeze({
   maxBoundaries: 6,
 })
 
+/** 蒸馏与保存共用的两句话（API、Web 都从这里取，不各抄一份）。 */
+export const PUBLIC_FIGURE_NEEDS_NAME = '公众人物要写明是谁'
+export const FRIEND_NEEDS_ATTESTATION = '朋友这条路要先声明：这是你有权使用的、在世朋友的聊天记录'
+
 /** 蒸馏出来的卡至少要有这些（nuwa 的「诚实边界 ≥3、内在矛盾 ≥2」，规则取下限）。 */
 export const HONESTY_MINIMUMS = Object.freeze({ heuristics: 3, tensions: 2, boundaries: 3 })
 
@@ -80,7 +84,7 @@ function readProvenance(raw) {
   if (!PERSONA_KINDS.includes(kind)) return { error: `来源类型必须是以下值之一: ${PERSONA_KINDS.join(', ')}` }
   const label = clean(raw.label)
   if (label.length > DEPTH_LIMITS.provenanceLabel) return { error: `来源名不能超过${DEPTH_LIMITS.provenanceLabel}个字符` }
-  if (kind === 'public_figure' && !label) return { error: '公众人物要写明是谁' }
+  if (kind === 'public_figure' && !label) return { error: PUBLIC_FIGURE_NEEDS_NAME }
   // 原创是默认：不留痕，旧卡与手写卡保持原样
   if (kind === 'original') return { value: null }
   return { value: label ? { kind, label } : { kind } }

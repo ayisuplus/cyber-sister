@@ -42,11 +42,21 @@ const personaUpload = multer({
   },
 }).fields([{ name: 'images', maxCount: 4 }])
 
+// 每种 multer 限制各说各的，别都说成「图片最多 4 张」
+const MULTER_MESSAGES = {
+  LIMIT_FILE_SIZE: '图片不能超过 8MB',
+  LIMIT_FILE_COUNT: '图片最多 4 张',
+  LIMIT_UNEXPECTED_FILE: '图片最多 4 张',
+  LIMIT_FIELD_COUNT: '提交的内容太多了，请刷新页面重试',
+  LIMIT_PART_COUNT: '提交的内容太多了，请刷新页面重试',
+  LIMIT_FIELD_VALUE: '文字太长了',
+}
+
 export function personaMaterialUpload(req, res, next) {
   return personaUpload(req, res, (error) => {
     if (error) {
       const message = error instanceof multer.MulterError
-        ? (error.code === 'LIMIT_FILE_SIZE' ? '图片不能超过 8MB' : '图片最多 4 张')
+        ? (MULTER_MESSAGES[error.code] ?? '上传失败：请检查文件格式和大小')
         : (error.message || '上传失败：请检查文件格式和大小')
       return res.status(400).json({ error: message })
     }

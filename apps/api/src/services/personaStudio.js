@@ -23,7 +23,9 @@ import {
   checkPersonaCard,
   collectCardText,
   DEPTH_LIMITS,
+  FRIEND_NEEDS_ATTESTATION,
   HONESTY_MINIMUMS,
+  PUBLIC_FIGURE_NEEDS_NAME,
 } from 'persona-card'
 import { getPersonaSystemPrompt } from '@cyber-sister/llm-gateway'
 import { CONSENT_FIELDS, consentsOf } from './consents.js'
@@ -49,11 +51,16 @@ export const DEFAULT_PERSONA_CARD = {
   tone: 'gentle',
 }
 
-// 明说「这个角色是男性」：只看名字/身份/关系/怎么说话这四段（不做性别判断调用，中文名字拦不全，界面如实说明）。
-// 只拦「我 / 这 / 她 / 人设 / 角色 + 是 + 男生…」和「男闺蜜」，**不拦单独提到男人**：
+// 明说「这个角色是男性」：不做性别判断调用，中文名字拦不全，界面如实说明。三道，都只拦「角色是谁」，**不拦单独提到男人**：
 // 「她很会分析男人的心思」「不喜欢男人的都市女孩」「对男性话题很敏感」都是闺蜜产品里最常见的写法。
-// 「男人们 / 男人堆 / 男生的好闺蜜」这类后面带们、堆、的的，说的是别人，不拦。
+// ① 我 / 这 / 她 / 人设 / 角色 + 是 + 男生…，以及男闺蜜（名字、身份、关系、怎么说话四段）；
+//    「男人们 / 男人堆 / 男生的好闺蜜」说的是别人，不拦。
 const MALE_MARKS = /(?:我|这|她|人设|角色)是(?:个|一个)?(?:(?:男生|男孩|男人|男性)(?![们堆的])|男的)|男闺蜜|男生闺蜜/
+// ② 「他是个（……的）男人」：只看名字、身份、关系三段（怎么说话里常常是在说别人，不看）
+const MALE_SUBJECT = /(?:他|TA)是(?:个|一个)?[^，。；！？\s]{0,6}?(?:男人|男生|男孩|男性)(?![们堆的])/
+// ③ 关系写成男性的亲密或家人（你的男朋友、你老公、你哥哥）：只看名字、身份、关系三段；
+//    「像你哥哥一样」是比喻不拦，「你男朋友的闺蜜」后面带「的」说的是别人也不拦
+const MALE_RELATION = /(?<![像如同似])你的?(?:男朋友|男友|老公|丈夫|哥哥|弟弟|爸爸|父亲|儿子)(?![的们])/
 // 露骨的性内容、下流的话：取词口径对齐 llmService 的 HARM_PATTERNS（词面正则，拦不全；输出侧另有红线）
 const VULGAR_PATTERNS = [
   /做爱|性爱|性行为|性关系|口交|肛交|手淫|自慰|射精|阴茎|阴道|阴蒂|乳头|肉棒|鸡巴|屄|叫床|浪叫|发骚|骚货|荡妇|妓女|炮友|约炮|一夜情|开房|裸照|露点/,
@@ -66,7 +73,8 @@ function text(...parts) {
 }
 
 function looksMale(card) {
-  return MALE_MARKS.test(text(card.name, card.identity, card.relationship, card.speech))
+  const head = text(card.name, card.identity, card.relationship)
+  return MALE_MARKS.test(text(head, card.speech)) || MALE_SUBJECT.test(head) || MALE_RELATION.test(head)
 }
 
 function crossesVulgarLine(card) {
@@ -299,7 +307,9 @@ export function createPersona(userId, input, database = prisma) {
 /** 改一改这张卡；不改变谁在启用。 */
 export async function updatePersonaCard(userId, personaId, input, database = prisma) {
   const existing = await resolvePersona(userId, personaId, database)
-  const card = validatePersonaCard(input)
+  // 来源标注改不掉：它决定她要不要替真人说话，声明与诚实下限都跟着它走；界面只读，服务端也不认改动
+  const locked = existing.card?.provenance
+  const card = validatePersonaCard(locked ? { ...(input && typeof input === 'object' ? input : {}), provenance: locked } : input)
   const [persona, user] = await Promise.all([
     database.persona.update({ where: { id: existing.id }, data: { name: card.name, card } }),
     database.user.findUnique({ where: { id: userId }, select: { persona: true } }),
@@ -449,9 +459,11 @@ function readDistillInput({ material, images }) {
   return { text, photos }
 }
 
+/** 只有虚构角色与公众人物有公开资料可查（也只有它们带来源名）；原创是用户自己的描述，朋友绝不联网查人。 */
+const canResearch = (kind) => kind === 'fiction' || kind === 'public_figure'
+
 export const KIND_REQUIRED = '先选一下：她是虚构角色、公众人物、朋友，还是你自己想的'
-export const PUBLIC_FIGURE_NEEDS_NAME = '公众人物要写明是谁'
-export const FRIEND_NEEDS_ATTESTATION = '朋友这条路要先声明：这是你有权使用的、在世朋友的聊天记录'
+export { FRIEND_NEEDS_ATTESTATION, PUBLIC_FIGURE_NEEDS_NAME }
 export const FRIEND_TEXT_ONLY = '朋友这条路只收文字，不收照片'
 export const FRIEND_NOT_OPEN = '朋友这条路还没开放'
 
@@ -476,11 +488,9 @@ function readDistillSource({ kind, label, attested, images }) {
     if (attested !== true) throw new HttpError(FRIEND_NEEDS_ATTESTATION, 400)
     if ((Array.isArray(images) ? images : []).some((image) => image?.buffer)) throw new HttpError(FRIEND_TEXT_ONLY, 400)
   }
-  return { kind: picked, label: name }
+  // 来源名只有虚构角色与公众人物才用：朋友不留名字（不存任何可识别信息），自己想的没有来源
+  return { kind: picked, label: canResearch(picked) ? name : '' }
 }
-
-/** 只有虚构角色与公众人物有公开资料可查；原创是用户自己的描述，朋友绝不联网查人。 */
-const canResearch = (kind) => kind === 'fiction' || kind === 'public_figure'
 
 const SOURCE_RULES = {
   original: () => '来源：这是用户自己想出来的她，素材就是用户的描述，没有现实中的原型。照用户写的整理，不要替她加没写过的经历。',
@@ -550,7 +560,7 @@ export async function distillPersona(userId, { material = '', images = [], resea
   const provenance = source.kind === 'original' ? undefined : { kind: source.kind, ...(source.label ? { label: source.label } : {}) }
 
   const attempt = async (retryNote) => {
-    const parsed = extractJsonObject(await runDistillModel({ promptText: retryNote ? `${promptText}\n\n${retryNote}` : promptText, photos, cloud, userId }))
+    const parsed = extractJsonObject(await runDistillModel({ promptText: retryNote ? `${promptText}\n\n${redactSensitiveText(retryNote).slice(0, 300)}` : promptText, photos, cloud, userId }))
     if (parsed?.refuse === 'male') return { refused: 'male' }
     if (!parsed) return { error: '没有给出可用的 JSON' }
     try {

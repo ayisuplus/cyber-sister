@@ -6,6 +6,7 @@ import {
   BASIS_LABELS,
   DEPTH_LIMITS,
   EXPRESSION_LABELS,
+  FRIEND_NEEDS_ATTESTATION,
   HONESTY_MINIMUMS,
   IMMERSIONS,
   KIND_LABELS,
@@ -15,6 +16,7 @@ import {
   MALE_REFUSAL,
   PERSONA_CARD_LIMITS,
   PERSONA_FIELD_LABELS,
+  PUBLIC_FIGURE_NEEDS_NAME,
   REQUIRED_FIELDS,
   SAMPLE_LABEL,
   TONES,
@@ -29,6 +31,7 @@ export {
   BASIS_LABELS,
   DEPTH_LIMITS,
   EXPRESSION_LABELS,
+  FRIEND_NEEDS_ATTESTATION,
   HONESTY_MINIMUMS,
   IMMERSIONS,
   KIND_LABELS,
@@ -38,6 +41,7 @@ export {
   MALE_REFUSAL,
   PERSONA_CARD_LIMITS,
   PERSONA_FIELD_LABELS,
+  PUBLIC_FIGURE_NEEDS_NAME,
   REQUIRED_FIELDS,
   SAMPLE_LABEL,
   TONES,
@@ -140,8 +144,6 @@ export const DISTILL_KINDS = [
 ]
 export const FRIEND_CLOSED = '还没开放'
 export const FRIEND_ATTESTATION = '我有权使用这些聊天记录，对方是在世的朋友'
-export const FRIEND_NEEDS_ATTESTATION = '朋友这条路要先声明：这是你有权使用的、在世朋友的聊天记录'
-export const PUBLIC_FIGURE_NEEDS_NAME = '公众人物要写明是谁'
 
 /** 只有虚构角色与公众人物有公开资料可查；自己想的不查，朋友绝不联网查人。 */
 export const canResearchKind = (kind) => kind === 'fiction' || kind === 'public_figure'

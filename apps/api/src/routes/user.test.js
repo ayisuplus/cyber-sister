@@ -168,6 +168,14 @@ describe('人设库路由', () => {
     expect(closed.body).toEqual({ error: '朋友这条路还没开放' })
   })
 
+  it('POST /personas/distill：表单字段超限说「内容太多」，不再说成「图片最多 4 张」', async () => {
+    let call = request(app).post('/personas/distill').field('material', '素材')
+    for (const name of ['research', 'kind', 'label', 'attested', 'extra']) call = call.field(name, 'x')
+    const res = await call
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('提交的内容太多了，请刷新页面重试')
+  })
+
   it('PUT /personas/:id 改她、DELETE /personas/:id 删她；service 错误透传', async () => {
     personaStudio.updatePersonaCard.mockResolvedValue({ id: 'p1', name: '小棉', card: CARD, persona: 'p1' })
     const ok = await request(app).put('/personas/p1').send({ ...CARD, name: '小棉' })

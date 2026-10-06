@@ -61,9 +61,10 @@ function RowsEditor({ title, hint = '', rows, max, blank, fields, busy, onChange
             </div>
           ))}
           <div className="mt-2 flex items-center gap-2">
-            <select aria-label={`${title}第 ${index + 1} 条的来源`} value={BASES.includes(row?.basis) ? row.basis : 'authored'} disabled={busy}
+            <select aria-label={`${title}第 ${index + 1} 条的来源`} value={BASES.includes(row?.basis) ? row.basis : ''} disabled={busy}
               onChange={(event) => update(index, { basis: event.target.value })}
               className="min-h-11 rounded-control border border-border-subtle bg-surface-card px-2 text-xs text-text-secondary">
+              {!BASES.includes(row?.basis) && <option value="" disabled>请选来源</option>}
               {BASES.map((basis) => <option key={basis} value={basis}>{BASIS_LABELS[basis]}</option>)}
             </select>
             <button type="button" aria-label={`去掉${title}第 ${index + 1} 条`} disabled={busy}

@@ -300,6 +300,8 @@ export default function PersonaLibrary() {
   const [form, setForm] = useState(null) // { id: 人设卡 id，null=建新卡 }
   const [draft, setDraft] = useState(emptyPersonaCard)
   const [formError, setFormError] = useState('')
+  // 草稿被整个换掉（手写、改一改、蒸馏回填）时给表单换个 key，让「更深一点的样子」按新草稿重新决定展不展开
+  const [formSeed, setFormSeed] = useState(0)
 
   const current = user?.persona
 
@@ -343,6 +345,7 @@ export default function PersonaLibrary() {
   const startBlank = () => {
     setDraft(emptyPersonaCard())
     setForm({ id: null })
+    setFormSeed((seed) => seed + 1)
     setFormError('')
     setNotice('')
     setMessage('')
@@ -360,6 +363,7 @@ export default function PersonaLibrary() {
       ...pickDepth(card),
     })
     setForm({ id: persona.id })
+    setFormSeed((seed) => seed + 1)
     setFormError('')
     setNotice('')
     setMessage('')
@@ -397,6 +401,7 @@ export default function PersonaLibrary() {
         ...pickDepth(card),
       })
       setForm({ id: null })
+      setFormSeed((seed) => seed + 1)
       setFormError('')
       setDistillOpen(false)
       setMessage(result.researched ? '顺手查了公开资料，整理好了；你看看，改好再存。' : '整理好了；你看看，改好再存。')
@@ -523,6 +528,7 @@ export default function PersonaLibrary() {
 
       {form && (
         <PersonaCardForm
+          key={formSeed}
           draft={draft} setDraft={setDraft}
           editingName={form.id ? personas.find((item) => item.id === form.id)?.name : null}
           busy={busy} error={formError} onSave={save}

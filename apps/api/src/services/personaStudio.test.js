@@ -135,6 +135,26 @@ describe('validatePersonaCard：只做女孩子的她，不设风格门槛', () 
   })
 
   it.each([
+    ['identity', '他是个高冷的男人'],
+    ['identity', '他是一个很会照顾人的男生'],
+    ['relationship', '你的男朋友'],
+    ['relationship', '陪你的老公'],
+    ['identity', '我是你老公，温柔体贴'],
+    ['relationship', '像个哥哥，其实就是你哥哥'],
+  ])('明说是男性、或写成男性的亲密/家人关系，也拒掉：%s %s', (field, value) => {
+    expect(() => validatePersonaCard({ ...CARD, [field]: value })).toThrow(MALE_REFUSAL)
+  })
+
+  it.each([
+    ['relationship', '像你哥哥一样照顾你的闺蜜'],
+    ['relationship', '你男朋友的闺蜜，帮你看他靠不靠谱'],
+    ['identity', '专门吐槽他是个渣男的毒舌闺蜜'],
+    ['speech', '他是个男人，所以才不懂——她这样吐槽'],
+  ])('比喻、说的是别人、或在「怎么说话」里提到他，不当成男性角色：%s %s', (field, value) => {
+    expect(() => validatePersonaCard({ ...CARD, [field]: value })).not.toThrow()
+  })
+
+  it.each([
     '她很会分析男人的心思，帮我看看对方到底什么意思',
     '不喜欢男人，只爱吃甜点的都市女孩',
     '她是个女生，对男性话题很敏感',
@@ -393,6 +413,13 @@ describe('蒸馏「造一个她」', () => {
       expect(modelCalls()).toBe(0)
     })
 
+    it('朋友不留名字：就算请求带了 label，来源标注里也只有 kind', async () => {
+      vi.stubEnv('PERSONA_FRIEND_ENABLED', 'true')
+      const draft = await distillPersona('u1', friend({ label: '某某的真名' }))
+      expect(draft.card.provenance).toEqual({ kind: 'friend' })
+      expect(JSON.stringify(draft.card)).not.toContain('某某的真名')
+    })
+
     it('没声明：400；带照片：400（一律不收）', async () => {
       vi.stubEnv('PERSONA_FRIEND_ENABLED', 'true')
       await expect(distillPersona('u1', friend({ attested: false }))).rejects.toMatchObject({ statusCode: 400, message: FRIEND_NEEDS_ATTESTATION })
@@ -438,7 +465,8 @@ describe('蒸馏「造一个她」', () => {
       expect(draft.card.boundaries).toHaveLength(3)
       expect(modelCalls()).toBe(2)
       const retry = mocks.gatewayComplete.mock.calls[1][0].messages[0].content
-      expect(retry).toContain('上一次整理的结果不合格：蒸馏出来的她至少要写明3条做不到或不知道的事')
+      // 重试说明也过脱敏，和整个提示词一样做了 NFKC（全角标点变半角）
+      expect(retry).toContain('上一次整理的结果不合格：蒸馏出来的她至少要写明3条做不到或不知道的事'.normalize('NFKC'))
     })
 
     it('判断规则没标来源也算不合格；模型第一次没给 JSON 也重试', async () => {
@@ -451,6 +479,16 @@ describe('蒸馏「造一个她」', () => {
       mocks.gatewayComplete.mockReset()
       mocks.gatewayComplete.mockResolvedValueOnce({ content: '今天天气不错' }).mockResolvedValueOnce(reply(DEEP_OUTPUT))
       await expect(distillPersona('u1', { kind: 'fiction', material: '素材', research: false })).resolves.toMatchObject({ card: { name: '小柔' } })
+    })
+
+    it('重试说明发出去之前也脱敏，并限长：模型输出里的手机号不会原样回传', async () => {
+      mocks.gatewayComplete
+        .mockResolvedValueOnce(reply({ ...DEEP_OUTPUT, provenance: undefined, boundaries: ['13912345678'] }))
+        .mockResolvedValueOnce(reply(DEEP_OUTPUT))
+      await distillPersona('u1', { kind: 'fiction', material: '素材', research: false })
+      const retry = mocks.gatewayComplete.mock.calls[1][0].messages[0].content
+      expect(retry).toContain('上一次整理的结果不合格')
+      expect(retry).not.toContain('13912345678')
     })
 
     it('两次都不合格：502 让她自己动手写，最多两次模型调用', async () => {
@@ -558,6 +596,23 @@ describe('卡 v2 深度字段（人设深度化 T3）', () => {
 
   it('v2 字段里只是提到男人，不会被当成男性角色', () => {
     expect(() => validatePersonaCard({ ...DEEP, tensions: ['嘴上说不喜欢男人，其实很在意他们怎么看她', '想独处，又怕被忘掉'] })).not.toThrow()
+  })
+
+  it('来源标注改不掉：改卡时服务端沿用旧的，传别的或不传都一样，诚实下限也跟着它', async () => {
+    const friendCard = validatePersonaCard({ ...DEEP, provenance: { kind: 'friend' } })
+    for (const sent of [{ ...DEEP, provenance: undefined }, { ...DEEP, provenance: { kind: 'original' } }, { ...DEEP, provenance: { kind: 'fiction', label: '别的' } }]) {
+      const { db } = fakeDb([{ name: '小柔', card: friendCard }], 'p1')
+      await updatePersonaCard('u1', 'p1', sent, db)
+      const saved = db.persona.update.mock.calls[0][0].data.card
+      expect(saved.provenance).toEqual({ kind: 'friend' })
+    }
+    // 沿用来源，诚实下限就还在：想靠删边界把朋友卡改轻是不行的
+    const { db } = fakeDb([{ name: '小柔', card: friendCard }], 'p1')
+    await expect(updatePersonaCard('u1', 'p1', { ...DEEP, boundaries: ['只剩一条'] }, db)).rejects.toMatchObject({ statusCode: 400 })
+    // 原来没有来源标注的卡（手写的）想加一个也行：这不是在去掉保护
+    const { db: db2 } = fakeDb([{ name: '小柔', card: DEFAULT_PERSONA_CARD }], 'p1')
+    await updatePersonaCard('u1', 'p1', DEEP, db2)
+    expect(db2.persona.update.mock.calls[0][0].data.card.provenance).toEqual({ kind: 'fiction', label: '某部小说' })
   })
 
   it('建卡与改卡都把深度字段存下来', async () => {
