@@ -4,12 +4,13 @@ vi.mock('./api', () => ({
   default: {
     get: vi.fn(),
     putForm: vi.fn(),
+    postForm: vi.fn(),
     delete: vi.fn(),
   },
 }))
 
 import api from './api'
-import { userService } from './userService'
+import { personaService, userService } from './userService'
 
 describe('userService', () => {
   it('uploadAsset 以 multipart 表单 PUT 到槽位地址', async () => {
@@ -53,5 +54,39 @@ describe('userService', () => {
 
     api.delete.mockRejectedValue(new Error('offline'))
     await expect(userService.deleteAsset('bg-chat')).rejects.toThrow('offline')
+  })
+})
+
+describe('personaService.distill', () => {
+  it('素材与来源类型一起以 multipart 表单 POST；缺省按「自己想的」，旧界面照常能用', async () => {
+    api.postForm.mockResolvedValue({ data: { card: { name: '小柔' }, researched: false } })
+
+    await personaService.distill({ material: '她叫小柔' })
+
+    expect(api.postForm).toHaveBeenCalledWith('/user/personas/distill', expect.any(FormData))
+    const form = api.postForm.mock.calls[0][1]
+    expect(form.get('material')).toBe('她叫小柔')
+    expect(form.get('kind')).toBe('original')
+    expect(form.get('research')).toBe('true')
+    expect(form.has('label')).toBe(false)
+    expect(form.has('attested')).toBe(false)
+  })
+
+  it('公众人物带上人物名；朋友带上声明；两者都不夹带图片以外的东西', async () => {
+    api.postForm.mockResolvedValue({ data: { card: { name: '小柔' } } })
+    const photo = new File(['x'], 'a.jpg', { type: 'image/jpeg' })
+
+    await personaService.distill({ material: '一位作家', kind: 'public_figure', label: '某位女作家', research: false, images: [photo] })
+    const figure = api.postForm.mock.calls.at(-1)[1]
+    expect(figure.get('kind')).toBe('public_figure')
+    expect(figure.get('label')).toBe('某位女作家')
+    expect(figure.get('research')).toBe('false')
+    expect(figure.getAll('images')).toEqual([photo])
+
+    await personaService.distill({ material: '聊天记录', kind: 'friend', attested: true })
+    const friend = api.postForm.mock.calls.at(-1)[1]
+    expect(friend.get('kind')).toBe('friend')
+    expect(friend.get('attested')).toBe('true')
+    expect(friend.getAll('images')).toEqual([])
   })
 })

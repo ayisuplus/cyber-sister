@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   gatewayComplete: vi.fn(),
@@ -25,6 +25,12 @@ vi.mock('./agentTurn.js', () => ({
 import {
   DEFAULT_PERSONA_CARD,
   DISTILL_FAILED,
+  FRIEND_NEEDS_ATTESTATION,
+  FRIEND_NOT_OPEN,
+  FRIEND_TEXT_ONLY,
+  KIND_REQUIRED,
+  PUBLIC_FIGURE_NEEDS_NAME,
+  buildDistillPrompt,
   LEGACY_PERSONA_IDS,
   MALE_REFUSAL,
   MAX_MATERIAL_CHARS,
@@ -285,13 +291,32 @@ describe('人设库增删改查', () => {
 })
 
 describe('蒸馏「造一个她」', () => {
+  // 模型按要求给出的深度卡（不带 provenance：来源标注由服务端按请求盖上）
+  const DEEP_OUTPUT = {
+    ...CARD,
+    expression: { sentence: '短句多', humor: '冷幽默' },
+    heuristics: [1, 2, 3].map((n) => ({ when: `她遇到第${n}种情况`, then: `她会这样回应${n}`, basis: n === 1 ? 'source' : 'inferred' })),
+    tensions: ['嘴上说不在乎，心里记得很清楚', '推断：想独处，又怕被忘掉'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+  }
+  const reply = (card) => ({ content: JSON.stringify(card) })
+  const modelCalls = () => mocks.gatewayComplete.mock.calls.length
+
   beforeEach(() => {
-    mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify({ ...CARD }) })
+    mocks.gatewayComplete.mockReset()
+    mocks.gatewayComplete.mockResolvedValue(reply(DEEP_OUTPUT))
+    mocks.researchTurn.mockReset()
+    mocks.researchTurn.mockImplementation((turn) => turn)
+    mocks.researchNotes = ''
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('素材外发前脱敏，含图片时文本也用同一个脱敏副本', async () => {
+    mocks.gatewayComplete.mockResolvedValue(reply(CARD))
     for (const images of [[], [{ buffer: Buffer.from('a'), mime: 'image/jpeg' }]]) {
-      await distillPersona('u1', { material: '电话13912345678，邮箱synthetic@example.test', images, research: false })
+      await distillPersona('u1', { kind: 'original', material: '电话13912345678，邮箱synthetic@example.test', images, research: false })
       const request = mocks.gatewayComplete.mock.calls.at(-1)[0]
       const sent = JSON.stringify(request.messages)
       expect(sent).toContain('[手机号]')
@@ -304,33 +329,41 @@ describe('蒸馏「造一个她」', () => {
 
   it('联网素材与调研笔记的发送副本都脱敏', async () => {
     vi.stubEnv('SEARCH_ENABLED', 'true')
-    mocks.researchTurn.mockImplementation((turn) => turn)
     mocks.researchNotes = '调研中的电话13912345678与synthetic@example.test'
-    try {
-      await distillPersona('u1', { material: '联系13912345678与synthetic@example.test', research: true })
-      const material = mocks.researchTurn.mock.calls[0][0].currentText
-      const prompt = JSON.stringify(mocks.gatewayComplete.mock.calls[0][0].messages)
-      expect(prompt).toContain('调研中的电话[手机号]与[邮箱]')
-      for (const sent of [material, prompt]) {
-        expect(sent).toContain('[手机号]')
-        expect(sent).toContain('[邮箱]')
-        expect(sent).not.toContain('13912345678')
-        expect(sent).not.toContain('synthetic@example.test')
-      }
-    } finally {
-      vi.unstubAllEnvs()
+    await distillPersona('u1', { kind: 'fiction', material: '联系13912345678与synthetic@example.test', research: true })
+    const material = mocks.researchTurn.mock.calls[0][0].currentText
+    const prompt = JSON.stringify(mocks.gatewayComplete.mock.calls[0][0].messages)
+    expect(prompt).toContain('调研中的电话[手机号]与[邮箱]')
+    for (const sent of [material, prompt]) {
+      expect(sent).toContain('[手机号]')
+      expect(sent).toContain('[邮箱]')
+      expect(sent).not.toContain('13912345678')
+      expect(sent).not.toContain('synthetic@example.test')
     }
   })
 
+  it('先要说清是什么来源；没选或选错，一个字都不外发', async () => {
+    for (const kind of [undefined, '', 'celebrity', 7]) {
+      await expect(distillPersona('u1', { material: '她叫小柔', kind })).rejects.toMatchObject({ statusCode: 400, message: KIND_REQUIRED })
+    }
+    expect(modelCalls()).toBe(0)
+  })
+
   it('素材都不给就先要素材；超长也拦', async () => {
-    await expect(distillPersona('u1', {})).rejects.toMatchObject({ statusCode: 400, message: '先给点她的素材' })
-    await expect(distillPersona('u1', { material: 'x'.repeat(MAX_MATERIAL_CHARS + 1) })).rejects.toMatchObject({ statusCode: 400 })
-    expect(mocks.gatewayComplete).not.toHaveBeenCalled()
+    await expect(distillPersona('u1', { kind: 'original' })).rejects.toMatchObject({ statusCode: 400, message: '先给点她的素材' })
+    await expect(distillPersona('u1', { kind: 'original', material: 'x'.repeat(MAX_MATERIAL_CHARS + 1) })).rejects.toMatchObject({ statusCode: 400 })
+    expect(modelCalls()).toBe(0)
+  })
+
+  it('公众人物要写明是谁；来源名不能超长', async () => {
+    await expect(distillPersona('u1', { kind: 'public_figure', material: '一位作家' })).rejects.toMatchObject({ statusCode: 400, message: PUBLIC_FIGURE_NEEDS_NAME })
+    await expect(distillPersona('u1', { kind: 'fiction', label: '字'.repeat(31), material: '一部小说' })).rejects.toMatchObject({ statusCode: 400, message: '来源名不能超过30个字符' })
+    expect(modelCalls()).toBe(0)
   })
 
   it('模型只出草稿不落库；图片最多 4 张随首轮带上', async () => {
     const images = [{ buffer: Buffer.from('a'), mime: 'image/jpeg' }, { buffer: Buffer.from('b'), mime: 'image/png' }]
-    const draft = await distillPersona('u1', { material: '她叫小柔', images, research: false })
+    const draft = await distillPersona('u1', { kind: 'fiction', label: '某部小说', material: '她叫小柔', images, research: false })
     expect(draft.researched).toBe(false)
     expect(draft.card.name).toBe('小柔')
     const content = mocks.gatewayComplete.mock.calls[0][0].messages[0].content
@@ -338,22 +371,144 @@ describe('蒸馏「造一个她」', () => {
     expect(content.filter((part) => part.type === 'image_url')).toHaveLength(2)
   })
 
-  it('素材的主角是男生 → refused: male，不落卡', async () => {
-    mocks.gatewayComplete.mockResolvedValue({ content: '{"refuse":"male"}' })
-    await expect(distillPersona('u1', { material: '一个男生', research: false })).resolves.toEqual({ refused: 'male' })
+  it('来源标注由服务端按请求盖上，不信模型自己写的', async () => {
+    mocks.gatewayComplete.mockResolvedValue(reply({ ...DEEP_OUTPUT, provenance: { kind: 'public_figure', label: '模型乱写的人' } }))
+    const fiction = await distillPersona('u1', { kind: 'fiction', label: '某部小说', material: '素材', research: false })
+    expect(fiction.card.provenance).toEqual({ kind: 'fiction', label: '某部小说' })
+    const figure = await distillPersona('u1', { kind: 'public_figure', label: '某位女作家', material: '素材', research: false })
+    expect(figure.card.provenance).toEqual({ kind: 'public_figure', label: '某位女作家' })
+    // 原创：用户自己想的，不留来源标注；这一类不要求诚实下限，七格卡就够
+    mocks.gatewayComplete.mockResolvedValue(reply({ ...CARD, provenance: { kind: 'friend' } }))
+    const original = await distillPersona('u1', { kind: 'original', material: '素材', research: false })
+    expect('provenance' in original.card).toBe(false)
   })
 
-  it('整理不出来 → 502 让她自己动手写；露骨的卡 → 400', async () => {
-    mocks.gatewayComplete.mockResolvedValue({ content: '今天天气不错' })
-    await expect(distillPersona('u1', { material: '素材', research: false })).rejects.toMatchObject({ statusCode: 502, message: DISTILL_FAILED })
+  describe('朋友路径：只收在世朋友的文字，法务确认前默认关闭', () => {
+    const friend = (extra = {}) => ({ kind: 'friend', material: '她：今天好累\n我：抱抱', attested: true, ...extra })
 
-    mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify({ ...CARD, speech: '陪她做爱' }) })
-    await expect(distillPersona('u1', { material: '素材', research: false })).rejects.toMatchObject({ statusCode: 400, message: VULGAR_REFUSAL })
+    it('服务端开关没开：403，不外发', async () => {
+      await expect(distillPersona('u1', friend())).rejects.toMatchObject({ statusCode: 403, message: FRIEND_NOT_OPEN })
+      vi.stubEnv('PERSONA_FRIEND_ENABLED', 'false')
+      await expect(distillPersona('u1', friend())).rejects.toMatchObject({ statusCode: 403 })
+      expect(modelCalls()).toBe(0)
+    })
+
+    it('没声明：400；带照片：400（一律不收）', async () => {
+      vi.stubEnv('PERSONA_FRIEND_ENABLED', 'true')
+      await expect(distillPersona('u1', friend({ attested: false }))).rejects.toMatchObject({ statusCode: 400, message: FRIEND_NEEDS_ATTESTATION })
+      await expect(distillPersona('u1', friend({ attested: undefined }))).rejects.toMatchObject({ statusCode: 400, message: FRIEND_NEEDS_ATTESTATION })
+      await expect(distillPersona('u1', friend({ images: [{ buffer: Buffer.from('a'), mime: 'image/jpeg' }] }))).rejects.toMatchObject({ statusCode: 400, message: FRIEND_TEXT_ONLY })
+      expect(modelCalls()).toBe(0)
+    })
+
+    it('开了且声明了：只发文字，服务端强制不联网，哪怕用户要求调研', async () => {
+      vi.stubEnv('PERSONA_FRIEND_ENABLED', 'true')
+      vi.stubEnv('SEARCH_ENABLED', 'true')
+      const draft = await distillPersona('u1', friend({ research: true }))
+      expect(draft.researched).toBe(false)
+      expect(draft.card.provenance).toEqual({ kind: 'friend' })
+      expect(mocks.researchTurn).not.toHaveBeenCalled()
+      const sent = mocks.gatewayComplete.mock.calls[0][0].messages[0].content
+      expect(typeof sent).toBe('string')
+      expect(sent).toContain('用户在世的朋友')
+      expect(sent).toContain('不要写出全名、住址、单位、手机号')
+    })
+  })
+
+  it('只有虚构角色与公众人物才联网查；原创不查', async () => {
+    vi.stubEnv('SEARCH_ENABLED', 'true')
+    mocks.gatewayComplete.mockResolvedValue(reply(CARD))
+    await distillPersona('u1', { kind: 'original', material: '我自己想的她', research: true })
+    expect(mocks.researchTurn).not.toHaveBeenCalled()
+    mocks.gatewayComplete.mockResolvedValue(reply(DEEP_OUTPUT))
+    const searched = await distillPersona('u1', { kind: 'public_figure', label: '某位女作家', material: '一位作家', research: true })
+    expect(mocks.researchTurn).toHaveBeenCalledTimes(1)
+    expect(searched.researched).toBe(true)
+    // 用户把调研关掉就不查
+    await distillPersona('u1', { kind: 'fiction', material: '一部小说', research: false })
+    expect(mocks.researchTurn).toHaveBeenCalledTimes(1)
+  })
+
+  describe('诚实下限：不够就带着错误重试一次，还不行就让她自己写', () => {
+    it('第一次缺边界，第二次补齐：返回草稿，重试里带着具体错误', async () => {
+      mocks.gatewayComplete
+        .mockResolvedValueOnce(reply({ ...DEEP_OUTPUT, boundaries: ['只写了一条'] }))
+        .mockResolvedValueOnce(reply(DEEP_OUTPUT))
+      const draft = await distillPersona('u1', { kind: 'fiction', material: '素材', research: false })
+      expect(draft.card.boundaries).toHaveLength(3)
+      expect(modelCalls()).toBe(2)
+      const retry = mocks.gatewayComplete.mock.calls[1][0].messages[0].content
+      expect(retry).toContain('上一次整理的结果不合格：蒸馏出来的她至少要写明3条做不到或不知道的事')
+    })
+
+    it('判断规则没标来源也算不合格；模型第一次没给 JSON 也重试', async () => {
+      mocks.gatewayComplete
+        .mockResolvedValueOnce(reply({ ...DEEP_OUTPUT, heuristics: [{ when: '她累了', then: '先陪着' }, ...DEEP_OUTPUT.heuristics.slice(0, 2)] }))
+        .mockResolvedValueOnce({ content: '今天天气不错' })
+      // 第一次来源没标全、重试又没给 JSON：两次都不合格，502
+      await expect(distillPersona('u1', { kind: 'fiction', material: '素材', research: false })).rejects.toMatchObject({ statusCode: 502, message: DISTILL_FAILED })
+      expect(modelCalls()).toBe(2)
+      mocks.gatewayComplete.mockReset()
+      mocks.gatewayComplete.mockResolvedValueOnce({ content: '今天天气不错' }).mockResolvedValueOnce(reply(DEEP_OUTPUT))
+      await expect(distillPersona('u1', { kind: 'fiction', material: '素材', research: false })).resolves.toMatchObject({ card: { name: '小柔' } })
+    })
+
+    it('两次都不合格：502 让她自己动手写，最多两次模型调用', async () => {
+      mocks.gatewayComplete.mockResolvedValue(reply({ ...DEEP_OUTPUT, tensions: [] }))
+      await expect(distillPersona('u1', { kind: 'public_figure', label: '某位女作家', material: '素材', research: false })).rejects.toMatchObject({ statusCode: 502, message: DISTILL_FAILED })
+      expect(modelCalls()).toBe(2)
+    })
+
+    it('原创不要求下限：七格卡一次过，不重试', async () => {
+      mocks.gatewayComplete.mockResolvedValue(reply(CARD))
+      await expect(distillPersona('u1', { kind: 'original', material: '素材', research: false })).resolves.toMatchObject({ card: { name: '小柔' } })
+      expect(modelCalls()).toBe(1)
+    })
+  })
+
+  it('素材的主角是男生 → refused: male，不落卡，也不重试', async () => {
+    mocks.gatewayComplete.mockResolvedValue({ content: '{"refuse":"male"}' })
+    await expect(distillPersona('u1', { kind: 'fiction', material: '一个男生', research: false })).resolves.toEqual({ refused: 'male' })
+    expect(modelCalls()).toBe(1)
+  })
+
+  it('整理不出来 → 502 让她自己动手写；露骨的卡 → 400，不重试', async () => {
+    mocks.gatewayComplete.mockResolvedValue({ content: '今天天气不错' })
+    await expect(distillPersona('u1', { kind: 'original', material: '素材', research: false })).rejects.toMatchObject({ statusCode: 502, message: DISTILL_FAILED })
+
+    mocks.gatewayComplete.mockReset()
+    mocks.gatewayComplete.mockResolvedValue(reply({ ...CARD, speech: '陪她做爱' }))
+    await expect(distillPersona('u1', { kind: 'original', material: '素材', research: false })).rejects.toMatchObject({ statusCode: 400, message: VULGAR_REFUSAL })
+    expect(modelCalls()).toBe(1)
+  })
+
+  it('露骨内容藏在深度字段里，蒸馏返回草稿之前也拦', async () => {
+    mocks.gatewayComplete.mockResolvedValue(reply({ ...DEEP_OUTPUT, boundaries: ['不知道', '不预测', '陪她做爱'] }))
+    await expect(distillPersona('u1', { kind: 'fiction', material: '素材', research: false })).rejects.toMatchObject({ statusCode: 400, message: VULGAR_REFUSAL })
   })
 
   it('模型直接越男性线（没走 refuse）也按 refused: male 回', async () => {
-    mocks.gatewayComplete.mockResolvedValue({ content: JSON.stringify({ ...CARD, identity: '这是个男人' }) })
-    await expect(distillPersona('u1', { material: '素材', research: false })).resolves.toEqual({ refused: 'male' })
+    mocks.gatewayComplete.mockResolvedValue(reply({ ...CARD, identity: '这是个男人' }))
+    await expect(distillPersona('u1', { kind: 'original', material: '素材', research: false })).resolves.toEqual({ refused: 'male' })
+  })
+
+  describe('提炼指令 buildDistillPrompt', () => {
+    it('每一类来源有自己的一行，诚实规则与下限数字写在里面', () => {
+      expect(buildDistillPrompt({ kind: 'original' })).toContain('用户自己想出来的她')
+      expect(buildDistillPrompt({ kind: 'fiction', label: '某部小说' })).toContain('虚构角色（某部小说）')
+      const figure = buildDistillPrompt({ kind: 'public_figure', label: '某位女作家' })
+      expect(figure).toContain('公众人物（某位女作家）')
+      expect(figure).toContain('不编造她的语录')
+      expect(buildDistillPrompt({ kind: 'friend' })).toContain('对方没说过的事不要推测')
+      for (const kind of ['original', 'fiction', 'public_figure', 'friend']) {
+        const prompt = buildDistillPrompt({ kind, label: '某' })
+        expect(prompt).toContain('诚实边界至少 3 条')
+        expect(prompt).toContain('内在矛盾至少 2 处')
+        expect(prompt).toContain('判断规则至少 3 条、至多 8 条')
+        expect(prompt).toContain('{"refuse":"male"}')
+        expect(prompt).toContain('basis')
+      }
+    })
   })
 })
 

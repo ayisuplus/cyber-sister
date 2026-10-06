@@ -34,7 +34,8 @@ export function createImageUpload({ field, typeMessage, limitMessage, fallbackMe
  */
 const personaUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_IMAGE_BYTES, files: 4, fields: 2, fieldSize: 64 * 1024, parts: 8 },
+  // 文字字段 5 个：material、research、kind、label、attested；连同最多 4 张图，一共 9 个部分
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 4, fields: 5, fieldSize: 64 * 1024, parts: 9 },
   fileFilter: (_req, file, cb) => {
     if (file.fieldname === 'images' && IMAGE_MIME_TYPES.has(file.mimetype)) return cb(null, true)
     cb(Object.assign(new Error('仅支持 JPEG/PNG/WebP 图片'), { statusCode: 400 }))
@@ -52,6 +53,9 @@ export function personaMaterialUpload(req, res, next) {
     req.personaMaterial = {
       material: typeof req.body.material === 'string' ? req.body.material : '',
       research: req.body.research !== 'false',
+      kind: typeof req.body.kind === 'string' ? req.body.kind.trim() : '',
+      label: typeof req.body.label === 'string' ? req.body.label : '',
+      attested: req.body.attested === 'true',
       images: (req.files?.images || []).map((file) => ({ buffer: file.buffer, mime: file.mimetype })),
     }
     return next()

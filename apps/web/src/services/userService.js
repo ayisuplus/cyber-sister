@@ -52,11 +52,16 @@ export const personaService = {
   // 删她：只剩一个时服务端回 400「至少留一个她」，原样展示
   remove: async (id) => (await api.delete(`/user/personas/${id}`)).data,
 
-  // 蒸馏草稿（不落库）：素材文字 + 最多 4 张图片 + 是否顺手查公开资料（'false' 才关）
-  distill: async ({ material = '', images = [], research = true } = {}) => {
+  // 蒸馏草稿（不落库）：先说清来源类型（original 自己想的 / fiction 虚构角色 / public_figure 公众人物 / friend 朋友），
+  // 再给素材文字 + 最多 4 张图片 + 是否顺手查公开资料（'false' 才关；只有虚构角色与公众人物才会真的查）。
+  // label 是原作或人物名；friend 要带 attested（用户的声明），且不收图片。缺省 kind 按 original，旧界面照常能用。
+  distill: async ({ material = '', images = [], research = true, kind = 'original', label = '', attested = false } = {}) => {
     const form = new FormData()
     form.append('material', material)
     form.append('research', research ? 'true' : 'false')
+    form.append('kind', kind)
+    if (label) form.append('label', label)
+    if (attested) form.append('attested', 'true')
     for (const image of images) form.append('images', image)
     // postForm 显式 multipart：实例默认 Content-Type 是 JSON，直接 post(FormData) 会让 multer 解析不到文件
     return (await api.postForm('/user/personas/distill', form)).data

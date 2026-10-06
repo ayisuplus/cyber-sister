@@ -133,15 +133,34 @@ describe('人设库路由', () => {
 
   it('POST /personas/distill：素材走蒸馏，只回草稿不落库', async () => {
     personaStudio.distillPersona.mockResolvedValue({ card: CARD, researched: true })
-    const ok = await request(app).post('/personas/distill').field('material', '她叫小柔').field('research', 'false')
+    const ok = await request(app).post('/personas/distill')
+      .field('material', '她叫小柔').field('research', 'false').field('kind', 'fiction').field('label', '某部小说')
     expect(ok.status).toBe(200)
     expect(ok.body).toEqual({ card: CARD, researched: true })
-    expect(personaStudio.distillPersona).toHaveBeenCalledWith('user-1', { material: '她叫小柔', research: false, images: [] })
+    expect(personaStudio.distillPersona).toHaveBeenCalledWith('user-1', {
+      material: '她叫小柔', research: false, images: [], kind: 'fiction', label: '某部小说', attested: false,
+    })
 
     personaStudio.distillPersona.mockResolvedValue({ refused: 'male' })
-    const refused = await request(app).post('/personas/distill').field('material', '一个男生')
+    const refused = await request(app).post('/personas/distill').field('material', '一个男生').field('kind', 'original')
     expect(refused.status).toBe(200)
     expect(refused.body).toEqual({ refused: 'male' })
+  })
+
+  it('POST /personas/distill：声明只认字符串 "true"，类型与来源名原样交给服务；服务的拒绝照原样回', async () => {
+    personaStudio.distillPersona.mockResolvedValue({ card: CARD, researched: false })
+    await request(app).post('/personas/distill').field('material', '聊天记录').field('kind', ' friend ').field('attested', 'true')
+    expect(personaStudio.distillPersona).toHaveBeenLastCalledWith('user-1', expect.objectContaining({ kind: 'friend', attested: true, label: '' }))
+    await request(app).post('/personas/distill').field('material', '聊天记录').field('kind', 'friend').field('attested', 'yes')
+    expect(personaStudio.distillPersona).toHaveBeenLastCalledWith('user-1', expect.objectContaining({ attested: false }))
+    // 没带类型也照样交给服务（由服务拒绝），路由不替它判断
+    await request(app).post('/personas/distill').field('material', '素材')
+    expect(personaStudio.distillPersona).toHaveBeenLastCalledWith('user-1', expect.objectContaining({ kind: '', attested: false }))
+
+    personaStudio.distillPersona.mockRejectedValue(Object.assign(new Error('朋友这条路还没开放'), { statusCode: 403 }))
+    const closed = await request(app).post('/personas/distill').field('material', '聊天记录').field('kind', 'friend').field('attested', 'true')
+    expect(closed.status).toBe(403)
+    expect(closed.body).toEqual({ error: '朋友这条路还没开放' })
   })
 
   it('PUT /personas/:id 改她、DELETE /personas/:id 删她；service 错误透传', async () => {
