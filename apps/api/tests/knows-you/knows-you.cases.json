@@ -120,6 +120,40 @@
         "contain": [],
         "absent": ["她给自己定了"]
       }
+    },
+    {
+      "id": "weather-city-set",
+      "addedAt": "2026-09-27",
+      "title": "她在设置里填了城市：知道那边的天气和明天降温，但只在相关时带到、倾诉时不提",
+      "text": "明天穿什么好",
+      "given": { "weatherPlace": true },
+      "expect": {
+        "contain": ["【她那边的天气】", "她自己填的，不是定位", "明天明显降温", "倾诉时不要主动提天气"],
+        "absent": []
+      }
+    },
+    {
+      "id": "weather-no-city",
+      "addedAt": "2026-09-27",
+      "title": "没填城市：上下文里没有天气，也不去查",
+      "text": "明天穿什么好",
+      "given": {},
+      "expect": {
+        "contain": ["【此刻】"],
+        "absent": ["【她那边的天气】"],
+        "unread": ["weather"]
+      }
+    },
+    {
+      "id": "weather-source-down",
+      "addedAt": "2026-09-27",
+      "title": "填了城市但天气取不到：这一轮照常，只是不带天气，不编",
+      "text": "今天好累",
+      "given": { "weatherPlace": true, "weatherDown": true },
+      "expect": {
+        "contain": ["【此刻】"],
+        "absent": ["【她那边的天气】"]
+      }
     }
   ]
 }

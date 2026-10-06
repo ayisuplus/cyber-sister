@@ -21,6 +21,7 @@ const db = vi.hoisted(() => ({
   letterFindMany: vi.fn(),
   workTaskFindMany: vi.fn(),
   scheduledTaskFindMany: vi.fn(),
+  petFindMany: vi.fn(),
 }))
 
 vi.mock('../prisma/client.js', () => {
@@ -48,6 +49,7 @@ vi.mock('../prisma/client.js', () => {
     letter: { findMany: db.letterFindMany },
     workTask: { findMany: db.workTaskFindMany },
     scheduledReminder: { findMany: db.scheduledTaskFindMany },
+    pet: { findMany: db.petFindMany },
   }
   client.$transaction = vi.fn((operation) => operation(client))
   return { default: client }
@@ -93,7 +95,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'inferenceFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'plantFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany',
+      'scheduledTaskFindMany', 'petFindMany',
     ]) {
       db[key].mockResolvedValue([])
     }
@@ -136,7 +138,7 @@ describe('exportService.buildUserExport', () => {
       'periodFindMany', 'reminderFindMany', 'diaryFindMany', 'habitFindMany',
       'bookFindMany', 'studyFindMany', 'inferenceFindMany',
       'makeupPresetFindMany', 'wardrobeItemFindMany', 'collectionFindMany', 'plantFindMany', 'letterFindMany', 'workTaskFindMany',
-      'scheduledTaskFindMany', 'personaFindFirst',
+      'scheduledTaskFindMany', 'personaFindFirst', 'petFindMany',
     ]) {
       expect(db[key]).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({ userId: 'user-1' }),

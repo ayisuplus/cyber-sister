@@ -17,6 +17,7 @@
     "study:decor": "node scripts/build-local.mjs && node scripts/decor-study-shots.mjs"
   },
   "dependencies": {
+    "@chinese-fonts/mkwtyt": "3.0.0",
     "axios": "^1.7.4",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.427.0",

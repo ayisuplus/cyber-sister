@@ -33,6 +33,10 @@ model User {
   periodToneAt                DateTime? @map("period_tone_at") // 「聊天时让她顾及你的周期」的单独同意时间；撤回记录同意时一并置空
   letterFreqDays              Int?      @map("letter_freq_days") // 「她的来信」频率（3 或 7 天一封）；空 = 不写信
   citeBooks                   Boolean   @default(false) @map("cite_books") // 「回答里提到书」：翻到书时回答里可以提书名；默认不提
+  weatherPlace               Json?     @map("weather_place") // 「每日天气」用户自己选的城市（名字/省份/国家/坐标/时区）；空 = 不查天气。不定位
+  petFood                     Int       @default(0) @map("pet_food") // 宠物饲料：每天领一份，喂一口用一份；只攒不扣（有上限）
+  petFoodDay                  String?   @map("pet_food_day") // 上一次领饲料的北京日期 yyyy-MM-dd
+  activePetSpecies            String?   @map("active_pet_species") // 在养哪一只（本子角上也是它）
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
@@ -64,6 +68,7 @@ model User {
   localBridges       LocalBridge[]
   inferences         Inference[]
   embeddings         Embedding[]
+  pets               Pet[]
 
   @@map("users")
 }
@@ -754,4 +759,24 @@ model ModelProvider {
 
   @@index([enabled, priority])
   @@map("model_providers")
+}
+
+// 宠物（路线图 C29）：内置四只（cat | dog | rabbit | hamster），每人每种最多一只。
+// 好感度与成长值只涨不掉；摸出来的好感度每天有上限（pettedDay/pettedToday 记是哪一天摸了几次）。
+model Pet {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  species     String
+  name        String
+  affection   Int      @default(0)
+  growth      Int      @default(0)
+  pettedDay   String?  @map("petted_day")
+  pettedToday Int      @default(0) @map("petted_today")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, species])
+  @@map("pets")
 }

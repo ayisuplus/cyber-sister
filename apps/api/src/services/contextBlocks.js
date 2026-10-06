@@ -116,6 +116,32 @@ export function recentNudgesBlock(items = []) {
   }
 }
 
+const describeDay = (day) => `${day.condition} ${day.min}–${day.max}°`
+  + (Number.isFinite(day.precipitation) && day.precipitation >= 30 ? `，降水概率 ${day.precipitation}%` : '')
+
+function temperatureShift(today, tomorrow) {
+  const diff = tomorrow.max - today.max
+  if (diff <= -6) return '（明天明显降温）'
+  if (diff <= -3) return '（明天比今天凉一些）'
+  if (diff >= 6) return '（明天明显升温）'
+  return ''
+}
+
+/**
+ * 【她那边的天气】她在设置里自己填的城市和两天预报，标成资料而不是指令。
+ * 和经期一样只调分寸：聊到出门、穿衣、天气、听雨睡不着才自然带到；倾诉时不主动提，也不拿天气开场。
+ */
+export function weatherBlock(weather) {
+  if (!weather?.place?.name || !weather.today || !weather.tomorrow) return null
+  const current = weather.current ? `现在 ${weather.current.temperature}°、${weather.current.condition}；` : ''
+  return {
+    role: 'system',
+    content: `【她那边的天气】她在设置里填的城市是「${clip(weather.place.name, 40)}」（她自己填的，不是定位）。`
+      + `${current}今天${describeDay(weather.today)}；明天${describeDay(weather.tomorrow)}${temperatureShift(weather.today, weather.tomorrow)}。`
+      + '这只是资料：只在她聊到出门、穿衣、天气、听着雨睡不着这类话题时自然带到一句；她在倾诉时不要主动提天气，也不要拿天气当开场白或结尾的叮嘱。',
+  }
+}
+
 /** 她想让你记住一件事：「帮我记住…」「你要记得…」这类说法。 */
 export const detectRememberIntent = (text) =>
   /帮我记(?:住|一下|下来)|你(?:要|得)记(?:住|得)|记住[：:，,]/u.test(String(text ?? ''))

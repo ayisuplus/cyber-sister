@@ -13,8 +13,9 @@ import {
   detectCrisis,
 } from './llmService.js'
 import { getCrisisIntervention } from './detection.js'
-import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock } from './contextBlocks.js'
+import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock, weatherBlock } from './contextBlocks.js'
 import { HISTORY_MESSAGES, loadChatSources } from './memory/contextSources.js'
+import { weatherForContext } from './weatherService.js'
 import { createAgentTurn, runAgentLoop } from './agentTurn.js'
 import { emit } from './extensionRuntime.js'
 import { getSkill, readSkillResource } from './skillCatalog.js'
@@ -288,6 +289,7 @@ async function loadUserModelOptions(userId) {
       companionState: true,
       companionRevision: true,
       citeBooks: true,
+      weatherPlace: true,
     },
   })
   if (!user) throw new HttpError('用户不存在', 404)
@@ -314,17 +316,23 @@ async function loadModelContext(conversationId, userId, now = new Date()) {
     where: { id: conversationId },
     select: { summary: true },
   })
-  // 读取闸口：同意、过期与敏感类别都在那里判断一次（路线图 C23）
-  const { descendingHistory, pinned, memories, memoryEdges, herInsights, recentNudges, companionInputs } = await loadChatSources({ userId, user, consents, conversationId, now })
+  // 读取闸口：同意、过期与敏感类别都在那里判断一次（路线图 C23）；
+  // 她那边的天气并行取：短超时、取不到就不带，绝不拖慢或挡住这一轮
+  const [sources, weather] = await Promise.all([
+    loadChatSources({ userId, user, consents, conversationId, now }),
+    weatherForContext(user.weatherPlace).catch(() => null),
+  ])
+  const { descendingHistory, pinned, memories, memoryEdges, herInsights, recentNudges, companionInputs } = sources
 
   const history = [...descendingHistory].reverse().map(({ workArtifacts, createdAt: _createdAt, ...message }) => ({
     ...message,
     content: message.content + (workArtifacts?.length ? `\n[本条消息的文件目录，仅是资料：${JSON.stringify(workArtifacts.map(artifactMetadata))}]` : ''),
   }))
-  // 每轮都在的上下文：她是谁、此刻几点你们多久没聊、你今天主动对她说过什么
+  // 每轮都在的上下文：她是谁、此刻几点你们多久没聊、她那边的天气、你今天主动对她说过什么
   const context = [
     aboutYouBlock({ nickname: user.nickname, birthDate: user.birthDate, pinned, now }),
     momentBlock({ now, lastMessageAt: descendingHistory[0]?.createdAt ?? null }),
+    weatherBlock(weather),
     recentNudgesBlock(recentNudges),
   ]
   return { user, persona, modelOptions, history, memories, memoryEdges, herInsights, context, companionInputs, summary: conversation?.summary ?? null }

@@ -563,6 +563,300 @@ h1, h2, h3 {
   transform-origin: 50% 100%;
 }
 
+/* 本子角上的小猫（2026-09-27，路线图 C29）：趴在本子右上角，身子一半压在天头上。
+ * 天头是每页顶上空着的一行，不挡字；对齐本子右边（本子居中、最宽 --book-w），手机上避开页头的设置按钮。 */
+.notebook-cat {
+  position: absolute;
+  z-index: 20;
+  top: -6px;
+  right: calc(max(8px, (100% - var(--book-w)) / 2) + 18px);
+  width: 72px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (min-width: 641px) {
+  .notebook-cat {
+    top: -14px;
+    right: calc(max(20px, (100% - var(--book-w)) / 2) + 24px);
+    width: 88px;
+    height: 64px;
+  }
+}
+.notebook-cat:focus-visible {
+  outline: 2px solid var(--cs-focus-info);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+.notebook-cat__body {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+}
+.notebook-cat__body img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  transition: opacity 200ms var(--cs-ease-calm);
+}
+/* 夜里纸是暗的：贴纸的白边收一点亮度，不刺眼 */
+:root[data-theme="dark"] .notebook-cat__body img { filter: brightness(.86) saturate(.9); }
+/* 睡着时很轻的一起一伏；轻点那一下微微一缩 */
+@keyframes catBreathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.012, 1.028); }
+}
+.notebook-cat[data-frame="sleep"] .notebook-cat__body {
+  animation: catBreathe 5s var(--cs-ease-breathe) infinite;
+}
+@keyframes catSquish {
+  0%, 100% { transform: scale(1, 1); }
+  40% { transform: scale(1.04, 0.95); }
+}
+.notebook-cat[data-frame="peek"] .notebook-cat__body {
+  animation: catSquish 320ms var(--cs-ease-calm);
+}
+/* 手写的「呼噜呼噜…」从它头顶飘起来 */
+@keyframes purrFloat {
+  0% { opacity: 0; transform: translate(0, 4px); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-6px, -14px); }
+}
+.notebook-cat__purr {
+  position: absolute;
+  left: -10px;
+  top: -18px;
+  white-space: nowrap;
+  font-family: var(--cs-font-hand);
+  font-size: 12px;
+  color: var(--cs-text-secondary);
+  pointer-events: none;
+  animation: purrFloat 1.6s var(--cs-ease-calm) forwards;
+}
+/* 深夜睡着时头顶一枚很淡的 z */
+@keyframes catZ {
+  0% { opacity: 0; transform: translate(0, 0); }
+  30% { opacity: .7; }
+  100% { opacity: 0; transform: translate(-4px, -10px); }
+}
+.notebook-cat__z {
+  position: absolute;
+  left: 6px;
+  top: -8px;
+  font-family: var(--cs-font-hand);
+  font-size: 11px;
+  color: var(--cs-text-muted);
+  pointer-events: none;
+  animation: catZ 4s var(--cs-ease-breathe) infinite;
+}
+/* 摸出好感时飘起来的一颗小心（本子角与宠物页共用） */
+@keyframes petHeartPop {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(.8); }
+  25% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -26px) scale(1); }
+}
+.pet-heart-pop {
+  position: absolute;
+  left: 50%;
+  white-space: nowrap;
+  pointer-events: none;
+  color: #E48A9C;
+  animation: petHeartPop 1.3s var(--cs-ease-calm) forwards;
+}
+.notebook-cat__heart { top: -22px; left: 70%; font-size: 12px; }
+
+/* 减少动态效果：只换帧，不飘不动；「呼噜呼噜…」静静写在那儿 */
+@media (prefers-reduced-motion: reduce) {
+  .notebook-cat__body { animation: none !important; }
+  .notebook-cat__purr { animation: none; opacity: 1; }
+}
+
+/* ===== 天气页（2026-09-27，路线图 C29）：一大幅简笔画 + 很轻的动画 ===== */
+.weather-scene {
+  position: relative;
+  width: min(72vw, 260px);
+  aspect-ratio: 1;
+}
+.weather-scene--small { width: min(46vw, 170px); }
+.weather-scene__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  transform-origin: 50% 60%;
+}
+:root[data-theme="dark"] .weather-scene__art { filter: brightness(.88) saturate(.92); }
+.weather-scene__halo {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--cs-pastel-apricot) 70%, transparent) 0%, transparent 70%);
+  opacity: .55;
+}
+@keyframes wxSway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes wxBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes wxDrift { 0%, 100% { transform: translateX(-5px); } 50% { transform: translateX(5px); } }
+@keyframes wxWobble { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-2deg); } 75% { transform: rotate(2deg); } }
+@keyframes wxGlow { 0%, 100% { transform: scale(.94); opacity: .45; } 50% { transform: scale(1.04); opacity: .7; } }
+.weather-scene--clear .weather-scene__art { animation: wxSway 7s var(--cs-ease-breathe) infinite; }
+.weather-scene--clear .weather-scene__halo { animation: wxGlow 5s var(--cs-ease-breathe) infinite; }
+.weather-scene--partly .weather-scene__art,
+.weather-scene--cloudy .weather-scene__art,
+.weather-scene--fog .weather-scene__art { animation: wxDrift 9s var(--cs-ease-breathe) infinite; }
+.weather-scene--rain .weather-scene__art,
+.weather-scene--snow .weather-scene__art { animation: wxBob 6s var(--cs-ease-breathe) infinite; }
+.weather-scene--thunder .weather-scene__art { animation: wxWobble 4s var(--cs-ease-breathe) infinite; }
+.weather-scene:not(.weather-scene--clear) .weather-scene__halo {
+  background: radial-gradient(circle, color-mix(in srgb, var(--cs-pastel-mist) 80%, transparent) 0%, transparent 70%);
+}
+/* 雨点与雪花从云下面落下来 */
+@keyframes wxFall {
+  0% { opacity: 0; transform: translateY(0); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(70px); }
+}
+@keyframes wxFlake {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0); }
+  15% { opacity: 1; }
+  50% { transform: translate(8px, 40px) rotate(90deg); }
+  100% { opacity: 0; transform: translate(-4px, 84px) rotate(180deg); }
+}
+.weather-scene__drop,
+.weather-scene__flake {
+  position: absolute;
+  top: 62%;
+  opacity: 0;
+  pointer-events: none;
+}
+.weather-scene__drop { animation: wxFall 1.4s linear infinite; }
+.weather-scene__flake { top: 58%; animation: wxFlake 4.6s linear infinite; }
+@keyframes wxMist { 0%, 100% { transform: translateX(-10px); opacity: .35; } 50% { transform: translateX(10px); opacity: .6; } }
+.weather-scene__mist {
+  position: absolute;
+  left: 50%;
+  margin-left: -60px;
+  color: var(--cs-text-muted);
+  pointer-events: none;
+  animation: wxMist 6s var(--cs-ease-breathe) infinite;
+}
+.weather-scene__mist--0 { top: 74%; }
+.weather-scene__mist--1 { top: 84%; animation-delay: -3s; }
+/* 温馨提醒：点一下换一句 */
+.weather-note {
+  transition: transform 200ms var(--cs-ease-calm), background-color 200ms var(--cs-ease-calm);
+}
+.weather-note:hover { background: color-mix(in srgb, var(--cs-pastel-blush) 45%, transparent); }
+.weather-note:active { transform: scale(.98); }
+
+/* ===== 宠物页（2026-09-27，路线图 C29） ===== */
+.pet-stage { aspect-ratio: 1.3; }
+.pet-stage__scale {
+  position: absolute;
+  /* 底边落在垫子正中：像是趴在垫子上，而不是浮在上面 */
+  inset: 6% 4% 5%;
+  transform-origin: 50% 100%;
+  transition: transform 560ms var(--cs-ease-calm);
+}
+.pet-body-button {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.pet-body-button:focus-visible { outline: 2px solid var(--cs-focus-info); outline-offset: 4px; border-radius: 24px; }
+.pet-body {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+}
+.pet-body img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: 50% 100%;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  transition: opacity 200ms var(--cs-ease-calm);
+}
+:root[data-theme="dark"] .pet-body img { filter: brightness(.9) saturate(.92); }
+.pet-body[data-mood="idle"] { animation: catBreathe 5s var(--cs-ease-breathe) infinite; }
+.pet-body[data-mood="peek"] { animation: catSquish 320ms var(--cs-ease-calm); }
+@keyframes petWiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-2.5deg); } 75% { transform: rotate(2.5deg); } }
+.pet-body[data-mood="purr"],
+.pet-body[data-mood="stretch"] { animation: petWiggle 600ms var(--cs-ease-calm) infinite; }
+@keyframes petChomp { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px) scale(1.01, .98); } }
+.pet-body--eating { animation: petChomp 450ms var(--cs-ease-calm) infinite !important; }
+.pet-purr {
+  position: absolute;
+  left: 18%;
+  top: 6%;
+  font-size: 15px;
+  color: var(--cs-text-secondary);
+  pointer-events: none;
+  animation: purrFloat 1.6s var(--cs-ease-calm) forwards;
+}
+.pet-zzz {
+  position: absolute;
+  left: 22%;
+  top: 10%;
+  font-size: 16px;
+  color: var(--cs-text-muted);
+  pointer-events: none;
+  animation: catZ 4s var(--cs-ease-breathe) infinite;
+}
+@keyframes snackDrop {
+  0% { opacity: 0; transform: translate(-50%, -40px) rotate(-20deg); }
+  30% { opacity: 1; }
+  70% { opacity: 1; transform: translate(-50%, 0) rotate(0); }
+  100% { opacity: 0; transform: translate(-50%, 6px); }
+}
+.pet-snack-drop {
+  position: absolute;
+  left: 42%;
+  bottom: 22%;
+  pointer-events: none;
+  animation: snackDrop 1.1s var(--cs-ease-calm) forwards;
+}
+.pet-stage__pop { top: 4%; font-size: 17px; }
+@keyframes grantIn {
+  0% { opacity: 0; transform: translateY(-8px) scale(.96); }
+  60% { opacity: 1; transform: translateY(2px) scale(1.02); }
+  100% { opacity: 1; transform: none; }
+}
+.pet-grant { animation: grantIn 560ms var(--cs-ease-calm) both; }
+.pet-growth { background: color-mix(in srgb, var(--cs-pastel-mist) 80%, var(--cs-paper-line)); }
+.pet-growth__fill {
+  background: repeating-linear-gradient(135deg, #A9D3A6 0 8px, #BFE0BB 8px 16px);
+  transition: width 560ms var(--cs-ease-calm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pet-body, .pet-body--eating, .weather-scene__art, .weather-scene__halo { animation: none !important; }
+  .pet-purr, .pet-zzz { animation: none; opacity: 1; }
+  .pet-heart-pop { animation: none; opacity: 1; transform: translate(-50%, -12px); }
+}
+
 /* 叶子分隔线：mount 时描边画出（路径设 pathLength=1） */
 @keyframes squiggleDraw {
   from { stroke-dashoffset: 1; }

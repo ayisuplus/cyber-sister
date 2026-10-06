@@ -10,6 +10,8 @@ import ChatPage from './pages/ChatPage'
 const HerPage = lazy(() => import('./pages/HerPage'))
 const StylePage = lazy(() => import('./pages/StylePage'))
 const GardenPage = lazy(() => import('./pages/GardenPage'))
+const WeatherPage = lazy(() => import('./pages/WeatherPage'))
+const PetPage = lazy(() => import('./pages/PetPage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ReadingPage = lazy(() => import('./pages/ReadingPage'))
 const ReaderPage = lazy(() => import('./pages/ReaderPage'))
@@ -48,7 +50,7 @@ export default function App() {
           <Route path="/chat/archives" element={<ProtectedRoute><ConversationArchivePage /></ProtectedRoute>} />
           <Route path="/her" element={<ProtectedRoute><HerPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          {/* 生活功能在 /tools/ 下：日程、手记、读书、装扮、花草 */}
+          {/* 生活功能在 /tools/ 下：日程、手记、读书、装扮、花草、天气、宠物 */}
           <Route path="/tools/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/tools/notes" element={<ProtectedRoute><NotesPage /></ProtectedRoute>} />
           <Route path="/tools/reading" element={<ProtectedRoute><ReadingPage /></ProtectedRoute>} />
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="/tools/reading/shelf/:name" element={<ProtectedRoute><ShelfBookPage /></ProtectedRoute>} />
           <Route path="/tools/style" element={<ProtectedRoute><StylePage /></ProtectedRoute>} />
           <Route path="/tools/garden" element={<ProtectedRoute><GardenPage /></ProtectedRoute>} />
+          <Route path="/tools/weather" element={<ProtectedRoute><WeatherPage /></ProtectedRoute>} />
+          <Route path="/tools/pet" element={<ProtectedRoute><PetPage /></ProtectedRoute>} />
           {/* 旧路径（含后端关怀卡 action.to 与外部深链）一律收拢到新入口 */}
           <Route path="/memories" element={<Moved to="/her" />} />
           <Route path="/profile" element={<Moved to="/settings" />} />

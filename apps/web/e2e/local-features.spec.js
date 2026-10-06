@@ -77,7 +77,7 @@ test.beforeEach(async ({ page }) => {
     const method = route.request().method()
     const responses = {
       '/api/chat/thread': { id: 'thread-e2e', messages: [] }, '/api/bridge': { bridges: [] }, '/api/llm/status': { externalFallback: { configured: false, consent: true } },
-      '/api/chat/nudges': { nudges: [] }, '/api/asr/status': { available: false },
+      '/api/chat/nudges': { nudges: [] }, '/api/weather': { place: null }, '/api/pets': { food: 0, foodCap: 30, dailyFood: 3, claimedToday: false, active: null, pets: [] }, '/api/asr/status': { available: false },
       '/api/chat/openers': { openers: [] },
       '/api/user/profile': { careEnabled: false }, '/api/user/external-llm-consent': { accepted: true },
       '/api/user/personas': { personas: [{ id: 'gentle', name: '姐妹', active: true, card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }] },
