@@ -33,6 +33,7 @@ import {
   distillPersona,
   legacyPersonaCard,
   listPersonas,
+  DEPTH_PROMPT_BUDGET,
   personaCardPrompt,
   personaContextOf,
   removePersona,
@@ -411,5 +412,102 @@ describe('卡 v2 深度字段（人设深度化 T3）', () => {
     const { db: db2 } = fakeDb([{ name: '小柔', card: DEFAULT_PERSONA_CARD }], 'p1')
     await updatePersonaCard('u1', 'p1', DEEP, db2)
     expect(db2.persona.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ card: expect.objectContaining({ boundaries: DEEP.boundaries }) }) }))
+  })
+})
+
+
+// 发给模型的人设层会过 redactSensitiveText，它先做 NFKC 归一化（全角标点变半角），所以断言里的期望文本也要同样归一化——
+// 与上面「固定格式」那条一致。
+const nk = (text) => text.normalize('NFKC')
+
+describe('personaCardPrompt 的 v2 追加（人设深度化 T4）', () => {
+  const GROUP_HEADER = new RegExp(nk('^(判断规则|表达|她不知道、做不到的，就直说不知道，不编|她看重|她自己也有矛盾|看事情的方式)：'))
+  const depthLines = (prompt) => prompt.split('\n').filter((line) => GROUP_HEADER.test(line))
+  const rules = (n) => Array.from({ length: n }, (_, i) => ({ when: `她遇到第${i + 1}种情况`, then: `她会这样回应第${i + 1}种`, basis: 'source' }))
+  const FICTION = (extra = {}) => validatePersonaCard({
+    ...CARD,
+    provenance: { kind: 'fiction', label: '某部小说' },
+    heuristics: rules(8),
+    tensions: ['嘴上说不在乎，心里记得很清楚', '想独处，又怕被忘掉', '第三处不会进提示词'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+    ...extra,
+  })
+
+  it('旧卡的人设层逐字不变（金标准）：没有任何 v2 追加，也没有声明', () => {
+    expect(personaCardPrompt(DEFAULT_PERSONA_CARD)).toBe(nk([
+      '人设：姐妹。',
+      '她和你的关系：陪你聊天的姐妹',
+      '怎么说话：包容、耐心，慢慢听你说；先接住情绪，再轻轻梳理事情；多用「我在听」「这确实难受」这类承接。',
+      '绝不：不催你做事，不说「随你」这类把人推开的话。',
+      '示例句：「抱抱，这事儿确实委屈你了。」',
+    ].join('\n')))
+    expect(personaCardPrompt(validatePersonaCard(CARD))).not.toMatch(/判断规则|声明/)
+  })
+
+  it('v2 追加在七行之后：判断规则只带前 5 条，诚实边界在，价值观与矛盾在其后', () => {
+    const prompt = personaCardPrompt(FICTION())
+    expect(prompt.indexOf(nk('绝不：'))).toBeLessThan(prompt.indexOf(nk('判断规则：')))
+    const rulesLine = prompt.split('\n').find((line) => line.startsWith(nk('判断规则：')))
+    expect(rulesLine.match(/如果/g)).toHaveLength(5)
+    expect(rulesLine).not.toContain('第6种')
+    expect(prompt).toContain(nk('她不知道、做不到的，就直说不知道，不编：不知道她私下怎么想；不会预测她没经历过的事；资料只到整理那一天'))
+    expect(prompt).toContain(nk('她自己也有矛盾：嘴上说不在乎，心里记得很清楚；想独处，又怕被忘掉'))
+    expect(prompt).not.toContain('第三处不会进提示词')
+  })
+
+  it('追加部分不超过预算；放不下的整条跳过，不截半句', () => {
+    const heavy = FICTION({
+      heuristics: Array.from({ length: 8 }, (_, i) => ({ when: `${'x'.repeat(59)}${i}`, then: 'y'.repeat(100), basis: 'source' })),
+      expression: { sentence: 'a'.repeat(80), vocabulary: 'b'.repeat(80), rhythm: 'c'.repeat(80), humor: 'd'.repeat(80), certainty: 'e'.repeat(80) },
+      values: ['诚实', '护短', '不将就'],
+      models: [
+        { name: '先接住', idea: 'm'.repeat(100), failsWhen: 'n'.repeat(80), basis: 'inferred' },
+        { name: '再梳理', idea: 'o'.repeat(100), failsWhen: 'p'.repeat(80), basis: 'inferred' },
+      ],
+    })
+    const prompt = personaCardPrompt(heavy)
+    const lines = depthLines(prompt)
+    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.join('').length).toBeLessThanOrEqual(DEPTH_PROMPT_BUDGET)
+    // 每条判断规则要么完整、要么整条不在：不会出现被截断的「如果……，就」
+    const ruleLines = lines.filter((line) => line.startsWith(nk('判断规则：')))
+    expect(ruleLines).toHaveLength(1)
+    for (const part of ruleLines[0].replace(nk('判断规则：'), '').split(nk('；'))) expect(part).toMatch(/^如果x+\d,就y{100}$/)
+    // 声明不占预算，永远带上
+    expect(prompt).toContain(nk('声明：你以某部小说里的角色为蓝本'))
+  })
+
+  it('预算很紧时优先留下诚实边界，而不是价值观', () => {
+    const tight = FICTION({
+      heuristics: Array.from({ length: 5 }, (_, i) => ({ when: `${'x'.repeat(59)}${i}`, then: 'y'.repeat(100), basis: 'source' })),
+      values: ['诚实', '护短', '不将就'],
+    })
+    expect(personaCardPrompt(tight)).toContain(nk('她不知道、做不到的，就直说不知道，不编：'))
+  })
+
+  it('三种来源的声明：公众人物不自称本人、朋友不自称那个真人、虚构角色不编原作没写的', () => {
+    const publicFigure = personaCardPrompt(FICTION({ provenance: { kind: 'public_figure', label: '某位女作家' } }))
+    expect(publicFigure).toContain(nk('声明：你是受某位女作家公开言论启发的 AI，不代表她本人；不编造她说过的话，不自称是她。'))
+    const friend = personaCardPrompt(FICTION({ provenance: { kind: 'friend' } }))
+    expect(friend).toContain(nk('不自称是那个真人，不编造那个人没说过的话、没做过的事'))
+    expect(personaCardPrompt(FICTION())).toContain(nk('原作没写到的事，不当成她真的经历过去编'))
+  })
+
+  it('发给模型之前仍然脱敏：v2 字段里的手机号与邮箱也会被换掉', () => {
+    const prompt = personaCardPrompt(FICTION({
+      heuristics: [{ when: '她想联系对方', then: '给她 13912345678 或 synthetic@example.test', basis: 'inferred' }, ...rules(2)],
+    }))
+    expect(prompt).toContain('[手机号]')
+    expect(prompt).toContain('[邮箱]')
+    expect(prompt).not.toContain('13912345678')
+    expect(prompt).not.toContain('synthetic@example.test')
+  })
+
+  it('personaContextOf 把深度卡的 v2 追加和声明一并交给模型', async () => {
+    const deep = FICTION()
+    const context = await personaContextOf('u1', 'p9', { persona: { findFirst: () => Promise.resolve({ card: deep }) } })
+    expect(context.personaBody).toContain(nk('判断规则：'))
+    expect(context.personaBody).toContain(nk('声明：'))
+    expect(context.immersion).toBe('medium')
   })
 })

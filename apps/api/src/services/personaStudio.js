@@ -101,7 +101,93 @@ export function personaCardPrompt(card) {
   if (card.samples?.length) {
     lines.push(`示例句：${card.samples.map((sample) => `「${sample}」`).join('')}`)
   }
+  // v2 深度字段（人设深度化 T4）：旧卡没有这些字段，下面两段都是空的，输出与以前逐字一致
+  lines.push(...packDepthGroups(depthGroups(card), DEPTH_PROMPT_BUDGET), ...provenanceNotes(card))
   return redactSensitiveText(lines.join('\n'))
+}
+
+/** v2 追加到人设层的字数预算：每轮都带，不能让它随卡一起涨。 */
+export const DEPTH_PROMPT_BUDGET = 600
+
+const textOf = (value) => (typeof value === 'string' ? value.trim() : '')
+const listOf = (value) => (Array.isArray(value) ? value : [])
+
+/**
+ * 按优先级排好的几组（诚实边界排在价值观与矛盾之前）：每组一个标题加若干条，条是整条取舍的单位。
+ * 卡在保存时已经校验过；这里仍按「可能是脏数据」来读，缺字段的条直接跳过，不让聊天炸掉。
+ */
+function depthGroups(card) {
+  const expression = card.expression && typeof card.expression === 'object' ? card.expression : {}
+  return [
+    {
+      header: '判断规则：',
+      joiner: '；',
+      items: listOf(card.heuristics).slice(0, 5)
+        .filter((rule) => textOf(rule?.when) && textOf(rule?.then))
+        .map((rule) => `如果${textOf(rule.when)}，就${textOf(rule.then)}`),
+    },
+    {
+      header: '表达：',
+      joiner: '；',
+      items: Object.entries({ sentence: '句式', vocabulary: '用词', rhythm: '节奏', humor: '幽默', certainty: '确定感' })
+        .filter(([key]) => textOf(expression[key]))
+        .map(([key, label]) => `${label}${textOf(expression[key])}`),
+    },
+    {
+      header: '她不知道、做不到的，就直说不知道，不编：',
+      joiner: '；',
+      items: listOf(card.boundaries).slice(0, 3).map(textOf).filter(Boolean),
+    },
+    { header: '她看重：', joiner: '、', items: listOf(card.values).map(textOf).filter(Boolean) },
+    { header: '她自己也有矛盾：', joiner: '；', items: listOf(card.tensions).slice(0, 2).map(textOf).filter(Boolean) },
+    {
+      header: '看事情的方式：',
+      joiner: '；',
+      items: listOf(card.models).slice(0, 2)
+        .filter((model) => textOf(model?.name) && textOf(model?.idea))
+        .map((model) => `${textOf(model.name)}——${textOf(model.idea)}${textOf(model.failsWhen) ? `（不适用：${textOf(model.failsWhen)}）` : ''}`),
+    },
+  ]
+}
+
+/** 在预算内按优先级装条：一条放不下就整条跳过（不截半句），继续试后面更短的；一组一条都没装进就不出标题。 */
+function packDepthGroups(groups, budget) {
+  const lines = []
+  let used = 0
+  for (const { header, joiner, items } of groups) {
+    const taken = []
+    let cost = header.length
+    for (const item of items) {
+      const add = (taken.length ? joiner.length : 0) + item.length
+      if (used + cost + add > budget) continue
+      taken.push(item)
+      cost += add
+    }
+    if (taken.length) {
+      lines.push(`${header}${taken.join(joiner)}`)
+      used += cost
+    }
+  }
+  return lines
+}
+
+/**
+ * 来源声明（不占预算、永远带上）：她是谁的影子，就把话说在前头——不自称是本人，不替真人编话。
+ * 原创卡与没写来源的旧卡没有声明。
+ */
+function provenanceNotes(card) {
+  const kind = card.provenance?.kind
+  const label = textOf(card.provenance?.label)
+  if (kind === 'public_figure' && label) {
+    return [`声明：你是受${label}公开言论启发的 AI，不代表她本人；不编造她说过的话，不自称是她。`]
+  }
+  if (kind === 'friend') {
+    return ['声明：你不是现实中的那个人，只是照她给的聊天记录整理出的样子在陪她；不自称是那个真人，不编造那个人没说过的话、没做过的事。']
+  }
+  if (kind === 'fiction' && label) {
+    return [`声明：你以${label}里的角色为蓝本；原作没写到的事，不当成她真的经历过去编。`]
+  }
+  return []
 }
 
 /** 口吻底子只决定确定性句库（关怀卡/来信本地版/离线兜底）取哪一套。 */
