@@ -7,9 +7,18 @@ import {
   PERSONA_CARD_LIMITS,
   PERSONA_FIELD_LABELS,
   TONES,
+  DISTILL_KINDS,
+  FRIEND_NEEDS_ATTESTATION,
+  PUBLIC_FIGURE_NEEDS_NAME,
+  blankHeuristic,
+  blankModel,
   buildPersonaCard,
+  canResearchKind,
   emptyPersonaCard,
+  hasDepth,
+  provenanceBadge,
   sampleLineOf,
+  validateDistillSource,
   validatePersonaCard,
 } from './personas'
 
@@ -97,5 +106,53 @@ describe('v2 深度字段（人设深度化 T3）', () => {
     expect(validatePersonaCard(deep)).toBeNull()
     expect(validatePersonaCard({ ...deep, boundaries: ['只有一条'] })).toBe('蒸馏出来的她至少要写明3条做不到或不知道的事')
     expect(validatePersonaCard({ ...deep, heuristics: [...rules.slice(0, 2), { when: '她被夸时', then: '先不接话' }] })).toContain('要标明来源')
+  })
+})
+
+describe('造她的来源类型（人设深度化 T6）', () => {
+  it('四种来源，缺省的「自己想的」排第一', () => {
+    expect(DISTILL_KINDS.map((item) => item.kind)).toEqual(['original', 'fiction', 'public_figure', 'friend'])
+    for (const item of DISTILL_KINDS) expect(item.hint.length).toBeGreaterThan(0)
+  })
+
+  it('只有虚构角色与公众人物才有公开资料可查：自己想的不查，朋友绝不联网查人', () => {
+    expect(canResearchKind('fiction')).toBe(true)
+    expect(canResearchKind('public_figure')).toBe(true)
+    expect(canResearchKind('original')).toBe(false)
+    expect(canResearchKind('friend')).toBe(false)
+    expect(canResearchKind(undefined)).toBe(false)
+  })
+
+  it('预校验与服务端同口径：公众人物要写明是谁，朋友要先声明，来源名不超长', () => {
+    expect(validateDistillSource({ kind: 'original' })).toBeNull()
+    expect(validateDistillSource({ kind: 'fiction', label: '' })).toBeNull()
+    expect(validateDistillSource({ kind: 'public_figure', label: '  ' })).toBe(PUBLIC_FIGURE_NEEDS_NAME)
+    expect(validateDistillSource({ kind: 'public_figure', label: '某位女作家' })).toBeNull()
+    expect(validateDistillSource({ kind: 'friend', attested: false })).toBe(FRIEND_NEEDS_ATTESTATION)
+    expect(validateDistillSource({ kind: 'friend' })).toBe(FRIEND_NEEDS_ATTESTATION)
+    expect(validateDistillSource({ kind: 'friend', attested: true })).toBeNull()
+    expect(validateDistillSource({ kind: 'fiction', label: '字'.repeat(31) })).toBe('来源名不能超过30个字符')
+  })
+})
+
+describe('来源标注与深度的辅助函数（人设深度化 T6）', () => {
+  it('provenanceBadge：虚构角色带作品名，公众人物写明「不代表本人」，朋友写明来自聊天记录，原创与旧卡没有', () => {
+    expect(provenanceBadge({ provenance: { kind: 'fiction', label: '某部小说' } })).toBe('虚构角色 · 某部小说')
+    expect(provenanceBadge({ provenance: { kind: 'fiction' } })).toBe('虚构角色')
+    expect(provenanceBadge({ provenance: { kind: 'public_figure', label: '某位女作家' } })).toBe('受某位女作家公开言论启发的 AI，不代表本人')
+    expect(provenanceBadge({ provenance: { kind: 'friend' } })).toBe('来自你提供的聊天记录')
+    for (const card of [{}, null, undefined, { provenance: { kind: 'original' } }, { provenance: 'x' }]) expect(provenanceBadge(card)).toBe('')
+  })
+
+  it('hasDepth：来源标注不算深度；有判断规则、边界这些才算', () => {
+    expect(hasDepth(filled())).toBe(false)
+    expect(hasDepth(filled({ provenance: { kind: 'friend' } }))).toBe(false)
+    expect(hasDepth(filled({ boundaries: ['不知道'] }))).toBe(true)
+    expect(hasDepth(null)).toBe(false)
+  })
+
+  it('手加的新行来源默认「我写的」', () => {
+    expect(blankHeuristic()).toEqual({ when: '', then: '', basis: 'authored' })
+    expect(blankModel()).toEqual({ name: '', idea: '', failsWhen: '', basis: 'authored' })
   })
 })

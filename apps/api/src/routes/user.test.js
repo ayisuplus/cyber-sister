@@ -22,6 +22,7 @@ const exportService = vi.hoisted(() => ({
 
 const personaStudio = vi.hoisted(() => ({
   listPersonas: vi.fn(),
+  isFriendPathOpen: vi.fn(() => false),
   createPersona: vi.fn(),
   distillPersona: vi.fn(),
   updatePersonaCard: vi.fn(),
@@ -112,6 +113,10 @@ describe('人设库路由', () => {
     const ok = await request(app).get('/personas')
     expect(ok.status).toBe(200)
     expect(ok.body.personas[0]).toMatchObject({ id: 'p1', active: true })
+    // 朋友路径默认没开：界面据此如实显示「还没开放」
+    expect(ok.body.friendEnabled).toBe(false)
+    personaStudio.isFriendPathOpen.mockReturnValueOnce(true)
+    expect((await request(app).get('/personas')).body.friendEnabled).toBe(true)
 
     personaStudio.listPersonas.mockRejectedValue(new Error('db down'))
     const fail = await request(app).get('/personas')

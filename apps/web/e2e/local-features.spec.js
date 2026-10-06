@@ -65,6 +65,59 @@ test('人设库可创建、修改、切换与删除，最后一个保留并显�
   await expect(library.getByRole('button', { name: /^雨雨/ })).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('造她先选来源：虚构角色蒸馏出带来源标注的深度草稿，存下后列表看得到；朋友路径没开就如实写', async ({ page }) => {
+  let active = 'gentle'
+  let personas = [{ id: active, name: '姐妹', card: { name: '姐妹', speech: '耐心倾听', immersion: 'medium', tone: 'gentle', samples: [] } }]
+  const deep = {
+    name: '雾岛', identity: '', relationship: '', speech: '话少，但每句都算数', thinking: '', decisions: '', never: '', samples: [],
+    immersion: 'medium', tone: 'cool',
+    provenance: { kind: 'fiction', label: '某部小说' },
+    heuristics: [1, 2, 3].map((n) => ({ when: `她遇到第${n}种情况`, then: `她会这样回应${n}`, basis: n === 1 ? 'source' : 'inferred' })),
+    tensions: ['嘴上说不在乎，心里记得很清楚', '推断：想独处，又怕被忘掉'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+  }
+  const distillBodies = []
+  await page.route('**/api/user/personas**', route => {
+    if (route.request().method() === 'GET') return json(route, 200, { personas: personas.map((persona) => ({ ...persona, active: persona.id === active })), friendEnabled: false })
+    expect(route.request().method()).toBe('POST')
+    const card = route.request().postDataJSON()
+    active = 'deep-e2e'
+    personas.push({ id: active, name: card.name, card })
+    return json(route, 201, { id: active, name: card.name, card, persona: active })
+  })
+  // 后注册的优先：蒸馏请求不会落进上面的建卡分支
+  await page.route('**/api/user/personas/distill', route => {
+    distillBodies.push(route.request().postData() ?? '')
+    return json(route, 200, { card: deep, researched: false })
+  })
+
+  await page.goto('/her')
+  const library = page.getByRole('region', { name: '她的样子' })
+  await library.getByRole('button', { name: '造一个她', exact: true }).click()
+
+  // 朋友路径服务端没开：写明「还没开放」，选不了
+  await expect(library.getByRole('radio', { name: /我的朋友/ })).toBeDisabled()
+  await expect(library.getByText('我的朋友（还没开放）')).toBeVisible()
+
+  await library.getByRole('radio', { name: /虚构角色/ }).check({ force: true })
+  await library.getByLabel('哪部作品、哪个角色（可不写）').fill('某部小说')
+  await library.getByLabel(/她的素材/).fill('一部小说里的她，话很少')
+  await library.getByRole('button', { name: '帮我整理', exact: true }).click()
+
+  // 草稿带着来源标注与深度，这一栏默认就是展开的；每条规则的来源看得见
+  await expect(library.getByText('来源：虚构角色 · 某部小说')).toBeVisible()
+  await expect(library.getByRole('combobox', { name: '判断规则第 2 条的来源' })).toHaveValue('inferred')
+  await expect(library.getByRole('combobox', { name: '判断规则第 1 条的来源' })).toHaveValue('source')
+  expect(distillBodies).toHaveLength(1)
+  expect(distillBodies[0]).toContain('fiction')
+  expect(distillBodies[0]).toContain('某部小说')
+  await accessible(page)
+
+  await library.getByRole('button', { name: '建好她', exact: true }).click()
+  await expect(library.getByRole('button', { name: /^雾岛/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(library.getByText('虚构角色 · 某部小说')).toBeVisible()
+})
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('cyber-sister-auth', JSON.stringify({ state: { token: 'local-features-e2e', user: { id: 'local-features-e2e', nickname: '内测用户', persona: 'gentle' }, isLoggedIn: true }, version: 0 }))

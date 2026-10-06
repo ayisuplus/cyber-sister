@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '../../stores/authStore'
+import PersonaDepthEditor from './PersonaDepthEditor'
 import {
+  DEPTH_LIMITS,
   DISTILL_EMPTY_MATERIAL,
   DISTILL_FAILED,
+  DISTILL_KINDS,
+  FRIEND_ATTESTATION,
+  FRIEND_CLOSED,
   IMMERSIONS,
   IMMERSION_DESCRIPTIONS,
   IMMERSION_LABELS,
@@ -20,9 +25,12 @@ import {
   TONE_LABELS,
   TONE_NOTE,
   buildPersonaCard,
+  canResearchKind,
   emptyPersonaCard,
   pickDepth,
+  provenanceBadge,
   sampleLineOf,
+  validateDistillSource,
   validatePersonaCard,
 } from '../../features/personas'
 import { personaService } from '../../services/userService'
@@ -33,8 +41,91 @@ const errorOf = (error, fallback) => error?.response?.data?.error || fallback
 // 人设卡草稿的字段取值：空/非字符串一律当空串
 const fieldOf = (draft, field) => (typeof draft[field] === 'string' ? draft[field] : '')
 
-/** 造她的素材面板：素材文字 + 最多 4 张照片 + 顺手查公开资料开关，蒸馏出草稿填进人设卡表单。 */
-function DistillPanel({ material, setMaterial, images, setImages, research, setResearch, busy, onDistill, onClose }) {
+/** 造她的第一步：她从哪来。朋友路径没开就如实写「还没开放」，不假装能用。 */
+function KindPicker({ kind, setKind, friendEnabled, busy }) {
+  return (
+    <fieldset className="mt-3">
+      <legend className="text-xs text-text-secondary">她从哪来</legend>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {DISTILL_KINDS.map(({ kind: value, title, hint }) => {
+          const closed = value === 'friend' && !friendEnabled
+          const tone = kind === value
+            ? 'border-action-primary bg-pastel-blush text-text-primary'
+            : 'border-border-subtle bg-surface-card text-text-secondary hover:bg-surface-muted'
+          return (
+            <label key={value}
+              className={`flex min-h-11 flex-col justify-center rounded-control border p-2 transition-colors duration-300 ease-calm ${closed ? 'cursor-not-allowed border-border-subtle opacity-60' : `cursor-pointer ${tone}`}`}>
+              <input type="radio" name="persona-kind" className="sr-only" checked={kind === value} disabled={busy || closed}
+                onChange={() => setKind(value)} />
+              <span className="block text-sm">{closed ? `${title}（${FRIEND_CLOSED}）` : title}</span>
+              <span className="mt-1 block text-[11px] leading-relaxed">{hint}</span>
+            </label>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
+
+/** 这一类来源要多填的东西：作品或人物名；朋友要先声明。 */
+function SourceFields({ kind, label, setLabel, attested, setAttested, busy }) {
+  if (kind === 'friend') {
+    return (
+      <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-2 text-xs text-text-secondary">
+        <input type="checkbox" className="mt-1" checked={attested} disabled={busy} onChange={(event) => setAttested(event.target.checked)} />
+        {FRIEND_ATTESTATION}
+      </label>
+    )
+  }
+  if (!canResearchKind(kind)) return null
+  const figure = kind === 'public_figure'
+  return (
+    <div className="mt-3">
+      <label htmlFor="persona-source-label" className="block text-xs text-text-secondary">
+        {figure ? '她是谁（公众人物的名字，必填）' : '哪部作品、哪个角色（可不写）'}
+      </label>
+      <input id="persona-source-label" type="text" value={label} disabled={busy} maxLength={DEPTH_LIMITS.provenanceLabel}
+        onChange={(event) => setLabel(event.target.value)}
+        className="mt-1 min-h-11 w-full rounded-control border border-border-subtle bg-surface-card p-3 text-sm text-text-primary" />
+    </div>
+  )
+}
+
+/** 素材文字，以及这一类才有的照片与「顺手查公开资料」；朋友只收文字。 */
+function MaterialFields({ kind, material, setMaterial, images, pickImages, research, setResearch, busy }) {
+  const friend = kind === 'friend'
+  return (
+    <>
+      <label htmlFor="persona-material" className="mt-3 block text-xs text-text-secondary">
+        {`${friend ? '你们的聊天记录' : '她的素材'}（${MAX_MATERIAL_CHARS} 字内）`}
+      </label>
+      <textarea
+        id="persona-material"
+        value={material}
+        rows={5}
+        disabled={busy}
+        onChange={(event) => setMaterial(event.target.value)}
+        placeholder={friend ? '把你们的聊天记录贴在这里……' : '她是谁、怎么说话、你们怎么认识的……'}
+        className="mt-1 w-full rounded-control border border-border-subtle bg-surface-card p-3 text-sm text-text-primary"
+      />
+      {!friend && (
+        <label className="mt-2 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-control border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
+          {images.length ? `已选 ${images.length} 张照片` : `加几张她的照片（最多 ${MAX_DISTILL_IMAGES} 张）`}
+          <input type="file" accept="image/*" multiple aria-label="她的照片" disabled={busy} onChange={pickImages} className="hidden" />
+        </label>
+      )}
+      {canResearchKind(kind) && (
+        <label className="mt-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
+          <input type="checkbox" checked={research} disabled={busy} onChange={(event) => setResearch(event.target.checked)} />
+          顺手查查公开资料
+        </label>
+      )}
+    </>
+  )
+}
+
+/** 造她的面板：先选她从哪来，再给素材，蒸馏出草稿填进人设卡表单。 */
+function DistillPanel({ kind, setKind, label, setLabel, attested, setAttested, friendEnabled, material, setMaterial, images, setImages, research, setResearch, busy, onDistill, onClose }) {
   const [notice, setNotice] = useState('')
 
   const pickImages = (event) => {
@@ -50,8 +141,13 @@ function DistillPanel({ material, setMaterial, images, setImages, research, setR
   }
 
   const submit = () => {
-    // 预校验跟服务端同口径：素材空 → 先给点她的素材；太长 → 素材不能超过 5000 个字符
-    if (!material.trim() && images.length === 0) {
+    // 预校验跟服务端同口径：先说清来源；素材空 → 先给点她的素材；太长 → 素材不能超过 5000 个字符
+    const problem = validateDistillSource({ kind, label, attested })
+    if (problem) {
+      setNotice(problem)
+      return
+    }
+    if (!material.trim() && (kind === 'friend' || images.length === 0)) {
       setNotice(DISTILL_EMPTY_MATERIAL)
       return
     }
@@ -67,26 +163,12 @@ function DistillPanel({ material, setMaterial, images, setImages, research, setR
     <div className="mt-3 rounded-card border border-border-subtle bg-surface-card p-4">
       <h3 className="text-sm font-semibold text-text-primary">造一个她</h3>
       <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-        写点她的素材：她是谁、怎么说话、你们怎么认识的；聊天记录、照片截图也行。我先帮你整理成草稿，你再改。
+        先说她从哪来，再给点素材。我先帮你整理成草稿，你再改；整理出来的每一条都会标明是素材里有的，还是我推断的。
       </p>
-      <label htmlFor="persona-material" className="mt-3 block text-xs text-text-secondary">{`她的素材（${MAX_MATERIAL_CHARS} 字内）`}</label>
-      <textarea
-        id="persona-material"
-        value={material}
-        rows={5}
-        disabled={busy}
-        onChange={(event) => setMaterial(event.target.value)}
-        placeholder="她是谁、怎么说话、你们怎么认识的……"
-        className="mt-1 w-full rounded-control border border-border-subtle bg-surface-card p-3 text-sm text-text-primary"
-      />
-      <label className="mt-2 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-control border border-dashed border-border-subtle px-3 text-xs text-text-secondary">
-        {images.length ? `已选 ${images.length} 张照片` : `加几张她的照片（最多 ${MAX_DISTILL_IMAGES} 张）`}
-        <input type="file" accept="image/*" multiple aria-label="她的照片" disabled={busy} onChange={pickImages} className="hidden" />
-      </label>
-      <label className="mt-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-text-secondary">
-        <input type="checkbox" checked={research} disabled={busy} onChange={(event) => setResearch(event.target.checked)} />
-        顺手查查公开资料
-      </label>
+      <KindPicker kind={kind} setKind={setKind} friendEnabled={friendEnabled} busy={busy} />
+      <SourceFields kind={kind} label={label} setLabel={setLabel} attested={attested} setAttested={setAttested} busy={busy} />
+      <MaterialFields kind={kind} material={material} setMaterial={setMaterial} images={images} pickImages={pickImages}
+        research={research} setResearch={setResearch} busy={busy} />
       {notice && <p role="alert" className="mt-2 text-xs text-danger">{notice}</p>}
       <div className="mt-3 flex gap-2">
         <button type="button" disabled={busy} onClick={submit} className="min-h-11 rounded-control bg-action-primary px-4 text-sm font-semibold text-white disabled:opacity-50">
@@ -176,6 +258,8 @@ function PersonaCardForm({ draft, setDraft, editingName, busy, error, onSave, on
         <p className="mt-2 text-[11px] leading-relaxed text-text-muted">{TONE_NOTE}</p>
       </fieldset>
 
+      <PersonaDepthEditor draft={draft} setDraft={setDraft} busy={busy} />
+
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
       <div className="mt-3 flex gap-2">
         <button type="button" disabled={busy} onClick={onSave} className="min-h-11 rounded-control bg-action-primary px-4 text-sm font-semibold text-white disabled:opacity-50">
@@ -208,6 +292,10 @@ export default function PersonaLibrary() {
   const [material, setMaterial] = useState('')
   const [images, setImages] = useState([])
   const [research, setResearch] = useState(true)
+  const [kind, setKind] = useState('original')
+  const [label, setLabel] = useState('')
+  const [attested, setAttested] = useState(false)
+  const [friendEnabled, setFriendEnabled] = useState(false)
 
   const [form, setForm] = useState(null) // { id: 人设卡 id，null=建新卡 }
   const [draft, setDraft] = useState(emptyPersonaCard)
@@ -219,7 +307,9 @@ export default function PersonaLibrary() {
     let alive = true
     personaService.list()
       .then((data) => {
-        if (alive) setPersonas(Array.isArray(data?.personas) ? data.personas : [])
+        if (!alive) return
+        setPersonas(Array.isArray(data?.personas) ? data.personas : [])
+        setFriendEnabled(data?.friendEnabled === true)
       })
       .catch(() => {
         if (alive) setListError('她的人设暂时读不到，请稍后再试。')
@@ -245,6 +335,7 @@ export default function PersonaLibrary() {
 
   const startDistill = () => {
     setDistillOpen(true)
+    setAttested(false)
     setNotice('')
     setMessage('')
   }
@@ -280,7 +371,14 @@ export default function PersonaLibrary() {
     setNotice('')
     setMessage('')
     try {
-      const result = await personaService.distill({ material: material.trim(), images, research })
+      const result = await personaService.distill({
+        material: material.trim(),
+        images: kind === 'friend' ? [] : images,
+        research: canResearchKind(kind) && research,
+        kind,
+        label: label.trim(),
+        attested,
+      })
       if (result?.refused === 'male') {
         setNotice(MALE_REFUSAL)
         return
@@ -382,6 +480,9 @@ export default function PersonaLibrary() {
               >
                 <span className="block font-display text-base text-text-primary">{persona.name}</span>
                 <span className="mt-1 block font-hand text-[11px] leading-relaxed text-text-muted">{sampleLineOf(persona.card)}</span>
+                {provenanceBadge(persona.card) && (
+                  <span className="mt-1 block text-[11px] leading-relaxed text-text-muted">{provenanceBadge(persona.card)}</span>
+                )}
               </button>
               <button type="button" aria-label={`改一改「${persona.name}」`} disabled={busy} onClick={() => startEdit(persona)}
                 className="min-h-11 rounded-control border border-border-subtle px-3 text-xs text-text-secondary disabled:opacity-50">
@@ -408,6 +509,8 @@ export default function PersonaLibrary() {
 
       {distillOpen && (
         <DistillPanel
+          kind={kind} setKind={setKind} label={label} setLabel={setLabel}
+          attested={attested} setAttested={setAttested} friendEnabled={friendEnabled}
           material={material} setMaterial={setMaterial}
           images={images} setImages={setImages}
           research={research} setResearch={setResearch}

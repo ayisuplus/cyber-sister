@@ -455,6 +455,9 @@ export const FRIEND_NEEDS_ATTESTATION = '朋友这条路要先声明：这是你
 export const FRIEND_TEXT_ONLY = '朋友这条路只收文字，不收照片'
 export const FRIEND_NOT_OPEN = '朋友这条路还没开放'
 
+/** 朋友路径开了没（服务端开关，默认关）：蒸馏要认它，界面也要靠它如实显示「还没开放」。 */
+export const isFriendPathOpen = () => process.env.PERSONA_FRIEND_ENABLED === 'true'
+
 /**
  * 先说清她是谁的影子（人设深度化 T5）：每一类各有各的规矩。
  * 朋友：服务端开关 PERSONA_FRIEND_ENABLED 默认关（法务确认前不开）、必须声明、只收文字。
@@ -469,7 +472,7 @@ function readDistillSource({ kind, label, attested, images }) {
   }
   if (picked === 'public_figure' && !name) throw new HttpError(PUBLIC_FIGURE_NEEDS_NAME, 400)
   if (picked === 'friend') {
-    if (process.env.PERSONA_FRIEND_ENABLED !== 'true') throw new HttpError(FRIEND_NOT_OPEN, 403)
+    if (!isFriendPathOpen()) throw new HttpError(FRIEND_NOT_OPEN, 403)
     if (attested !== true) throw new HttpError(FRIEND_NEEDS_ATTESTATION, 400)
     if ((Array.isArray(images) ? images : []).some((image) => image?.buffer)) throw new HttpError(FRIEND_TEXT_ONLY, 400)
   }

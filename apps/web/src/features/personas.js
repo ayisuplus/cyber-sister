@@ -2,7 +2,13 @@
 // 字数上限、字段标签、枚举与结构校验在 packages/persona-card，API 与 Web 共用这一份（不再各抄一份再靠测试防漂移）；
 // 这里再导出，组件与测试的 import 不变。男性与低俗两道启发式只在服务端。
 import {
+  BASES,
+  BASIS_LABELS,
+  DEPTH_LIMITS,
+  EXPRESSION_LABELS,
+  HONESTY_MINIMUMS,
   IMMERSIONS,
+  KIND_LABELS,
   MAX_DISTILL_IMAGES,
   MAX_MATERIAL_CHARS,
   MAX_SAMPLES,
@@ -19,7 +25,13 @@ import {
 
 export {
   pickDepth,
+  BASES,
+  BASIS_LABELS,
+  DEPTH_LIMITS,
+  EXPRESSION_LABELS,
+  HONESTY_MINIMUMS,
   IMMERSIONS,
+  KIND_LABELS,
   MAX_DISTILL_IMAGES,
   MAX_MATERIAL_CHARS,
   MAX_SAMPLES,
@@ -116,3 +128,46 @@ export function buildPersonaCard(draft) {
   // v2 深度字段原样带上：表单还不认识它们时，编辑一张深度卡也不能把它们丢掉（校验在服务端）
   return { ...card, ...pickDepth(draft) }
 }
+
+// ——— 人设深度化 T6：先选她从哪来，深度字段的编辑与来源标注 ———
+
+/** 「造一个她」先选她从哪来：来源类型决定要填什么、能不能联网查、收不收照片。 */
+export const DISTILL_KINDS = [
+  { kind: 'original', title: '我自己想的', hint: '你来描述她，我帮你整理成卡。' },
+  { kind: 'fiction', title: '虚构角色', hint: '动漫、小说、影视里的她。可以顺手查公开资料。' },
+  { kind: 'public_figure', title: '公众人物', hint: '只做女性。她是受公开言论启发的 AI，不代表本人。' },
+  { kind: 'friend', title: '我的朋友', hint: '用你和在世朋友的聊天记录，只收文字：不联网，也不保存原始记录。' },
+]
+export const FRIEND_CLOSED = '还没开放'
+export const FRIEND_ATTESTATION = '我有权使用这些聊天记录，对方是在世的朋友'
+export const FRIEND_NEEDS_ATTESTATION = '朋友这条路要先声明：这是你有权使用的、在世朋友的聊天记录'
+export const PUBLIC_FIGURE_NEEDS_NAME = '公众人物要写明是谁'
+
+/** 只有虚构角色与公众人物有公开资料可查；自己想的不查，朋友绝不联网查人。 */
+export const canResearchKind = (kind) => kind === 'fiction' || kind === 'public_figure'
+
+/** 蒸馏前的预校验，口径与服务端一致；通过返回 null。 */
+export function validateDistillSource({ kind, label, attested }) {
+  const name = typeof label === 'string' ? label.trim() : ''
+  if (name.length > DEPTH_LIMITS.provenanceLabel) return `来源名不能超过${DEPTH_LIMITS.provenanceLabel}个字符`
+  if (kind === 'public_figure' && !name) return PUBLIC_FIGURE_NEEDS_NAME
+  if (kind === 'friend' && attested !== true) return FRIEND_NEEDS_ATTESTATION
+  return null
+}
+
+/** 卡上的来源标注（列表与编辑页都显示）；自己想的、旧卡没有标注，返回空串。 */
+export function provenanceBadge(card) {
+  const kind = card?.provenance?.kind
+  const label = typeof card?.provenance?.label === 'string' ? card.provenance.label.trim() : ''
+  if (kind === 'fiction') return label ? `虚构角色 · ${label}` : '虚构角色'
+  if (kind === 'public_figure') return `受${label || '她'}公开言论启发的 AI，不代表本人`
+  if (kind === 'friend') return '来自你提供的聊天记录'
+  return ''
+}
+
+/** 卡里有没有深度内容（来源标注不算）：编辑页据此决定「更深一点的样子」默认开不开。 */
+export const hasDepth = (card) => Object.keys(pickDepth(card)).some((key) => key !== 'provenance')
+
+/** 手写加的新行，来源默认「我写的」。 */
+export const blankHeuristic = () => ({ when: '', then: '', basis: 'authored' })
+export const blankModel = () => ({ name: '', idea: '', failsWhen: '', basis: 'authored' })

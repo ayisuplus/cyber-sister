@@ -97,7 +97,7 @@ router.put('/profile', async (req, res) => {
 // 人设库（2026-09-29 裁定）：用户自己定义的「她」；卡片校验与蒸馏都在 personaStudio
 router.get('/personas', async (req, res) => {
   try {
-    res.json({ personas: await personaStudio.listPersonas(req.user.userId) })
+    res.json({ personas: await personaStudio.listPersonas(req.user.userId), friendEnabled: personaStudio.isFriendPathOpen() })
   } catch (error) {
     if (!error.statusCode) logger.error('读取人设库失败', { error: error.message, userId: req.user.userId })
     sendError(res, error, '读取人设库失败')
