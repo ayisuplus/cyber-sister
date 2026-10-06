@@ -4,7 +4,13 @@
  * API（保存与蒸馏的校验权威）与 Web（表单预校验）共用这一份。
  * 「只做女孩子」「拒绝低俗」两道启发式只在服务端（apps/api personaStudio）：它们是词面正则，拦不全，
  * 不该在浏览器里再抄一份。
+ *
+ * v2「深度」字段（来源、表达、判断规则、心智模型、价值观、矛盾、诚实边界）在 depth.js，全部可选，
+ * 旧卡与手写卡原样有效。
  */
+import { checkPersonaDepth } from './depth.js'
+
+export * from './depth.js'
 
 /** 各字段字数上限；samples 的每一条用 sample。 */
 export const PERSONA_CARD_LIMITS = Object.freeze({
@@ -54,6 +60,7 @@ function readEnum(value, allowed, fallback, label, lenient) {
 /**
  * 归一化（trim、samples 去空）+ 结构校验：必填、各字段上限、示例句条数与字数、沉浸深度与口吻底子的枚举。
  * 校验顺序固定：字段（按 PERSONA_FIELD_LABELS 的顺序）→ 示例句 → 枚举，第一个不过的就是错误。
+ * 之后是 v2 深度字段（checkPersonaDepth）：给了才进结果，没给就和旧卡一模一样。
  * 通过返回 { card }，不通过返回 { error }（可直接展示的文案）。
  *
  * lenient（表单预校验用）：枚举缺省或不认识时回落默认值，不当作错误；服务端不传，枚举不对就拒绝。
@@ -86,5 +93,9 @@ export function checkPersonaCard(input, { lenient = false } = {}) {
   const tone = readEnum(source.tone, TONES, 'gentle', TONE_LABEL, lenient)
   if (tone.error) return { error: tone.error }
   card.tone = tone.value
+
+  const depth = checkPersonaDepth(source)
+  if (depth.error) return { error: depth.error }
+  Object.assign(card, depth.depth)
   return { card }
 }

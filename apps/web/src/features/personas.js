@@ -14,9 +14,11 @@ import {
   TONES,
   VULGAR_REFUSAL,
   checkPersonaCard,
+  pickDepth,
 } from 'persona-card'
 
 export {
+  pickDepth,
   IMMERSIONS,
   MAX_DISTILL_IMAGES,
   MAX_MATERIAL_CHARS,
@@ -111,5 +113,6 @@ export function buildPersonaCard(draft) {
     .filter(Boolean)
   card.immersion = IMMERSIONS.includes(draft?.immersion) ? draft.immersion : 'medium'
   card.tone = TONES.includes(draft?.tone) ? draft.tone : 'gentle'
-  return card
+  // v2 深度字段原样带上：表单还不认识它们时，编辑一张深度卡也不能把它们丢掉（校验在服务端）
+  return { ...card, ...pickDepth(draft) }
 }

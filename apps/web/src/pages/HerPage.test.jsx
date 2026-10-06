@@ -37,6 +37,15 @@ const CARD_TWO = {
   name: '毒牙', identity: '', relationship: '骂醒你的闺蜜', speech: '有话直说，护短。',
   thinking: '', decisions: '', never: '', samples: ['你清醒一点。'], immersion: 'high', tone: 'toxic',
 }
+// 深度卡（人设深度化 T3）：七格之外带着来源、判断规则、矛盾与边界；表单还不认识它们，编辑与蒸馏回填也不能把它们丢掉
+const DEEP_CARD = {
+  ...CARD_TWO,
+  name: '雾岛',
+  provenance: { kind: 'fiction', label: '某部小说' },
+  heuristics: [1, 2, 3].map((n) => ({ when: `她遇到第${n}种情况`, then: `她会这样回应${n}`, basis: 'source' })),
+  tensions: ['嘴上说不在乎，心里记得很清楚', '想独处，又怕被忘掉'],
+  boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+}
 const PERSONAS = [
   { id: 'p1', name: '小柔', card: CARD_ONE, active: true },
   { id: 'p2', name: '毒牙', card: CARD_TWO, active: false },
@@ -184,6 +193,43 @@ describe('HerPage', () => {
       speech: '有话直说，护短，也会骂醒你。',
     }))
     expect(await screen.findByText('改好了。')).toBeInTheDocument()
+  })
+
+  it('改一改深度卡：七格改了，来源、判断规则、矛盾与边界原样带回去', async () => {
+    const user = userEvent.setup()
+    personaService.list.mockResolvedValue({ personas: [...PERSONAS, { id: 'p3', name: '雾岛', card: DEEP_CARD, active: false }] })
+    personaService.update.mockResolvedValue({ id: 'p3', name: '雾岛', card: DEEP_CARD, persona: 'p1' })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '改一改「雾岛」' }))
+    await user.clear(screen.getByRole('textbox', { name: '她怎么说话' }))
+    await user.type(screen.getByRole('textbox', { name: '她怎么说话' }), '话少，但每句都算数。')
+    await user.click(screen.getByRole('button', { name: '存好改动' }))
+
+    const [id, sent] = personaService.update.mock.calls[0]
+    expect(id).toBe('p3')
+    expect(sent.speech).toBe('话少，但每句都算数。')
+    expect(sent.provenance).toEqual(DEEP_CARD.provenance)
+    expect(sent.heuristics).toEqual(DEEP_CARD.heuristics)
+    expect(sent.tensions).toEqual(DEEP_CARD.tensions)
+    expect(sent.boundaries).toEqual(DEEP_CARD.boundaries)
+  })
+
+  it('蒸馏出来的深度卡填进表单后保存，深度字段随建卡一起送出', async () => {
+    const user = userEvent.setup()
+    personaService.distill.mockResolvedValue({ card: DEEP_CARD, researched: false })
+    personaService.create.mockResolvedValue({ id: 'p4', name: '雾岛', card: DEEP_CARD, persona: 'p4' })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '造一个她' }))
+    await user.type(screen.getByRole('textbox', { name: /她的素材/ }), '一部小说里的她')
+    await user.click(screen.getByRole('button', { name: '帮我整理' }))
+    await user.click(await screen.findByRole('button', { name: '建好她' }))
+
+    const sent = personaService.create.mock.calls[0][0]
+    expect(sent.provenance).toEqual(DEEP_CARD.provenance)
+    expect(sent.heuristics).toEqual(DEEP_CARD.heuristics)
+    expect(sent.boundaries).toEqual(DEEP_CARD.boundaries)
   })
 
   it('进页面先到期就写信，再显示最新一封与频率三档', async () => {

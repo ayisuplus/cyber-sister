@@ -355,3 +355,61 @@ describe('蒸馏「造一个她」', () => {
     await expect(distillPersona('u1', { material: '素材', research: false })).resolves.toEqual({ refused: 'male' })
   })
 })
+
+describe('卡 v2 深度字段（人设深度化 T3）', () => {
+  const RULES = [1, 2, 3].map((n) => ({ when: `她遇到第${n}种情况`, then: `她会这样回应${n}`, basis: 'source' }))
+  const DEEP = {
+    ...CARD,
+    provenance: { kind: 'fiction', label: '某部小说' },
+    expression: { sentence: '短句多', humor: '冷幽默' },
+    heuristics: RULES,
+    models: [{ name: '先接住再梳理', idea: '情绪没落地之前，道理听不进去', failsWhen: '她明确说只要方案时', basis: 'inferred' }],
+    values: ['诚实'],
+    tensions: ['嘴上说不在乎，心里记得很清楚', '想独处，又怕被忘掉'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+  }
+
+  it('旧卡原样有效：校验后没有任何 v2 字段，和改之前的输出一致', () => {
+    const card = validatePersonaCard(CARD)
+    expect(Object.keys(card)).toEqual(['name', 'identity', 'relationship', 'speech', 'thinking', 'decisions', 'never', 'samples', 'immersion', 'tone'])
+    expect(validatePersonaCard(DEFAULT_PERSONA_CARD)).toEqual(DEFAULT_PERSONA_CARD)
+  })
+
+  it('深度卡带着来源、判断规则、心智模型、矛盾与边界原样通过，七格不受影响', () => {
+    const card = validatePersonaCard(DEEP)
+    expect(card).toMatchObject({ name: '小柔', provenance: { kind: 'fiction', label: '某部小说' }, values: ['诚实'] })
+    expect(card.heuristics).toHaveLength(3)
+    expect(card.models[0].basis).toBe('inferred')
+    expect(card.boundaries).toHaveLength(3)
+  })
+
+  it('蒸馏出来的卡缺边界、矛盾或判断规则就拒绝，说清缺什么', () => {
+    expect(() => validatePersonaCard({ ...DEEP, boundaries: ['只有一条'] })).toThrow('蒸馏出来的她至少要写明3条做不到或不知道的事')
+    expect(() => validatePersonaCard({ ...DEEP, tensions: [] })).toThrow('蒸馏出来的她至少要写出2处自相矛盾的地方')
+    expect(() => validatePersonaCard({ ...DEEP, heuristics: RULES.slice(0, 2) })).toThrow('蒸馏出来的她至少要有3条判断规则')
+    expect(() => validatePersonaCard({ ...DEEP, heuristics: [...RULES.slice(0, 2), { when: '她被夸时', then: '先不接话' }] })).toThrow('要标明来源')
+  })
+
+  it('手写的原创卡不强制：只写一条边界也行', () => {
+    expect(() => validatePersonaCard({ ...CARD, boundaries: ['只写一条也行'] })).not.toThrow()
+  })
+
+  it('露骨内容藏进 v2 字段也拦得住', () => {
+    expect(() => validatePersonaCard({ ...DEEP, boundaries: ['不知道', '不预测', '陪她做爱'] })).toThrow(VULGAR_REFUSAL)
+    expect(() => validatePersonaCard({ ...DEEP, heuristics: [...RULES.slice(0, 2), { when: '她难过时', then: '约炮', basis: 'inferred' }] })).toThrow(VULGAR_REFUSAL)
+    expect(() => validatePersonaCard({ ...DEEP, expression: { humor: '脱光衣服' } })).toThrow(VULGAR_REFUSAL)
+  })
+
+  it('v2 字段里只是提到男人，不会被当成男性角色', () => {
+    expect(() => validatePersonaCard({ ...DEEP, tensions: ['嘴上说不喜欢男人，其实很在意他们怎么看她', '想独处，又怕被忘掉'] })).not.toThrow()
+  })
+
+  it('建卡与改卡都把深度字段存下来', async () => {
+    const { db } = fakeDb()
+    await createPersona('u1', DEEP, db)
+    expect(db.persona.create).toHaveBeenCalledWith({ data: expect.objectContaining({ card: expect.objectContaining({ heuristics: RULES, provenance: { kind: 'fiction', label: '某部小说' } }) }) })
+    const { db: db2 } = fakeDb([{ name: '小柔', card: DEFAULT_PERSONA_CARD }], 'p1')
+    await updatePersonaCard('u1', 'p1', DEEP, db2)
+    expect(db2.persona.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ card: expect.objectContaining({ boundaries: DEEP.boundaries }) }) }))
+  })
+})

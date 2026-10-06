@@ -20,6 +20,7 @@ import {
   TONES,
   VULGAR_REFUSAL,
   checkPersonaCard,
+  collectCardText,
 } from 'persona-card'
 import { getPersonaSystemPrompt } from '@cyber-sister/llm-gateway'
 import { CONSENT_FIELDS, consentsOf } from './consents.js'
@@ -66,7 +67,8 @@ function looksMale(card) {
 }
 
 function crossesVulgarLine(card) {
-  const full = text(card.name, card.identity, card.relationship, card.speech, card.thinking, card.decisions, card.never, card.samples)
+  // v2 深度字段（判断规则、心智模型、矛盾、边界……）也要过这道检查，否则露骨内容可以藏进新字段里
+  const full = collectCardText(card)
   return VULGAR_PATTERNS.some((pattern) => pattern.test(full))
 }
 

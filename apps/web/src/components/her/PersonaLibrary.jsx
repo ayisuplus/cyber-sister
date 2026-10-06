@@ -21,6 +21,7 @@ import {
   TONE_NOTE,
   buildPersonaCard,
   emptyPersonaCard,
+  pickDepth,
   sampleLineOf,
   validatePersonaCard,
 } from '../../features/personas'
@@ -265,6 +266,7 @@ export default function PersonaLibrary() {
       samples: Array.isArray(card.samples) && card.samples.length ? card.samples.map(String) : [''],
       immersion: IMMERSIONS.includes(card.immersion) ? card.immersion : 'medium',
       tone: TONES.includes(card.tone) ? card.tone : 'gentle',
+      ...pickDepth(card),
     })
     setForm({ id: persona.id })
     setFormError('')
@@ -294,6 +296,7 @@ export default function PersonaLibrary() {
         samples: Array.isArray(card.samples) && card.samples.length ? card.samples.map(String) : [''],
         immersion: IMMERSIONS.includes(card.immersion) ? card.immersion : 'medium',
         tone: TONES.includes(card.tone) ? card.tone : 'gentle',
+        ...pickDepth(card),
       })
       setForm({ id: null })
       setFormError('')

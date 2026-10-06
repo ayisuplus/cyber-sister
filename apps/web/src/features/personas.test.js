@@ -76,3 +76,26 @@ describe('人设卡常量与预校验', () => {
     expect(sampleLineOf(undefined)).toBe('')
   })
 })
+
+describe('v2 深度字段（人设深度化 T3）', () => {
+  const rules = [1, 2, 3].map((n) => ({ when: `情况${n}`, then: `回应${n}`, basis: 'source' }))
+  const deep = filled({
+    provenance: { kind: 'fiction', label: '某部小说' },
+    heuristics: rules,
+    tensions: ['嘴上说不在乎', '想独处，又怕被忘掉'],
+    boundaries: ['不知道她私下怎么想', '不会预测她没经历过的事', '资料只到整理那一天'],
+  })
+
+  it('buildPersonaCard 把深度字段原样带上，旧草稿不会多出任何 v2 字段', () => {
+    const card = buildPersonaCard(deep)
+    expect(card.provenance).toEqual({ kind: 'fiction', label: '某部小说' })
+    expect(card.heuristics).toEqual(rules)
+    expect(Object.keys(buildPersonaCard(filled()))).toEqual(['name', 'identity', 'relationship', 'speech', 'thinking', 'decisions', 'never', 'samples', 'immersion', 'tone'])
+  })
+
+  it('预校验把深度字段的问题当场说出来，不用等服务端', () => {
+    expect(validatePersonaCard(deep)).toBeNull()
+    expect(validatePersonaCard({ ...deep, boundaries: ['只有一条'] })).toBe('蒸馏出来的她至少要写明3条做不到或不知道的事')
+    expect(validatePersonaCard({ ...deep, heuristics: [...rules.slice(0, 2), { when: '她被夸时', then: '先不接话' }] })).toContain('要标明来源')
+  })
+})
