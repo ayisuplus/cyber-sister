@@ -122,6 +122,25 @@ describe('validatePersonaCard：只做女孩子的她，不设风格门槛', () 
     expect(() => validatePersonaCard({ ...CARD, identity: '这是个男人' })).toThrow(MALE_REFUSAL)
   })
 
+  // 男性闸只拦「明说这个角色是男性」，不拦单独提到男人（2026-10-06 计划 T2：原先的「男人」「男性」会误伤正常闺蜜设定）
+  it.each(['我是男生', '我是个男生', '人设是男的', '男闺蜜', '她是个男人', '角色是男性'])('明说是男性的角色拒掉：%s', (identity) => {
+    expect(() => validatePersonaCard({ ...CARD, identity })).toThrow(MALE_REFUSAL)
+  })
+
+  it.each([
+    '她很会分析男人的心思，帮我看看对方到底什么意思',
+    '不喜欢男人，只爱吃甜点的都市女孩',
+    '她是个女生，对男性话题很敏感',
+    '她不是男的',
+    '毒舌闺蜜，专门吐槽渣男',
+    '我是男生们的好闺蜜',
+    '我是男生的好闺蜜',
+    '她是个男人堆里长大的女生',
+  ])('只是提到男人的正常闺蜜设定放行：%s', (identity) => {
+    expect(() => validatePersonaCard({ ...CARD, identity })).not.toThrow()
+    expect(() => validatePersonaCard({ ...CARD, speech: identity })).not.toThrow()
+  })
+
   it('拒绝低俗、允许暧昧：露骨的性内容拒掉', () => {
     expect(() => validatePersonaCard({ ...CARD, speech: '陪她做爱' })).toThrow(VULGAR_REFUSAL)
     expect(() => validatePersonaCard({ ...CARD, speech: '撒娇、贴贴、有点暧昧' })).not.toThrow()
