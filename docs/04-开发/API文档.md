@@ -194,21 +194,74 @@ Authorization: Bearer <access_token>
 
 `citeBooks`（2026-09-25 起，路线图 C22）：「回答里提到书」，布尔值，默认 `false`；非布尔值 400「citeBooks必须是布尔值」。只影响翻到书时给模型的一行说明：`true` 时可以自然地提一句书名和章节，只许提这一轮给它的书；`false` 时不提书名、作者、章节，也不引原文。页边批注不受它影响（批注的开关在设备上）。
 
-### PUT /api/user/persona — 切换人格
+### 人设库（2026-09-29 起，路线图 C30）
+
+「她」是用户自己写的**人设卡**，一人多张，至少留一个。内置说话方式预设已下线。以下接口都需要登录。
+
+**人设卡 `card`**（字段全是字符串，保存前 trim；`samples` 是字符串数组）
+
+| 字段 | 必填 | 上限 | 说明 |
+|---|---|---|---|
+| `name` | 是 | 20 | 她叫什么 |
+| `identity` | 否 | 300 | 她是谁 |
+| `relationship` | 否 | 200 | 和用户什么关系 |
+| `speech` | 是 | 400 | 怎么说话 |
+| `thinking` | 否 | 400 | 怎么看事情 |
+| `decisions` | 否 | 300 | 遇事怎么判断 |
+| `never` | 否 | 300 | 绝不做什么 |
+| `samples` | 否 | 至多 5 条，每条 80 | 示例句 |
+| `immersion` | 否 | `low` \| `medium` \| `high`，缺省或未知回落 `medium` | 沉浸深度：只改变角色表达的深浅，**所有档位都保留真实 AI 身份** |
+| `tone` | 否 | `gentle` \| `toxic` \| `cool` | 语气底子（句库取口吻用） |
+
+超限、必填缺失返回 400，文案如「她叫什么不能为空」「她怎么说话不能超过400个字符」「示例句最多5条」。保存与蒸馏走同一道校验，硬规则只有两条：
+
+- 只做女孩子的角色：命中明显男性指称返回 400「这是闺蜜产品，不开展男性的服务」（启发式，名字拦不全）。
+- 拒绝低俗、允许暧昧：露骨内容返回 400「这段写得有点太过了，改一改」。
+
+#### GET /api/user/personas
+
+返回 `{ "personas": [{ "id", "name", "card", "active" }] }`，按建卡时间由早到晚；`active` 为 `true` 的是当前启用的那张。
+
+#### POST /api/user/personas — 造一个她
+
+请求体就是一张 `card`。建卡**并立即启用**，返回 `{ id, name, card, persona }`（`persona` 是当前启用的 id，即这张卡）。
+
+#### PUT /api/user/personas/:id — 改一改
+
+请求体是完整的 `card`；不改变谁在启用。返回 `{ id, name, card, persona }`。不属于该用户或不存在返回 404「没有这个她」。
+
+#### DELETE /api/user/personas/:id — 删她
+
+只剩一个时 400「至少留一个她」；删掉当前启用的那张，会启用剩下里最早建的。返回 `{ "personas": [...] }`（同 GET）。同一用户的建、删、换共用行锁，并发删除至多成功一个。
+
+#### POST /api/user/personas/distill — 蒸馏草稿（不落库）
+
+`multipart/form-data`：
+
+- `material`：素材文字，至多 5000 字符。
+- `images`：至多 4 张照片，每张不超过 8MB。
+- `research`：缺省为开；传 `false` 关闭。**只有实例配置了 `SEARCH_ENABLED=true` 才真的联网**，且只开 `web_search` / `read_web` 两个工具。
+
+文字与图片至少要有一样，否则 400「先给点她的素材」。**前置条件与聊天一致**：未配置云端模型或用户未同意云端模型时拒绝，不调用模型；每次调用前复查同意。素材先脱敏再发送。
+
+成功返回 `{ "card": {...}, "researched": true|false }`，是一份**草稿**，用户改过后再走 `POST /api/user/personas` 保存；素材主角是男性时返回 `{ "refused": "male" }`；模型没给出可用的草稿返回 502。
+
+### PUT /api/user/persona — 换她
 
 **请求**
 
 ```json
-{ "persona": "toxic" }
+{ "persona": "<personas.id>" }
 ```
 
-`persona` 取值：界面只提供三种说话方式——`gentle`（温柔，新用户默认） · `toxic`（直爽） · `cool`（安静）；`rational | energetic | sister` 仍是合法值（Spec §3）。
+`persona` 是 `GET /api/user/personas` 里某张卡的 `id`；不属于该用户或不存在返回 404「没有这个她」。
 
 **行为要点**
 
-- `User.persona` 是**唯一**人格来源，`Conversation` 不保存 persona
-- 切换后**当前及未来会话的下一条消息**立即使用新人格
+- `User.persona` 是**唯一**的「她」来源（存启用的人设卡 id），`Conversation` 不保存 persona
+- 换了之后**当前及未来会话的下一条消息**立即使用新的她
 - 已存在的聊天历史与记忆**不受影响**
+- 提示词顺序固定：安全边界 > 身份线 > 共用前言 > 人设层；任何沉浸档都保留真实 AI 身份，输出里自称真人一律拦下
 
 ### GET /api/user/external-llm-consent
 
@@ -1071,7 +1124,12 @@ Web 版可用。经期是敏感个人信息：新增（POST）、修正（PUT）
           POST   /api/auth/logout
 用户      GET    /api/user/profile
           PUT    /api/user/profile
-          PUT    /api/user/persona
+          PUT    /api/user/persona            (换她：按 personas.id)
+          GET    /api/user/personas           (人设库，路线图 C30)
+          POST   /api/user/personas           (造一个她：建卡并启用)
+          POST   /api/user/personas/distill   (素材 → 人设卡草稿，不落库)
+          PUT    /api/user/personas/:id       (改一改)
+          DELETE /api/user/personas/:id       (删她，至少留一个)
           GET    /api/user/external-llm-consent
           PUT    /api/user/external-llm-consent
           PUT    /api/user/roleplay        (恋人红线 400)
