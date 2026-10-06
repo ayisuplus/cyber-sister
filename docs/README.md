@@ -15,6 +15,7 @@
 | [Spec_Amie_v1.0.md](Spec_Amie_v1.0.md) | ✅ 基线 | 内测范围、边界与发布门；实施以它为准 |
 | [architecture/project-review-20260917.md](architecture/project-review-20260917.md) | ✅ 当前有效 | 代码地图、09-17 审查与 09-18 修复状态、验证边界 |
 | [architecture/release-review-20260930.md](architecture/release-review-20260930.md) | ✅ 当前有效 | 本地 / 自部署版发行审查与修复复验：8 项 P1 的代码修复、依赖更新、浏览器 / 数据恢复证据及待完成门禁；不是发布批准 |
+| [architecture/persona-depth-plan-20261006.md](architecture/persona-depth-plan-20261006.md) | 📝 草案待审 | 人设深度化第一阶段的书面计划（借 nuwa-skill 的结构、三种来源路径、诚实硬要求、任务拆分）；产品负责人批准前不开工 |
 | [01-产品/开发计划与路线图.md](01-产品/开发计划与路线图.md) | ✅ 当前有效 | 已裁定事项 C1–C28、当前状态基线与排期 |
 | [01-产品/年轻女性心理与经典话题提示词设计_V1.0.md](01-产品/年轻女性心理与经典话题提示词设计_V1.0.md) | ✅ 当前有效 | 2026-09-22 由产品负责人点名从历史归档扶正（路线图 C9 第三步）；§3 的共享段已接进 `packages/llm-gateway/src/personas.js` 的共用前言，§2 的八类话题应对库供运营与心理顾问审阅 |
 | [Amie智能体_PRD_V5.0_深度调研优化版.md](Amie智能体_PRD_V5.0_深度调研优化版.md) | ⚠️ 参考 | 产品意图与调研；与 Spec 冲突时以 Spec 为准 |
