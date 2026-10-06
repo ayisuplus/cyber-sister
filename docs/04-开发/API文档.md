@@ -216,11 +216,29 @@ Authorization: Bearer <access_token>
 超限、必填缺失返回 400，文案如「她叫什么不能为空」「她怎么说话不能超过400个字符」「示例句最多5条」。保存与蒸馏走同一道校验，硬规则只有两条：
 
 - 只做女孩子的角色：命中明显男性指称返回 400「这是闺蜜产品，不开展男性的服务」（启发式，名字拦不全）。
-- 拒绝低俗、允许暧昧：露骨内容返回 400「这段写得有点太过了，改一改」。
+- 拒绝低俗、允许暧昧：露骨内容返回 400「这段写得有点太过了，改一改」（新字段里的文字也会过这道检查）。
+
+男性闸只拦「明说这个角色是男性」：我 / 这 / 她 / 人设 / 角色 + 是 + 男生…、男闺蜜、他是（个……的）男人，以及关系写成男性的亲密或家人（你的男朋友、你老公、你哥哥）。**单独提到男人不拦**（「她很会分析男人的心思」「不喜欢男人」）；「像你哥哥一样」「你男朋友的闺蜜」这类比喻与说别人的也不拦。
+
+**深度字段（卡 v2，人设深度化 T3，2026-10-06 起）**：在上面七格之外只加**可选**字段，旧卡与手写卡原样有效，不需要迁移；什么都没给就和旧卡一模一样。
+
+| 字段 | 形状 | 上限 |
+|---|---|---|
+| `provenance` | `{ kind: original \| fiction \| public_figure \| friend, label }`；`original` 不留痕 | `label` 30；公众人物必须写 `label` |
+| `expression` | `{ sentence, vocabulary, rhythm, humor, certainty }`（句式、用词、节奏、幽默、确定感） | 每项 80 |
+| `heuristics` | `[{ when, then, basis }]`，「如果……就……」 | 至多 8 条；`when` 60、`then` 100 |
+| `models` | `[{ name, idea, failsWhen, basis }]`，心智模型，必须写明什么时候不适用 | 至多 4 个；20 / 100 / 80 |
+| `values` | `[string]` | 至多 3 条，每条 40 |
+| `tensions` | `[string]`，内在矛盾 | 至多 4 条，每条 120 |
+| `boundaries` | `[string]`，诚实边界：她不知道、做不到、不能替真人回答的事 | 至多 6 条，每条 80 |
+
+`basis` 只能是 `source`（来自素材）、`inferred`（推断）、`authored`（用户自己写的），**每条判断规则与每个心智模型都必须标**。**诚实下限**：`provenance.kind` 是 `fiction` / `public_figure` / `friend`（蒸馏出来的卡）时，至少 3 条判断规则、2 处内在矛盾、3 条诚实边界，不够 400（「蒸馏出来的她至少要写明3条做不到或不知道的事」等）；手写的原创卡不强制。
+
+发给模型的人设层：七行原样不变，深度字段追加一段，**至多 600 字**，按优先级整条取舍（判断规则前 5 条 → 表达 → 诚实边界前 3 条 → 价值观 → 内在矛盾前 2 条 → 心智模型前 2 个），放不下的整条跳过、不截半句。`public_figure` / `friend` / `fiction` 另有一行**来源声明**（不代表本人、不自称是那个真人、原作没写的不编），不占预算、永远带上。
 
 #### GET /api/user/personas
 
-返回 `{ "personas": [{ "id", "name", "card", "active" }] }`，按建卡时间由早到晚；`active` 为 `true` 的是当前启用的那张。
+返回 `{ "personas": [{ "id", "name", "card", "active" }], "friendEnabled": false }`，按建卡时间由早到晚；`active` 为 `true` 的是当前启用的那张。`friendEnabled` 是朋友路径开没开（服务端 `PERSONA_FRIEND_ENABLED`，默认关），界面据此如实显示「还没开放」。
 
 #### POST /api/user/personas — 造一个她
 
@@ -228,7 +246,7 @@ Authorization: Bearer <access_token>
 
 #### PUT /api/user/personas/:id — 改一改
 
-请求体是完整的 `card`；不改变谁在启用。返回 `{ id, name, card, persona }`。不属于该用户或不存在返回 404「没有这个她」。
+请求体是完整的 `card`；不改变谁在启用。返回 `{ id, name, card, persona }`。不属于该用户或不存在返回 404「没有这个她」。**来源标注改不掉**：这张卡原来有 `provenance` 的，服务端沿用旧的，请求里传别的或不传都一样（它决定她要不要替真人说话，声明与诚实下限都跟着它走）；原来没有的手写卡可以加一个。
 
 #### DELETE /api/user/personas/:id — 删她
 
@@ -238,13 +256,20 @@ Authorization: Bearer <access_token>
 
 `multipart/form-data`：
 
+- `kind`：**必填**，她从哪来——`original`（我自己想的）、`fiction`（虚构角色）、`public_figure`（公众人物，只做女性）、`friend`（我的朋友）。没选或选错 400「先选一下：她是虚构角色、公众人物、朋友，还是你自己想的」，**不调用模型**。
+- `label`：来源名（作品或人物名），至多 30 字。公众人物必填（400「公众人物要写明是谁」）；只有 `fiction` 与 `public_figure` 保留，`friend` 与 `original` 一律忽略（朋友的名字不进卡）。
+- `attested`：`"true"` 才算数。`friend` 必须带（400「朋友这条路要先声明：这是你有权使用的、在世朋友的聊天记录」）。
 - `material`：素材文字，至多 5000 字符。
-- `images`：至多 4 张照片，每张不超过 8MB。
-- `research`：缺省为开；传 `false` 关闭。**只有实例配置了 `SEARCH_ENABLED=true` 才真的联网**，且只开 `web_search` / `read_web` 两个工具。
+- `images`：至多 4 张照片，每张不超过 8MB。**`friend` 不收照片**（400「朋友这条路只收文字，不收照片」）。
+- `research`：缺省为开；传 `false` 关闭。**只有 `fiction` 与 `public_figure` 才可能联网**，且还要实例配置了 `SEARCH_ENABLED=true`，只开 `web_search` / `read_web` 两个工具。`original` 不查；`friend` 服务端强制不查，传 `true` 也无效。
+
+**朋友路径默认关闭**：服务端 `PERSONA_FRIEND_ENABLED=true` 才开，关着返回 403「朋友这条路还没开放」（法务确认前不要开）。原始聊天记录不保存，只留提炼后的卡；提示词要求不写全名、住址、单位、手机号等可识别信息。
 
 文字与图片至少要有一样，否则 400「先给点她的素材」。**前置条件与聊天一致**：未配置云端模型或用户未同意云端模型时拒绝，不调用模型；每次调用前复查同意。素材先脱敏再发送。
 
-成功返回 `{ "card": {...}, "researched": true|false }`，是一份**草稿**，用户改过后再走 `POST /api/user/personas` 保存；素材主角是男性时返回 `{ "refused": "male" }`；模型没给出可用的草稿返回 502。
+提炼指令（`buildDistillPrompt`）借 nuwa-skill 的结构：表达风格、判断规则、心智模型、价值观、内在矛盾、诚实边界；诚实写成硬规则——来源只许标 `source` / `inferred`、不编造她说过的话、素材少就少写，边界至少 3 条、矛盾至少 2 处（看不出两头就写推断并在句首加「推断：」）。**来源标注由服务端按请求盖上**，不信模型自己写的。蒸馏出来的卡要过上面的诚实下限，不合格就把具体错误带给模型**重试一次**（最多两次模型调用），仍不行 502「没整理出来，你可以自己动手写」。**调研回合本身没有改动**（它仍是旧指令，留给后续阶段）。
+
+成功返回 `{ "card": {...}, "researched": true|false }`，是一份**草稿**，用户改过后再走 `POST /api/user/personas` 保存；素材主角是男性时返回 `{ "refused": "male" }`；露骨返回 400，不重试；模型没给出可用的草稿返回 502。
 
 ### PUT /api/user/persona — 换她
 
