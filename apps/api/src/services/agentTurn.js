@@ -7,7 +7,7 @@ import { isUserBridgeOnline } from './bridgeBroker.js'
 
 const MAX_TOOL_ROUNDS = 12
 // 只是倾诉的一轮：不给工具目录，只留一句诚实规则
-const CHAT_ONLY_PROMPT = '这一轮是聊天：不要调用工具，也不要说你做了、记下或设置了什么。'
+const CHAT_ONLY_PROMPT = '这一轮是聊天：直接用自然语言回复，不要用 JSON 或 XML 包装正文。不要调用工具，也不要说你做了、记下或设置了什么。'
 const CHAT_ONLY_FEEDBACK = '（系统提示：这一轮没有开放工具，没有执行任何操作。请直接用正常语气回复她，不要再输出工具调用。）'
 
 /**

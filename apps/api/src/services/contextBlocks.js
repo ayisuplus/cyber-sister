@@ -172,6 +172,13 @@ export function isFeelingTurn(text, { careful = false, image = false, attachment
   return emotional ? !TASK_ASKS.test(tasks) : false
 }
 
+/** 普通问候不装配工具目录；带图片、附件或明确任务的问候仍走原来的办事能力。 */
+export function shouldOfferTools(text, options = {}) {
+  const greeting = !options.image && !(options.attachments > 0)
+    && /^(?:hello|hi|hey|你好|嗨|哈喽|早安|晚安|在吗|在不在|早上好|中午好|下午好|晚上好)[呀啊哦呢吗吧\s!！?？。~～,.，]*$/iu.test(String(text ?? '').trim())
+  return !greeting && !isFeelingTurn(text, options)
+}
+
 /** 这一轮回复下面会自动出现「帮我记住」确认卡：请她确认，不能说已经记住了。 */
 export function rememberOfferBlock() {
   return {

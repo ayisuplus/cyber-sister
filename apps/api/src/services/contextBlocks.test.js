@@ -3,6 +3,7 @@ import {
   aboutYouBlock,
   detectRememberIntent,
   isFeelingTurn,
+  shouldOfferTools,
   localClock,
   momentBlock,
   recentNudgesBlock,
@@ -12,6 +13,15 @@ import {
 
 // 2026-09-21 23:40 北京时间 = 15:40 UTC；测试机设在哪个时区都应得出同样的结果
 const LATE_NIGHT = new Date('2026-09-21T15:40:00Z')
+
+describe('本轮是否需要工具', () => {
+  it('单纯问候和倾诉不加载工具；明确任务与附件仍可用工具', () => {
+    for (const text of ['hello', 'Hello!', 'hi', '你好呀', '在吗？', '晚安～', '今天好难过']) expect(shouldOfferTools(text)).toBe(false)
+    for (const text of ['hello，帮我算 3+5', '你好，查一下天气', '明天提醒我开会']) expect(shouldOfferTools(text)).toBe(true)
+    expect(shouldOfferTools('hello', { image: true })).toBe(true)
+    expect(shouldOfferTools('你好', { attachments: 1 })).toBe(true)
+  })
+})
 
 describe('此刻', () => {
   it('按北京时间写几点、星期几和一天里的哪一段', () => {

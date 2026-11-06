@@ -7,6 +7,26 @@ export const MAX_TOOL_REPLY_CHARS = 256000
 const FC_OPEN_TAG = '<dots_function_call>'
 const FC_CLOSE_TAG = '</dots_function_call>'
 
+function isTextEnvelope(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === 2 && value.type === 'text' && typeof value.content === 'string'
+}
+
+function textEnvelope(content) {
+  if (typeof content !== 'string' || content.length > MAX_TOOL_REPLY_CHARS) return null
+  try {
+    const value = JSON.parse(content)
+    return isTextEnvelope(value) ? value : null
+  } catch { return null }
+}
+
+/** 已观察到的文本包装只解一层；其中的工具示例仍是数据，不获得执行权限。 */
+export function unwrapTextReply(content) {
+  const envelope = textEnvelope(content)
+  if (!envelope || parseToolReply(envelope.content)) return content
+  return envelope.content
+}
+
 /** 字符串感知的括号配平：返回首个完整 JSON 对象的结束索引（不含），未配平返回 -1。 */
 function balancedJsonEnd(text) {
   let depth = 0
@@ -87,6 +107,9 @@ export function classifyToolPrefix(text) {
   try {
     const parsed = JSON.parse(trimmed.slice(0, end + 1))
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'natural'
+    // 普通回复的 text/content 包装不是工具。缓冲到上游成功结束再解包，
+    // 避免逐句显示包装、或把尚未完整收到的内部字符串当成工具执行。
+    if (isTextEnvelope(parsed)) return 'pending'
     if (typeof parsed.tool === 'string') {
       // 带 tool 字段但名字未注册：也按工具调用处理，executeToolCall 会回喂"未知工具"引导模型改写
       const args = parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args) ? parsed.args : {}
@@ -141,6 +164,7 @@ export function parseCompleteToolCall(content) {
 
 /** Invalid tool-shaped output is feedback for repair, never an executable call or a delivered answer. */
 export function parseToolReply(content) {
+  if (textEnvelope(content)) return null
   const complete = parseCompleteToolCall(content)
   if (complete) return complete
   if (typeof content !== 'string') return null

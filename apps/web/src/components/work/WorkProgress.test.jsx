@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest'
 import WorkProgress from './WorkProgress'
 
 describe('工作任务步骤', () => {
+  it('协议纠正不显示成用户任务，真实失败仍可见', () => {
+    const repair = { tool: '__malformed__', status: 'failed', summary: '格式纠正' }
+    const view = render(<WorkProgress progress={[repair]} />)
+    expect(view.container).toBeEmptyDOMElement()
+    view.rerender(<WorkProgress progress={[{ tool: 'web_search', status: 'failed', summary: '搜索失败' }, repair]} />)
+    expect(screen.getByRole('status')).toHaveTextContent('搜索失败')
+    expect(screen.queryByText('格式纠正')).not.toBeInTheDocument()
+  })
   it('显示正在执行的工具及最近计划，不把待处理写成完成', () => {
     render(<WorkProgress progress={[
       { tool: 'update_plan', status: 'completed', plan: [{ title: '整理数据', status: 'completed' }, { title: '核对结果', status: 'in_progress' }] },
