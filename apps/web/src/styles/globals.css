@@ -610,6 +610,34 @@ html[data-native="ios"] { -webkit-text-size-adjust: 100%; }
   inset: 0;
   transform-origin: 50% 100%;
 }
+.notebook-cat__art { width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.notebook-cat__pose { transition: opacity 200ms var(--cs-ease-calm); }
+.notebook-cat__tail {
+  transform-origin: 608px 226px;
+}
+.notebook-cat__pose[data-active="true"] .notebook-cat__tail {
+  animation: catTailFlick 7.5s var(--cs-ease-calm) infinite;
+}
+.notebook-cat[data-night="true"] .notebook-cat__pose[data-active="true"] .notebook-cat__tail { animation-duration: 12s; }
+@keyframes catTailFlick {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  10%, 30% { transform: rotate(-7deg); }
+  20%, 40% { transform: rotate(5deg); }
+}
+.notebook-cat__blink { opacity: 0; }
+.notebook-cat[data-mood="idle"][data-night="false"] .notebook-cat__pose[data-active="true"] .notebook-cat__blink { animation: catBlink 6.4s step-end infinite; }
+@keyframes catBlink {
+  0%, 56%, 90%, 100% { opacity: 0; }
+  54%, 88% { opacity: 1; }
+}
+.notebook-cat:is(:hover, :focus-visible)[data-night="false"] .notebook-cat__pose[data-active="true"] .notebook-cat__tail,
+.notebook-cat[data-mood="purr"] .notebook-cat__pose[data-active="true"] .notebook-cat__tail {
+  animation: catTailHappy 1.2s var(--cs-ease-breathe) infinite;
+}
+@keyframes catTailHappy {
+  0%, 100% { transform: rotate(-9deg); }
+  50% { transform: rotate(7deg); }
+}
 .notebook-cat__body img {
   position: absolute;
   inset: 0;
@@ -620,22 +648,24 @@ html[data-native="ios"] { -webkit-text-size-adjust: 100%; }
   transition: opacity 200ms var(--cs-ease-calm);
 }
 /* 夜里纸是暗的：贴纸的白边收一点亮度，不刺眼 */
-:root[data-theme="dark"] .notebook-cat__body img { filter: brightness(.86) saturate(.9); }
+:root[data-theme="dark"] .notebook-cat__body :is(img, svg) { filter: brightness(.86) saturate(.9); }
 /* 睡着时很轻的一起一伏；轻点那一下微微一缩 */
 @keyframes catBreathe {
   0%, 100% { transform: scale(1, 1); }
   50% { transform: scale(1.012, 1.028); }
 }
-.notebook-cat[data-frame="sleep"] .notebook-cat__body {
+.notebook-cat[data-mood="idle"] .notebook-cat__body {
   animation: catBreathe 5s var(--cs-ease-breathe) infinite;
 }
 @keyframes catSquish {
   0%, 100% { transform: scale(1, 1); }
   40% { transform: scale(1.04, 0.95); }
 }
-.notebook-cat[data-frame="peek"] .notebook-cat__body {
+.notebook-cat[data-mood="peek"] .notebook-cat__body {
   animation: catSquish 320ms var(--cs-ease-calm);
 }
+.notebook-cat[data-mood="purr"] .notebook-cat__body { animation: catBreathe 1.4s var(--cs-ease-breathe) infinite; }
+.notebook-cat[data-mood="stretch"] .notebook-cat__body { animation: catSquish 1.4s var(--cs-ease-calm); }
 /* 手写的「呼噜呼噜…」从它头顶飘起来 */
 @keyframes purrFloat {
   0% { opacity: 0; transform: translate(0, 4px); }
@@ -687,7 +717,8 @@ html[data-native="ios"] { -webkit-text-size-adjust: 100%; }
 
 /* 减少动态效果：只换帧，不飘不动；「呼噜呼噜…」静静写在那儿 */
 @media (prefers-reduced-motion: reduce) {
-  .notebook-cat__body { animation: none !important; }
+  .notebook-cat__body, .notebook-cat__tail, .notebook-cat__blink { animation: none !important; }
+  .notebook-cat__body img, .notebook-cat__pose { transition: none; }
   .notebook-cat__purr { animation: none; opacity: 1; }
 }
 

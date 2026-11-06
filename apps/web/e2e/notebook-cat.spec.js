@@ -1,3 +1,4 @@
+/* global getComputedStyle */
 import { expect, test } from '@playwright/test'
 
 const json = (route, status, data) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
@@ -93,4 +94,65 @@ test('本子角上的小猫：点一下醒、来回摸会呼噜，摸它不翻�
 
   // 还停在封面：摸猫不是翻页
   await expect(page.getByRole('navigation', { name: '翻页' })).toContainText('封面')
+})
+
+test('小猫白天会独立摆尾、眨眼和呼吸；减少动态效果时静止', async ({ page }, testInfo) => {
+  await page.clock.setFixedTime(new Date('2026-09-27T15:00:00+08:00'))
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await mockApi(page, { placeSet: true })
+  await page.goto('/chat')
+  const cat = page.getByRole('button', { name: '摸摸小猫' })
+  await expect(cat.locator('[data-pose="awake"]')).toHaveCSS('opacity', '1')
+  const motion = await cat.evaluate(element => {
+    element.getAnimations({ subtree: true }).forEach(animation => animation.pause())
+    const pose = element.querySelector('[data-active="true"]')
+    const tail = pose.querySelector('.notebook-cat__tail')
+    const tailAnimation = tail.getAnimations()[0]
+    const angle = () => {
+      const matrix = tail.getCTM()
+      return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI
+    }
+    tailAnimation.currentTime = 0
+    const restingAngle = angle()
+    tailAnimation.currentTime = Number(tailAnimation.effect.getTiming().duration) / 10
+    const movingAngle = angle()
+    const body = element.querySelector('.notebook-cat__body')
+    const bodyAnimation = body.getAnimations()[0]
+    bodyAnimation.currentTime = 0
+    const restingBody = getComputedStyle(body).transform
+    bodyAnimation.currentTime = Number(bodyAnimation.effect.getTiming().duration) / 2
+    const breathingBody = getComputedStyle(body).transform
+    const eyes = pose.querySelector('.notebook-cat__blink')
+    const blink = eyes.getAnimations()[0]
+    blink.currentTime = Number(blink.effect.getTiming().duration) * .55
+    const closedEyes = Number(getComputedStyle(eyes).opacity)
+    blink.currentTime = 0
+    return { tailRotation: Math.abs(movingAngle - restingAngle), restingBody, breathingBody, closedEyes, openEyes: Number(getComputedStyle(eyes).opacity) }
+  })
+  expect(motion.tailRotation).toBeGreaterThan(3)
+  expect(motion.breathingBody).not.toBe(motion.restingBody)
+  expect(motion.closedEyes).toBeGreaterThan(.9)
+  expect(motion.openEyes).toBeLessThan(.1)
+  await cat.screenshot({ path: testInfo.outputPath('notebook-cat-wag.png') })
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => cat.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+  await cat.click()
+  await expect(cat).toHaveAttribute('data-mood', 'peek')
+  await expect.poll(() => cat.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+})
+
+test('白天主图加载失败时隐藏猫猫，聊天和设置仍可用', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-09-27T15:00:00+08:00'))
+  await mockApi(page, { placeSet: true })
+  let failedImages = 0
+  await page.route('**/pets/cat/awake-sm.webp', route => {
+    failedImages += 1
+    return route.abort()
+  })
+  await page.goto('/chat')
+  await expect.poll(() => failedImages).toBeGreaterThan(0)
+  await expect(page.getByRole('button', { name: '摸摸小猫' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '信纸', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '打开设置' })).toBeVisible()
 })
