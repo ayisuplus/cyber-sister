@@ -149,7 +149,7 @@ jobs:
           pnpm --filter cyber-sister-client build
           pnpm --filter cyber-sister-client exec playwright test --grep "shared memory|life entries" --output test-results-web
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: playwright-artifacts
           path: |
