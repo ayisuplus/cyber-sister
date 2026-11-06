@@ -84,7 +84,7 @@ describe('普通回复的文本包装', () => {
     const wire = envelope(text)
     gatewayComplete.mockResolvedValueOnce({ content: wire, provider: 'qwen' })
     expect((await generateResponse('hello', 'gentle', [], [], 'text-envelope', options)).content).toBe(text)
-    expect(gatewayComplete.mock.calls[0][0]).toMatchObject({ maxTokens: 512 })
+    expect(gatewayComplete.mock.calls[0][0]).toMatchObject({ maxTokens: 1024 })
     gatewayStream.mockImplementationOnce(async function* () {
       for (const part of [wire.slice(0, 7), wire.slice(7, -2), wire.slice(-2)]) yield { type: 'delta', text: part }
       yield { type: 'done', provider: 'qwen' }
@@ -94,7 +94,7 @@ describe('普通回复的文本包装', () => {
     expect(events.filter((event) => event.type === 'sentence').map((event) => event.text).join('')).toBe(text)
     expect(events.at(-1)).toMatchObject({ type: 'done', content: text })
     expect(gatewayStream).toHaveBeenCalledTimes(1)
-    expect(gatewayStream.mock.calls[0][0]).toMatchObject({ maxTokens: 512 })
+    expect(gatewayStream.mock.calls[0][0]).toMatchObject({ maxTokens: 1024 })
   })
 
   it('问候后的明确长任务不使用问候的输出预算', async () => {

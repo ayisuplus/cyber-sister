@@ -38,7 +38,7 @@ const MAX_WORK_CONTEXT_CHARS = 64000
 const messageLimit = (agent) => agent ? MAX_WORK_MESSAGE_CHARS : MAX_MODEL_MESSAGE_CHARS
 const MAX_AGENT_MESSAGES = 48
 // 简短问候不需要上游的无界默认输出；不约束明确交办的长回复和图片。
-const GREETING_MAX_TOKENS = 512
+const GREETING_MAX_TOKENS = 1024
 export const MAX_MEMORY_CHARS = 240
 
 const VALID_ROLES = new Set(['user', 'assistant'])
