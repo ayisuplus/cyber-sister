@@ -117,6 +117,8 @@ describe('validateRuntimeConfig 通用校验', () => {
   it('非内测环境禁止使用固定验证码', () => {
     expect(() => validateRuntimeConfig(devEnv({ INTERNAL_TEST_CODE: '888888' })))
       .toThrow(/固定验证码只能在 APP_ENV=internal 时使用/)
+    expect(() => validateRuntimeConfig(devEnv({ INTERNAL_TEST_CODES: '{"13800138000":"112233"}' })))
+      .toThrow(/固定验证码只能在 APP_ENV=internal 时使用/)
   })
 
   it('受保护环境拒绝占位符与过短密钥', () => {
@@ -172,6 +174,37 @@ describe('validateRuntimeConfig 通用校验', () => {
 })
 
 describe('validateRuntimeConfig 内测环境校验', () => {
+  it('生产内测的独立码必须来自文件，旧部署未启用独立码时仍可启动', () => {
+    const files = Object.fromEntries(['DATABASE_PASSWORD_FILE', 'JWT_SECRET_FILE', 'JWT_REFRESH_SECRET_FILE', 'INTERNAL_TEST_CODE_FILE', 'INTERNAL_TEST_PHONES_FILE', 'INSTANCE_ADMIN_PHONES_FILE'].map((name) => [name, `/run/secrets/${name.toLowerCase()}`]))
+    const legacy = internalEnv({ ...files, NODE_ENV: 'production' })
+    const individual = { ...legacy, INTERNAL_TEST_CODES: JSON.stringify({ '13800138000': '888888', '13900139000': '112233' }) }
+    expect(() => validateRuntimeConfig(legacy)).not.toThrow()
+    expect(() => validateRuntimeConfig(individual)).toThrow(/INTERNAL_TEST_CODES_FILE/)
+    expect(() => validateRuntimeConfig({ ...individual, INTERNAL_TEST_CODES_FILE: '/run/secrets/individual_codes' })).not.toThrow()
+  })
+
+  it('独立验证码必须精确覆盖白名单，且不能在手机号之间共用', () => {
+    const codes = { '13800138000': '888888', '13900139000': '112233' }
+    const env = (value) => internalEnv({ INTERNAL_TEST_CODES: JSON.stringify(value) })
+    expect(() => validateRuntimeConfig(env(codes))).not.toThrow()
+    expect(() => validateRuntimeConfig(env({ '13800138000': '888888' }))).toThrow(/覆盖.*白名单/)
+    expect(() => validateRuntimeConfig(env({ ...codes, '13700137000': '223344' }))).toThrow(/覆盖.*白名单/)
+    expect(() => validateRuntimeConfig(env({ ...codes, '13900139000': '888888' }))).toThrow(/独立验证码.*重复/)
+  })
+
+  it.each(['{', '[]', '{}', '{"13800138000":123456}', '{"private-phone":"private-code"}'])('异常独立验证码配置不会退回共用码或输出配置正文', (value) => {
+    let error
+    try { validateRuntimeConfig(internalEnv({ INTERNAL_TEST_CODES: value })) } catch (caught) { error = caught }
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).not.toContain('private-phone')
+    expect(error.message).not.toContain('private-code')
+  })
+
+  it('没有独立码文件时兼容原码；兼容挂载不能改成另一份共用码', () => {
+    expect(() => validateRuntimeConfig(internalEnv({ INTERNAL_TEST_CODES: '888888' }))).not.toThrow()
+    expect(() => validateRuntimeConfig(internalEnv({ INTERNAL_TEST_CODES: '112233' }))).toThrow(/兼容内测码必须与 INTERNAL_TEST_CODE 一致/)
+  })
+
   it('非 test 的内测环境必须通过文件提供密钥', () => {
     expect(() => validateRuntimeConfig(internalEnv({ NODE_ENV: 'production' })))
       .toThrow(/内测环境必须通过只读文件提供: DATABASE_PASSWORD_FILE/)

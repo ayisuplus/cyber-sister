@@ -14,10 +14,11 @@ import {
   REFRESH_TOKEN_AGE_MS,
 } from '../middleware/auth.js'
 import { DEFAULT_PERSONA_CARD } from './personaStudio.js'
+import { parseInternalTestCodes } from '../config/internalTestCodes.js'
 
 const APP_ENV = process.env.APP_ENV || 'development'
 export const IS_INTERNAL = APP_ENV === 'internal'
-const INTERNAL_CODE = process.env.INTERNAL_TEST_CODE || ''
+const INTERNAL_CODES = IS_INTERNAL ? parseInternalTestCodes(process.env.INTERNAL_TEST_CODES ?? process.env.INTERNAL_TEST_CODE) : { sharedCode: null, codes: new Map() }
 const ALLOWED_PHONES = new Set(
   (process.env.INTERNAL_TEST_PHONES || '')
     .split(',')
@@ -100,9 +101,10 @@ export function clearLoginAttempts(phone) {
   loginAttempts.delete(attemptKey(phone))
 }
 
-/** 内测凭证校验：环境开关 + 手机号白名单 + 固定内测码（常数时间比较） */
+/** 内测凭证校验：环境开关 + 手机号白名单 + 对应的内测码（常数时间比较） */
 export function verifyInternalCredentials(phone, code) {
-  return IS_INTERNAL && ALLOWED_PHONES.has(phone) && constantTimeCodeEquals(code, INTERNAL_CODE)
+  const expected = INTERNAL_CODES.codes.get(phone) ?? INTERNAL_CODES.sharedCode
+  return IS_INTERNAL && ALLOWED_PHONES.has(phone) && constantTimeCodeEquals(code, expected)
 }
 
 export const isAllowedPhone = (phone) => ALLOWED_PHONES.has(phone)

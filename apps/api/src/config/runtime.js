@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { URL } from 'node:url'
+import { parseInternalTestCodes } from './internalTestCodes.js'
 
 const PLACEHOLDER_MARKERS = ['replace-with', 'change-in-production', 'your-super-secret', 'change-me']
 
@@ -32,6 +33,7 @@ export function loadRuntimeSecrets(env = process.env) {
     ['JWT_SECRET', 'JWT_SECRET_FILE'],
     ['JWT_REFRESH_SECRET', 'JWT_REFRESH_SECRET_FILE'],
     ['INTERNAL_TEST_CODE', 'INTERNAL_TEST_CODE_FILE'],
+    ['INTERNAL_TEST_CODES', 'INTERNAL_TEST_CODES_FILE'],
     ['INTERNAL_TEST_PHONES', 'INTERNAL_TEST_PHONES_FILE'],
     ['INSTANCE_ADMIN_PHONES', 'INSTANCE_ADMIN_PHONES_FILE'],
     ['GATEWAY_QWEN_API_KEY', 'GATEWAY_QWEN_API_KEY_FILE'],
@@ -68,6 +70,9 @@ export function validateRuntimeConfig(env = process.env) {
   }
 
   if (appEnv === 'internal' && nodeEnv !== 'test') {
+    if (env.INTERNAL_TEST_CODES !== undefined && !env.INTERNAL_TEST_CODES_FILE) {
+      errors.push('内测环境必须通过只读文件提供: INTERNAL_TEST_CODES_FILE')
+    }
     for (const name of [
       'DATABASE_PASSWORD_FILE',
       'JWT_SECRET_FILE',
@@ -100,8 +105,11 @@ export function validateRuntimeConfig(env = process.env) {
   }
 
   if (appEnv === 'internal') {
-    if (!/^\d{6}$/.test(env.INTERNAL_TEST_CODE || '')) {
-      errors.push('内测环境的 INTERNAL_TEST_CODE 必须是 6 位数字')
+    let credentials
+    if (!/^\d{6}$/.test(env.INTERNAL_TEST_CODE || '')) errors.push('内测环境的 INTERNAL_TEST_CODE 必须是 6 位数字')
+    try { credentials = parseInternalTestCodes(env.INTERNAL_TEST_CODES ?? env.INTERNAL_TEST_CODE) } catch (error) { errors.push(error.message) }
+    if (credentials?.sharedCode && credentials.sharedCode !== env.INTERNAL_TEST_CODE) {
+      errors.push('兼容内测码必须与 INTERNAL_TEST_CODE 一致')
     }
     const phones = (env.INTERNAL_TEST_PHONES || '')
       .split(',')
@@ -109,6 +117,9 @@ export function validateRuntimeConfig(env = process.env) {
       .filter(Boolean)
     if (phones.length === 0 || phones.some((phone) => !/^1[3-9]\d{9}$/.test(phone))) {
       errors.push('INTERNAL_TEST_PHONES 必须是有效的逗号分隔手机号白名单')
+    }
+    if (credentials && !credentials.sharedCode && (credentials.codes.size !== phones.length || phones.some((phone) => !credentials.codes.has(phone)))) {
+      errors.push('独立验证码必须精确覆盖 INTERNAL_TEST_PHONES 白名单')
     }
     if (!env.CORS_ORIGIN || !env.CORS_ORIGIN.startsWith('https://')) {
       errors.push('内测环境的 CORS_ORIGIN 必须是 HTTPS 来源')
@@ -150,7 +161,7 @@ export function validateRuntimeConfig(env = process.env) {
     if (providers.some((provider) => provider !== 'qwen')) {
       errors.push('内测环境的环境供应商只允许 qwen（云端切割后本地模型面已删除）')
     }
-  } else if (env.INTERNAL_TEST_CODE) {
+  } else if (env.INTERNAL_TEST_CODE || env.INTERNAL_TEST_CODES) {
     errors.push('固定验证码只能在 APP_ENV=internal 时使用')
   }
 

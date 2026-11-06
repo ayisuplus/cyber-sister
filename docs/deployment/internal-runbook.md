@@ -27,10 +27,25 @@
 - `POSTGRES_DB`、`POSTGRES_USER`
 - `POSTGRES_PASSWORD_FILE`、`DATABASE_PASSWORD_FILE`、`JWT_SECRET_FILE`、`JWT_REFRESH_SECRET_FILE`
 - `INTERNAL_TEST_PHONES_FILE`、`INSTANCE_ADMIN_PHONES_FILE`、`INTERNAL_TEST_CODE_FILE`
+- 多人内测可另设 `INTERNAL_TEST_CODES_FILE`，以逐手机号独立码替代共用码校验（原 `INTERNAL_TEST_CODE_FILE` 保留原 6 位管理员码）。
 - `APP_DOMAIN`、`BIND_ADDRESS`、`IMAGE_TAG`、`TLS_CERT_PATH`、`TLS_KEY_PATH`
 - `MODEL_CONFIG_KEY_FILE`（模型主密钥，见下）
 
 每个 `*_FILE` 都指向仓库外的独立只读文件：数据库口令、两个至少 32 字符的 JWT 密钥、六位内测码、逗号分隔的手机号白名单、其中作为实例管理员的手机号，以及模型主密钥。`POSTGRES_PASSWORD_FILE` 与 `DATABASE_PASSWORD_FILE` 内容必须相同，但必须是两个独立文件，以便分别授予 PostgreSQL 容器用户和 API 容器用户读取权限。文件内容不加引号（模型主密钥的末尾换行也会被安全去掉）。Compose 以只读 secret 挂载到对应容器，凭据不会作为环境变量注入。
+
+### 多人内测独立码（2026-11-06，C34）
+
+只读 JSON 文件使用「手机号 → 6 位字符串」映射，必须与 `INTERNAL_TEST_PHONES_FILE` 精确对应，每个码不同；以下全为合成示例：
+
+```json
+{"13800138000":"123456","13900139000":"654321"}
+```
+
+文件按其他 API secret 的 `1000:1000` / `0400` 规则放在仓库外，私密 env 设置 `INTERNAL_TEST_CODES_FILE` 的宿主绝对路径，容器只读挂到 `/run/secrets/internal_test_codes`。不要把此文件或真实联系方式放入 Git、日志或工单。原管理员的条目沿用其已有登录码，每位测试者只收到自己的号码和码；管理员名单仍单独配置。
+
+没有独立文件时，新 Compose 兼容挂载原码文件，沿用旧部署；独立模式不提供共用码回退。回滚到不支持映射的旧版本后，测试者的独立码暂时不能登录，管理员原码仍可用于恢复，不向测试者分发管理员码。
+
+私人站点另外通过 Cloudflare Access 放行明确的邮箱，并为受邀者提供邮箱一次性验证码登录；这些用户无需持有 Cloudflare 管理员账户。先验证应用独立码和权限，再把受邀邮箱策略接到该站点，保留原本人访问规则。
 
 ### 模型主密钥 `MODEL_CONFIG_KEY_FILE`（2026-09-22 起）
 
