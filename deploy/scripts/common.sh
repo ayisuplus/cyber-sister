@@ -23,11 +23,42 @@ env_value() {
 }
 
 compose() {
-  docker compose \
+  local profile provider_key
+  local -a files=(
     -f "$REPO_ROOT/compose.yaml" \
     -f "$REPO_ROOT/deploy/compose.server.yaml" \
-    --env-file "$RUNTIME_ENV_FILE" \
-    "$@"
+  )
+  profile="$(env_value DEPLOY_PROFILE)"
+  case "$profile" in
+    ''|tls) ;;
+    tunnel)
+      [ "$(env_value BIND_ADDRESS)" = 127.0.0.1 ] || fail "Tunnel 部署必须绑定 127.0.0.1"
+      [ "$(env_value APP_DISTRIBUTION)" = web ] || fail "Tunnel 部署必须使用 APP_DISTRIBUTION=web"
+      # Compose 先逐文件插值、再合并。基线的证书参数只用于通过插值，
+      # !override 会移除两项挂载；最终配置不会挂载 /dev/null 或任何证书。
+      files+=(-f "$REPO_ROOT/deploy/compose.tunnel.yaml")
+      ;;
+    *) fail "未知 DEPLOY_PROFILE：$profile" ;;
+  esac
+  provider_key="$(env_value GATEWAY_QWEN_API_KEY_FILE)"
+  [ -z "$provider_key" ] || files+=(-f "$REPO_ROOT/compose.qwen.yaml")
+  if [ "$profile" = tunnel ]; then
+    TLS_CERT_PATH=/dev/null TLS_KEY_PATH=/dev/null docker compose "${files[@]}" --env-file "$RUNTIME_ENV_FILE" "$@"
+  else
+    docker compose "${files[@]}" --env-file "$RUNTIME_ENV_FILE" "$@"
+  fi
+}
+
+origin_url() {
+  local port bind
+  bind="$(env_value BIND_ADDRESS)"
+  if [ "$(env_value DEPLOY_PROFILE)" = tunnel ]; then
+    port="$(env_value TUNNEL_PORT)"; port="${port:-18080}"
+    [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$port" -le 65535 ] || fail "TUNNEL_PORT 必须是有效端口"
+    printf 'http://127.0.0.1:%s' "$port"
+  else
+    printf 'https://%s' "$bind"
+  fi
 }
 
 # 所有 *_FILE 与证书路径必须存在且可读；只看得见路径，不读内容。
@@ -39,7 +70,10 @@ check_secret_paths() {
     esac
     key="${line%%=*}"
     case "$key" in
-      *_FILE|TLS_CERT_PATH|TLS_KEY_PATH) ;;
+      TLS_CERT_PATH|TLS_KEY_PATH)
+        [ "$(env_value DEPLOY_PROFILE)" != tunnel ] || continue
+        ;;
+      *_FILE) ;;
       *) continue ;;
     esac
     value="$(printf '%s' "${line#*=}" | sed 's/^"//; s/"$//; s/\r$//')"
@@ -57,11 +91,12 @@ check_secret_paths() {
 
 # 健康检查：先看 api 容器自身的 healthcheck，再从宿主机经 edge 走一次真实请求。
 wait_healthy() {
-  local attempt=1 container status bind domain code
+  local attempt=1 container status bind domain code origin
   bind="$(env_value BIND_ADDRESS)"
   domain="$(env_value APP_DOMAIN)"
   [ -n "$bind" ] || fail "运行配置缺少 BIND_ADDRESS"
   [ -n "$domain" ] || fail "运行配置缺少 APP_DOMAIN"
+  origin="$(origin_url)" || return 1
 
   while [ "$attempt" -le "$HEALTH_RETRIES" ]; do
     container="$(compose ps -q api || true)"
@@ -71,7 +106,7 @@ wait_healthy() {
         # 自签证书用 -k：没有域名之前证书不是公共 CA 签发的
         # --noproxy：回环请求不能走宿主机上可能配置的 HTTP 代理
         code="$(curl -sk --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 10 \
-          -H "Host: $domain" "https://$bind/api/health/ready" || echo 000)"
+          -H "Host: $domain" "$origin/api/health/ready" || echo 000)"
         if [ "$code" = "200" ]; then
           log "健康检查通过：api 容器 healthy，edge 上 /api/health/ready 返回 200"
           return 0
@@ -91,10 +126,10 @@ wait_healthy() {
 
 # 部署末尾如实播报模型状态：ready 只代表进程与数据库可用，不代表聊天可用。
 report_llm_status() {
-  local bind domain body
-  bind="$(env_value BIND_ADDRESS)"
+  local domain body origin
+  origin="$(origin_url)" || return 1
   domain="$(env_value APP_DOMAIN)"
-  body="$(curl -sk --noproxy '*' --max-time 10 -H "Host: $domain" "https://$bind/api/llm/status" || true)"
+  body="$(curl -sk --noproxy '*' --max-time 10 -H "Host: $domain" "$origin/api/llm/status" || true)"
   case "$body" in
     '') log "模型状态：未取到 /api/llm/status 响应" ;;
     *未登录*) log "模型状态：该接口需登录后查看，部署脚本不持有账号；聊天是否可用请人工验证" ;;

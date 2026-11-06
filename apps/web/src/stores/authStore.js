@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authService } from '../services/authService'
-import { runAuthOperation } from '../services/api'
+import { runAuthOperation, sendMobileAuth } from '../services/api'
+import { isIOSApp } from '../platform/native'
+import { refreshMobileSession, setMobileAccessToken } from '../platform/mobileSession'
 import './chatStore'
 import { assertSessionVersion, getSessionVersion, onSessionReset, resetSession } from '../services/sessionLifecycle'
 
@@ -12,6 +14,18 @@ export const useAuthStore = create(
       user: null,
       isLoggedIn: false,
 
+      restoreMobileSession: () => runAuthOperation(async () => {
+        try {
+          const result = await refreshMobileSession(sendMobileAuth)
+          resetSession()
+          setMobileAccessToken(result.token)
+          set({ token: result.token, user: result.user, isLoggedIn: true })
+        } catch (error) {
+          if (error.response?.status === 401) { resetSession(); return }
+          throw error
+        }
+      }),
+
       login: (phone, code) => runAuthOperation(async () => {
         const session = getSessionVersion()
         const response = await authService.login(phone, code)
@@ -19,6 +33,7 @@ export const useAuthStore = create(
         const { token, user } = response
 
         resetSession()
+        if (isIOSApp()) setMobileAccessToken(token)
         set({
           token,
           user,
@@ -46,7 +61,7 @@ export const useAuthStore = create(
           return response.token
         } catch (error) {
           // 刷新失败，清除登录状态
-          if (session === getSessionVersion()) resetSession()
+          if (session === getSessionVersion() && (!isIOSApp() || error.response?.status === 401)) resetSession()
           throw error
         }
       },
@@ -67,7 +82,8 @@ export const useAuthStore = create(
     }),
     {
       name: 'cyber-sister-auth',
-      partialize: (state) => ({
+      merge: (persisted, current) => isIOSApp() ? current : { ...current, ...(persisted && typeof persisted === 'object' ? persisted : {}) },
+      partialize: (state) => isIOSApp() ? {} : ({
         token: state.token,
         user: state.user,
         isLoggedIn: state.isLoggedIn,

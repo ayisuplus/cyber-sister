@@ -14,6 +14,28 @@ vi.mock('../services/chatService', () => ({
 import { chatService } from '../services/chatService'
 import { useChatStore } from './chatStore'
 
+describe('mobile foreground-only chat', () => {
+  it('interrupts an unfinished reply, removes temporary text and reloads saved messages without resending', async () => {
+    useChatStore.getState().reset()
+    useChatStore.setState({ currentConversationId: 'thread-a', messages: [{ id: 'old', content: 'saved' }] })
+    let onEvent
+    chatService.streamMessage.mockImplementationOnce((_id, _content, options) => new Promise((resolve, reject) => {
+      onEvent = options.onEvent
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
+    const sending = useChatStore.getState().sendMessage('draft to keep')
+    onEvent({ event: 'delta', text: 'unfinished' })
+    useChatStore.getState().interruptForBackground()
+    expect(await sending).toEqual({ status: 'aborted' })
+    expect(useChatStore.getState().messages).toEqual([{ id: 'old', content: 'saved' }])
+    expect(useChatStore.getState().isSending).toBe(false)
+    chatService.getThread.mockResolvedValueOnce({ id: 'thread-a', messages: [{ id: 'server', content: 'saved remotely' }] })
+    await useChatStore.getState().refreshThread()
+    expect(useChatStore.getState().messages).toEqual([{ id: 'server', content: 'saved remotely' }])
+    expect(chatService.streamMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
 const resetStore = () => {
   vi.clearAllMocks()
   useChatStore.getState().reset()

@@ -30,9 +30,11 @@ plant-data/
 
 # 依赖与构建产物
 node_modules/
+ci-artifacts/
 apps/web/test-results/
 apps/web/playwright-report/
 dist/
+dist-ios/
 build/
 apps/api/src/prisma/dev.db
 # MediaPipe 模型与 wasm（化妆间美颜引擎运行时资产，手动注入，不入库）

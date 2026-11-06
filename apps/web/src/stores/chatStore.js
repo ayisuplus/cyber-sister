@@ -137,6 +137,16 @@ export const useChatStore = create(
     isTyping: false,
     isSending: false,
 
+    interruptForBackground: () => {
+      if (!get().isSending) return
+      stopActiveStream()
+      viewVersion += 1
+      set((state) => ({
+        messages: state.messages.filter(message => !String(message.id).startsWith('temp-')),
+        isTyping: false, isSending: false,
+      }))
+    },
+
     // 打开这段对话（没有就由服务端创建）。发送中不覆盖进行中的临时消息。返回对话 id，失败返回 null。
     loadThread: async () => {
       const session = storeVersion

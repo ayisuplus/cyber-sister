@@ -1,12 +1,15 @@
 name: CI
 
 # 检查全部跑在 GitHub 云端机器上：部署主机只有 2 核 2G，跑单测和 e2e 会和线上服务抢资源。
-# 部署由 deploy.yml 在服务器的 self-hosted runner 上接力（触发条件是本工作流在 master 上成功）。
+# 部署由 deploy.yml 在 GitHub 云端通过受限 SSH 接力（仅 master push CI 成功）。
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -20,8 +23,13 @@ jobs:
   web:
     name: Web (lint / typecheck / test / build)
     runs-on: ubuntu-latest
+    env:
+      VITE_API_BASE_URL: /api
+      VITE_APP_DISTRIBUTION: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -34,14 +42,21 @@ jobs:
       - run: pnpm --filter cyber-sister-client typecheck
       # 覆盖率阈值在 vitest 配置里（web 80/80/80/80），跑 coverage 才会生效
       - run: pnpm --filter cyber-sister-client test:coverage
+      - run: pnpm --filter cyber-sister-client test:ios-config
       - run: pnpm --filter cyber-sister-client build
       # 部署用的就是这份产物：服务器不编译前端，只把 dist 装进 nginx 镜像
+      - name: Package the checked source and Web build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: node .github/scripts/release-bundle.mjs
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         with:
-          name: web-dist
-          path: apps/web/dist
+          name: release-bundle
+          path: ci-artifacts/
           retention-days: 7
           if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
 
   api:
     name: API (lint / test，含真实 PostgreSQL 集成套件)
@@ -62,6 +77,8 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -77,7 +94,7 @@ jobs:
         run: pnpm exec prisma migrate deploy
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/cyber_sister_test
-      # TEST_DATABASE_URL 指向维护库：5 个集成套件会各自 CREATE DATABASE、跑迁移与 seed、用完删库。
+      # TEST_DATABASE_URL 指向维护库：集成套件各自 CREATE DATABASE、跑迁移与 seed、用完删库。
       # 不设这个变量它们会静默 skip——这正是此前"起了数据库却没验证集成"的原因。
       - name: Unit + integration tests
         # 覆盖率阈值取 2026-09-16 实测地板（见 apps/api/vitest.config.js 注释）
@@ -90,6 +107,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -102,12 +121,15 @@ jobs:
       - run: pnpm -r --filter "./packages/*" --if-present run test
       - run: pnpm --filter amie-bridge test
       - run: pnpm test:deploy
+      - run: python3 -m unittest discover -s deploy/scripts -p github_deploy_test.py -v
 
   e2e:
     name: E2E (Playwright, 桌面 + 手机)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}

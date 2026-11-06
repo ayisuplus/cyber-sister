@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ArrowRight, Lock, ShieldCheck, Smartphone } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import { authService } from '../services/authService'
+import { isIOSApp } from '../platform/native'
 import Spinner from '../components/ui/Spinner'
 import BrandMark from '../components/ui/BrandMark'
 import { LeafSprig } from '../components/chat/Doodles'
@@ -18,10 +20,26 @@ export default function LoginPage() {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [requestingCode, setRequestingCode] = useState(false)
+  const [codeNotice, setCodeNotice] = useState('')
   const codeInputRef = useRef(null)
   const login = useAuthStore(state => state.login)
   const isLoggedIn = useAuthStore(state => state.isLoggedIn)
   const navigate = useNavigate()
+  const native = isIOSApp()
+
+  const requestCode = async () => {
+    if (!PHONE_PATTERN.test(phone)) { setError('请先填写正确的手机号'); return }
+    setError('')
+    setCodeNotice('')
+    setRequestingCode(true)
+    try {
+      await authService.requestCode(phone)
+      setCodeNotice('如果此号码已获邀，验证码会通过短信发送。请在五分钟内填写。')
+    } catch (requestError) {
+      setError(requestError.response?.status === 429 ? '请求太频繁，请稍后重试' : '短信服务暂不可用，请稍后重试')
+    } finally { setRequestingCode(false) }
+  }
 
   if (isLoggedIn) return <Navigate to="/chat" replace />
 
@@ -51,7 +69,7 @@ export default function LoginPage() {
       } else if (status === 400) {
         setError('信息格式不对，请检查后再试')
       } else if (!requestError.response) {
-        setError('连不上本地服务器，请确认服务已启动后重试')
+        setError(native ? '暂时连接不上服务，请检查网络后重试' : '连不上本地服务器，请确认服务已启动后重试')
       } else {
         setError('登录失败，请稍后重试')
       }
@@ -99,8 +117,11 @@ export default function LoginPage() {
           {error && <p role="alert" className="text-center text-xs text-danger">{error}</p>}
 
           <p className="text-center">
-            <span className="inline-block rounded-full bg-pastel-blush px-3 py-1 text-xs text-action-primary">请输入内测负责人单独发放的验证码</span>
+            {native
+              ? <button type="button" disabled={requestingCode || loading || BACKEND_PENDING} onClick={requestCode} className="min-h-11 rounded-full bg-pastel-blush px-4 text-sm text-action-primary">{requestingCode ? '正在获取…' : '获取短信验证码'}</button>
+              : <span className="inline-block rounded-full bg-pastel-blush px-3 py-1 text-xs text-action-primary">请输入内测负责人单独发放的验证码</span>}
           </p>
+          {codeNotice && <p role="status" className="text-sm text-text-secondary">{codeNotice}</p>}
 
           <button type="submit" disabled={loading || BACKEND_PENDING} className="group flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-action-primary font-semibold text-text-inverse shadow-button transition-[background-color,box-shadow,transform] duration-300 ease-calm hover:bg-action-hover hover:shadow-md focus-visible:ring-2 focus-visible:ring-status-info active:scale-[0.99] disabled:opacity-60">
             {loading ? (

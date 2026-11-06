@@ -1,7 +1,13 @@
-import api, { refreshAccessToken } from './api'
+import api, { refreshAccessToken, sendMobileAuth } from './api'
+import { isIOSApp } from '../platform/native'
+import { saveMobileSession, logoutMobileSession } from '../platform/mobileSession'
+import { getSessionVersion } from './sessionLifecycle'
 
 export const authService = {
+  requestCode: (phone) => sendMobileAuth('/auth/mobile/request-code', { phone }),
   login: async (phone, code) => {
+    const session = getSessionVersion()
+    if (isIOSApp()) return saveMobileSession(await sendMobileAuth('/auth/mobile/login', { phone, code }), session)
     const response = await api.post('/auth/login', { phone, code })
     return response.data
   },
@@ -10,6 +16,7 @@ export const authService = {
     return { token: await refreshAccessToken() }
   },
   logout: async () => {
+    if (isIOSApp()) return logoutMobileSession(sendMobileAuth)
     const response = await api.post('/auth/logout')
     return response.data
   },

@@ -101,6 +101,8 @@ Authorization: Bearer <access_token>
 
 ---
 
+> **2026-11-06 移动端兼容代码合并**：默认 Web 会话仍用 HttpOnly refresh Cookie。`/api/mobile/auth` 为已打包原生客户端的独立接口，全部 `Cache-Control: no-store`；无 Origin 或 `capacitor://localhost` 才可进入，仍要求手机号白名单、限流和 refresh 轮换。`POST request-code` 收 `{phone}`；`POST login` 收 `{phone, code}`，返回 `{token, refreshToken, user}`；`POST refresh` 收 `{refreshToken}`，返回轮换后的同结构；`POST logout` 收 `{refreshToken}`，返回 `{success:true}`。没有短信适配器时申请码与登录返回 503 `SMS_UNAVAILABLE`，不能使用 Web 固定码绕过；本次 Web 流水线不发行原生客户端，不宣称短信已接入。
+
 ## 一、认证 `/api/auth`
 
 ### POST /api/auth/login

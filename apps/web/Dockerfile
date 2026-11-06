@@ -20,7 +20,7 @@ COPY packages/schedule-logic packages/schedule-logic
 COPY apps/web apps/web
 RUN pnpm --filter cyber-sister-client build
 
-FROM nginxinc/nginx-unprivileged:1.27.4-alpine AS production
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS production
 
 COPY --from=builder --chown=nginx:nginx /workspace/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf

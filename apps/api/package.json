@@ -41,8 +41,7 @@
   },
   "dependencies": {
     "@cyber-sister/llm-gateway": "workspace:*",
-    "schedule-logic": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@mozilla/readability": "0.6.0",
     "@prisma/client": "^5.18.0",
     "bcryptjs": "^2.4.3",
@@ -55,10 +54,11 @@
     "ipaddr.js": "2.5.0",
     "jsonwebtoken": "^9.0.2",
     "linkedom": "0.18.13",
-    "multer": "2.4.0",
+    "multer": "2.5.0",
     "persona-card": "workspace:*",
     "playwright-core": "^1.62.1",
-    "prisma": "^5.18.0"
+    "prisma": "^5.18.0",
+    "schedule-logic": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

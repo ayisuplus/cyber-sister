@@ -12,6 +12,7 @@ import Card from '../components/ui/Card'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import CloudModelSettings from '../components/chat/CloudModelSettings'
 import ModelProviderSettings from '../components/chat/ModelProviderSettings'
+import { isMobileBuild } from '../platform/native'
 import ImportMigration from '../components/profile/ImportMigration'
 import WeatherPlaceSetting from '../components/profile/WeatherPlaceSetting'
 import LocalBridgeSettings from '../components/profile/LocalBridgeSettings'
@@ -262,7 +263,7 @@ export default function SettingsPage() {
           <CloudModelSettings />
 
           {/* 只有实例管理员看得见；不是管理员时整张卡片不渲染 */}
-          <ModelProviderSettings />
+          {!isMobileBuild() && <ModelProviderSettings />}
 
           <Card className="overflow-hidden">
             <div className="border-b border-border-subtle px-4 py-3">
@@ -288,7 +289,7 @@ export default function SettingsPage() {
 
           <WeatherPlaceSetting />
 
-          <LocalBridgeSettings />
+          {!isMobileBuild() && <LocalBridgeSettings />}
 
           <Card className="overflow-hidden">
             <section aria-labelledby="data-migration-title" className="p-4">
@@ -300,6 +301,7 @@ export default function SettingsPage() {
               <button type="button" disabled={exporting} onClick={handleExport} className="mt-3 min-h-11 w-full rounded-xl bg-action-primary text-xs font-semibold text-text-inverse hover:bg-action-hover focus:ring-2 focus:ring-status-info disabled:opacity-50">
                 {exporting ? '正在导出…' : '导出我的全部数据（JSON）'}
               </button>
+              <p className="mt-2 text-xs text-text-muted">JSON 不包含完整的本机书库和照片文件；本机书籍请保留原文件。</p>
               <ImportMigration />
             </section>
           </Card>

@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit'
 import { Prisma } from '@prisma/client'
 
 import authRoutes from './routes/auth.js'
+import mobileAuthRoutes from './routes/mobileAuth.js'
 import chatRoutes from './routes/chat.js'
 import userRoutes from './routes/user.js'
 import toolsRoutes from './routes/tools.js'
@@ -84,7 +85,7 @@ app.use(helmet({
 }))
 
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: [process.env.CORS_ORIGIN || 'http://localhost:5173', 'capacitor://localhost'],
   credentials: true,
 }))
 // 迁移包与前端 10MB 上限一致；其他 JSON 请求维持原上限。
@@ -185,6 +186,7 @@ app.use(['/api/bridge/poll', '/api/bridge/jobs'], bridgeLimiter)
 app.use('/api', limiter)
 
 app.use('/api/auth', authRoutes)
+app.use('/api/auth/mobile', mobileAuthRoutes)
 app.use('/api/chat', authMiddleware, chatRoutes)
 app.use('/api/user', authMiddleware, userRoutes)
 app.use('/api/tools', authMiddleware, toolsRoutes)

@@ -517,6 +517,26 @@ test('complete 调用方取消传导到 fetch，且不重试', async (t) => {
 
 const okJsonResponse = (content) => new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), { status: 200 })
 
+test('provider credentials use the selected header in both complete and stream', async (t) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async (_url, options) => {
+    requests.push(options.headers)
+    return JSON.parse(options.body).stream ? okStreamResponse([sseChunk(sseJson('好')), sseChunk('[DONE]')]) : okJsonResponse('好')
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
+  for (const header of ['authorization', 'api-key']) {
+    const gateway = await createGateway({ ...LOCAL_ENV, GATEWAY_LLAMACPP_API_KEY: 'synthetic-key', GATEWAY_LLAMACPP_API_KEY_HEADER: header })
+    assert.equal((await gateway.complete(baseRequest())).content, '好')
+    for await (const _event of gateway.stream(baseRequest())) { /* drain */ }
+    for (const headers of requests.splice(0)) {
+      assert.equal(headers[header], header === 'api-key' ? 'synthetic-key' : 'Bearer synthetic-key')
+      assert.equal(headers[header === 'api-key' ? 'authorization' : 'api-key'], undefined)
+    }
+  }
+  await assert.rejects(createGateway({ ...LOCAL_ENV, GATEWAY_LLAMACPP_API_KEY_HEADER: 'x-unapproved-header' }), /API_KEY_HEADER/)
+})
+
 test('provider extra body is merged into complete and stream payloads, per-request settings win', async (t) => {
   const originalFetch = globalThis.fetch
   const payloads = []

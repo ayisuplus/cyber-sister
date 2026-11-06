@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import crypto from 'crypto'
 import request from 'supertest'
+import express from 'express'
+import { createMobileAuthRouter } from '../../src/routes/mobileAuth.js'
+import { createLoginCodes } from '../../src/services/mobileLoginCodes.js'
 import { Prisma } from '@prisma/client'
 
 const state = vi.hoisted(() => ({
@@ -127,7 +130,62 @@ import { generateRefreshToken } from '../../src/middleware/auth.js'
 import { loginAttempts, sweepLoginAttempts } from '../../src/services/authService.js'
 import { DEFAULT_PERSONA_CARD } from '../../src/services/personaStudio.js'
 
+describe('mobile sessions (real routes and session service, in-memory database)', () => {
+  const phone = '13800138000'
+  let mobile
+  let delivered
+  beforeEach(() => {
+    state.users.clear()
+    state.refreshTokens.length = 0
+    state.personas.length = 0
+    state.failRefreshUpdate = false
+    loginAttempts.clear()
+    delivered = []
+    const codes = createLoginCodes({ isAllowed: p => p === phone, deliver: (_p, code) => delivered.push(code) })
+    mobile = express().use(express.json()).use('/auth', createMobileAuthRouter({ codes }))
+  })
+  const login = async () => {
+    await request(mobile).post('/auth/request-code').send({ phone }).expect(200)
+    return request(mobile).post('/auth/login').send({ phone, code: delivered[0] }).expect(200)
+  }
+  it('uses single-use SMS, no cookie, and rotates and revokes native refresh credentials', async () => {
+    const first = await login()
+    expect(first.headers['set-cookie']).toBeUndefined()
+    expect(first.headers['cache-control']).toBe('no-store')
+    expect(first.body.user.phone).toBe(phone)
+    await request(mobile).post('/auth/login').send({ phone, code: delivered[0] }).expect(401)
+    const attempts = await Promise.all([0, 1].map(() => request(mobile).post('/auth/refresh').send({ refreshToken: first.body.refreshToken })))
+    expect(attempts.map(r => r.status).sort()).toEqual([200, 401])
+    const rotated = attempts.find(r => r.status === 200).body
+    expect(rotated.user.id).toBe(first.body.user.id)
+    await request(mobile).post('/auth/logout').send({ refreshToken: rotated.refreshToken }).expect(200)
+    await request(mobile).post('/auth/refresh').send({ refreshToken: rotated.refreshToken }).expect(401)
+  })
+  it('rejects wrong origins, unknown phones and fixed internal codes', async () => {
+    await request(mobile).post('/auth/request-code').set('Origin', 'https://evil.test').send({ phone }).expect(403)
+    await request(mobile).post('/auth/request-code').set('Origin', 'capacitor://localhost').send({ phone: '13700137000' }).expect(200)
+    expect(delivered).toHaveLength(0)
+    await request(mobile).post('/auth/login').send({ phone, code: '888888' }).expect(401)
+    await request(mobile).post('/auth/refresh').send({ refreshToken: 'invalid' }).expect(401)
+  })
+  it('preserves the session on a failed revocation and rejects removed whitelist membership', async () => {
+    const first = await login()
+    state.failRefreshUpdate = true
+    await request(mobile).post('/auth/logout').send({ refreshToken: first.body.refreshToken }).expect(503)
+    expect(state.refreshTokens[0].revoked).toBe(false)
+    state.failRefreshUpdate = false
+    state.users.get(phone).phone = '13700137000'
+    await request(mobile).post('/auth/refresh').send({ refreshToken: first.body.refreshToken }).expect(401)
+  })
+})
+
 describe('Auth API', () => {
+  it('mobile login fails closed while a real SMS provider is not configured', async () => {
+    const response = await request(app).post('/api/auth/mobile/request-code').send({ phone: '13800138000' })
+    expect(response.status).toBe(503)
+    expect(response.body.code).toBe('SMS_UNAVAILABLE')
+    expect(response.headers['set-cookie']).toBeUndefined()
+  })
   const allowedPhone = '13800138000'
 
   beforeEach(() => {

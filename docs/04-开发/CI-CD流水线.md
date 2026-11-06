@@ -1,106 +1,68 @@
-# Amie · CI/CD 流水线设计
+# Amie · GitHub CI/CD
 
-> **文档版本**：V2.0（2026-09-16 重写；V1.0 的 Cloudflare Pages + 独立 VPS 方案从未真正启用，已作废）
-> **工具版本**：GitHub Actions（actions/checkout@v4、pnpm/action-setup@v4、actions/setup-node@v4、actions/upload-artifact@v4、actions/download-artifact@v4）、pnpm 11.5.1、Node 24
-> **部署形态**：前后端同机——一台 2 核 2G 的服务器上用 Docker Compose 跑 edge nginx + web + api + postgres，nginx 同源发页面并反代 `/api`
+> 状态：✅ 当前有效
+> 2026-11-06：GitHub 云端检查 + 受限 SSH 发布；仅供已授权的私人内测。任务见 [Issue #4](https://github.com/ayisuplus/cyber-sister/issues/4)。
 
----
+## 触发与门禁
 
-## 1. 为什么是这套
+PR 到 `master` 和 `master` push 都运行 `.github/workflows/ci.yml`：
 
-2026-09-16 之前仓库里有两套互相矛盾的部署事实：工作流部署 `compose.yaml` 全栈到"VPS"并把前端发到 Cloudflare Pages，而线上实际是手工部署的 `deploy/compose.chat.yaml`（仅 API + PostgreSQL），前端在 Sites 托管。镜像名、Node 版本、密钥挂载方式都对不上。现在收敛为一套：
+- Web：lint、类型检查、覆盖率、iOS 配置约束测试、Web 构建。
+- API：lint、已提交迁移、覆盖率；真实 PostgreSQL 服务供集成套件创建独立测试库，不允许静默跳过数据库验证。
+- Packages：共享包与本机助手测试、部署脚本故障分支测试、发布接收器的不可信输入与恢复测试。
+- E2E：桌面与手机 Chromium；本机能力构建跑完整套件，再用 Web 构建验证共享记忆和生活入口。
 
-- **一套 compose**：`compose.yaml`（基线）+ `deploy/compose.server.yaml`（小机器的资源、日志与加固覆盖层）。
-- **一个 Node 版本**：24（`.nvmrc`、`engines`、两个 Dockerfile、工作流 env 一致）。
-- **一处前端**：跟 API 同机同源，不再有跨域与单独的 API 域名。
+只有本仓库的 `master push` CI 全部成功，才由 `.github/workflows/deploy.yml` 部署。PR（包括 fork）、失败或未完成 CI 均不能发布。手动运行 Deploy 可填成功 CI 的 `run_id`；留空选最新成功 master push。提交必须仍是当前 master，旧提交会跳过；回滚使用服务器管理员入口。
 
-## 2. 两条流水线
+`master` 分支保护要求以上四项检查通过并要求分支更新，不允许强推或删除。`private-beta` environment 仅允许 master。日常从分支提交 PR，合并后自动发布。
 
+## 同一份已检查产物
+
+Web job 将同一个完整 SHA 的必要源码与编好的 `dist` 打为 `release-bundle`，保留 7 天。归档只选取 Compose、API、共享包、部署目录和 Web 镜像所需文件，排除文档、Git 历史及运行凭据。原生 iOS 代码可参与源码合并，本流水线只发布 Web，不生成或发行 iOS 二进制。
+
+部署 job 和服务器都核对 CI workflow、事件、仓库、分支、当前 master SHA、成功结论与 artifact 元数据。服务器接收原始 ZIP，校验 GitHub 提供的 SHA256，再验证全部解包路径、清单和 Web profile，拒绝越界路径、符号链接、重复项、真实 env、文档或超限归档。
+
+镜像标签是 `sha-<提交前8位>-ci-<run_id>-a<run_attempt>`。同一次 CI 重复部署使用已保存源码和镜像，不重新构建。重新运行 CI 会得到新 attempt 标签，避免覆盖原镜像。无需镜像仓库；API 在主机构建，前端只装入 CI 产物。
+
+## 首次配置
+
+服务器管理员用专用公钥执行 `deploy/scripts/install-github-deploy.sh PUBLIC_KEY EXISTING_SOURCE`：
+
+- 创建锁定密码的 `amie-deploy` 账号，不加入 Docker 组。
+- SSH key 使用 `restrict` 与固定命令，仅接受 `deploy`，不能开普通 shell 或转发端口。
+- sudo 只允许无参数的 root-owned `/usr/local/sbin/amie-github-deploy`；回滚和初始化参数仅管理员可用。
+- 配置在 `/etc/amie/github-deploy.json`；受管源码、私密日志、状态在 `/opt/amie/cicd/`。初始化复制现有 Compose / 代理 / 回滚脚本，登记当前和上一版镜像，不切换服务。
+
+GitHub `private-beta` environment 设置：
+
+| 类型 | 名称 | 内容 |
+| --- | --- | --- |
+| Variable | `AMIE_SSH_HOST` | 服务器地址 |
+| Variable | `AMIE_SSH_PORT` | SSH 端口 |
+| Variable | `AMIE_SSH_USER` | `amie-deploy` |
+| Secret | `AMIE_SSH_PRIVATE_KEY` | 仅此次发布使用的私钥，不使用管理员私钥 |
+| Secret | `AMIE_SSH_KNOWN_HOSTS` | 从已信任的管理员连接取得的主机公钥，严格校验，不临时信任扫描结果 |
+
+GitHub job 的短期只读 `github.token` 经 SSH stdin 供服务器即时核验 Actions 元数据，不写入文件。应用的 JWT、手机号、模型密钥、数据库凭据继续保留在 `/opt/amie/runtime.env` 与 `/opt/amie/secrets/`，不放 GitHub。详细构建 / 迁移日志仅存服务器私密目录，公开 Actions 只显示脱敏状态和提交标签。
+
+## 发布与恢复
+
+`release.sh` 在迁移前暂停应用写入并备份、校验数据库和附件，然后构建、迁移、启动并检查健康。备份失败不能继续。并发由 GitHub concurrency 和服务器文件锁双重约束；自动发布不主动取消正在发布的任务。
+
+接收器失败恢复使用上一版自己的源码、Compose、代理配置与匹配的临时 runtime 标签，而后恢复 canonical runtime 与状态。数据库从不自动降级；不兼容迁移需要另行审查和数据恢复，不能靠旧镜像保证业务兼容。
+
+管理员回滚上一版：
+
+```sh
+sudo /usr/local/sbin/amie-github-deploy --rollback
 ```
-push / PR ──→ CI（GitHub 云端 ubuntu-latest）
-              ├─ web      lint → typecheck → test:coverage → build → 产物 web-dist
-              ├─ api      lint → prisma migrate deploy → test:coverage（含 5 个真实 PostgreSQL 集成套件）
-              ├─ packages llm-gateway 的 node --test + test:deploy
-              └─ e2e      playwright（desktop + mobile chromium；本地全量 + Web 记忆回归）
-                              │ master 上全绿
-                              ▼
-            Deploy（服务器自建 runner，workflow_run 接力）
-              取 CI 的 web-dist → 备份数据库 → 构建 api/web 镜像 → 迁移并起服务
-              → 健康检查 → 记录发布 → 失败自动回滚镜像
-```
 
-**为什么检查在云端、部署在本机**：部署主机只有 2 核 2G，单测 + e2e 跟线上服务挤在一起会互相拖垮；而部署必须在本机执行（要读只存在于主机上的密钥文件、要操作本机 Docker）。
+回滚后可在 GitHub 手动运行 Deploy，指定当前 master 的成功 CI `run_id`，恢复已保存的新版本。日志在 `/opt/amie/cicd/logs/`，当前 / 上版源码记录在 `/opt/amie/cicd/active.json`，备份在 `/opt/amie/backups/`。不要直接用旧检出目录的 `release.sh` 绕过接收器；手工更改 current-tag 会被检测并要求管理员先对齐状态。
 
-### 2.1 CI（`.github/workflows/ci.yml`）
+若发布中断留下无成功 receipt 的目录，不覆盖该目录或镜像，先确认线上健康并重新运行 CI，使用新的 attempt 标签。若 artifact 超过 7 天过期，同样重新运行 CI。
 
-| Job | 步骤 | 说明 |
-|---|---|---|
-| web | lint → typecheck → test:coverage → build | 产物 `web-dist` 留存 7 天，**部署用的就是这份** |
-| api | lint → `prisma migrate deploy` → test:coverage | Postgres 16 service 容器；`TEST_DATABASE_URL` 指向维护库，5 个集成套件真跑 |
-| packages | 包测试 → `pnpm test:deploy` | 网关测试；实际发布脚本配合隔离假命令，8 种成功/失败场景 |
-| e2e | `playwright install --with-deps chromium` → `pnpm e2e` → Web 构建与记忆回归 | `pree2e` 出本地分发构建；另在 Web 构建运行 `shared memory` 用例；失败上传 report 与 trace |
+## 验证边界
 
-`concurrency: ci-<ref>` + `cancel-in-progress`，同分支新 push 取消旧 run。
+`/api/health/ready` 只验证进程与数据库，不能代替真实模型聊天验收。CI 不使用真实模型密钥、不调用付费模型。Cloudflare Access 保持本人访问，CI/CD 成功不代表法务签字、危机资源核实、产品发布门或公开发行已获批准；法务草案不进入部署产物。当前模型超时配置问题另见 [Issue #3](https://github.com/ayisuplus/cyber-sister/issues/3)。
 
-### 2.2 Deploy（`.github/workflows/deploy.yml` + `deploy/scripts/`）
-
-触发：CI 在 master 上成功后由 `workflow_run` 接力，或 `workflow_dispatch` 手动。`concurrency: deploy` 且 **`cancel-in-progress: false`**——迁移做到一半不能被打断。
-
-工作流本身很薄，真正的逻辑在仓库里的脚本，可单独执行、可本地演练：
-
-- `deploy/scripts/release.sh`：预检（密钥路径可读、compose 校验、磁盘余量、`IMAGE_TAG` 合法且非 `latest`）→ **备份数据库并校验** → 构建 `api`/`web` → `up -d`（compose 里 `migration` 一次性服务先跑 `db:migrate:deploy`，成功后 api 才起）→ 健康检查 → 写 `releases/<tag>.txt` 与 `current-tag`/`previous-tag`。预检失败直接停止；读取旧标签并注册 EXIT trap 后的失败自动尝试回滚，有旧标签才可回滚，回滚失败需人工处理。
-- `deploy/scripts/rollback.sh`：用 `previous-tag`（或指定标签）以 `--no-build` 重新拉起，再做一次健康检查。
-- `deploy/scripts/common.sh`：compose 调用、运行配置读取、健康检查、模型状态播报。**只读取路径与域名，任何时候不打印密钥内容。**
-
-镜像标签 `sha-<8位>`，不可变、不用 `latest`（API 启动时 `validateRuntimeConfig` 会直接拒绝 `latest`）。
-
-## 2.3 本地演练发现并修掉的三个缺陷
-
-`compose.yaml` 全栈此前从未真正启动过（线上跑的一直是仅聊天的 `deploy/compose.chat.yaml`），2026-09-16 用 Docker 在本地整栈演练时暴露出三个会让部署必然失败的问题，均已修复：
-
-1. **运行时依赖 pnpm**：`migration` 用 `pnpm ... db:migrate:deploy` 启动，而镜像里的 pnpm 由 corepack 提供，首次调用要联网下载；迁移容器只接 `internal` 网络，必然失败。改为 `node src/prisma/migrateDeploy.js`，API 入口同样改为 `node src/bootstrap.js`（与线上跑通过的 chat 栈一致）。
-2. **Prisma 引擎在离线容器里被重新下载**：alpine 缺 openssl 导致引擎目标误判，且 prisma CLI 启动时会校验/补下载引擎。已在镜像内安装 openssl，并把引擎固化到 `/opt/prisma-engines`，用 `PRISMA_SCHEMA_ENGINE_BINARY` / `PRISMA_QUERY_ENGINE_LIBRARY` 显式指定，运行时不再有任何下载或写入。
-3. **`BIND_ADDRESS` 一个变量承担了两个含义**：它既是 compose 发布 edge 端口的宿主机地址，又被 API 当成进程监听地址；容器内只听 127.0.0.1 时 nginx 反代必然 502，而校验又禁止 0.0.0.0。现在拆成两个：`BIND_ADDRESS`（宿主机暴露，规则不变）与 `API_LISTEN_ADDRESS`（容器内监听，compose 设为 0.0.0.0）。API 不发布任何宿主机端口，对外暴露仍由 edge 单点控制；本地客户端分发下两者都强制 127.0.0.1。
-
-演练还确认：备份 → 迁移 → 健康检查 → 记录的顺序成立，坏版本会被自动回滚到上一个标签，且数据库不会被自动回滚。
-
-2026-09-18 审查更正：上段是历史演练记录，不能覆盖所有失败分支；后续发现显式 `fail` 会绕过旧 ERR trap。本轮改用 EXIT trap，8 项隔离测试覆盖健康失败、构建/启动失败、空/损坏备份、首次发布、回滚失败与成功路径，保留原失败退出码。未重新演练真实 Docker 部署及数据库恢复。本地可用 `pnpm test:deploy`；Windows 设置 `BASH_BINARY` 指向 Git Bash。浏览器测试可设置 `E2E_DIST_DIR` 指向临时构建目录，默认仍为 `apps/web/dist`。
-
-## 3. 需要配置的密钥与变量
-
-GitHub 侧**不需要任何部署密钥**——runner 就在目标主机上，密钥只存在于主机文件里。
-
-| 位置 | 内容 |
-|---|---|
-| 服务器 `/opt/amie/runtime.env` | 运行配置，照 `deploy/internal.env.example` 填 |
-| 服务器 `/opt/amie/secrets/` | 各类 `*_FILE` 凭据，`0400`、`1000:1000` |
-| 服务器 `/opt/amie/backups/` | 自动备份（保留最近 7 份） |
-| 服务器 `/opt/amie/releases/` | 每次发布的镜像清单 |
-| GitHub → Settings → Actions → Runners | 自建 runner（单并发，装成 systemd 服务） |
-
-若服务器出网受限、runner 连不上 GitHub，退路是改回 `appleboy/ssh-action` 从云端 runner SSH 进来执行同一个 `release.sh`，那时才需要 `VPS_HOST`/`VPS_USER`/`VPS_SSH_KEY` 三个 secrets。脚本不用改。
-
-## 4. 回滚
-
-- **镜像回滚**：`RUNTIME_ENV_FILE=/opt/amie/runtime.env deploy/scripts/rollback.sh [标签]`，缺省回到 `previous-tag`；可用标签见 `/opt/amie/releases/`。
-- **数据回滚**：**不自动做**。每次迁移前的备份在 `/opt/amie/backups/pre-<tag>-<时间戳>.dump`，按 `docs/deployment/internal-runbook.md` 的 `pg_restore` 步骤由人确认后执行。发布失败时脚本会把备份路径打出来。
-- 建议 master 开启分支保护（要求 CI 绿），从源头减少回滚。
-
-## 5. 如实记录的缺口
-
-1. **`/api/health/ready` 只探数据库**。它返回 200 不代表聊天可用——2026-09-15 就出现过"部署健康、聊天返回 `LLM_UNAVAILABLE`"。部署末尾会打印 `/api/llm/status` 供人判断，但**不作为成功条件**，流水线也不声称"聊天已上线"。
-2. **`apps/api` 没有 typecheck**：它没有 tsconfig，`checkJs` 全量打开会带出大量历史报错，属独立整改项。CI 只对 `apps/web` 做 `tsc --noEmit`。
-3. **lint 是棘轮不是清零**：`--max-warnings` 取 2026-09-16 实测值（web 22、api 146），只许降不许升。警告本身仍待逐步清理。
-4. **覆盖率阈值是地板不是目标**：web 80/80/80/80 已达标（实测 94.8/87.0/82.4/94.8）。api 的阈值设为 82/78/76/71（行/语句/函数/分支），因为它要同时容纳两种跑法：CI 带真实 PostgreSQL 集成套件时实测 93.5/90.0/89.8/83.0，本地没有数据库、5 个套件自动跳过时只有 86.8/82.8/80.9/74.8。想按 CI 口径卡更高的线，就得要求本地也起数据库。
-5. **没有镜像仓库**：沿用"在目标主机构建 + 不可变标签 + `docker compose images` 存档"。若服务器构建因内存不足失败，退路是在 CI 里把 api 镜像导成 tar 产物、主机 `docker load`。
-6. **Action 版本用主版本标签**（`@v4`）。更高安全要求可改 SHA 锁定 + Dependabot。
-
-## 6. 首次接入清单
-
-- [ ] 服务器上验连通性：`curl -sS -o /dev/null -w '%{http_code}\n' https://api.github.com`（不通就走 SSH 退路）
-- [ ] 装 self-hosted runner（单并发、systemd 常驻），标签用默认的 `self-hosted`
-- [ ] 建 `/opt/amie/{secrets,backups,releases}`，填好 `runtime.env`，密钥 `0400`
-- [ ] 没有公网域名期间：用内部主机名 + 自签证书，`BIND_ADDRESS` 填私网 IP（不能 `0.0.0.0`）
-- [ ] 加 2G swap（2G 内存机器构建 api 镜像时需要）
-- [ ] 先 `workflow_dispatch` 手动部署一次并验收，再让它跟着 master 自动跑
-- [ ] 演练一次回滚（`rollback.sh` 指定上一个标签），确认认证与基础查询仍可用
+API 暂无 typecheck；lint 和 coverage 沿用仓库现有阈值，不为接通流水线降低标准。Actions 仍使用主版本标签，生产 API 镜像基础层仍随 `node:24-alpine` 更新；每次 CI attempt 的发布镜像本身保留唯一标签。

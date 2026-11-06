@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: 'ios-smoke.spec.js',
   globalSetup: './e2e/global-setup.js',
   fullyParallel: false,
   workers: 2,

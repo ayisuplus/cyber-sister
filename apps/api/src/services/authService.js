@@ -105,6 +105,8 @@ export function verifyInternalCredentials(phone, code) {
   return IS_INTERNAL && ALLOWED_PHONES.has(phone) && constantTimeCodeEquals(code, INTERNAL_CODE)
 }
 
+export const isAllowedPhone = (phone) => ALLOWED_PHONES.has(phone)
+
 /** 按手机号查找或注册内测用户；并发注册撞唯一约束时回读已创建的用户 */
 export async function findOrCreateInternalUser(phone) {
   let user = await prisma.user.findUnique({ where: { phone } })
@@ -154,10 +156,11 @@ export async function issueSession(user) {
  * 手机号被移出内测白名单时撤销该用户全部未过期会话。
  * 轮换被拒绝抛 RefreshTokenRejectedError，数据库故障原样上抛。
  */
-export async function rotateRefreshToken(rawToken, userId) {
+export async function rotateRefreshToken(rawToken, userId, { requireWhitelist = false } = {}) {
   const tokenHash = hashToken(rawToken)
   let newRefreshToken
   let token
+  let sessionUser
 
   await prisma.$transaction(async (tx) => {
     const revoked = await tx.refreshToken.updateMany({
@@ -174,7 +177,7 @@ export async function rotateRefreshToken(rawToken, userId) {
     const user = await tx.user.findUnique({ where: { id: userId } })
     if (!user) throw new RefreshTokenRejectedError()
     // 白名单复核：手机号被移出内测名单后，撤销该用户全部未过期 refresh token
-    if (IS_INTERNAL && !ALLOWED_PHONES.has(user.phone)) {
+    if ((IS_INTERNAL || requireWhitelist) && !ALLOWED_PHONES.has(user.phone)) {
       await tx.refreshToken.updateMany({
         where: { userId: user.id, revoked: false, expiresAt: { gt: new Date() } },
         data: { revoked: true },
@@ -185,9 +188,10 @@ export async function rotateRefreshToken(rawToken, userId) {
     newRefreshToken = generateRefreshToken({ userId: user.id, jti: crypto.randomUUID() })
     await storeRefreshToken(tx, user.id, newRefreshToken)
     token = generateToken({ userId: user.id, phone: user.phone })
+    sessionUser = user
   })
 
-  return { token, newRefreshToken }
+  return { token, newRefreshToken, user: sessionUser }
 }
 
 /** 撤销指定 refresh token（幂等）；数据库故障原样上抛 */

@@ -1,0 +1,12 @@
+# 最后叠加在 compose.yaml + compose.server.yaml 上；仅给同机 cloudflared 使用。
+# !override 防止旧的 80/443 发布与证书挂载被 Compose 合并保留。
+services:
+  api:
+    environment:
+      APP_DISTRIBUTION: web
+      BIND_ADDRESS: 127.0.0.1
+  edge:
+    ports: !override
+      - "127.0.0.1:${TUNNEL_PORT:-18080}:8080"
+    volumes: !override
+      - ./deploy/nginx.tunnel.conf:/etc/nginx/templates/default.conf.template:ro
