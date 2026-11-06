@@ -3,6 +3,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { usePetting } from '../../hooks/usePetting'
 import { activePetOf, usePetStore } from '../../stores/petStore'
 import { isNight, petImage } from '../../features/pets'
+import NotebookCatArt from './NotebookCatArt'
 
 // 本子角上的小家伙（路线图 C29）：趴在本子右上角，每一页都在。
 // 养了宠物就是你养的那一只，在这儿摸它也算好感（和宠物页同一份，每天有上限）；还没养就是封面那只小猫，摸了不记数。
@@ -40,7 +41,7 @@ export default function NotebookCat() {
 
   if (broken) return null
 
-  const frame = MOOD_FRAMES[mood]
+  const frame = species === 'cat' && mood === 'idle' && !night ? 'awake' : MOOD_FRAMES[mood]
   const who = pet?.name ?? '小猫'
   const purring = mood === 'purr' || mood === 'stretch'
   return (
@@ -49,11 +50,12 @@ export default function NotebookCat() {
       aria-label={`摸摸${who}`}
       data-mood={mood}
       data-species={species}
+      data-night={night}
       className="notebook-cat"
       {...handlers}
     >
       <span className="notebook-cat__body" aria-hidden="true">
-        {FRAMES.map((name) => (
+        {species === 'cat' ? <NotebookCatArt frame={frame} onError={() => setBroken(true)} /> : FRAMES.map((name) => (
           <img
             key={`${species}-${name}`}
             src={petImage(species, name, { small: true })}

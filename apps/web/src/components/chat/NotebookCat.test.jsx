@@ -24,7 +24,8 @@ const DOG = { species: 'dog', name: '豆豆', affection: 3, growth: 0, stage: { 
 
 const cat = () => screen.getByRole('button', { name: /^摸摸/ })
 const mood = () => cat().getAttribute('data-mood')
-const visibleFrame = () => [...cat().querySelectorAll('img')].find((img) => img.style.opacity === '1')?.getAttribute('src')
+const visibleFrame = () => cat().querySelector('[data-active="true"] image')?.getAttribute('href')
+  ?? [...cat().querySelectorAll('img')].find((img) => img.style.opacity === '1')?.getAttribute('src')
 
 const stroke = (target, moves, stepMs = 0) => {
   fireEvent.pointerDown(target, { clientX: 10, clientY: 10 })
@@ -55,14 +56,23 @@ describe('NotebookCat', () => {
     vi.unstubAllGlobals()
   })
 
-  it('还没养宠物：是封面那只小猫，四帧都在，平时睡着，全是装饰图', async () => {
+  it('还没养宠物：是封面那只小猫，四帧预载，白天睁眼，图画不进入无障碍朗读', async () => {
     await renderWith(NONE)
     expect(cat()).toHaveAccessibleName('摸摸小猫')
     expect(mood()).toBe('idle')
-    const images = cat().querySelectorAll('img')
-    expect(images).toHaveLength(4)
-    images.forEach((img) => expect(img).toHaveAttribute('alt', ''))
+    expect(cat().querySelectorAll('[data-pose]')).toHaveLength(4)
+    expect(cat().querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(visibleFrame()).toBe('/design-assets/pets/cat/awake-sm.webp')
+  })
+
+  it('深夜仍闭眼睡觉，日夜切换不改变摸摸状态或发出好感请求', async () => {
+    await renderWith(NONE)
+    vi.setSystemTime(new Date(2026, 8, 27, 23, 0))
+    act(() => { vi.advanceTimersByTime(10 * 60 * 1000) })
     expect(visibleFrame()).toBe('/design-assets/pets/cat/sleep-sm.webp')
+    expect(mood()).toBe('idle')
+    expect(petService.pet).not.toHaveBeenCalled()
   })
 
   it('养了宠物：本子角上换成你养的那一只', async () => {
@@ -150,7 +160,7 @@ describe('NotebookCat', () => {
 
   it('画没加载出来就整只不显示，不留破图', async () => {
     await renderWith(NONE)
-    fireEvent.error(cat().querySelector('img[src$="sleep-sm.webp"]'))
+    fireEvent.error(cat().querySelector('[data-pose="sleep"] > image'))
     expect(screen.queryByRole('button', { name: /^摸摸/ })).not.toBeInTheDocument()
   })
 
