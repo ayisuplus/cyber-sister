@@ -568,7 +568,7 @@ function runConversationAgent({ content, modelText = null, persona, history, mem
     generate: async function* (currentTurn) {
       await durable?.assertActive()
       const args = [prompt, persona.tone, currentTurn.history, memories, requestId,
-        { ...modelOptions, bookSelection, memoriesSelected: true, promptInHistory: currentTurn.promptInHistory, extraSystem: currentTurn.extraSystem,
+        { ...modelOptions, ...(attachments.length ? { attachmentCount: attachments.length } : {}), bookSelection, memoriesSelected: true, promptInHistory: currentTurn.promptInHistory, extraSystem: currentTurn.extraSystem,
           ...(userMessage !== prompt ? { userText: userMessage } : {}),
           ...(currentTurn.tools.length && !currentTurn.forcedFinal ? { tools: currentTurn.tools } : {}), scene: currentTurn.scene, agent: currentTurn.agent, ...(image ? { image } : {}) }]
       if (stream) yield* generateResponseStream(...args)

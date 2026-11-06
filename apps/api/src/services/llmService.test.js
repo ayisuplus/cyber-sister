@@ -84,6 +84,7 @@ describe('普通回复的文本包装', () => {
     const wire = envelope(text)
     gatewayComplete.mockResolvedValueOnce({ content: wire, provider: 'qwen' })
     expect((await generateResponse('hello', 'gentle', [], [], 'text-envelope', options)).content).toBe(text)
+    expect(gatewayComplete.mock.calls[0][0]).toMatchObject({ maxTokens: 512 })
     gatewayStream.mockImplementationOnce(async function* () {
       for (const part of [wire.slice(0, 7), wire.slice(7, -2), wire.slice(-2)]) yield { type: 'delta', text: part }
       yield { type: 'done', provider: 'qwen' }
@@ -93,6 +94,19 @@ describe('普通回复的文本包装', () => {
     expect(events.filter((event) => event.type === 'sentence').map((event) => event.text).join('')).toBe(text)
     expect(events.at(-1)).toMatchObject({ type: 'done', content: text })
     expect(gatewayStream).toHaveBeenCalledTimes(1)
+    expect(gatewayStream.mock.calls[0][0]).toMatchObject({ maxTokens: 512 })
+  })
+
+  it('问候后的明确长任务不使用问候的输出预算', async () => {
+    gatewayComplete.mockResolvedValueOnce({ content: '好的。', provider: 'qwen' })
+    await generateResponse('hello，帮我写一份详细计划', 'gentle', [], [], 'task-budget', options)
+    expect(gatewayComplete.mock.calls[0][0]).not.toHaveProperty('maxTokens')
+  })
+
+  it('文字只是问候但附有文件时，不使用短问候预算', async () => {
+    gatewayComplete.mockResolvedValueOnce({ content: '文件已经收到。', provider: 'qwen' })
+    await generateResponse('hello', 'gentle', [], [], 'file-budget', { ...options, attachmentCount: 1 })
+    expect(gatewayComplete.mock.calls[0][0]).not.toHaveProperty('maxTokens')
   })
 
   it('包装内的工具示例不获得执行权限，仍作为数据返回', async () => {
