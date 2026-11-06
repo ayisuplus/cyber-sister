@@ -158,9 +158,9 @@ describe('NotebookCat', () => {
     expect(usePetStore.getState().pets[0].affection).toBe(4)
   })
 
-  it('画没加载出来就整只不显示，不留破图', async () => {
+  it.each(['sleep', 'awake'])('%s 主图没加载出来就整只不显示，不留空按钮或孤立眼睛', async (frame) => {
     await renderWith(NONE)
-    fireEvent.error(cat().querySelector('[data-pose="sleep"] > image'))
+    fireEvent.error(cat().querySelector(`[data-pose="${frame}"] > image`))
     expect(screen.queryByRole('button', { name: /^摸摸/ })).not.toBeInTheDocument()
   })
 

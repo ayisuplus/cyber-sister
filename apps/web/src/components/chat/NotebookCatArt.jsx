@@ -27,7 +27,7 @@ export default function NotebookCatArt({ frame, onError }) {
             <g className="notebook-cat__tail">
               <image href={src} width="640" height="465" clipPath={`url(#${tail})`} />
             </g>
-            <image href={src} width="640" height="465" clipPath={`url(#${body})`} onError={pose === 'sleep' ? onError : undefined} />
+            <image href={src} width="640" height="465" clipPath={`url(#${body})`} onError={onError} />
             {pose === 'awake' && (
               <image
                 className="notebook-cat__blink"

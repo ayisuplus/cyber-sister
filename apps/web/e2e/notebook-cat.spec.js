@@ -141,3 +141,18 @@ test('小猫白天会独立摆尾、眨眼和呼吸；减少动态效果时静�
   await expect(cat).toHaveAttribute('data-mood', 'peek')
   await expect.poll(() => cat.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
 })
+
+test('白天主图加载失败时隐藏猫猫，聊天和设置仍可用', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-09-27T15:00:00+08:00'))
+  await mockApi(page, { placeSet: true })
+  let failedImages = 0
+  await page.route('**/pets/cat/awake-sm.webp', route => {
+    failedImages += 1
+    return route.abort()
+  })
+  await page.goto('/chat')
+  await expect.poll(() => failedImages).toBeGreaterThan(0)
+  await expect(page.getByRole('button', { name: '摸摸小猫' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '信纸', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '打开设置' })).toBeVisible()
+})
