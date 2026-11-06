@@ -67,6 +67,7 @@ services:
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
       INTERNAL_TEST_CODE_FILE: /run/secrets/internal_test_code
+      INTERNAL_TEST_CODES_FILE: /run/secrets/internal_test_codes
       INTERNAL_TEST_PHONES_FILE: /run/secrets/internal_test_phones
       INSTANCE_ADMIN_PHONES_FILE: /run/secrets/instance_admin_phones
       # 实例管理员在设置页配的模型供应商密钥，用它加解密（只读、64 位十六进制）
@@ -76,6 +77,7 @@ services:
       - jwt_secret
       - jwt_refresh_secret
       - internal_test_code
+      - internal_test_codes
       - internal_test_phones
       - instance_admin_phones
       - model_config_key
@@ -144,6 +146,8 @@ secrets:
     file: ${JWT_REFRESH_SECRET_FILE:?set JWT_REFRESH_SECRET_FILE in the private env file}
   internal_test_code:
     file: ${INTERNAL_TEST_CODE_FILE:?set INTERNAL_TEST_CODE_FILE in the private env file}
+  internal_test_codes:
+    file: ${INTERNAL_TEST_CODES_FILE:-${INTERNAL_TEST_CODE_FILE}}
   internal_test_phones:
     file: ${INTERNAL_TEST_PHONES_FILE:?set INTERNAL_TEST_PHONES_FILE in the private env file}
   instance_admin_phones:

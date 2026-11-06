@@ -225,6 +225,27 @@ describe('Auth API', () => {
     expect(state.refreshTokens[0].tokenHash).not.toContain(res.headers['set-cookie'][0].split('=')[1])
   })
 
+  it('独立内测码只登录自己的手机号，不能进入他人或管理员账号', async () => {
+    const originalCodes = process.env.INTERNAL_TEST_CODES
+    try {
+      process.env.INTERNAL_TEST_CODES = JSON.stringify({ '13800138000': '888888', '13900139000': '112233' })
+      vi.resetModules()
+      const { default: isolatedApp } = await import('../../src/app.js')
+      const student = await request(isolatedApp).post('/api/auth/login').send({ phone: '13900139000', code: '112233' }).expect(200)
+      const impersonateOwner = await request(isolatedApp).post('/api/auth/login').send({ phone: allowedPhone, code: '112233' }).expect(401)
+      const reuseOwnerCode = await request(isolatedApp).post('/api/auth/login').send({ phone: '13900139000', code: '888888' }).expect(401)
+      expect(impersonateOwner.body).toEqual(reuseOwnerCode.body)
+      await request(isolatedApp).post('/api/auth/login').send({ phone: '13700137000', code: '112233' }).expect(401)
+      await request(isolatedApp).get('/api/admin/model-providers').set('Authorization', `Bearer ${student.body.token}`).expect(403)
+      const owner = await request(isolatedApp).post('/api/auth/login').send({ phone: allowedPhone, code: '888888' }).expect(200)
+      expect(student.body.user.id).not.toBe(owner.body.user.id)
+    } finally {
+      if (originalCodes === undefined) delete process.env.INTERNAL_TEST_CODES
+      else process.env.INTERNAL_TEST_CODES = originalCodes
+      vi.resetModules()
+    }
+  })
+
   it('错误验证码与非白名单手机号返回相同的通用错误', async () => {
     const wrongCode = await request(app)
       .post('/api/auth/login')
