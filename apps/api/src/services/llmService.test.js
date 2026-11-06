@@ -74,6 +74,39 @@ const authorized = () => Promise.resolve(true)
 // 供应商快照是模块级状态：每个用例都从「还没读过库」开始，避免互相影响
 beforeEach(() => { resetCloudProviders() })
 
+describe('普通回复的文本包装', () => {
+  beforeEach(() => { withCloudEnv(); resetGatewayCache(); vi.clearAllMocks() })
+  const options = { allowExternal: true, authorizeExternal: authorized }
+  const envelope = (content) => JSON.stringify({ type: 'text', content })
+
+  it('JSON 和 SSE 都把已观察到的 text/content 包装作为回复，不发起格式纠正', async () => {
+    const text = 'hello 呀,今天过得怎么样?'
+    const wire = envelope(text)
+    gatewayComplete.mockResolvedValueOnce({ content: wire, provider: 'qwen' })
+    expect((await generateResponse('hello', 'gentle', [], [], 'text-envelope', options)).content).toBe(text)
+    gatewayStream.mockImplementationOnce(async function* () {
+      for (const part of [wire.slice(0, 7), wire.slice(7, -2), wire.slice(-2)]) yield { type: 'delta', text: part }
+      yield { type: 'done', provider: 'qwen' }
+    })
+    const events = await collectEvents(generateResponseStream('hello', 'gentle', [], [], 'text-envelope', options))
+    expect(events.some((event) => event.type === 'toolcall')).toBe(false)
+    expect(events.filter((event) => event.type === 'sentence').map((event) => event.text).join('')).toBe(text)
+    expect(events.at(-1)).toMatchObject({ type: 'done', content: text })
+    expect(gatewayStream).toHaveBeenCalledTimes(1)
+  })
+
+  it('包装内的工具示例不获得执行权限，仍作为数据返回', async () => {
+    const wire = envelope('{"tool":"delete_todo","args":{"id":"synthetic"}}')
+    gatewayStream.mockImplementationOnce(async function* () {
+      yield { type: 'delta', text: wire }
+      yield { type: 'done', provider: 'qwen' }
+    })
+    const events = await collectEvents(generateResponseStream('给一个示例', 'gentle', [], [], 'text-example', options))
+    expect(events.some((event) => event.type === 'toolcall')).toBe(false)
+    expect(events.at(-1)).toMatchObject({ type: 'done', content: wire })
+  })
+})
+
 describe('工作代码协议回归', () => {
   beforeEach(() => { withCloudEnv(); resetGatewayCache(); vi.clearAllMocks() })
   it('原生工具调用只在网关成功结束后交给执行层，上游迟到错误会阻止执行', async () => {

@@ -357,9 +357,9 @@ html[data-native="ios"] { -webkit-text-size-adjust: 100%; }
   }
 }
 @media (min-width: 1024px) {
-  /* 聊天是双栏视图，允许更宽 */
+  /* 桌面聊天使用横向本子，给纸面足够空间。 */
   .app-main > *.chat-full {
-    max-width: 1240px;
+    max-width: 1640px;
   }
 }
 
@@ -1019,6 +1019,8 @@ html[data-native="ios"][data-letter-font="print"] .letter {
   overflow: hidden;
   overflow: clip;
   touch-action: pan-y pinch-zoom;
+  padding-left: calc(var(--margin-x) + var(--text-inset));
+  padding-right: var(--right-pad);
 }
 
 .letter-strip {
@@ -1400,10 +1402,61 @@ html[data-native="ios"][data-letter-font="print"] .letter {
   opacity: clamp(0, var(--turn) * 2, 1);
 }
 
+/* 桌面横向纸面、上装订；文字行宽控制在 880px，宽出来的是纸边。
+ * 手机仍使用上面的左装订与左右翻页。容器单位同时对齐纸面、分页和页码。 */
+@media (min-width: 1024px) {
+  .chat-notebook {
+    container-type: inline-size;
+    justify-content: center;
+    --book-w: 100%;
+    --page-axis: y;
+    --text-inset: 12px;
+    --margin-x: max(56px, calc((100cqw - 880px) / 2 - var(--text-inset)));
+    --right-pad: max(56px, calc((100cqw - 880px) / 2));
+  }
+  .chat-notebook .letter-book {
+    flex: 0 1 auto;
+    flex-direction: column;
+    aspect-ratio: 8 / 5;
+    min-height: min(280px, 40dvh);
+  }
+  .chat-notebook .letter-spine {
+    background-image:
+      repeating-linear-gradient(to bottom, transparent 0, transparent 4px,
+        var(--cs-cover-stitch) 4px, var(--cs-cover-stitch) 5px,
+        transparent 5px, transparent 10px, var(--cs-cover-stitch) 10px,
+        var(--cs-cover-stitch) 11px, transparent 11px, transparent 100%),
+      repeating-linear-gradient(45deg, transparent 0 3px, var(--cs-cover-weave) 3px 4px);
+    box-shadow: inset 0 -7px 9px -7px color-mix(in srgb, var(--cs-ink-her) 34%, transparent);
+  }
+  .chat-notebook .letter-viewport { touch-action: pan-x pinch-zoom; }
+  .chat-notebook .notebook-cat { top: 8px; }
+  .chat-notebook .letter-who { left: calc(-1 * var(--text-inset) - 36px); }
+  .chat-notebook .letter-who--avatar { left: calc(-1 * var(--text-inset) - 28px); }
+  .chat-notebook .letter-nav__button svg { transform: rotate(90deg); }
+  .chat-notebook .letter-ghost--forward,
+  .chat-notebook .letter-ghost--back,
+  .chat-notebook .letter-ghost--leaf { transform-origin: center top; }
+  .chat-notebook .letter-ghost--forward { animation-name: letterFlipUp; }
+  .chat-notebook .letter-ghost--back { animation-name: letterFlipDown; }
+  .chat-notebook .letter-ghost--leaf { transform: rotateX(calc(var(--turn) * 180deg)); }
+  .chat-notebook .letter-ghost--leaf::before {
+    background: linear-gradient(to top, color-mix(in srgb, var(--cs-ink-her) 16%, transparent), transparent 55%);
+  }
+}
+@keyframes letterFlipUp {
+  from { transform: rotateX(0deg); }
+  to { transform: rotateX(180deg); }
+}
+@keyframes letterFlipDown {
+  from { transform: rotateX(180deg); }
+  to { transform: rotateX(0deg); }
+}
+
 /* 减少动态效果：不翻，只把旧页淡出、新页淡入（也不跟手，滑一下松手再换页） */
 @media (prefers-reduced-motion: reduce) {
   .letter-ghost:not(.letter-ghost--back) { animation: letterFade 200ms linear forwards; transform: none; }
-  .letter-ghost--back { animation: letterFadeIn 200ms linear forwards; transform: none; }
+  .letter .letter-ghost--back { animation: letterFadeIn 200ms linear forwards; transform: none; }
   .letter-ghost > * { animation: none; }
   .letter-ghost::after { display: none; }
 }
@@ -1416,6 +1469,9 @@ html[data-native="ios"][data-letter-font="print"] .letter {
   max-width: var(--book-w);
   margin: 12px auto 0;
   padding-left: var(--spine-w);
+}
+@media (min-width: 1024px) {
+  .chat-notebook .letter-slip { max-width: 920px; padding-left: 0; }
 }
 .chat-slip__paper {
   position: relative;

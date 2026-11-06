@@ -86,6 +86,7 @@ const recordFlips = page => page.evaluate(() => {
           animation: style.animationName,
           origin: style.transformOrigin,
           m11: style.transform === 'none' ? 1 : new DOMMatrix(style.transform).m11,
+          m22: style.transform === 'none' ? 1 : new DOMMatrix(style.transform).m22,
         })
       }
     }
@@ -582,7 +583,9 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
     const column = element.parentElement.getBoundingClientRect()
     return { width: box.width, left: box.left - column.left, right: column.right - box.right }
   })
-  expect(book.width).toBeLessThanOrEqual(600)
+  const desktopNotebook = page.viewportSize().width >= 1024
+  if (desktopNotebook) expect(book.width).toBeGreaterThan(900)
+  else expect(book.width).toBeLessThanOrEqual(600)
   expect(Math.abs(book.left - book.right)).toBeLessThan(2)
   // 手写字；横格与页边线画在整张纸上，从纸顶一直贯穿到页码那一行
   const entry = page.locator('.letter-entry').last()
@@ -601,13 +604,20 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
       gap: paper.top - book.bottom,
       left: paper.left - sheet.left,
       right: paper.right - sheet.right,
+      center: (paper.left + paper.right - sheet.left - sheet.right) / 2,
+      width: paper.width,
       font: getComputedStyle(document.querySelector('.letter-slip textarea')).fontFamily,
     }
   })
   expect(slip.insideBook).toBe(false)
   expect(slip.gap).toBeGreaterThan(0)
-  expect(Math.abs(slip.left)).toBeLessThan(1.5)
-  expect(Math.abs(slip.right)).toBeLessThan(1.5)
+  if (desktopNotebook) {
+    expect(Math.abs(slip.center)).toBeLessThan(1.5)
+    expect(slip.width).toBeLessThanOrEqual(920)
+  } else {
+    expect(Math.abs(slip.left)).toBeLessThan(1.5)
+    expect(Math.abs(slip.right)).toBeLessThan(1.5)
+  }
   expect(slip.font).toContain('LXGW WenKai Screen')
   await expectNoSeriousAxeFindings(page)
 
@@ -624,7 +634,7 @@ test('the letter: handwriting on ruled paper, a full page turns over, and writin
   expect(faded[1].className).toContain('letter-ghost--back')
   expect(faded.map(entry => entry.m11)).toEqual([1, 1])
   expect((await letterPages(page)).last).toBeLessThan(pages.total)
-  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press(desktopNotebook ? 'ArrowDown' : 'ArrowRight')
   await expect.poll(async () => (await letterPages(page)).last).toBe(pages.total)
 
   // 她写满这一页：自动翻到新的一页
@@ -688,7 +698,8 @@ test.describe('本子：封面与翻页', () => {
   // 上面那条看的是系统要求「减少动态效果」时的淡出；这里要真的看它转过去
   test.use({ contextOptions: { reducedMotion: 'no-preference' } })
 
-  test('the notebook opens on its cover, and pages turn around the left binding', async ({ page }) => {
+  test('the notebook opens on its cover, and pages turn around the responsive binding', async ({ page }) => {
+    const desktopNotebook = page.viewportSize().width >= 1024
     await seedAuth(page)
     await mockChatBootstrap(page, true)
     await page.route('**/api/chat/nudges**', route => json(route, 200, { nudges: [] }))
@@ -721,8 +732,8 @@ test.describe('本子：封面与翻页', () => {
     await expect.poll(async () => (await flips(page)).length).toBeGreaterThan(0)
     const [turned] = await flips(page)
     expect(turned.className).toContain('letter-ghost--forward')
-    expect(turned.animation).toBe('letterFlipForward')
-    expect(turned.origin).toMatch(/^0px/)
+    expect(turned.animation).toBe(desktopNotebook ? 'letterFlipUp' : 'letterFlipForward')
+    expect(turned.origin).toMatch(desktopNotebook ? / 0px$/ : /^0px/)
     expect(await page.locator('.letter-ghost-host').evaluate(element => getComputedStyle(element).perspective)).toBe('1600px')
     await expect(paper.getByText('我在呢')).toBeVisible()
     expect((await letterPages(page)).total).toBe(1)
@@ -737,9 +748,9 @@ test.describe('本子：封面与翻页', () => {
     const [still, back] = await flips(page)
     expect(still.className).not.toContain('letter-ghost--')
     expect(back.className).toContain('letter-ghost--back')
-    expect(back.animation).toBe('letterFlipBack')
-    expect(back.origin).toMatch(/^0px/)
-    expect(back.m11).toBeLessThan(0)
+    expect(back.animation).toBe(desktopNotebook ? 'letterFlipDown' : 'letterFlipBack')
+    expect(back.origin).toMatch(desktopNotebook ? / 0px$/ : /^0px/)
+    expect(desktopNotebook ? back.m22 : back.m11).toBeLessThan(0)
     expect((await letterPages(page)).cover).toBe(true)
     await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   })

@@ -9,9 +9,11 @@ const TOOL_LABELS = {
 const STEP_LABELS = { pending: '待处理', in_progress: '进行中', completed: '已完成' }
 
 export default function WorkProgress({ progress = [], toolRuns = [] }) {
-  const latest = progress.at(-1)
+  const visibleProgress = progress.filter((run) => run.tool !== '__malformed__')
+  const visibleRuns = toolRuns.filter((run) => run.tool !== '__malformed__')
+  const latest = visibleProgress.at(-1)
   // 步骤清单只在真的多步办事时出现；一步的「计划」不值得一张清单
-  const found = [...toolRuns, ...progress].reverse().find((run) => Array.isArray(run.plan))?.plan
+  const found = [...visibleRuns, ...visibleProgress].reverse().find((run) => Array.isArray(run.plan))?.plan
   const plan = found?.length >= 2 ? found : null
   if (!latest && !plan) return null
   return (

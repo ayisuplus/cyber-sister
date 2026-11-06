@@ -12,7 +12,7 @@
 
 | 文档 | 状态 | 说明 |
 | --- | --- | --- |
-| [Spec_Amie_v1.0.md](Spec_Amie_v1.0.md) | ✅ 基线 | 内测范围、边界与发布门；实施以它为准 |
+| [Spec_Amie_v1.0.md](Spec_Amie_v1.0.md) | ✅ 基线 | 内测范围、边界与发布门；含 C32 桌面 / 手机纸面差异，实施以它为准 |
 | [architecture/project-review-20260917.md](architecture/project-review-20260917.md) | ✅ 当前有效 | 代码地图、09-17 审查与 09-18 修复状态、验证边界 |
 | [architecture/release-review-20260930.md](architecture/release-review-20260930.md) | ✅ 当前有效 | 本地 / 自部署版发行审查与修复复验：8 项 P1 的代码修复、依赖更新、浏览器 / 数据恢复证据及待完成门禁；不是发布批准 |
 | [architecture/persona-depth-plan-20261006.md](architecture/persona-depth-plan-20261006.md) | ✅ 当前有效 | 人设深度化第一阶段（路线图 C31）：计划、已批准的裁定与实施记录（做了什么、改了什么、没做什么） |

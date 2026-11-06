@@ -10,7 +10,7 @@
 import { createGateway } from '@cyber-sister/llm-gateway'
 import { isLocalWorkRuntime } from '../config/distribution.js'
 import { SCENES, gatewayProviderName, listProvidersForGateway } from './modelProviderService.js'
-import { classifyToolPrefix, parseToolReply, MAX_TOOL_REPLY_CHARS } from './toolProtocol.js'
+import { classifyToolPrefix, parseToolReply, unwrapTextReply, MAX_TOOL_REPLY_CHARS } from './toolProtocol.js'
 import logger from '../utils/logger.js'
 import { cosineSimilarity } from './embeddingConfig.js'
 import { VECTOR_POLICIES } from './vectors/policies.js'
@@ -542,10 +542,11 @@ export async function generateResponse(
 
   const responseSource = 'qwen'
   // 工具协议与 SSE 一致：完整 JSON 交由工具校验，不能按聊天字数截断文件内容。
-  const replyTool = parseToolReply(result.content)
+  const replyText = unwrapTextReply(result.content)
+  const replyTool = parseToolReply(replyText)
   const filtered = replyTool
     ? { content: JSON.stringify({ tool: replyTool.name, args: replyTool.args }), source: responseSource }
-    : filterModelOutput(result.content, text, safePersona, responseSource, agent)
+    : filterModelOutput(replyText, text, safePersona, responseSource, agent)
   return {
     content: filtered.content,
     emotion,
@@ -741,6 +742,7 @@ export async function* generateResponseStream(
   // 调用方取消或网关安静结束：不落库由调用方保证，这里不发任何收尾事件。
   if (!doneEvent || controller.signal.aborted) return
 
+  fullText = unwrapTextReply(fullText)
   const toolcall = nativeCall || parseToolReply(fullText)
   if (toolcall) {
     if (sentenceEmitted) yield { type: 'replace', content: '', source: 'qwen' }

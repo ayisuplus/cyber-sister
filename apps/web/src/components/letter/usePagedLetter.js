@@ -137,7 +137,7 @@ function turnBack(host, viewport) {
  * - 封面是第 0 页：纸带前面凭空多一页，页码从封面之后算起；空对话时只看得到封面。
  * - 在最后一页时，新写的字把这一页写满就自动翻过去；在往回翻看时不拽走你，只亮出「翻到最新一页」。
  * - 翻到最早的一页再往前：先取更早的信，没有更早的就回到封面。
- * - 翻页绕左边封线：往后翻是眼前这一页翻过去；往前翻是新的一页从左边翻回来盖住旧页。
+ * - 翻页方向取自 CSS：手机绕左侧、桌面绕顶部；往前翻时旧页先铺静影。
  * lastVersion：最后一段写到哪了（新的一段、流式多写了几个字）。只有它变了引起的翻页才播动画；
  * 字体到了、版面重排这类翻页直接到位，不假装是「写满了」。
  * @param {{ firstKey?: string | null, lastKey?: string | null, lastVersion?: string | null, hasOlder?: boolean, hasCover?: boolean, onLoadOlder?: () => Promise<unknown> | void }} options
@@ -147,7 +147,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
   const stripRef = useRef(null)
   const endRef = useRef(null)
   const ghostHostRef = useRef(null)
-  const [layout, setLayout] = useState({ pages: 0, pageWidth: 0, width: 0, hasCover, quietPages: '', firstKey, lastKey, lastVersion })
+  const [layout, setLayout] = useState({ pages: 0, pageWidth: 0, width: 0, axis: 'x', hasCover, quietPages: '', firstKey, lastKey, lastVersion })
   const [index, setIndex] = useState(0)
   const [ready, setReady] = useState(false)
   const [newPending, setNewPending] = useState(false)
@@ -182,15 +182,17 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     const line = parseFloat(styles.getPropertyValue('--line')) || DEFAULT_LINE
     const marginX = parseFloat(styles.getPropertyValue('--margin-x')) || MARGIN_X
     const textInset = parseFloat(styles.getPropertyValue('--text-inset')) || TEXT_INSET
-    const rightPad = parseFloat(styles.getPropertyValue('--right-pad')) || RIGHT_PAD
-    const geometry = pageGeometry(viewport.clientWidth, viewport.clientHeight, line, marginX + textInset, rightPad)
+    const inset = parseFloat(styles.paddingLeft) || marginX + textInset
+    const rightPad = parseFloat(styles.paddingRight) || parseFloat(styles.getPropertyValue('--right-pad')) || RIGHT_PAD
+    const axis = styles.getPropertyValue('--page-axis').trim() === 'y' ? 'y' : 'x'
+    const geometry = pageGeometry(viewport.clientWidth, viewport.clientHeight, line, inset, rightPad)
     geometryRef.current = geometry
     // 量不出尺寸（比如测试环境）就只有一页，不平移
     if (!geometry) { setReady(true); return }
     Object.assign(strip.style, {
       width: `${geometry.stripWidth}px`, height: `${geometry.pageHeight}px`,
       columnWidth: `${geometry.columnWidth}px`, columnGap: `${geometry.gap}px`,
-      top: `${line}px`, left: `${marginX + textInset}px`,
+      top: `${line}px`, left: `${inset}px`,
     })
     viewport.style.setProperty('--page-h', `${geometry.pageHeight}px`)
     snapToLines(strip, line)
@@ -198,7 +200,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     const pages = stripHasContent(strip)
       ? pageOf(end.getBoundingClientRect().left - strip.getBoundingClientRect().left, geometry) + 1
       : 0
-    const next = { pages, pageWidth: geometry.pageWidth, width: viewport.clientWidth, hasCover, quietPages: quietPagesOf(strip, geometry), ...keysRef.current }
+    const next = { pages, pageWidth: geometry.pageWidth, width: viewport.clientWidth, axis, hasCover, quietPages: quietPagesOf(strip, geometry), ...keysRef.current }
     setLayout((previous) => (Object.keys(next).every((key) => previous[key] === next[key]) ? previous : next))
   }, [hasCover])
 
@@ -332,13 +334,14 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
 
   const showLatest = useCallback(() => flipTo(lastIndexRef.current, true), [flipTo])
 
-  // 键盘：← → 与 PageUp / PageDown；在输入框里、或有弹窗开着时不响应
+  // 键盘按布局使用左右或上下键，PageUp / PageDown 通用；输入框与弹窗不响应。
   useEffect(() => {
     const onKey = (event) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isEditable(event.target)) return
       if (document.querySelector('[aria-modal="true"]')) return
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); goBack() }
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); goForward() }
+      const vertical = layoutRef.current.axis === 'y'
+      if (event.key === (vertical ? 'ArrowUp' : 'ArrowLeft') || event.key === 'PageUp') { event.preventDefault(); goBack() }
+      if (event.key === (vertical ? 'ArrowDown' : 'ArrowRight') || event.key === 'PageDown') { event.preventDefault(); goForward() }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -356,7 +359,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     if (target !== indexRef.current) flipTo(target, false)
   }, [flipTo, firstIndex])
 
-  // 用手指翻：往左拖，眼前这一页跟着手指翻起来；往右拖，上一页从左边翻回来。拓印那一页的外边缘一直停在手指底下
+  // 用手指翻：手机沿横向、桌面沿纵向；当前页或上一页跟着手指翻动。
   const beginDrag = useCallback((drag, direction) => {
     const viewport = viewportRef.current
     const host = ghostHostRef.current
@@ -374,7 +377,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     } else {
       return false
     }
-    Object.assign(drag, { direction, from, width: viewport.clientWidth })
+    Object.assign(drag, { direction, from, extent: drag.axis === 'y' ? viewport.clientHeight : viewport.clientWidth })
     if (direction === 'forward') {
       drag.leaf = copyLeaf(viewport, 0)
       host.replaceChildren(drag.leaf)
@@ -409,7 +412,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     })
   }, [flipTo])
 
-  // 手机上左右滑；鼠标不算（留给选字）。横着拖就跟手翻；没来得及拖（一下就松手）的，照旧按滑动翻页
+  // 沿当前翻页方向滑动；鼠标留给选字。没来得及拖动就松手时，按位移换页。
   const pointerRef = useRef(null)
   const onPointerDown = useCallback((event) => {
     // 上一次还在落定的途中：这一下不接，免得两页叠在一起
@@ -418,32 +421,36 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
       dragRef.current = null
       return
     }
-    pointerRef.current = { x: event.clientX, y: event.clientY }
+    const axis = layoutRef.current.axis || 'x'
+    pointerRef.current = { x: event.clientX, y: event.clientY, axis }
     dragRef.current = {
       id: event.pointerId, x: event.clientX, y: event.clientY,
-      lastX: event.clientX, lastT: event.timeStamp, velocity: 0, progress: 0, direction: null,
+      axis, lastPrimary: axis === 'y' ? event.clientY : event.clientX, lastT: event.timeStamp, velocity: 0, progress: 0, direction: null,
     }
   }, [])
   const onPointerMove = useCallback((event) => {
     const drag = dragRef.current
     if (!drag || event.pointerId !== drag.id) return
     const elapsed = event.timeStamp - drag.lastT
-    if (elapsed > 0) drag.velocity = (event.clientX - drag.lastX) / elapsed
-    drag.lastX = event.clientX
+    const primary = drag.axis === 'y' ? event.clientY : event.clientX
+    if (elapsed > 0) drag.velocity = (primary - drag.lastPrimary) / elapsed
+    drag.lastPrimary = primary
     drag.lastT = event.timeStamp
     const dx = event.clientX - drag.x
     const dy = event.clientY - drag.y
+    const distance = drag.axis === 'y' ? dy : dx
+    const cross = drag.axis === 'y' ? dx : dy
     if (!drag.direction) {
-      // 横着走够一点才算开始翻；竖着走是在滚动，不归翻页管；减少动态效果时不跟手，松手再换页
-      if (Math.abs(dx) < DRAG_LOCK || prefersReducedMotion()) return
-      if (Math.abs(dx) < Math.abs(dy) * 1.2 || !beginDrag(drag, dx < 0 ? 'forward' : 'back')) {
+      // 沿翻页方向走够一点才开始；另一方向留给滚动。减少动态效果时松手再换页。
+      if (Math.abs(distance) < DRAG_LOCK || prefersReducedMotion()) return
+      if (Math.abs(distance) < Math.abs(cross) * 1.2 || !beginDrag(drag, distance < 0 ? 'forward' : 'back')) {
         dragRef.current = null
         return
       }
       event.currentTarget?.setPointerCapture?.(event.pointerId)
       pointerRef.current = null
     }
-    drag.progress = Math.max(0, Math.min(1, (drag.direction === 'forward' ? -dx : dx) / drag.width))
+    drag.progress = Math.max(0, Math.min(1, (drag.direction === 'forward' ? -distance : distance) / drag.extent))
     drag.leaf?.style.setProperty('--turn', String(drag.direction === 'forward' ? forwardTurn(drag.progress) : backTurn(drag.progress)))
   }, [beginDrag])
   const onPointerUp = useCallback((event) => {
@@ -460,8 +467,10 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     if (!start) return
     const dx = event.clientX - start.x
     const dy = event.clientY - start.y
-    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return
-    if (dx < 0) goForward()
+    const distance = start.axis === 'y' ? dy : dx
+    const cross = start.axis === 'y' ? dx : dy
+    if (Math.abs(distance) < SWIPE_MIN || Math.abs(distance) < Math.abs(cross) * 1.5) return
+    if (distance < 0) goForward()
     else goBack()
   }, [finishDrag, goBack, goForward])
   // 被系统打断（来电、手势被浏览器接走）：拖到一半的那一页落回原处

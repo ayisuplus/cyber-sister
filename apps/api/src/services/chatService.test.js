@@ -355,7 +355,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'.normalize('NFKC')), immersion: 'high', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'.normalize('NFKC')), immersion: 'high', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('这一轮是聊天') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -371,7 +371,7 @@ describe('chatService.sendMessage', () => {
     expect(result).toMatchObject({ status: 'ok', source: 'local_model' })
     expect(mocks.generateResponse).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'.normalize('NFKC')), immersion: 'low', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'.normalize('NFKC')), immersion: 'low', bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('这一轮是聊天') }], scene: 'chat', agent: true },
     )
     expect(mocks.messageCreate).toHaveBeenCalledTimes(2)
   })
@@ -555,7 +555,7 @@ describe('chatService.sendMessage', () => {
       roleSetting: '坐我旁边的女生，爱吐槽但总会帮我讲题。',
     })
 
-    const result = await sendMessage('conversation-1', 'user-1', '你好')
+    const result = await sendMessage('conversation-1', 'user-1', '帮我看一下明天的安排')
 
     expect(result).toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
@@ -564,7 +564,7 @@ describe('chatService.sendMessage', () => {
   })
 
   it('用户无角色时仍注入运行状态，工具目录保持存在', async () => {
-    const result = await sendMessage('conversation-1', 'user-1', '你好')
+    const result = await sendMessage('conversation-1', 'user-1', '帮我看一下明天的安排')
 
     expect(result).toMatchObject({ status: 'ok' })
     const options = mocks.generateResponse.mock.calls[0][5]
@@ -813,7 +813,7 @@ describe('chatService.sendMessageStream', () => {
       .toMatchObject({ role: 'assistant', content: '第一句。第二句！', source: 'local_model' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'toxic', [], [], 'req-stream',
-      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'.normalize('NFKC')), immersion: 'high', signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: true, citeBooks: false, authorizeExternal: expect.any(Function), queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：嘴上不饶人，先损你两句，再帮你把事儿办了。'.normalize('NFKC')), immersion: 'high', signal: controller.signal, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('这一轮是聊天') }], scene: 'chat', agent: true },
     )
   })
 
@@ -914,7 +914,7 @@ describe('chatService.sendMessageStream', () => {
     expect(events.at(-1)).toMatchObject({ type: 'done', status: 'ok' })
     expect(mocks.generateResponseStream).toHaveBeenCalledWith(
       '你好', 'gentle', [], [], undefined,
-      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'.normalize('NFKC')), immersion: 'low', signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('add_task') }], scene: 'chat', agent: true },
+      { allowExternal: false, citeBooks: false, queryEmbedding: null, memoryEdges: [], herInsights: [], personaBody: expect.stringContaining('怎么说话：轻声细语，先抱抱再讲道理。'.normalize('NFKC')), immersion: 'low', signal: undefined, bookSelection: [], memoriesSelected: true, promptInHistory: false, extraSystem: [{ role: 'system', content: expect.stringContaining('【此刻】') }, { role: 'system', content: expect.stringContaining('【这一轮的分寸】') }, { role: 'system', content: expect.stringContaining('这一轮是聊天') }], scene: 'chat', agent: true },
     )
     expect(mocks.transaction).toHaveBeenCalledOnce()
   })

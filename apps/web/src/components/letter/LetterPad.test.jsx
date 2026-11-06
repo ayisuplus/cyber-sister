@@ -401,6 +401,22 @@ describe('用手指翻', () => {
     expect(leaf()).toBeNull()
   })
 
+  it('桌面纵向翻页模式用上下手势，水平方向不翻页', () => {
+    render(<Letter items={['a', 'b', 'c']} />)
+    act(() => {
+      viewport().style.setProperty('--page-axis', 'y')
+      window.dispatchEvent(new Event('resize'))
+    })
+    finger('pointerdown', 100, 100, 0)
+    finger('pointermove', 250, 108, 50)
+    finger('pointerup', 300, 108, 60)
+    expect(label()).toHaveTextContent('3 / 3')
+    finger('pointerdown', 100, 100, 100)
+    finger('pointermove', 108, 280, 150)
+    finger('pointerup', 108, 310, 180)
+    expect(label()).toHaveTextContent('2 / 3')
+  })
+
   it('减少动态效果：不跟手；滑一下松手照样换页', () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: query.includes('reduce'), media: query, addEventListener() {}, removeEventListener() {},

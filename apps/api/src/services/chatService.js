@@ -13,7 +13,7 @@ import {
   detectCrisis,
 } from './llmService.js'
 import { getCrisisIntervention } from './detection.js'
-import { aboutYouBlock, crisisCareBlock, detectRememberIntent, isFeelingTurn, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock, weatherBlock } from './contextBlocks.js'
+import { aboutYouBlock, crisisCareBlock, detectRememberIntent, shouldOfferTools, momentBlock, READING_PASSAGE_MAX, readingSystemBlock, recentNudgesBlock, rememberOfferBlock, summarySystemBlock, weatherBlock } from './contextBlocks.js'
 import { HISTORY_MESSAGES, loadChatSources } from './memory/contextSources.js'
 import { weatherForContext } from './weatherService.js'
 import { createAgentTurn, runAgentLoop } from './agentTurn.js'
@@ -483,7 +483,7 @@ export async function sendMessage(conversationId, userId, rawContent, requestId,
   let aiResponse
   const offerMemory = detectRememberIntent(content)
   const careful = crisisLevel === 'medium'
-  const offerTools = !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
+  const offerTools = shouldOfferTools(content, { careful, image: Boolean(image), attachments: attachments.length })
   const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding })
   for await (const event of runConversationAgent({ content, modelText, persona, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, careful, context, offerMemory, offerTools, bookSelection })) {
     if (event.type === 'done') aiResponse = event
@@ -632,7 +632,7 @@ export async function* sendMessageStream(conversationId, userId, rawContent, req
   const offerMemory = detectRememberIntent(content)
   const careful = crisisLevel === 'medium'
   // 后台续跑的是交办的任务，照常给工具
-  const offerTools = Boolean(durable) || !isFeelingTurn(content, { careful, image: Boolean(image), attachments: attachments.length })
+  const offerTools = Boolean(durable) || shouldOfferTools(content, { careful, image: Boolean(image), attachments: attachments.length })
   const bookSelection = await selectTurnBooks({ userId, content, attachments, history, careful, queryEmbedding: modelOptions.queryEmbedding, reading: readingContext })
   if (signal?.aborted) return
   for await (const event of runConversationAgent({ content, modelText, persona, history, memories: companion.memories, requestId, modelOptions, userId, conversationId, summary, image, companion, attachments, stream: true, durable, reading: readingContext, careful, context, offerMemory, offerTools, bookSelection })) {

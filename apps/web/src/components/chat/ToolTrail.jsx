@@ -22,7 +22,9 @@ function summaryOf(runs) {
 }
 
 /** @param {{ runs: Array<{ tool: string, ok: boolean, summary: string, pending?: boolean, dismissed?: boolean }> }} props */
-export default function ToolTrail({ runs }) {
+export default function ToolTrail({ runs: allRuns }) {
+  // 协议纠正是模型内部重试，不是用户交办的一件事。保留真实操作的成功与失败。
+  const runs = allRuns.filter((run) => run.tool !== '__malformed__')
   if (!runs.length) return null
   if (runs.length === 1 && runs[0].ok && !runs[0].dismissed) {
     return <ul className="mt-1 text-[11px]"><Run run={runs[0]} /></ul>

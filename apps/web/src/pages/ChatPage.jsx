@@ -270,7 +270,7 @@ export default function ChatPage() {
 
       {/* 一个本子：左边一条封皮，翻页绕它翻；封面是第一页。你落笔的地方是本子下面单独的一张小信笺。
           本子上面留出一点地方，给趴在右上角的小猫 */}
-      <div className="letter relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-2 pb-1 pt-6 min-[641px]:px-5">
+      <div className="letter chat-notebook relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-2 pb-1 pt-6 min-[641px]:px-5">
         <NotebookCat />
         <div className="letter-book min-h-0 flex-1">
           <div aria-hidden="true" className="letter-spine" />
