@@ -47,8 +47,11 @@ test('notebook adapts: wide desktop pages turn vertically; phone pages keep hori
 
   await page.setViewportSize({ width: 390, height: 844 })
   await expect.poll(async () => (await book.boundingBox()).width).toBeLessThan(391)
-  const phone = await book.boundingBox()
-  expect(phone.height).toBeGreaterThan(phone.width * 1.2)
+  // 缩窗时宽度先变，移动仿真的高度可能仍在重排；等待同一个竖向比例要求成立。
+  await expect.poll(async () => {
+    const phone = await book.boundingBox()
+    return phone.height / phone.width
+  }).toBeGreaterThan(1.2)
   await page.getByRole('button', { name: '上一页', exact: true }).focus()
   const mobileBefore = await nav.innerText()
   await page.keyboard.press('ArrowLeft')
