@@ -70,6 +70,9 @@ export function validateRuntimeConfig(env = process.env) {
   }
 
   if (appEnv === 'internal' && nodeEnv !== 'test') {
+    if (env.INTERNAL_TEST_CODES !== undefined && !env.INTERNAL_TEST_CODES_FILE) {
+      errors.push('内测环境必须通过只读文件提供: INTERNAL_TEST_CODES_FILE')
+    }
     for (const name of [
       'DATABASE_PASSWORD_FILE',
       'JWT_SECRET_FILE',
