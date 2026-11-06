@@ -17,13 +17,16 @@ export function safeProviderFetch(input, init = {}, { allowLoopback = false, loo
     return Promise.reject(new Error('provider address is not public'))
   }
 
-  const lookup = (hostname, _options, callback) => {
+  const lookup = (hostname, options, callback) => {
     lookupImpl(hostname, { all: true, verbatim: true }, (error, records) => {
       if (error || !Array.isArray(records) || records.length === 0 || records.some(({ address }) => !isPublicIp(address))) {
         callback(new Error('provider address resolved to a non-public IP'))
         return
       }
-      callback(null, records[0].address, records[0].family)
+      // Node's family auto-selection requests all:true and expects an array.
+      // Keep one checked address pinned in either callback form.
+      if (options?.all) callback(null, [records[0]])
+      else callback(null, records[0].address, records[0].family)
     })
   }
 

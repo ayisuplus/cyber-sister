@@ -1,4 +1,6 @@
 import axios from 'axios'
+import { isIOSApp } from '../platform/native'
+import { getMobileAccessToken, refreshMobileSession } from '../platform/mobileSession'
 import { assertSessionVersion, getSessionVersion, resetSession } from './sessionLifecycle'
 
 /** @typedef {import('axios').InternalAxiosRequestConfig & { _sessionVersion?: number }} SessionRequestConfig */
@@ -9,16 +11,21 @@ export const API_TIMEOUT_MS = 75_000
 // 构建期注入 VITE_API_BASE_URL（如 https://api.example.com/api），API 侧需同步放开 CORS_ORIGIN
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
+export const sendMobileAuth = async (path, body) => (await axios.post(`${API_BASE_URL}${path}`, body, {
+  withCredentials: false, timeout: API_TIMEOUT_MS,
+})).data
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT_MS,
-  withCredentials: true,  // 携带 httpOnly cookie（refresh token）
+  withCredentials: !isIOSApp(),
   headers: { 'Content-Type': 'application/json' },
 })
 
 // 读取持久化的访问令牌；数据损坏时清除后按无会话处理。
 // axios 请求拦截器与 SSE 流式请求（chatService.streamMessage）共用。
 export const getPersistedToken = () => {
+  if (isIOSApp()) return getMobileAccessToken()
   const authData = localStorage.getItem('cyber-sister-auth')
   if (!authData) return null
   try {
@@ -32,7 +39,7 @@ export const getPersistedToken = () => {
 }
 
 // 刷新单飞：并发的 401（含 SSE 流式请求）共享同一次刷新。
-// 失败时执行既有退出语义：清登录态并回到登录页。
+// Web 保留既有退出语义；原生仅在确认凭据失效时清会话。
 let refreshPromise = null
 let refreshVersion = null
 let authOperation = Promise.resolve()
@@ -51,8 +58,10 @@ export const refreshAccessToken = (session = getSessionVersion()) => {
     refreshPromise = runAuthOperation(async () => {
       try {
         assertSessionVersion(session)
-        // refreshToken 现在通过 httpOnly cookie 自动携带，无需手动传
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: API_TIMEOUT_MS })
+        // Web 自动携带 Cookie；原生从 Keychain 读取刷新凭据。
+        const response = isIOSApp()
+          ? { data: await refreshMobileSession(sendMobileAuth) }
+          : await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true, timeout: API_TIMEOUT_MS })
         assertSessionVersion(session)
 
         const { token } = response.data
@@ -60,7 +69,7 @@ export const refreshAccessToken = (session = getSessionVersion()) => {
           throw new Error('刷新响应缺少访问令牌')
         }
 
-        // 通过 store 写回新 token（persist 同步 localStorage），
+        // 通过 store 写回新 token（仅 Web persist 同步 localStorage），
         // 避免只写 localStorage 后被内存中的旧 token 回写覆盖。
         // 动态 import 打破 authStore → authService → api 的循环依赖。
         const { useAuthStore } = await import('../stores/authStore')
@@ -69,8 +78,8 @@ export const refreshAccessToken = (session = getSessionVersion()) => {
 
         return token
       } catch (refreshError) {
-        // 刷新失败，清除登录状态
-        if (session === getSessionVersion()) {
+        // 原生临时断网保留身份与草稿，凭据失效才退出。
+        if (session === getSessionVersion() && (!isIOSApp() || refreshError.response?.status === 401)) {
           resetSession()
           localStorage.removeItem('cyber-sister-auth')
           // 由订阅登录态的路由切回登录页，避免整页导航中断已排队的手动登录。

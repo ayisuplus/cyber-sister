@@ -214,6 +214,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     schedule()
     const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null
     resize?.observe(viewport)
+    window.addEventListener('resize', schedule)
     const mutation = typeof MutationObserver === 'function' ? new MutationObserver(schedule) : null
     mutation?.observe(strip, { childList: true, subtree: true, characterData: true })
     strip?.addEventListener('load', schedule, true)
@@ -223,6 +224,7 @@ export function usePagedLetter({ firstKey = null, lastKey = null, lastVersion = 
     return () => {
       cancelAnimationFrame(frameRef.current)
       resize?.disconnect()
+      window.removeEventListener('resize', schedule)
       mutation?.disconnect()
       strip?.removeEventListener('load', schedule, true)
       fonts?.removeEventListener?.('loadingdone', schedule)

@@ -2,7 +2,7 @@
 # 服务器上的 web 镜像：只把 CI 构建好的 dist 装进 nginx，镜像内不装 node、不跑 vite。
 # 2 核 2G 的机器同时跑着 api 和 postgres，前端编译放在 GitHub 云端（CI 产物 web-dist）。
 # 构建上下文是仓库根目录，且要求 apps/web/dist 已存在（CI 下载产物后再 build）。
-FROM nginxinc/nginx-unprivileged:1.27.4-alpine AS production
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS production
 
 COPY --chown=nginx:nginx apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf

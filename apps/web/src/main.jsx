@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import MobileStartup from './platform/MobileStartup'
 import { startThemeSync } from './stores/themeStore'
 import { startLetterFontSync } from './stores/letterFontStore'
 import { startDecorSync } from './stores/decorStore'
@@ -20,6 +21,6 @@ if (import.meta.hot) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <MobileStartup><App /></MobileStartup>
   </React.StrictMode>,
 )

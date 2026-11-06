@@ -2,20 +2,22 @@
 
 本文面向全新 Linux 主机上的白名单内测部署。所有外部调用、证书、凭据和受控二进制均由运维在构建或运行时注入，不进入 Git。
 
-> **与自动流水线的关系（2026-09-16）**：日常发布由 `.github/workflows/deploy.yml` 在主机自建 runner 上调用 `deploy/scripts/release.sh` 完成，它把本文第 3 节的构建、迁移、启动，第 4 节的启动验收，以及第 5 节的**备份**做成了自动步骤（备份失败即中止，不会进入迁移）。本文仍是唯一的口径来源：
-> - 首次部署、换机、排障时按本文手工执行；
-> - **数据回滚始终是人工动作**——脚本只回镜像（`deploy/scripts/rollback.sh`），数据库恢复按第 5 节由人确认后执行；
-> - 自动发布使用的 compose 命令是 `-f compose.yaml -f deploy/compose.server.yaml`（后者是 2 核 2G 主机的资源与日志覆盖层），手工操作时也应带上同样的两个 `-f`，否则资源限制不生效。
+
+> **与自动流水线的关系（2026-11-06）**：GitHub 云端完成检查和 Web 构建，受限 SSH 入口验证 `master push` CI 及 artifact SHA256 后调用 `release.sh`。完整配置见 [CI/CD](../04-开发/CI-CD流水线.md)。应用密钥只在主机，迁移前同时备份数据库和附件；数据回滚仍按第 5 节人工确认。
+>
+> 已接入的主机以 `/opt/amie/cicd/active.json` 记录当前 / 上版源码、代理和镜像。管理员用 `sudo /usr/local/sbin/amie-github-deploy --rollback` 回到上一版；不要从旧源码目录另跑发布。成功 CI 的 GitHub Deploy 手动运行可恢复新版本，不重新构建。
+>
+> 手工诊断的 Compose 使用当前记录中的源码目录、`--env-file /opt/amie/runtime.env`、`-f compose.yaml -f deploy/compose.server.yaml`，并按配置追加 provider 覆盖层。当前私人内测走 `DEPLOY_PROFILE=tunnel`：追加 `-f deploy/compose.tunnel.yaml`，插值时设置 `TLS_CERT_PATH=/dev/null TLS_KEY_PATH=/dev/null`（最终挂载由 `!override` 移除），edge 仅绑定 `127.0.0.1:18080`，Cloudflare Tunnel 转发，Access 保持本人可访问。既有 Lab 与 Xray 服务独立保留。
 
 ## 1. 前置条件
 
 - Docker Engine 与支持 `service_completed_successfully` 的 Docker Compose v2。
-- 指向主机的内测域名，以及该域名对应的 PEM 证书和私钥。
+- 内测域名；直连 TLS 模式需要对应 PEM 证书和私钥，Tunnel 模式由 Cloudflare 边缘提供 TLS，源站只监听回环端口。
 - 聊天模型只走云端：经批准的云端模型（供应商槽 `GATEWAY_QWEN_*`）及其 Base URL、模型名和 Key 文件。
 - 模型主密钥文件（`MODEL_CONFIG_KEY_FILE`，只读、64 位十六进制）：实例管理员在设置页「模型供应商」里保存的供应商密钥，用它做 AES-256-GCM 加解密。
 - 产品负责人批准的 `cloud-primary-v1` 云端模型同意文案与危机资源清单；资源记录官方来源和核验日期。
 
-内测仅允许白名单成年测试者从 VPN 或可信私网访问。
+内测仅允许白名单成年测试者访问。现有私人站点额外通过 Cloudflare Access 限制本人；增加测试者或开放访问需由负责人另行决定。
 
 ## 2. 准备运行配置
 
@@ -50,7 +52,7 @@ wc -c < /absolute/private/secrets/model_config_key   # 65：64 位十六进制 +
 
 聊天模型为云端唯一路径：必须提供 Qwen Base URL、模型名和 Key 文件（`GATEWAY_QWEN_*`），并在所有 Compose 命令中追加 `-f compose.yaml -f compose.qwen.yaml`。同意版本为 `cloud-primary-v4`，旧的外部同意版本不会沿用，用户进入聊天首屏需重新同意；未同意时云端调用次数为零。改用设置页的「模型供应商」后，聊天只认数据库里配的那几家、不再用这个槽位（一家都没配时才回退到它）；`compose.qwen.yaml` 目前仍要求 `GATEWAY_QWEN_API_KEY_FILE`，接线方式见上一节。
 
-模型调用的总预算固定为 60 秒；Nginx 与主 Web API 客户端等待 75 秒。这个顺序不得倒置，否则客户端可能先报失败，而服务端稍后仍持久化成功结果。
+模型链路预算需单独核验：当前网关默认预算与示例配置并不一致，见 [Issue #3](https://github.com/ayisuplus/cyber-sister/issues/3)。CI/CD 不调整此产品行为，也不以健康检查代替真实聊天验收。
 
 file-backed Compose secrets 会保留宿主机数值 UID/权限。固定镜像中的 Node 用户为 UID/GID `1000:1000`；在普通 rootful Docker 主机上，应由管理员把 `DATABASE_PASSWORD_FILE`、两个 JWT、固定码、测试手机号、实例管理员和模型主密钥这七个文件设为 `1000:1000`、模式 `0400`。`POSTGRES_PASSWORD_FILE` 单独授予固定 PostgreSQL 镜像中的 postgres 用户读取权限并保持 `0400`。私密目录只允许管理员和对应映射用户遍历。TLS 私钥需让 edge 镜像的非 root nginx 用户可读；不要通过放宽为全局可读来解决。rootless/userns-remap 主机必须按其 UID 映射调整，并以启动前预检结果为准。
 

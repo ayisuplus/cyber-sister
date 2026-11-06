@@ -1,0 +1,9 @@
+{
+  "appId": "com.amie.companion.dev",
+  "appName": "Amie",
+  "loggingBehavior": "none",
+  "webDir": "dist-ios",
+  "server": { "hostname": "localhost", "iosScheme": "capacitor" },
+  "ios": { "contentInset": "never", "preferredContentMode": "mobile" },
+  "plugins": { "Keyboard": { "resize": "native" } }
+}

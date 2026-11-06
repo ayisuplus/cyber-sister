@@ -33,6 +33,7 @@
  * 环境变量（由 llmService.buildGatewayEnv 构造）：
  *   GATEWAY_PROVIDERS=llamacpp,qwen          启用的供应商
  *   GATEWAY_<NAME>_BASE_URL / _MODEL / _API_KEY
+ *   GATEWAY_<NAME>_API_KEY_HEADER=authorization|api-key（默认 Bearer，Dots 使用 api-key）
  *   GATEWAY_<NAME>_SCOPE=local|external      供应商作用域
  *   GATEWAY_<NAME>_SCENES=chat,explain       供应商承接的场景
  *   GATEWAY_<NAME>_PRIORITY=1                优先级（数字小者优先）
@@ -90,11 +91,14 @@ function parseProviderConfig(env, name) {
   const baseUrl = env[`GATEWAY_${key}_BASE_URL`]
   const model = env[`GATEWAY_${key}_MODEL`]
   if (!baseUrl || !model) return null
+  const apiKeyHeader = String(env[`GATEWAY_${key}_API_KEY_HEADER`] || 'authorization').toLowerCase()
+  if (!['authorization', 'api-key'].includes(apiKeyHeader)) throw new Error(`GATEWAY_${key}_API_KEY_HEADER 只支持 authorization 或 api-key`)
   return {
     name,
     baseUrl: String(baseUrl).replace(/\/+$/, ''),
     model,
     apiKey: env[`GATEWAY_${key}_API_KEY`] || '',
+    apiKeyHeader,
     scope: env[`GATEWAY_${key}_SCOPE`] === 'external' ? 'external' : 'local',
     scenes: String(env[`GATEWAY_${key}_SCENES`] || '')
       .split(',').map((s) => s.trim()).filter(Boolean),
@@ -103,6 +107,12 @@ function parseProviderConfig(env, name) {
     allowLoopback: env[`GATEWAY_${key}_ALLOW_LOOPBACK`] === 'true',
     extraBody: parseExtraBody(env, key),
   }
+}
+
+function providerHeaders(provider) {
+  const headers = { 'content-type': 'application/json' }
+  if (provider.apiKey) headers[provider.apiKeyHeader] = provider.apiKeyHeader === 'api-key' ? provider.apiKey : `Bearer ${provider.apiKey}`
+  return headers
 }
 
 function buildRequestMessages({ scene, persona, messages, systemAppend, sharedPreamble = true, personaBody = null, immersion = 'medium' }) {
@@ -121,8 +131,7 @@ function buildRequestMessages({ scene, persona, messages, systemAppend, sharedPr
 }
 
 async function callOpenAiCompatible(provider, payload, timeoutMs, signal) {
-  const headers = { 'content-type': 'application/json' }
-  if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
+  const headers = providerHeaders(provider)
   // OpenAI 兼容约定：baseUrl 已含 /v1（与 llama.cpp、DashScope、OpenAI SDK 一致）
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const response = await (provider.safeNetwork ? safeProviderFetch : fetch)(`${provider.baseUrl}/chat/completions`, {
@@ -186,8 +195,7 @@ function parseSseFrame(frame) {
  * 调用方 signal 触发时中断 fetch 并抛 AbortError。
  */
 async function* streamOpenAiCompatible(provider, payload, timeoutMs, signal) {
-  const headers = { 'content-type': 'application/json' }
-  if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`
+  const headers = providerHeaders(provider)
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
   const response = await (provider.safeNetwork ? safeProviderFetch : fetch)(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',

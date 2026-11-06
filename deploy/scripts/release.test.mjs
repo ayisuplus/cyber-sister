@@ -41,7 +41,7 @@ elif [ "$1" = image ]; then
 else exit 99; fi
 `
 
-function runRelease(t, scenario, { previous = true } = {}) {
+function runRelease(t, scenario, { previous = true, profile = '', provider = false, bind = '127.0.0.1' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'amie-release-test-'))
   t.after(() => {
     assert.equal(dirname(resolve(root)), resolve(tmpdir()))
@@ -56,11 +56,13 @@ function runRelease(t, scenario, { previous = true } = {}) {
   const commands = {
     docker,
     df: '#!/usr/bin/env bash\nprintf "Filesystem 1024-blocks Used Available Capacity Mounted\\nfixture 9999999 0 9999999 0%% /\\n"\n',
-    curl: '#!/usr/bin/env bash\nif [ "$SCENARIO" = rollback-failure ] && [ "$IMAGE_TAG" = new ]; then printf 503; else printf 200; fi\n',
+    curl: '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$STATE_DIR/http-requests"\nif [ "$SCENARIO" = rollback-failure ] && [ "$IMAGE_TAG" = new ]; then printf 503; else printf 200; fi\n',
     sleep: '#!/usr/bin/env bash\nexit 0\n',
   }
   for (const [name, body] of Object.entries(commands)) writeFileSync(join(root, 'bin', name), body, { mode: 0o755 })
-  writeFileSync(join(root, 'runtime.env'), 'BIND_ADDRESS=127.0.0.1\nAPP_DOMAIN=fixture.invalid\n')
+  const providerFile = join(root, 'provider-key')
+  if (provider) writeFileSync(providerFile, 'synthetic-key')
+  writeFileSync(join(root, 'runtime.env'), `BIND_ADDRESS=${bind}\nAPP_DOMAIN=fixture.invalid\nDEPLOY_PROFILE=${profile}\nAPP_DISTRIBUTION=web\n${provider ? `GATEWAY_QWEN_API_KEY_FILE=${providerFile.replace(/\\/g, '/')}\n` : ''}`)
   if (previous) writeFileSync(join(root, 'state/current-tag'), 'old\n')
   writeFileSync(join(root, 'run.sh'), `#!/usr/bin/env bash
 cd "$(dirname "$0")"
@@ -72,7 +74,8 @@ exec bash deploy/scripts/release.sh
     encoding: 'utf8', timeout: 15000,
   })
   assert.ifError(result.error)
-  const commandLog = readFileSync(join(root, 'state/commands'), 'utf8')
+  let commandLog = ''
+  try { commandLog = readFileSync(join(root, 'state/commands'), 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
   const output = `${result.stdout}${result.stderr}`
   return { result, commandLog, output, root }
 }
@@ -112,4 +115,21 @@ test('rollback failure remains a failed release and is not retried', t => {
   assert.equal(commandLog.split('\n').filter(line => line.startsWith('old image inspect')).length, 1, output)
   assert.match(output, /回滚也失败/)
   assert.doesNotMatch(output, /发布完成：new/)
+})
+
+test('Tunnel release uses its loopback HTTP health endpoint and provider secret overlay', t => {
+  const { result, commandLog, root, output } = runRelease(t, 'success', { profile: 'tunnel', provider: true })
+  assert.equal(result.status, 0, output)
+  assert.match(commandLog, /deploy\/compose\.tunnel\.yaml/)
+  assert.match(commandLog, /compose\.qwen\.yaml/)
+  const requests = readFileSync(join(root, 'state/http-requests'), 'utf8')
+  assert.match(requests, /http:\/\/127\.0\.0\.1:18080\/api\/health\/ready/)
+  assert.doesNotMatch(requests, /https:\/\/127\.0\.0\.1/)
+})
+
+test('Tunnel preflight rejects a public bind before rendering or changing the stack', t => {
+  const { result, commandLog, output } = runRelease(t, 'success', { profile: 'tunnel', bind: '0.0.0.0', previous: false })
+  assert.notEqual(result.status, 0)
+  assert.match(output, /Tunnel 部署必须绑定 127\.0\.0\.1/)
+  assert.equal(commandLog, 'new compose version\n')
 })

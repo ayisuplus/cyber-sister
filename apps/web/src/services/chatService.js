@@ -1,4 +1,5 @@
 import api, { getPersistedToken, refreshAccessToken, API_BASE_URL } from './api'
+import { isIOSApp } from '../platform/native'
 import { assertSessionVersion, getSessionVersion, resetSession } from './sessionLifecycle'
 
 // SSE 为纯 data 帧编码（无 event: 行），帧间以空行分隔；
@@ -91,7 +92,7 @@ const postMessageStream = (conversationId, content, signal, image, files, readin
   }
   return fetch(`${API_BASE_URL}/chat/conversations/${conversationId}/messages/stream`, {
     method: 'POST',
-    credentials: 'include', // 携带 httpOnly cookie（refresh token）
+    credentials: isIOSApp() ? 'omit' : 'include',
     signal,
     headers,
     body,

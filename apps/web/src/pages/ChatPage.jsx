@@ -29,6 +29,7 @@ import WorkTaskPanel from '../components/work/WorkTaskPanel'
 import { isLocalWorkClient } from '../features/distribution'
 import { PERSONA_SWITCHED, PERSONA_SWITCH_FAILED, sampleLineOf } from '../features/personas'
 import { personaService } from '../services/userService'
+import { isIOSApp } from '../platform/native'
 
 const getSendErrorMessage = (requestError) => {
   const responseError = requestError.response?.data?.error
@@ -231,6 +232,7 @@ export default function ChatPage() {
     try {
       const result = await sendMessage(text, options)
       if (result?.status === 'blocked') setIntervention(result.intervention)
+      if (result?.status === 'aborted' && isIOSApp()) setError('回复已中断，输入已保留。请先查看最新记录，再决定是否重发。')
       return result?.status !== 'aborted'
     } catch (requestError) {
       setError(getSendErrorMessage(requestError))

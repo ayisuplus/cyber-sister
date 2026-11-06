@@ -11,7 +11,7 @@ x-api-env: &api-env
 
 services:
   postgres:
-    image: postgres:16.6-alpine
+    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-cyber_sister}
       POSTGRES_USER: ${POSTGRES_USER:-cyber_sister}
@@ -100,7 +100,7 @@ services:
       - app
 
   edge:
-    image: nginxinc/nginx-unprivileged:1.27.4-alpine
+    image: nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
     depends_on:
       api:
         condition: service_healthy

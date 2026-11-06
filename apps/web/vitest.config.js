@@ -8,7 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
     clearMocks: true,
-    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**', 'dist-ios/**', 'ios/**', 'scripts/**/*.test.mjs'],
     coverage: {
       provider: 'v8',
       all: true,

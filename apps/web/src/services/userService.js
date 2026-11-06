@@ -1,4 +1,5 @@
 import api from './api'
+import { isIOSApp } from '../platform/native'
 
 // 形象资产（头像 / 主页背景 / 聊天背景）：multipart 只发本机 API；blob 拉取走鉴权拦截器
 
@@ -10,6 +11,11 @@ export const migrationService = {
     const disposition = response.headers?.['content-disposition'] || ''
     const match = disposition.match(/filename="?([^";]+)"?/)
     const filename = match?.[1] || `cyber-sister-export-${new Date().toISOString().slice(0, 10)}.json`
+    if (isIOSApp()) {
+      const { shareExport } = await import('../platform/files')
+      await shareExport(response.data, filename)
+      return filename
+    }
     const url = URL.createObjectURL(response.data)
     const anchor = document.createElement('a')
     anchor.href = url

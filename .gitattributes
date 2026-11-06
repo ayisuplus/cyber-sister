@@ -1,0 +1,2 @@
+# Windows 导出的运行源码也必须保持可在 Linux 直接执行的 shebang。
+*.sh text eol=lf
