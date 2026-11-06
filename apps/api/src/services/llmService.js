@@ -23,7 +23,7 @@ import { detectEmotion } from './detection.js'
 import { buildBookSkillContexts, selectBookCards } from './bookSkills.js'
 import { buildModuleSkillContexts } from './moduleSkills.js'
 import { emit } from './extensionRuntime.js'
-import { memorySourceLabel } from './contextBlocks.js'
+import { isPlainGreeting, memorySourceLabel } from './contextBlocks.js'
 
 export { detectCrisis, detectEmotion } from './detection.js'
 
@@ -37,6 +37,8 @@ const MAX_WORK_CONTEXT_CHARS = 64000
 // agent：本地运行时的对话回合（带工具）。工具反馈与交付文件较长，用更大的单条与整体上下文预算。
 const messageLimit = (agent) => agent ? MAX_WORK_MESSAGE_CHARS : MAX_MODEL_MESSAGE_CHARS
 const MAX_AGENT_MESSAGES = 48
+// 简短问候不需要上游的无界默认输出；不约束明确交办的长回复和图片。
+const GREETING_MAX_TOKENS = 512
 export const MAX_MEMORY_CHARS = 240
 
 const VALID_ROLES = new Set(['user', 'assistant'])
@@ -482,7 +484,7 @@ export async function generateResponse(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, attachmentCount = 0, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
 ) {
   signal?.throwIfAborted()
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
@@ -518,6 +520,7 @@ export async function generateResponse(
     result = await gw.complete({
       scene,
       tools,
+      ...(isPlainGreeting(userMessage, { image: Boolean(image), attachments: attachmentCount }) ? { maxTokens: GREETING_MAX_TOKENS } : {}),
       requestId,
       persona: safePersona,
       personaBody: typeof personaBody === 'string' ? redactSensitiveText(personaBody) : personaBody,
@@ -591,7 +594,7 @@ export async function* generateResponseStream(
   history = [],
   userMemories = [],
   requestId,
-  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
+  { allowExternal = false, authorizeExternal, signal, extraSystem = [], scene = 'chat', agent = false, image = null, attachmentCount = 0, queryEmbedding = null, memoryEdges = [], herInsights = [], memoriesSelected = false, promptInHistory = false, tools = [], userText, bookSelection = null, citeBooks = false, personaBody = null, immersion = 'medium' } = {},
 ) {
   const safePersona = VALID_PERSONAS.has(persona) ? persona : 'gentle'
   const emotion = detectEmotion(text)
@@ -678,6 +681,7 @@ export async function* generateResponseStream(
     ? gateway.stream({
       scene,
       tools,
+      ...(isPlainGreeting(userMessage, { image: Boolean(image), attachments: attachmentCount }) ? { maxTokens: GREETING_MAX_TOKENS } : {}),
       requestId,
       persona: safePersona,
       personaBody: typeof personaBody === 'string' ? redactSensitiveText(personaBody) : personaBody,
